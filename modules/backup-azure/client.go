@@ -14,7 +14,6 @@ package modstgazure
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +27,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
@@ -44,9 +44,10 @@ type azureClient struct {
 	config     clientConfig
 	serviceURL string
 	dataPath   string
+	logger     logrus.FieldLogger
 }
 
-func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azureClient, error) {
+func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*azureClient, error) {
 	connectionString := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
 	if connectionString != "" {
 		client, err := azblob.NewClientFromConnectionString(connectionString, nil)
@@ -66,7 +67,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 				}
 			}
 		}
-		return &azureClient{client, *config, serviceURL, dataPath}, nil
+		return &azureClient{client, *config, serviceURL, dataPath, logger}, nil
 	}
 
 	// Your account name and key can be obtained from the Azure Portal.
@@ -90,7 +91,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 		if err != nil {
 			return nil, err
 		}
-		return &azureClient{client, *config, serviceURL, dataPath}, nil
+		return &azureClient{client, *config, serviceURL, dataPath, logger}, nil
 	}
 
 	options := &azblob.ClientOptions{
@@ -107,7 +108,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 	if err != nil {
 		return nil, err
 	}
-	return &azureClient{client, *config, serviceURL, dataPath}, nil
+	return &azureClient{client, *config, serviceURL, dataPath, logger}, nil
 }
 
 func (a *azureClient) HomeDir(backupID, overrideBucket, overridePath string) string {
@@ -129,7 +130,7 @@ func (g *azureClient) makeObjectName(overridePath string, parts []string) string
 }
 
 func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
+	var keys []string
 
 	blobs := a.client.NewListBlobsFlatPager(a.config.Container, &azblob.ListBlobsFlatOptions{Prefix: to.Ptr(a.config.BackupPath)})
 	for {
@@ -146,22 +147,14 @@ func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBack
 				if item.Name == nil || !strings.Contains(*item.Name, ubak.GlobalBackupFile) {
 					continue
 				}
-
-				// now we have ubak.GlobalBackupFile
-				contents, err := a.getObject(ctx, a.config.Container, *item.Name)
-				if err != nil {
-					return nil, fmt.Errorf("get blob item %q: %w", *item.Name, err)
-				}
-				var desc backup.DistributedBackupDescriptor
-				if err := json.Unmarshal(contents, &desc); err != nil {
-					return nil, fmt.Errorf("unmarshal blob item %q: %w", *item.Name, err)
-				}
-				meta = append(meta, &desc)
+				keys = append(keys, *item.Name)
 			}
 		}
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, a.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		return a.getObject(ctx, a.config.Container, key)
+	})
 }
 
 func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {

@@ -13,7 +13,6 @@ package modstgfs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -80,39 +79,26 @@ func (m *Module) HomeDir(backupID, overrideBucket, overridePath string) string {
 	}
 }
 
-func (m *Module) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
+func (m *Module) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
 	backups, err := os.ReadDir(m.backupsPath)
 	if err != nil {
 		return nil, fmt.Errorf("open backups path: %w", err)
 	}
+
+	var keys []string
 	for _, bak := range backups {
 		if !bak.IsDir() {
 			continue
 		}
-		backupPath := path.Join(m.backupsPath, bak.Name())
-		contents, err := os.ReadDir(backupPath)
-		if err != nil {
-			return nil, fmt.Errorf("read backup contents: %w", err)
-		}
-		for _, file := range contents {
-			if file.Name() == ubak.GlobalBackupFile {
-				fileName := path.Join(backupPath, file.Name())
-				bytes, err := os.ReadFile(fileName)
-				if err != nil {
-					return nil, fmt.Errorf("read backup meta file %q: %w",
-						fileName, err)
-				}
-				var desc backup.DistributedBackupDescriptor
-				if err := json.Unmarshal(bytes, &desc); err != nil {
-					return nil, fmt.Errorf("unmarshal backup meta file %q: %w",
-						path.Join(backupPath, file.Name()), err)
-				}
-				meta = append(meta, &desc)
-			}
+		fileName := path.Join(m.backupsPath, bak.Name(), ubak.GlobalBackupFile)
+		if _, err := os.Stat(fileName); err == nil {
+			keys = append(keys, fileName)
 		}
 	}
-	return meta, nil
+
+	return ubak.FetchBackupDescriptors(ctx, m.logger, keys, func(_ context.Context, key string) ([]byte, error) {
+		return os.ReadFile(key)
+	})
 }
 
 func (m *Module) MetaInfo() (map[string]interface{}, error) {

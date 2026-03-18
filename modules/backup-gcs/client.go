@@ -14,7 +14,6 @@ package modstggcs
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -25,6 +24,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
@@ -40,9 +40,10 @@ type gcsClient struct {
 	config    clientConfig
 	projectID string
 	dataPath  string
+	logger    logrus.FieldLogger
 }
 
-func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
+func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
 	options := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	if useAuth {
@@ -98,7 +99,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 			return false
 		}),
 	)
-	return &gcsClient{client, *config, projectID, dataPath}, nil
+	return &gcsClient{client, *config, projectID, dataPath, logger}, nil
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
@@ -141,15 +142,14 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 }
 
 func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
 	bucket, err := g.findBucket(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("find bucket: %w", err)
 	}
 
+	var keys []string
 	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath, MatchGlob: "**/" + ubak.GlobalBackupFile})
 	for {
-		// Check context before each iteration
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -166,19 +166,12 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 		if !strings.HasSuffix(next.Name, ubak.GlobalBackupFile) {
 			continue
 		}
-
-		contents, err := g.getObject(ctx, bucket, next.Name)
-		if err != nil {
-			return nil, fmt.Errorf("read object %q: %w", next.Name, err)
-		}
-		var desc backup.DistributedBackupDescriptor
-		if err := json.Unmarshal(contents, &desc); err != nil {
-			return nil, fmt.Errorf("unmarshal object %q: %w", next.Name, err)
-		}
-		meta = append(meta, &desc)
+		keys = append(keys, next.Name)
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		return g.getObject(ctx, bucket, key)
+	})
 }
 
 func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {

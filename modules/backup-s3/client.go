@@ -14,7 +14,6 @@ package modstgs3
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -115,7 +114,6 @@ func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string
 
 func (s *s3Client) AllBackups(ctx context.Context,
 ) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
 	objectsInfo := s.client.ListObjects(ctx,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
@@ -124,47 +122,30 @@ func (s *s3Client) AllBackups(ctx context.Context,
 		},
 	)
 
+	var keys []string
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-
-		// Only process global backup files - this is the key filter
-		// This filters out all other files and only processes backup_config.json
 		if !strings.HasSuffix(info.Key, ubak.GlobalBackupFile) {
 			continue
 		}
-
-		// Get the backup object
-		obj, err := s.client.GetObject(ctx,
-			s.config.Bucket, info.Key, minio.GetObjectOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get object %q: %w", info.Key, err)
-		}
-
-		// Use a buffer to limit memory usage
-		var buf bytes.Buffer
-		_, err = io.Copy(&buf, obj)
-		if err != nil {
-			obj.Close()
-			return nil, fmt.Errorf("read object %q: %w", info.Key, err)
-		}
-
-		// Ensure object is closed to prevent connection leaks
-		if err := obj.Close(); err != nil {
-			return nil, fmt.Errorf("close object %q: %w", info.Key, err)
-		}
-
-		// Unmarshal the backup metadata
-		var desc backup.DistributedBackupDescriptor
-		if err := json.Unmarshal(buf.Bytes(), &desc); err != nil {
-			return nil, fmt.Errorf("unmarshal object %q: %w", info.Key, err)
-		}
-
-		meta = append(meta, &desc)
+		keys = append(keys, info.Key)
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		obj, err := s.client.GetObject(ctx, s.config.Bucket, key, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get object %q: %w", key, err)
+		}
+		defer obj.Close()
+
+		var buf bytes.Buffer
+		if _, err = io.Copy(&buf, obj); err != nil {
+			return nil, fmt.Errorf("read object %q: %w", key, err)
+		}
+		return buf.Bytes(), nil
+	})
 }
 
 func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
