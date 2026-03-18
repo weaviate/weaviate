@@ -89,6 +89,7 @@ type RemoteIndexIncomingRepo interface {
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+	IncomingCountObjects(ctx context.Context, shardName string) (int, error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
@@ -445,6 +446,15 @@ func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 	}
 
 	return index.IncomingHashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (rii *RemoteIndexIncoming) CountObjects(ctx context.Context, indexName, shardName string) (int, error) {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return 0, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingCountObjects(ctx, shardName)
 }
 
 func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(

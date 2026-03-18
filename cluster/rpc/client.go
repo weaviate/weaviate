@@ -60,7 +60,7 @@ const serviceConfig = `
 				"MaxBackoff": "15s",
 				"RetryableStatusCodes": [
 					"ABORTED",
-					"RESOURCE_EXHAUSTED",					
+					"RESOURCE_EXHAUSTED",
 					"UNAVAILABLE"
 				]
 			}

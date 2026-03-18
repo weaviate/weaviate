@@ -37,6 +37,8 @@ type grpcReplicationClient struct {
 	connManager *grpcconn.ConnManager
 }
 
+var _ (replica.Client) = (*grpcReplicationClient)(nil)
+
 // NewGRPCReplicationClient creates a new gRPC-based replication client.
 func NewGRPCReplicationClient(connManager *grpcconn.ConnManager) *grpcReplicationClient {
 	return &grpcReplicationClient{connManager: connManager}
@@ -467,6 +469,26 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 		return nil, fmt.Errorf("unmarshal digests: %w", err)
 	}
 	return digests, nil
+}
+
+func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return 0, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
+	defer cancel()
+
+	resp, err := client.CountObjects(ctx, &protocol.CountObjectsRequest{
+		Index: index,
+		Shard: shard,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("gRPC CountObjects: %w", err)
+	}
+
+	return int(resp.Count), nil
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -229,7 +229,6 @@ type Index struct {
 	schemaReader schemaUC.SchemaReader
 	logger       logrus.FieldLogger
 	remote       *sharding.RemoteIndex
-	remoteClient sharding.RemoteIndexClient
 	stopwords    *stopwords.Detector
 	replicator   *replica.Replicator
 
@@ -379,7 +378,6 @@ func NewIndex(
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
-		remoteClient:            remoteClient,
 		metrics:                 metrics,
 		replicaMetrics:          replicaMetrics,
 		centralJobQueue:         jobQueueCh,
@@ -2594,72 +2592,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 
 	// TODO(dyma): should there be a way for a user to specify the desired consistency level?
 	if aggregation.IsCountStar(&params) {
-		counts := make(map[string]int, len(readPlan.NodeNames()))
-		for _, shardName := range readPlan.Shards() {
-			c := replica.NewReadCoordinator[any](
-				i.router,
-				i.replicaMetrics,
-				params.ClassName.String(),
-				shardName,
-				i.DeletionStrategy(),
-				i.logger,
-			)
-
-			// NOTE(dyma): Why do we need to pass both the context and the timeout?
-			results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
-				func(ctx context.Context, host string, _ bool) (any, error) {
-					r, err := i.remoteClient.Aggregate(ctx, host, i.Config.ClassName.String(), shardName, params)
-					if err != nil {
-						return nil, err
-					}
-					for _, g := range r.Groups {
-						counts[host] += g.Count
-					}
-					return nil, nil
-				}, "", time.Minute)
-			if err != nil {
-				return nil, err
-			}
-
-			for r := range results {
-				if r.Err != nil {
-					return nil, r.Err
-				}
-			}
-
-			var mode int
-			var modeHits int
-			hits := make(map[int]int)
-
-			// If we can't calculate the mode, we fallback to median.
-			// However, we can only calculate the median correclty for
-			// an odd-numbered set. If a set has even number of elemets
-			// of which none is a mode, then the median would be calculated
-			// as an average. For such cases, we fallback to counts[i+1],
-			// hence the len%2 part.
-			var median int
-			medianIdx := len(counts)/2 + len(counts)%2
-
-			for i, count := range slices.Sorted(maps.Values(counts)) {
-				hits[count]++
-				if h := hits[count]; h > modeHits {
-					mode = count
-				}
-
-				if i == medianIdx {
-					median = count
-				}
-			}
-
-			var final int
-			if modeHits > 0 {
-				final = mode
-			} else {
-				final = median
-			}
-
-			return &aggregation.Result{Groups: []aggregation.Group{{Count: final}}}, nil
-		}
+		return i.aggregateCount(ctx)
 	}
 
 	results := make([]*aggregation.Result, len(readPlan.Shards()))
@@ -2682,15 +2615,6 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 			}
 		}()
 
-		// If COUNT(*), then:
-		// - If ConsistencyLevel == ONE, do normal.
-		// - Else: do coordinator.Pull?
-		// Else: do normal.
-		//
-		// WAIT! Actually. It's already doing a "replicated query" -- we're not
-		// just going for a single shard. So it should be enough if we just adjust
-		// the result according to the consistency level?
-
 		if err != nil {
 			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
@@ -2699,6 +2623,76 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 
 	return aggregator.NewShardCombiner().Do(results), nil
+}
+
+func (i *Index) aggregateCount(ctx context.Context) (*aggregation.Result, error) {
+	shards, err := i.schemaReader.Shards(i.Config.ClassName.String())
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	for _, shard := range shards {
+		c := replica.NewReadCoordinator[any](
+			i.router,
+			i.replicaMetrics,
+			i.Config.ClassName.String(),
+			shard,
+			i.DeletionStrategy(),
+			i.logger,
+		)
+
+		// NOTE(dyma): Why do we need to pass both the context and the timeout?
+		results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
+			func(ctx context.Context, host string, _ bool) (any, error) {
+				count, err := c.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
+				if err != nil {
+					return nil, err
+				}
+				counts[host] += count
+				return nil, nil
+			}, "", time.Minute)
+		if err != nil {
+			return nil, err
+		}
+
+		for r := range results {
+			if r.Err != nil {
+				return nil, r.Err
+			}
+		}
+	}
+
+	var mode int
+	var modeHits int
+	hits := make(map[int]int)
+
+	// If we can't calculate the mode, we fallback to median.
+	// However, we can only calculate the median correclty for
+	// an odd-numbered set. If a set has even number of elemets
+	// of which none is a mode, then the median would be calculated
+	// as an average. For such cases, we fallback to counts[i+1],
+	// hence the len%2 part.
+	var median int
+	medianIdx := len(counts)/2 + len(counts)%2
+
+	for i, count := range slices.Sorted(maps.Values(counts)) {
+		hits[count]++
+		if h := hits[count]; h > modeHits {
+			mode = count
+		}
+
+		if i == medianIdx {
+			median = count
+		}
+	}
+
+	var final int
+	if modeHits > 0 {
+		final = mode
+	} else {
+		final = median
+	}
+	return &aggregation.Result{Groups: []aggregation.Group{{Count: final}}}, nil
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,

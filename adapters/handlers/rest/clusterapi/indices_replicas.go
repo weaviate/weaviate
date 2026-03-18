@@ -76,6 +76,8 @@ var (
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)(\/[0-9]{1,64})?`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
+	regxCountObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/_count`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_digest`)
 	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
@@ -257,6 +259,14 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 		return
 	case regxOverwriteObjects.MatchString(path):
 		if r.Method == http.MethodPut {
+			i.putOverwriteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxCountObjects.MatchString(path):
+		if r.Method == http.MethodGet {
 			i.putOverwriteObjects().ServeHTTP(w, r)
 			return
 		}
@@ -659,6 +669,27 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		}
 
 		w.Write(resBytes)
+	})
+}
+
+func (i *replicatedIndices) countObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxCountObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		count, err := i.replicator.CountObjects(r.Context(), index, shard)
+		if err != nil {
+			http.Error(w, "count objects: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		io.WriteString(w, strconv.Itoa(count))
 	})
 }
 

@@ -1929,6 +1929,104 @@ func (x *HashTreeLevelResponse) GetDigestsData() []byte {
 	return nil
 }
 
+// CountObjects fetches hash tree level digests.
+type CountObjectsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CountObjectsRequest) Reset() {
+	*x = CountObjectsRequest{}
+	mi := &file_protocol_replication_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountObjectsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountObjectsRequest) ProtoMessage() {}
+
+func (x *CountObjectsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CountObjectsRequest.ProtoReflect.Descriptor instead.
+func (*CountObjectsRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *CountObjectsRequest) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *CountObjectsRequest) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+// CountObjectsResponse carries object count.
+type CountObjectsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Count         int32                  `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CountObjectsResponse) Reset() {
+	*x = CountObjectsResponse{}
+	mi := &file_protocol_replication_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountObjectsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountObjectsResponse) ProtoMessage() {}
+
+func (x *CountObjectsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CountObjectsResponse.ProtoReflect.Descriptor instead.
+func (*CountObjectsResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *CountObjectsResponse) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
 var File_protocol_replication_proto protoreflect.FileDescriptor
 
 const file_protocol_replication_proto_rawDesc = "" +
@@ -2068,7 +2166,13 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05level\x18\x03 \x01(\x05R\x05level\x12\"\n" +
 	"\fdiscriminant\x18\x04 \x01(\fR\fdiscriminant\":\n" +
 	"\x15HashTreeLevelResponse\x12!\n" +
-	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData2\xdc\t\n" +
+	"\fdigests_data\x18\x01 \x01(\fR\vdigestsData\"A\n" +
+	"\x13CountObjectsRequest\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\",\n" +
+	"\x14CountObjectsResponse\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count2\xaf\n" +
+	"\n" +
 	"\x12ReplicationService\x12H\n" +
 	"\tPutObject\x12\x1c.clusterapi.PutObjectRequest\x1a\x1d.clusterapi.PutObjectResponse\x12K\n" +
 	"\n" +
@@ -2085,7 +2189,8 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x14DigestObjectsInRange\x12'.clusterapi.DigestObjectsInRangeRequest\x1a(.clusterapi.DigestObjectsInRangeResponse\x12]\n" +
 	"\x10OverwriteObjects\x12#.clusterapi.OverwriteObjectsRequest\x1a$.clusterapi.OverwriteObjectsResponse\x12H\n" +
 	"\tFindUUIDs\x12\x1c.clusterapi.FindUUIDsRequest\x1a\x1d.clusterapi.FindUUIDsResponse\x12T\n" +
-	"\rHashTreeLevel\x12 .clusterapi.HashTreeLevelRequest\x1a!.clusterapi.HashTreeLevelResponseB\x9d\x01\n" +
+	"\rHashTreeLevel\x12 .clusterapi.HashTreeLevelRequest\x1a!.clusterapi.HashTreeLevelResponse\x12Q\n" +
+	"\fCountObjects\x12\x1f.clusterapi.CountObjectsRequest\x1a .clusterapi.CountObjectsResponseB\x9d\x01\n" +
 	"\x0ecom.clusterapiB\x10ReplicationProtoP\x01Z1github.com/weaviate/weaviate/cloud/proto/protocol\xa2\x02\x03CXX\xaa\x02\n" +
 	"Clusterapi\xca\x02\n" +
 	"Clusterapi\xe2\x02\x16Clusterapi\\GPBMetadata\xea\x02\n" +
@@ -2103,7 +2208,7 @@ func file_protocol_replication_proto_rawDescGZIP() []byte {
 	return file_protocol_replication_proto_rawDescData
 }
 
-var file_protocol_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
+var file_protocol_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_protocol_replication_proto_goTypes = []any{
 	(*ReplicaError)(nil),                 // 0: clusterapi.ReplicaError
 	(*SimpleReplicaResponse)(nil),        // 1: clusterapi.SimpleReplicaResponse
@@ -2138,6 +2243,8 @@ var file_protocol_replication_proto_goTypes = []any{
 	(*FindUUIDsResponse)(nil),            // 30: clusterapi.FindUUIDsResponse
 	(*HashTreeLevelRequest)(nil),         // 31: clusterapi.HashTreeLevelRequest
 	(*HashTreeLevelResponse)(nil),        // 32: clusterapi.HashTreeLevelResponse
+	(*CountObjectsRequest)(nil),          // 33: clusterapi.CountObjectsRequest
+	(*CountObjectsResponse)(nil),         // 34: clusterapi.CountObjectsResponse
 }
 var file_protocol_replication_proto_depIdxs = []int32{
 	0,  // 0: clusterapi.SimpleReplicaResponse.errors:type_name -> clusterapi.ReplicaError
@@ -2166,23 +2273,25 @@ var file_protocol_replication_proto_depIdxs = []int32{
 	27, // 23: clusterapi.ReplicationService.OverwriteObjects:input_type -> clusterapi.OverwriteObjectsRequest
 	29, // 24: clusterapi.ReplicationService.FindUUIDs:input_type -> clusterapi.FindUUIDsRequest
 	31, // 25: clusterapi.ReplicationService.HashTreeLevel:input_type -> clusterapi.HashTreeLevelRequest
-	4,  // 26: clusterapi.ReplicationService.PutObject:output_type -> clusterapi.PutObjectResponse
-	6,  // 27: clusterapi.ReplicationService.PutObjects:output_type -> clusterapi.PutObjectsResponse
-	8,  // 28: clusterapi.ReplicationService.MergeObject:output_type -> clusterapi.MergeObjectResponse
-	10, // 29: clusterapi.ReplicationService.DeleteObject:output_type -> clusterapi.DeleteObjectResponse
-	12, // 30: clusterapi.ReplicationService.DeleteObjects:output_type -> clusterapi.DeleteObjectsResponse
-	14, // 31: clusterapi.ReplicationService.AddReferences:output_type -> clusterapi.AddReferencesResponse
-	16, // 32: clusterapi.ReplicationService.Commit:output_type -> clusterapi.CommitResponse
-	18, // 33: clusterapi.ReplicationService.Abort:output_type -> clusterapi.AbortResponse
-	20, // 34: clusterapi.ReplicationService.FetchObject:output_type -> clusterapi.FetchObjectResponse
-	22, // 35: clusterapi.ReplicationService.FetchObjects:output_type -> clusterapi.FetchObjectsResponse
-	24, // 36: clusterapi.ReplicationService.DigestObjects:output_type -> clusterapi.DigestObjectsResponse
-	26, // 37: clusterapi.ReplicationService.DigestObjectsInRange:output_type -> clusterapi.DigestObjectsInRangeResponse
-	28, // 38: clusterapi.ReplicationService.OverwriteObjects:output_type -> clusterapi.OverwriteObjectsResponse
-	30, // 39: clusterapi.ReplicationService.FindUUIDs:output_type -> clusterapi.FindUUIDsResponse
-	32, // 40: clusterapi.ReplicationService.HashTreeLevel:output_type -> clusterapi.HashTreeLevelResponse
-	26, // [26:41] is the sub-list for method output_type
-	11, // [11:26] is the sub-list for method input_type
+	33, // 26: clusterapi.ReplicationService.CountObjects:input_type -> clusterapi.CountObjectsRequest
+	4,  // 27: clusterapi.ReplicationService.PutObject:output_type -> clusterapi.PutObjectResponse
+	6,  // 28: clusterapi.ReplicationService.PutObjects:output_type -> clusterapi.PutObjectsResponse
+	8,  // 29: clusterapi.ReplicationService.MergeObject:output_type -> clusterapi.MergeObjectResponse
+	10, // 30: clusterapi.ReplicationService.DeleteObject:output_type -> clusterapi.DeleteObjectResponse
+	12, // 31: clusterapi.ReplicationService.DeleteObjects:output_type -> clusterapi.DeleteObjectsResponse
+	14, // 32: clusterapi.ReplicationService.AddReferences:output_type -> clusterapi.AddReferencesResponse
+	16, // 33: clusterapi.ReplicationService.Commit:output_type -> clusterapi.CommitResponse
+	18, // 34: clusterapi.ReplicationService.Abort:output_type -> clusterapi.AbortResponse
+	20, // 35: clusterapi.ReplicationService.FetchObject:output_type -> clusterapi.FetchObjectResponse
+	22, // 36: clusterapi.ReplicationService.FetchObjects:output_type -> clusterapi.FetchObjectsResponse
+	24, // 37: clusterapi.ReplicationService.DigestObjects:output_type -> clusterapi.DigestObjectsResponse
+	26, // 38: clusterapi.ReplicationService.DigestObjectsInRange:output_type -> clusterapi.DigestObjectsInRangeResponse
+	28, // 39: clusterapi.ReplicationService.OverwriteObjects:output_type -> clusterapi.OverwriteObjectsResponse
+	30, // 40: clusterapi.ReplicationService.FindUUIDs:output_type -> clusterapi.FindUUIDsResponse
+	32, // 41: clusterapi.ReplicationService.HashTreeLevel:output_type -> clusterapi.HashTreeLevelResponse
+	34, // 42: clusterapi.ReplicationService.CountObjects:output_type -> clusterapi.CountObjectsResponse
+	27, // [27:43] is the sub-list for method output_type
+	11, // [11:27] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
 	11, // [11:11] is the sub-list for extension extendee
 	0,  // [0:11] is the sub-list for field type_name
@@ -2199,7 +2308,7 @@ func file_protocol_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protocol_replication_proto_rawDesc), len(file_protocol_replication_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   33,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

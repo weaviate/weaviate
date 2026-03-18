@@ -101,6 +101,8 @@ func NewReadCoordinator[T any](router types.Router,
 	}
 }
 
+var _ Client = (*coordinator[any, any])(nil)
+
 // broadcast sends write request to all replicas (first phase of a two-phase commit)
 func (c *coordinator[T, R]) broadcast(ctx context.Context,
 	replicas []string,
