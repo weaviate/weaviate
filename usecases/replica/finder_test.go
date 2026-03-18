@@ -1013,6 +1013,67 @@ func TestFinderCheckConsistencyQuorum(t *testing.T) {
 	}
 }
 
+// TestFinderCheckConsistencyRepairPreservesOriginalObject verifies that when
+// CheckConsistency triggers read-repair (because replicas hold a newer version),
+// the original objects in xs are NOT replaced with the newer versions. Callers
+// that applied filter criteria to obtain xs must still see the objects they
+// originally retrieved; the repair only propagates the newer version to stale
+// replicas behind the scenes.
+func TestFinderCheckConsistencyRepairPreservesOriginalObject(t *testing.T) {
+	var (
+		id    = strfmt.UUID("1")
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B", "C"}
+		ids   = []strfmt.UUID{id}
+		ctx   = context.Background()
+	)
+
+	testCases := []struct {
+		variant       string
+		isMultiTenant bool
+	}{
+		{"MultiTenant", true},
+		{"SingleTenant", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("RepairDoesNotReplaceObject_%v", tc.variant), func(t *testing.T) {
+			var (
+				f           = newFakeFactory(t, cls, shard, nodes, tc.isMultiTenant)
+				finder      = f.newFinder("A")
+				staleObj    = objectEx(id, 1, shard, "A") // local object with stale version
+				newerRepl   = repl(id, 2, false)          // newer version held by replicas
+				digestNewer = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+				overwriteR  = []types.RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			)
+
+			// B and C both have the newer version in their digests
+			f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestNewer, nil)
+			f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestNewer, nil)
+
+			// repair fetches the full newer object from whichever replica is selected
+			// (routing order may differ between single-tenant and multi-tenant)
+			f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, ids).Return([]replica.Replica{newerRepl}, nil).Maybe()
+			f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, ids).Return([]replica.Replica{newerRepl}, nil).Maybe()
+
+			// repair writes the newer object back to the stale local node (A)
+			f.RClient.On("OverwriteObjects", anyVal, nodes[0], cls, shard, anyVal).Return(overwriteR, nil).Maybe()
+
+			xs := []*storobj.Object{staleObj}
+			err := finder.CheckConsistency(ctx, types.ConsistencyLevelAll, xs)
+
+			assert.NoError(t, err)
+			// The pointer must still refer to the original object – not replaced.
+			assert.Same(t, staleObj, xs[0], "CheckConsistency must not replace original object pointer")
+			// The original content must be unchanged.
+			assert.Equal(t, int64(1), xs[0].LastUpdateTimeUnix(), "original LastUpdateTimeUnix must be preserved")
+			// Consistency flag must be set.
+			assert.True(t, xs[0].IsConsistent, "object must be marked as consistent after successful repair")
+		})
+	}
+}
+
 func TestFinderCheckConsistencyOne(t *testing.T) {
 	var (
 		ids   = []strfmt.UUID{"10", "20", "30"}
