@@ -233,6 +233,9 @@ type Config struct {
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
+	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
 type MapToBlockamaxConfig struct {
