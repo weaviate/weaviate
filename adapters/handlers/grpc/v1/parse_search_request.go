@@ -294,9 +294,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 		nearVec := req.HybridSearch.NearVector
 
-		alpha := float64(hs.Alpha)
-		if hs.AlphaParam != nil {
+		var alpha float64
+		if !hs.UseAlphaParam {
+			alpha = float64(hs.Alpha)
+		} else if hs.AlphaParam != nil {
 			alpha = float64(*hs.AlphaParam)
+		} else {
+			alpha = common_filters.DefaultAlpha
 		}
 
 		out.HybridSearch = &searchparams.HybridSearch{

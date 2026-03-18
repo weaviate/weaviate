@@ -107,31 +107,6 @@ func assignShardsToNodes(shards map[string][]string) map[string][]string {
 	return result
 }
 
-// ExportShardNames returns all shard names for a class and whether the class is MT.
-// Activity status is not checked here — callers must handle COLD tenants in
-// AcquireShardForExport, which is resilient to tenants going COLD between
-// listing and acquiring.
-func (db *DB) ExportShardNames(className string) ([]string, bool, error) {
-	idx := db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return nil, false, fmt.Errorf("index not found for class %s", className)
-	}
-
-	class := idx.getClass()
-	if class == nil {
-		return nil, false, fmt.Errorf("class not found for index %s", className)
-	}
-
-	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
-
-	allShards, err := idx.schemaReader.Shards(class.Class)
-	if err != nil {
-		return nil, false, fmt.Errorf("get shards for class %s: %w", className, err)
-	}
-
-	return allShards, isMT, nil
-}
-
 // AcquireShardForExport returns the shard handle and a release function.
 // For MT classes it checks the tenant's activity status:
 //   - COLD + autoActivation enabled: activates the tenant; release deactivates it.
@@ -286,6 +261,31 @@ func (db *DB) IsMultiTenant(_ context.Context, className string) bool {
 	}
 	class := idx.getClass()
 	return class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
+}
+
+// IsAsyncReplicationEnabled returns true if async replication is either
+// enabled or not required for correctness. Classes with a replication
+// factor ≤ 1 have no replicas, so async replication is irrelevant and
+// the method returns true. For RF > 1 the class must have async
+// replication enabled and it must not be globally disabled at the
+// cluster level.
+func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) bool {
+	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return false
+	}
+	class := idx.getClass()
+	if class == nil {
+		return false
+	}
+	// No replicas → async replication is not needed for correctness.
+	if class.ReplicationConfig == nil || class.ReplicationConfig.Factor <= 1 {
+		return true
+	}
+	if db.config.Replication.AsyncReplicationDisabled.Get() {
+		return false
+	}
+	return class.ReplicationConfig.AsyncEnabled
 }
 
 // ListClasses returns all class names (already exists on DB, this is a convenience alias comment).

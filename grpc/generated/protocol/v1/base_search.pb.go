@@ -486,6 +486,7 @@ type Hybrid struct {
 	Targets            *Targets               `protobuf:"bytes,10,opt,name=targets,proto3" json:"targets,omitempty"`
 	Bm25SearchOperator *SearchOperatorOptions `protobuf:"bytes,11,opt,name=bm25_search_operator,json=bm25SearchOperator,proto3,oneof" json:"bm25_search_operator,omitempty"`
 	AlphaParam         *float32               `protobuf:"fixed32,12,opt,name=alpha_param,json=alphaParam,proto3,oneof" json:"alpha_param,omitempty"`
+	UseAlphaParam      bool                   `protobuf:"varint,13,opt,name=use_alpha_param,json=useAlphaParam,proto3" json:"use_alpha_param,omitempty"` // if true, alpha_param is used instead of alpha. This is for backward compatibility, as alpha was used before alpha_param was introduced.
 	Selection          *Selection             `protobuf:"bytes,13,opt,name=selection,proto3,oneof" json:"selection,omitempty"`
 	// only vector distance, but keep it extendable
 	//
@@ -614,6 +615,13 @@ func (x *Hybrid) GetAlphaParam() float32 {
 		return *x.AlphaParam
 	}
 	return 0
+}
+
+func (x *Hybrid) GetUseAlphaParam() bool {
+	if x != nil {
+		return x.UseAlphaParam
+	}
+	return false
 }
 
 func (x *Hybrid) GetSelection() *Selection {
@@ -1691,7 +1699,7 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
 	"\fOPERATOR_AND\x10\x02B\x1a\n" +
-	"\x18_minimum_or_tokens_match\"\xe9\x06\n" +
+	"\x18_minimum_or_tokens_match\"\xc8\x06\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
 	"\n" +
@@ -1711,7 +1719,8 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x14bm25_search_operator\x18\v \x01(\v2\".weaviate.v1.SearchOperatorOptionsH\x01R\x12bm25SearchOperator\x88\x01\x01\x12$\n" +
 	"\valpha_param\x18\f \x01(\x02H\x02R\n" +
 	"alphaParam\x88\x01\x01\x129\n" +
-	"\tselection\x18\r \x01(\v2\x16.weaviate.v1.SelectionH\x03R\tselection\x88\x01\x01\x12)\n" +
+	"\tselection\x18\r \x01(\v2\x16.weaviate.v1.SelectionH\x03R\tselection\x88\x01\x01\x12&\n" +
+	"\x0fuse_alpha_param\x18\r \x01(\bR\ruseAlphaParam\x12)\n" +
 	"\x0fvector_distance\x18\x14 \x01(\x02H\x00R\x0evectorDistance\x12.\n" +
 	"\avectors\x18\x15 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"a\n" +
 	"\n" +
