@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,12 +71,17 @@ type ShardNoopProviderPayload struct {
 // When a Collection is specified in the payload and a [ShardLister] is provided, the provider
 // only claims sub-units whose IDs match local shard names. This validates that sub-unit
 // ownership aligns with actual shard placement.
+//
+// Marker files are written as hidden dot-files inside shard directories (when a collection is
+// specified) or under {dataRoot}/.dtm/ (for synthetic sub-units). This avoids writing to /tmp
+// and keeps side effects scoped to the Weaviate data directory.
 type ShardNoopProvider struct {
 	mu       sync.Mutex
 	recorder TaskCompletionRecorder
 	tasks    []TaskDescriptor
 	nodeID   string
 	logger   logrus.FieldLogger
+	dataRoot string
 
 	shardLister ShardLister
 
@@ -88,11 +94,15 @@ type ShardNoopProvider struct {
 
 // NewShardNoopProvider creates a new [ShardNoopProvider]. Pass nil for shardLister
 // when real shard topology is not needed (e.g. unit tests with synthetic sub-unit IDs).
-func NewShardNoopProvider(nodeID string, logger logrus.FieldLogger, shardLister ShardLister) *ShardNoopProvider {
+// dataRoot is the Weaviate persistence data path; marker files are written as hidden
+// dot-files inside shard directories (collection-aware mode) or under {dataRoot}/.dtm/
+// (synthetic mode).
+func NewShardNoopProvider(nodeID string, logger logrus.FieldLogger, shardLister ShardLister, dataRoot string) *ShardNoopProvider {
 	return &ShardNoopProvider{
 		nodeID:          nodeID,
 		logger:          logger,
 		shardLister:     shardLister,
+		dataRoot:        dataRoot,
 		completedTasks:  make(map[TaskDescriptor]bool),
 		finalizedGroups: make(map[TaskDescriptor]map[string][]string),
 	}
@@ -147,17 +157,43 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 	)
 	p.finalizedGroupsMu.Unlock()
 
-	// Write marker files for each finalized sub-unit (grouped by groupID)
-	dir := filepath.Join("/tmp/dtm-finalize", task.ID)
-	if groupID != "" {
-		dir = filepath.Join(dir, groupID)
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		p.logger.WithError(err).Error("shard-noop provider: failed to create marker dir")
-		return
+	// Write marker files for each finalized sub-unit.
+	var payload ShardNoopProviderPayload
+	if len(task.Payload) > 0 {
+		_ = json.Unmarshal(task.Payload, &payload)
 	}
 	for _, suID := range localGroupSubUnitIDs {
-		path := filepath.Join(dir, suID)
+		var dir string
+		if payload.Collection != "" {
+			shardName := suID
+			if payload.SubUnitToShard != nil {
+				if sn, ok := payload.SubUnitToShard[suID]; ok {
+					shardName = sn
+				}
+			}
+			dir = p.shardDir(payload.Collection, shardName)
+		} else {
+			dir = filepath.Join(p.syntheticMarkerDir(), "dtm-finalize", task.ID)
+			if groupID != "" {
+				dir = filepath.Join(dir, groupID)
+			}
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			p.logger.WithError(err).Error("shard-noop provider: failed to create marker dir")
+			continue
+		}
+		var markerName string
+		if payload.Collection != "" {
+			if groupID != "" {
+				markerName = fmt.Sprintf(".dtm-finalize--%s--%s--%s", task.ID, groupID, suID)
+			} else {
+				markerName = fmt.Sprintf(".dtm-finalize--%s--%s", task.ID, suID)
+			}
+		} else {
+			// Synthetic mode: use sub-unit ID as the file name (old layout under dataRoot/.dtm/).
+			markerName = suID
+		}
+		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("finalized by %s", p.nodeID)), 0o644); err != nil {
 			p.logger.WithError(err).Error("shard-noop provider: failed to write marker file")
 		}
@@ -197,12 +233,28 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
 	defer p.completedTasksMu.Unlock()
 	p.completedTasks[task.TaskDescriptor] = true
 
-	// Write completion marker file
-	dir := filepath.Join("/tmp/dtm-complete", task.ID)
+	// Write completion marker file into the collection's index directory (collection-aware)
+	// or into {dataRoot}/.dtm/dtm-complete/{taskID}/ (synthetic).
+	var payload ShardNoopProviderPayload
+	if len(task.Payload) > 0 {
+		_ = json.Unmarshal(task.Payload, &payload)
+	}
+	var dir string
+	if payload.Collection != "" {
+		dir = p.indexDir(payload.Collection)
+	} else {
+		dir = filepath.Join(p.syntheticMarkerDir(), "dtm-complete", task.ID)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		p.logger.WithError(err).Error("shard-noop provider: failed to create completion marker dir")
 	} else {
-		path := filepath.Join(dir, fmt.Sprintf("done-%s", p.nodeID))
+		var markerName string
+		if payload.Collection != "" {
+			markerName = fmt.Sprintf(".dtm-complete--%s--%s", task.ID, p.nodeID)
+		} else {
+			markerName = fmt.Sprintf("done-%s", p.nodeID)
+		}
+		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("completed by %s, status=%s", p.nodeID, task.Status)), 0o644); err != nil {
 			p.logger.WithError(err).Error("shard-noop provider: failed to write completion marker")
 		}
@@ -216,6 +268,23 @@ func (p *ShardNoopProvider) IsTaskCompleted(desc TaskDescriptor) bool {
 	p.completedTasksMu.Lock()
 	defer p.completedTasksMu.Unlock()
 	return p.completedTasks[desc]
+}
+
+// shardDir returns the filesystem path for a shard given a collection name.
+// Follows the Weaviate convention: {dataRoot}/{lowercase(collection)}/{shardName}.
+func (p *ShardNoopProvider) shardDir(collection, shardName string) string {
+	return filepath.Join(p.dataRoot, strings.ToLower(collection), shardName)
+}
+
+// indexDir returns the filesystem path for a collection's index directory.
+func (p *ShardNoopProvider) indexDir(collection string) string {
+	return filepath.Join(p.dataRoot, strings.ToLower(collection))
+}
+
+// syntheticMarkerDir returns the base directory for marker files when no
+// collection is specified (synthetic sub-units).
+func (p *ShardNoopProvider) syntheticMarkerDir() string {
+	return filepath.Join(p.dataRoot, ".dtm")
 }
 
 func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHandle) {
@@ -396,11 +465,30 @@ func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, h
 		)
 	})
 
-	dir := filepath.Join("/tmp/dtm-process", task.ID)
+	// Write processing marker into the shard directory (collection-aware) or
+	// {dataRoot}/.dtm/dtm-process/{taskID}/ (synthetic).
+	var dir string
+	if payload.Collection != "" {
+		shardName := suID
+		if payload.SubUnitToShard != nil {
+			if sn, ok := payload.SubUnitToShard[suID]; ok {
+				shardName = sn
+			}
+		}
+		dir = p.shardDir(payload.Collection, shardName)
+	} else {
+		dir = filepath.Join(p.syntheticMarkerDir(), "dtm-process", task.ID)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		p.logger.WithError(err).Error("shard-noop provider: failed to create processing marker dir")
 	} else {
-		path := filepath.Join(dir, suID)
+		var markerName string
+		if payload.Collection != "" {
+			markerName = fmt.Sprintf(".dtm-process--%s--%s", task.ID, suID)
+		} else {
+			markerName = suID
+		}
+		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {
 			p.logger.WithError(err).Error("shard-noop provider: failed to write processing marker")
 		}

@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -119,7 +120,12 @@ func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *provid
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
 	rec := newMockRecorder()
-	p := NewShardNoopProvider(nodeID, logger, lister)
+	// Use os.MkdirTemp instead of t.TempDir() because async marker writes may
+	// still be in flight when t.TempDir cleanup runs, causing spurious failures.
+	dataRoot, err := os.MkdirTemp("", "shard-noop-test-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(dataRoot) })
+	p := NewShardNoopProvider(nodeID, logger, lister, dataRoot)
 	p.SetCompletionRecorder(rec)
 	return &providerFixture{provider: p, recorder: rec}
 }

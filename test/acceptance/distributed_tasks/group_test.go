@@ -14,6 +14,7 @@ package distributed_tasks
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -136,7 +137,7 @@ func TestGroupFinalizationSuite(t *testing.T) {
 
 	// DefaultGroup verifies that tasks without explicit groups (default group "")
 	// preserve old behavior: finalization markers appear directly under
-	// /tmp/dtm-finalize/{taskID}/ (no group subdirectory).
+	// ./data/.dtm/dtm-finalize/{taskID}/ (no group subdirectory).
 	t.Run("DefaultGroup", func(t *testing.T) {
 		taskID := "group-default"
 		subUnits := []string{"su-1", "su-2", "su-3"}
@@ -192,8 +193,15 @@ func spotCheckGroupFinalization(t *testing.T, ctx context.Context, compose *dock
 }
 
 // awaitGroupFinalizedSubUnits polls until expected finalization markers appear
-// under /tmp/dtm-finalize/{taskID}/{groupID}/ across all cluster nodes.
+// under ./data/.dtm/dtm-finalize/{taskID}/{groupID}/ across all cluster nodes.
 func awaitGroupFinalizedSubUnits(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID, groupID string, expected []string) {
 	t.Helper()
-	awaitMarkers(t, ctx, compose, fmt.Sprintf("dtm-finalize/%s", taskID), groupID, expected)
+
+	dir := fmt.Sprintf("./data/.dtm/dtm-finalize/%s/%s", taskID, groupID)
+	sort.Strings(expected)
+	require.Eventually(t, func() bool {
+		all := collectSyntheticMarkersFromCluster(t, ctx, compose, dir)
+		sort.Strings(all)
+		return fmt.Sprintf("%v", all) == fmt.Sprintf("%v", expected)
+	}, 60*time.Second, 500*time.Millisecond, "expected group %s finalization markers %v", groupID, expected)
 }

@@ -161,9 +161,9 @@ func verifyCrashRecoveryResult(t *testing.T, ctx context.Context, compose *docke
 	assert.Equal(t, "FINISHED", task.Status)
 	assert.Len(t, task.SubUnits, 9)
 
-	awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
-	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs)
-	awaitCompletionMarkers(t, ctx, compose, taskID, 3)
+	awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs, className)
+	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs, className)
+	awaitCompletionMarkers(t, ctx, compose, taskID, 3, className)
 
 	deleteCollection(t, restURI, className)
 }

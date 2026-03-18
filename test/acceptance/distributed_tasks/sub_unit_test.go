@@ -303,7 +303,7 @@ func TestRealCollectionSuite(t *testing.T) {
 		assert.Len(t, task.SubUnits, 3)
 
 		// Verify only targeted sub-units have processing markers
-		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
+		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs, className)
 
 		deleteCollection(t, restURI, className)
 	})
@@ -350,7 +350,9 @@ func TestRealCollectionSuite(t *testing.T) {
 
 		// At this point, NO finalization markers should exist yet because the
 		// slow sub-unit hasn't completed → the per-shard barrier is not met.
-		finMarkers := collectMarkersFromCluster(t, ctx, compose, fmt.Sprintf("/tmp/dtm-finalize/%s", taskID))
+		baseDir := collectionMarkerBaseDir(className)
+		finPattern := fmt.Sprintf(".dtm-finalize--%s--*", taskID)
+		finMarkers := collectDotMarkersFromCluster(t, ctx, compose, baseDir, finPattern)
 		t.Logf("finalization markers during slow phase: %v", finMarkers)
 		// Note: we can't strictly assert zero here because the slow sub-unit
 		// might be on a different node and that node's fast sub-units might
@@ -363,9 +365,9 @@ func TestRealCollectionSuite(t *testing.T) {
 		}
 
 		// Now all markers should appear
-		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
-		awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs)
-		awaitCompletionMarkers(t, ctx, compose, taskID, 3)
+		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs, className)
+		awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs, className)
+		awaitCompletionMarkers(t, ctx, compose, taskID, 3, className)
 
 		deleteCollection(t, restURI, className)
 	})
@@ -424,7 +426,7 @@ func TestMultiTenantSuite(t *testing.T) {
 		assert.Equal(t, "FINISHED", task.Status)
 		assert.Len(t, task.SubUnits, 5)
 
-		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
+		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs, className)
 
 		deleteCollection(t, restURI, className)
 	})
@@ -468,7 +470,7 @@ func TestMultiTenantSuite(t *testing.T) {
 		assert.Equal(t, "FINISHED", task.Status)
 		assert.Len(t, task.SubUnits, 15)
 
-		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs)
+		awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs, className)
 
 		deleteCollection(t, restURI, className)
 	})
@@ -516,9 +518,9 @@ func runStandardCollectionTest(t *testing.T, ctx context.Context, compose *docke
 	assert.Equal(t, "FINISHED", task.Status)
 	assert.Len(t, task.SubUnits, tc.expectedSubUnits)
 
-	awaitProcessingMarkers(t, ctx, compose, tc.taskID, subUnitIDs)
-	awaitFinalizedSubUnits(t, ctx, compose, tc.taskID, subUnitIDs)
-	awaitCompletionMarkers(t, ctx, compose, tc.taskID, 3)
+	awaitProcessingMarkers(t, ctx, compose, tc.taskID, subUnitIDs, tc.className)
+	awaitFinalizedSubUnits(t, ctx, compose, tc.taskID, subUnitIDs, tc.className)
+	awaitCompletionMarkers(t, ctx, compose, tc.taskID, 3, tc.className)
 
 	deleteCollection(t, restURI, tc.className)
 }
@@ -562,9 +564,9 @@ func runStandardMTTest(t *testing.T, ctx context.Context, compose *docker.Docker
 	assert.Equal(t, "FINISHED", task.Status)
 	assert.Len(t, task.SubUnits, tc.expectedSubUnits)
 
-	awaitProcessingMarkers(t, ctx, compose, tc.taskID, subUnitIDs)
-	awaitFinalizedSubUnits(t, ctx, compose, tc.taskID, subUnitIDs)
-	awaitCompletionMarkers(t, ctx, compose, tc.taskID, 3)
+	awaitProcessingMarkers(t, ctx, compose, tc.taskID, subUnitIDs, tc.className)
+	awaitFinalizedSubUnits(t, ctx, compose, tc.taskID, subUnitIDs, tc.className)
+	awaitCompletionMarkers(t, ctx, compose, tc.taskID, 3, tc.className)
 
 	deleteCollection(t, restURI, tc.className)
 }
@@ -764,8 +766,8 @@ func deleteCollection(t *testing.T, restURI, className string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// listMarkerFilesInDir lists files in a container directory.
-func listMarkerFilesInDir(ctx context.Context, c testcontainers.Container, dir string) []string {
+// listFilesInDir lists files in a container directory.
+func listFilesInDir(ctx context.Context, c testcontainers.Container, dir string) []string {
 	code, reader, err := c.Exec(ctx, []string{"ls", "-1", dir}, tcexec.Multiplexed())
 	if err != nil || code != 0 {
 		return nil
@@ -784,53 +786,169 @@ func listMarkerFilesInDir(ctx context.Context, c testcontainers.Container, dir s
 	return files
 }
 
-// collectMarkersFromCluster collects marker files from a directory across all 3 nodes.
-func collectMarkersFromCluster(t *testing.T, ctx context.Context, compose *docker.DockerCompose, dir string) []string {
+// findDotMarkers searches for hidden marker files matching a name pattern under baseDir
+// inside a container. Returns the base file names of all matches.
+func findDotMarkers(ctx context.Context, c testcontainers.Container, baseDir, namePattern string) []string {
+	code, reader, err := c.Exec(ctx, []string{
+		"find", baseDir, "-name", namePattern, "-type", "f",
+	}, tcexec.Multiplexed())
+	if err != nil || code != 0 {
+		return nil
+	}
+	buf := new(strings.Builder)
+	if _, err := io.Copy(buf, reader); err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			// Extract base name from full path
+			parts := strings.Split(line, "/")
+			names = append(names, parts[len(parts)-1])
+		}
+	}
+	return names
+}
+
+// collectDotMarkersFromCluster finds marker files matching a pattern under baseDir across all 3 nodes.
+func collectDotMarkersFromCluster(t *testing.T, ctx context.Context, compose *docker.DockerCompose, baseDir, namePattern string) []string {
 	t.Helper()
 
 	var all []string
 	for i := 1; i <= 3; i++ {
 		node := compose.GetWeaviateNode(i)
-		files := listMarkerFilesInDir(ctx, node.Container(), dir)
+		names := findDotMarkers(ctx, node.Container(), baseDir, namePattern)
+		all = append(all, names...)
+	}
+	return all
+}
+
+// extractSubUnitIDsFromMarkers extracts sub-unit IDs from marker filenames.
+// Marker names use "--" as separator: .dtm-{type}--{taskID}--{suID} (or with groupID).
+// The sub-unit ID is always the last "--"-delimited segment.
+func extractSubUnitIDsFromMarkers(markerNames []string) []string {
+	var ids []string
+	for _, name := range markerNames {
+		parts := strings.Split(name, "--")
+		if len(parts) >= 3 {
+			ids = append(ids, parts[len(parts)-1])
+		}
+	}
+	return ids
+}
+
+// collectSyntheticMarkersFromCluster collects marker files from a directory under
+// ./data/.dtm/ across all 3 nodes.
+func collectSyntheticMarkersFromCluster(t *testing.T, ctx context.Context, compose *docker.DockerCompose, dir string) []string {
+	t.Helper()
+
+	var all []string
+	for i := 1; i <= 3; i++ {
+		node := compose.GetWeaviateNode(i)
+		files := listFilesInDir(ctx, node.Container(), dir)
 		all = append(all, files...)
 	}
 	return all
 }
 
-// awaitMarkers polls until expected marker files appear in the given subdirectory across the cluster.
-func awaitMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, subdir, taskID string, expected []string) {
+// awaitSyntheticMarkers polls until expected marker files appear under ./data/.dtm/
+// in the given subdirectory across the cluster.
+func awaitSyntheticMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, subdir, taskID string, expected []string) {
 	t.Helper()
 
-	dir := fmt.Sprintf("/tmp/%s/%s", subdir, taskID)
+	dir := fmt.Sprintf("./data/.dtm/%s/%s", subdir, taskID)
 	sort.Strings(expected)
 	require.Eventually(t, func() bool {
-		all := collectMarkersFromCluster(t, ctx, compose, dir)
+		all := collectSyntheticMarkersFromCluster(t, ctx, compose, dir)
 		sort.Strings(all)
 		return fmt.Sprintf("%v", all) == fmt.Sprintf("%v", expected)
 	}, 60*time.Second, 500*time.Millisecond, "expected %s markers %v", subdir, expected)
 }
 
+// collectionMarkerBaseDir returns the base directory for collection-aware markers
+// inside a container: ./data/{lowercase(collection)}.
+func collectionMarkerBaseDir(collection string) string {
+	return fmt.Sprintf("./data/%s", strings.ToLower(collection))
+}
+
 // awaitProcessingMarkers polls until expected processing marker files appear across the cluster.
-func awaitProcessingMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string) {
+// When collection is non-empty, searches for dot-files inside shard directories.
+// When collection is empty (synthetic mode), searches under ./data/.dtm/.
+func awaitProcessingMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string, collection ...string) {
 	t.Helper()
-	awaitMarkers(t, ctx, compose, "dtm-process", taskID, expected)
+	sort.Strings(expected)
+
+	coll := ""
+	if len(collection) > 0 {
+		coll = collection[0]
+	}
+
+	if coll != "" {
+		baseDir := collectionMarkerBaseDir(coll)
+		pattern := fmt.Sprintf(".dtm-process--%s--*", taskID)
+		require.Eventually(t, func() bool {
+			markers := collectDotMarkersFromCluster(t, ctx, compose, baseDir, pattern)
+			ids := extractSubUnitIDsFromMarkers(markers)
+			sort.Strings(ids)
+			return fmt.Sprintf("%v", ids) == fmt.Sprintf("%v", expected)
+		}, 60*time.Second, 500*time.Millisecond, "expected processing markers for %v", expected)
+	} else {
+		awaitSyntheticMarkers(t, ctx, compose, "dtm-process", taskID, expected)
+	}
 }
 
 // awaitFinalizedSubUnits polls until expected finalization marker files appear across the cluster.
-func awaitFinalizedSubUnits(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string) {
+// When collection is non-empty, searches for dot-files inside shard directories.
+// When collection is empty (synthetic mode), searches under ./data/.dtm/.
+func awaitFinalizedSubUnits(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expected []string, collection ...string) {
 	t.Helper()
-	awaitMarkers(t, ctx, compose, "dtm-finalize", taskID, expected)
+	sort.Strings(expected)
+
+	coll := ""
+	if len(collection) > 0 {
+		coll = collection[0]
+	}
+
+	if coll != "" {
+		baseDir := collectionMarkerBaseDir(coll)
+		pattern := fmt.Sprintf(".dtm-finalize--%s--*", taskID)
+		require.Eventually(t, func() bool {
+			markers := collectDotMarkersFromCluster(t, ctx, compose, baseDir, pattern)
+			ids := extractSubUnitIDsFromMarkers(markers)
+			sort.Strings(ids)
+			return fmt.Sprintf("%v", ids) == fmt.Sprintf("%v", expected)
+		}, 60*time.Second, 500*time.Millisecond, "expected finalization markers for %v", expected)
+	} else {
+		awaitSyntheticMarkers(t, ctx, compose, "dtm-finalize", taskID, expected)
+	}
 }
 
 // awaitCompletionMarkers polls until the expected number of completion markers appear across the cluster.
-func awaitCompletionMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expectedCount int) {
+// When collection is non-empty, searches for dot-files in the collection's index directory.
+// When collection is empty (synthetic mode), searches under ./data/.dtm/.
+func awaitCompletionMarkers(t *testing.T, ctx context.Context, compose *docker.DockerCompose, taskID string, expectedCount int, collection ...string) {
 	t.Helper()
 
-	dir := fmt.Sprintf("/tmp/dtm-complete/%s", taskID)
-	require.Eventually(t, func() bool {
-		all := collectMarkersFromCluster(t, ctx, compose, dir)
-		return len(all) >= expectedCount
-	}, 60*time.Second, 500*time.Millisecond, "expected %d completion markers", expectedCount)
+	coll := ""
+	if len(collection) > 0 {
+		coll = collection[0]
+	}
+
+	if coll != "" {
+		baseDir := collectionMarkerBaseDir(coll)
+		pattern := fmt.Sprintf(".dtm-complete--%s--*", taskID)
+		require.Eventually(t, func() bool {
+			markers := collectDotMarkersFromCluster(t, ctx, compose, baseDir, pattern)
+			return len(markers) >= expectedCount
+		}, 60*time.Second, 500*time.Millisecond, "expected %d completion markers", expectedCount)
+	} else {
+		dir := fmt.Sprintf("./data/.dtm/dtm-complete/%s", taskID)
+		require.Eventually(t, func() bool {
+			all := collectSyntheticMarkersFromCluster(t, ctx, compose, dir)
+			return len(all) >= expectedCount
+		}, 60*time.Second, 500*time.Millisecond, "expected %d completion markers", expectedCount)
+	}
 }
 
 // awaitTaskCompletedOnAnyNode polls until OnTaskCompleted has fired on at least one node.
