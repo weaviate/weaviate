@@ -1091,7 +1091,7 @@ func listTasks(t *testing.T, restURI string) models.DistributedTasks {
 }
 
 type debugStatus struct {
-	TaskCompleted     bool     `json:"taskCompleted"`
+	TaskCompleted  bool     `json:"taskCompleted"`
 	FinalizedUnits []string `json:"finalizedUnits"`
 }
 
