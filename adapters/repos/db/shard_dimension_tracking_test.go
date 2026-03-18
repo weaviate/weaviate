@@ -543,9 +543,9 @@ func Test_DisableDimensionTracking(t *testing.T) {
 			require.Nil(t, err)
 		}
 		dimAfter := getDimensionsFromRepo(context.Background(), db, "Test")
-		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
+		require.Equal(t, 12800, dimAfter, "dimensions are still tracked, expect 100*128 dims")
 		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), db, "Test", 64)
-		require.Equal(t, 6400, quantDimAfter, "quantized dimensions should not have changed")
+		require.Equal(t, 6400, quantDimAfter, "quantized dimensions are still tracked, expect 100*64 dims")
 	})
 
 	publishVectorMetricsFromDB(t, db)
@@ -553,7 +553,7 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	t.Run("observe that dimension tracking metrics are not updated", func(t *testing.T) {
 		metric, err := db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues("Test", shardName)
 		require.NoError(t, err)
-		assert.Equal(t, 0.0, testutil.ToFloat64(metric), "dimensions should not be tracked, so value should be 0")
+		assert.Equal(t, 0.0, testutil.ToFloat64(metric), "dimensions should not be reported, expect 0")
 	})
 }
 
