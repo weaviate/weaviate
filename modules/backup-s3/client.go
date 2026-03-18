@@ -113,20 +113,34 @@ func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string
 
 func (s *s3Client) AllBackups(ctx context.Context,
 ) ([]*backup.DistributedBackupDescriptor, error) {
+	// List non-recursively to get only backup ID prefixes (directories),
+	// avoiding a deep recursive walk through all node data files.
+	prefix := s.config.BackupPath
+	if prefix != "" && prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
 	objectsInfo := s.client.ListObjects(ctx,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
-			Recursive: true,
-			Prefix:    s.config.BackupPath,
+			Recursive: false,
+			Prefix:    prefix,
 		},
 	)
 
+	// Construct the exact backup_config.json key for each backup ID prefix.
 	var keys []string
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		keys = append(keys, info.Key)
+		if info.Err != nil {
+			return nil, fmt.Errorf("list objects: %w", info.Err)
+		}
+		// Non-recursive listing returns common prefixes (directories) as keys ending with "/".
+		// For each backup ID directory, the config file is at <prefix>backup_config.json.
+		if len(info.Key) > 0 && info.Key[len(info.Key)-1] == '/' {
+			keys = append(keys, info.Key+ubak.GlobalBackupFile)
+		}
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {

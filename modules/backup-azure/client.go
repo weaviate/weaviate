@@ -147,7 +147,10 @@ func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBack
 				if item.Name == nil {
 					continue
 				}
-				keys = append(keys, *item.Name)
+				// Only collect backup_config.json keys, skip all node data files.
+				if strings.HasSuffix(*item.Name, ubak.GlobalBackupFile) {
+					keys = append(keys, *item.Name)
+				}
 			}
 		}
 	}
