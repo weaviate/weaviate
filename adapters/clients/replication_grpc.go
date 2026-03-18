@@ -423,11 +423,8 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
-	defer cancel()
-
+	// No explicit timeout — relies on caller's context deadline, matching REST behavior.
 	// Disable retries to match REST behavior, which had no retries for FindUUIDs.
-	// The 20s timeout (vs no timeout in REST) is kept as an intentional safety net.
 	resp, err := client.FindUUIDs(ctx, &protocol.FindUUIDsRequest{
 		Index:      index,
 		Shard:      shard,
