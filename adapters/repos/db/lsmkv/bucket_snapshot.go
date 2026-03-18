@@ -101,7 +101,7 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 		return "", fmt.Errorf("flush memtable: %w", err)
 	}
 
-	if err := hardlinkBucketFiles(b.disk.dir, snapshotDir); err != nil {
+	if err := HardlinkBucketFiles(b.disk.dir, snapshotDir, false); err != nil {
 		b.resumeCompaction(ctx) //nolint:errcheck
 		os.RemoveAll(snapshotDir)
 		return "", fmt.Errorf("hardlink snapshot: %w", err)
@@ -114,9 +114,21 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 	return snapshotDir, nil
 }
 
-// hardlinkBucketFiles hard-links all stable (non-WAL, non-tmp) files from
-// srcDir into dstDir. The dstDir is created if it doesn't exist.
-func hardlinkBucketFiles(srcDir, dstDir string) error {
+// HardlinkBucketFiles hard-links bucket files from srcDir into dstDir.
+// The dstDir is created if it doesn't exist.
+//
+// When includeWAL is false, .wal files are skipped. This is appropriate when
+// snapshotting a loaded bucket that has just been flushed (the WAL belongs to
+// the new empty memtable). When includeWAL is true, .wal files are included.
+// This is necessary when snapshotting an unloaded bucket from disk, where the
+// WAL may contain data that was not flushed to a segment (e.g. small tenants
+// whose memtable was persisted as a WAL on shutdown).
+//
+// Temporary (.tmp) files are always skipped.
+//
+// On error, dstDir may contain a partial set of hard-links. The caller is
+// responsible for removing dstDir on failure.
+func HardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("create snapshot dir: %w", err)
 	}
@@ -131,9 +143,11 @@ func hardlinkBucketFiles(srcDir, dstDir string) error {
 			continue
 		}
 
-		// we just flushed the memtable and dont want the new memtable to be part of the snapshot
 		ext := filepath.Ext(entry.Name())
-		if ext == ".wal" || ext == ".tmp" {
+		if ext == ".tmp" {
+			continue
+		}
+		if ext == ".wal" && !includeWAL {
 			continue
 		}
 

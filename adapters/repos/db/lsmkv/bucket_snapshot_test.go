@@ -14,9 +14,11 @@ package lsmkv
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -31,64 +33,52 @@ func testLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestCreateSnapshotAndOpenBucket(t *testing.T) {
-	ctx := context.Background()
-	noopCB := cyclemanager.NewCallbackGroupNoop()
-
-	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
-		WithStrategy(StrategyReplace))
-	require.NoError(t, err)
-	defer bucket.Shutdown(ctx)
-
-	for i := range 100 {
-		key := make([]byte, 8)
-		key[7] = byte(i)
-		require.NoError(t, bucket.Put(key, []byte("value")))
+func TestCreateSnapshotAndOpen(t *testing.T) {
+	tests := []struct {
+		name       string
+		objects    int
+		flushEvery int // 0 means flush once at the end
+	}{
+		{name: "single segment", objects: 100, flushEvery: 0},
+		{name: "multiple segments", objects: 100, flushEvery: 33},
+		{name: "single object", objects: 1, flushEvery: 0},
+		{name: "large batch", objects: 1000, flushEvery: 250},
 	}
-	require.NoError(t, bucket.FlushAndSwitch())
 
-	snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "test")
-	require.NoError(t, err)
-	require.True(t, IsSnapshotDir(snapshotDir))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			noopCB := cyclemanager.NewCallbackGroupNoop()
 
-	snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(),
-		WithStrategy(StrategyReplace))
-	require.NoError(t, err)
-	defer snapBucket.Shutdown(ctx)
+			bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
+				WithStrategy(StrategyReplace))
+			require.NoError(t, err)
+			defer bucket.Shutdown(ctx)
 
-	require.Equal(t, 100, cursorCount(t, snapBucket))
-}
+			for i := range tc.objects {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(i))
+				require.NoError(t, bucket.Put(key, []byte("value")))
 
-func TestCreateSnapshotMultipleSegments(t *testing.T) {
-	ctx := context.Background()
-	noopCB := cyclemanager.NewCallbackGroupNoop()
-
-	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
-		WithStrategy(StrategyReplace))
-	require.NoError(t, err)
-	defer bucket.Shutdown(ctx)
-
-	batchSize := 33
-	for i := range 100 {
-		key := make([]byte, 8)
-		binary.BigEndian.PutUint64(key, uint64(i))
-		require.NoError(t, bucket.Put(key, []byte("value")))
-		if (i+1)%batchSize == 0 && i+1 < 100 {
+				if tc.flushEvery > 0 && (i+1)%tc.flushEvery == 0 && i+1 < tc.objects {
+					require.NoError(t, bucket.FlushAndSwitch())
+				}
+			}
 			require.NoError(t, bucket.FlushAndSwitch())
-		}
+
+			snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "test")
+			require.NoError(t, err)
+			require.True(t, IsSnapshotDir(snapshotDir))
+
+			snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(),
+				WithStrategy(StrategyReplace))
+			require.NoError(t, err)
+			defer snapBucket.Shutdown(ctx)
+
+			require.Equal(t, tc.objects, cursorCount(t, snapBucket))
+		})
 	}
-	require.NoError(t, bucket.FlushAndSwitch())
-	require.Equal(t, 100, cursorCount(t, bucket))
-
-	snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "test")
-	require.NoError(t, err)
-
-	snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(),
-		WithStrategy(StrategyReplace))
-	require.NoError(t, err)
-	defer snapBucket.Shutdown(ctx)
-
-	require.Equal(t, 100, cursorCount(t, snapBucket))
 }
 
 func TestSnapshotBucketReadOnly(t *testing.T) {
@@ -111,10 +101,8 @@ func TestSnapshotBucketReadOnly(t *testing.T) {
 	require.NoError(t, err)
 	defer snapBucket.Shutdown(ctx)
 
-	// Reads must work.
 	require.Equal(t, 1, cursorCount(t, snapBucket))
 
-	// Writes must be rejected.
 	assert.ErrorIs(t, snapBucket.Put([]byte("k"), []byte("v")), ErrReadOnly)
 	assert.ErrorIs(t, snapBucket.Delete([]byte("k")), ErrReadOnly)
 	assert.ErrorIs(t, snapBucket.FlushAndSwitch(), ErrReadOnly)
@@ -136,7 +124,6 @@ func TestSnapshotDirValidation(t *testing.T) {
 		snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "my-snap")
 		require.NoError(t, err)
 		defer func() {
-			// Clean up so GlobalBucketRegistry doesn't complain on next open.
 			sb, _ := NewSnapshotBucket(ctx, snapshotDir, testLogger(), WithStrategy(StrategyReplace))
 			if sb != nil {
 				sb.Shutdown(ctx)
@@ -171,7 +158,6 @@ func TestSnapshotIsolation(t *testing.T) {
 	require.NoError(t, err)
 	defer bucket.Shutdown(ctx)
 
-	// Write 50 keys and flush to disk so the snapshot captures them.
 	for i := range 50 {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(i))
@@ -179,7 +165,6 @@ func TestSnapshotIsolation(t *testing.T) {
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	// Take a snapshot.
 	snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "isolation")
 	require.NoError(t, err)
 
@@ -188,45 +173,32 @@ func TestSnapshotIsolation(t *testing.T) {
 	require.NoError(t, err)
 	defer snapBucket.Shutdown(ctx)
 
-	// --- Mutate the live bucket after the snapshot was taken ---
-
-	// 1. Overwrite existing keys with a new value.
+	// Mutate the live bucket: overwrite, insert new, delete.
 	for i := range 50 {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(i))
 		require.NoError(t, bucket.Put(key, []byte("updated")))
 	}
-
-	// 2. Insert 50 new keys (50-99).
 	for i := 50; i < 100; i++ {
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(i))
 		require.NoError(t, bucket.Put(key, []byte("new")))
 	}
-
-	// 3. Delete a key.
 	deleteKey := make([]byte, 8)
 	binary.BigEndian.PutUint64(deleteKey, 0)
 	require.NoError(t, bucket.Delete(deleteKey))
-
-	// 4. Flush so all mutations are on disk segments of the live bucket.
 	require.NoError(t, bucket.FlushAndSwitch())
 
-	// --- Verify the snapshot is completely unaffected ---
-
-	// Count: snapshot should still see exactly 50 keys.
+	// Snapshot must be unaffected.
 	require.Equal(t, 50, cursorCount(t, snapBucket))
 
-	// Values: every key in the snapshot should have the original value.
 	c := snapBucket.Cursor()
 	defer c.Close()
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		require.Equal(t, []byte("original"), v,
-			"snapshot value for key %v should be the original, not the updated value", k)
+			"snapshot value for key %v should be the original", k)
 	}
 
-	// The live bucket should reflect all mutations: 99 keys (50 updated +
-	// 50 new − 1 deleted).
 	require.Equal(t, 99, cursorCount(t, bucket))
 }
 
@@ -234,11 +206,9 @@ func TestSnapshotsRootCleanup(t *testing.T) {
 	ctx := context.Background()
 	noopCB := cyclemanager.NewCallbackGroupNoop()
 
-	// Simulate the on-disk layout: snapshots go into a shared root dir.
 	snapshotsRoot := filepath.Join(t.TempDir(), SnapshotsRootDir)
-	bucketDir := t.TempDir()
 
-	bucket, err := NewBucketCreator().NewBucket(ctx, bucketDir, "", testLogger(), nil, noopCB, noopCB,
+	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
 		WithStrategy(StrategyReplace))
 	require.NoError(t, err)
 	defer bucket.Shutdown(ctx)
@@ -250,16 +220,115 @@ func TestSnapshotsRootCleanup(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = os.Stat(snapshotDir)
-	require.NoError(t, err, "snapshot dir should exist before cleanup")
+	require.NoError(t, err)
 
-	// Simulate what NewIndex does on startup: remove the entire snapshots root.
 	require.NoError(t, os.RemoveAll(snapshotsRoot))
 
 	_, err = os.Stat(snapshotDir)
-	require.True(t, os.IsNotExist(err), "snapshot dir should be gone after removing snapshots root")
-
+	require.True(t, os.IsNotExist(err))
 	_, err = os.Stat(snapshotsRoot)
-	require.True(t, os.IsNotExist(err), "snapshots root itself should be gone")
+	require.True(t, os.IsNotExist(err))
+}
+
+// TestSnapshotWALOnlyData verifies that HardlinkBucketFiles with
+// includeWAL=true correctly captures data that lives only in the WAL (no
+// segment files). This happens for small tenants where the bucket's Shutdown
+// persists the memtable as a WAL rather than flushing to a segment (the
+// shouldReuseWAL optimisation).
+func TestSnapshotWALOnlyData(t *testing.T) {
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+	bucketDir := t.TempDir()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, bucketDir, bucketDir,
+		testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+
+	for i := range 5 {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		require.NoError(t, bucket.Put(key, []byte("small")))
+	}
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	// Verify: .wal exists but no .db files.
+	entries, err := os.ReadDir(bucketDir)
+	require.NoError(t, err)
+	hasWAL, hasDB := false, false
+	for _, e := range entries {
+		switch filepath.Ext(e.Name()) {
+		case ".wal":
+			hasWAL = true
+		case ".db":
+			hasDB = true
+		}
+	}
+	require.True(t, hasWAL, "expected .wal file")
+	require.False(t, hasDB, "expected no .db files — data should be WAL-only")
+
+	// Snapshot from disk with includeWAL=true.
+	snapshotDir := filepath.Join(t.TempDir(), SnapshotDirPrefix+"wal-only")
+	require.NoError(t, HardlinkBucketFiles(bucketDir, snapshotDir, true))
+
+	snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(),
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	defer snapBucket.Shutdown(ctx)
+
+	require.Equal(t, 5, cursorCount(t, snapBucket))
+
+	c := snapBucket.Cursor()
+	defer c.Close()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		require.Equal(t, []byte("small"), v)
+	}
+}
+
+// TestSnapshotConcurrentCreation verifies that two concurrent snapshot
+// operations on the same bucket produce independent, correct snapshots.
+func TestSnapshotConcurrentCreation(t *testing.T) {
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+
+	for i := range 100 {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		require.NoError(t, bucket.Put(key, []byte("value")))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	snapshotsRoot := t.TempDir()
+	errs := make([]error, 2)
+	dirs := make([]string, 2)
+
+	var wg sync.WaitGroup
+	for i := range 2 {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			dirs[idx], errs[idx] = bucket.CreateSnapshot(ctx, snapshotsRoot,
+				fmt.Sprintf("concurrent-%d", idx))
+		}(i)
+	}
+	wg.Wait()
+
+	require.NoError(t, errs[0])
+	require.NoError(t, errs[1])
+	require.NotEqual(t, dirs[0], dirs[1])
+
+	for i, dir := range dirs {
+		snapBucket, err := NewSnapshotBucket(ctx, dir, testLogger(),
+			WithStrategy(StrategyReplace))
+		require.NoError(t, err, "snapshot %d", i)
+		require.Equal(t, 100, cursorCount(t, snapBucket), "snapshot %d", i)
+		require.NoError(t, snapBucket.Shutdown(ctx))
+	}
 }
 
 func cursorCount(t *testing.T, b *Bucket) int {
