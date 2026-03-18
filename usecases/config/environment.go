@@ -55,7 +55,7 @@ const (
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
-	DefaultTrackVectorDimensionsInterval = 10 * time.Second
+	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
