@@ -127,7 +127,10 @@ func (vo *VObject) MarshalBinaryV2() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse uuid %q: %w", vo.ID, err)
 		}
-		b, _ := uid.MarshalBinary()
+		b, err := uid.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("marshal uuid %q: %w", vo.ID, err)
+		}
 		buf.Write(b)
 	}
 
