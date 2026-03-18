@@ -586,9 +586,9 @@ type addTaskRequest struct {
 	UnitGroups        map[string]string `json:"subUnitGroups,omitempty"` // unitID → groupID
 	FailSubUnit       string            `json:"failSubUnit,omitempty"`
 	Collection        string            `json:"collection,omitempty"`
-	UnitToShard       map[string]string `json:"unitToShard,omitempty"`
-	UnitToNode        map[string]string `json:"unitToNode,omitempty"`
-	SlowSubUnit       string            `json:"slowUnit,omitempty"`
+	UnitToShard       map[string]string `json:"subUnitToShard,omitempty"`
+	UnitToNode        map[string]string `json:"subUnitToNode,omitempty"`
+	SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
 	SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
 	ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
 	MaxConcurrency    int               `json:"maxConcurrency,omitempty"`
