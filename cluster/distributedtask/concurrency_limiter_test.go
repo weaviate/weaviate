@@ -88,7 +88,13 @@ func TestConcurrencyLimiter_ContextCancellation(t *testing.T) {
 	l.Release()
 }
 
-func TestConcurrencyLimiter_PanicsOnInvalidMax(t *testing.T) {
-	assert.Panics(t, func() { NewConcurrencyLimiter(0) })
-	assert.Panics(t, func() { NewConcurrencyLimiter(-1) })
+func TestConcurrencyLimiter_ClampsInvalidMaxToOne(t *testing.T) {
+	// Values < 1 should be clamped to 1 (sequential), not panic.
+	l0 := NewConcurrencyLimiter(0)
+	assert.NoError(t, l0.Acquire(context.Background()))
+	l0.Release()
+
+	lNeg := NewConcurrencyLimiter(-1)
+	assert.NoError(t, lNeg.Acquire(context.Background()))
+	lNeg.Release()
 }

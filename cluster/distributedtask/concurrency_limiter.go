@@ -21,10 +21,10 @@ type ConcurrencyLimiter struct {
 }
 
 // NewConcurrencyLimiter creates a limiter that allows up to maxConcurrency
-// concurrent operations. Panics if maxConcurrency < 1.
+// concurrent operations. Values < 1 are clamped to 1.
 func NewConcurrencyLimiter(maxConcurrency int) *ConcurrencyLimiter {
 	if maxConcurrency < 1 {
-		panic("maxConcurrency must be >= 1")
+		maxConcurrency = 1
 	}
 	return &ConcurrencyLimiter{sem: make(chan struct{}, maxConcurrency)}
 }
