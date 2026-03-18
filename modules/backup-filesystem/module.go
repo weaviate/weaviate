@@ -13,12 +13,12 @@ package modstgfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -65,7 +65,7 @@ func (m *Module) Init(ctx context.Context,
 	m.dataPath = params.GetStorageProvider().DataPath()
 	backupsPath := os.Getenv(backupsPathName)
 	if err := m.initBackupBackend(ctx, backupsPath); err != nil {
-		return errors.Wrap(err, "init backup backend")
+		return fmt.Errorf("init backup backend: %w", err)
 	}
 
 	return nil
@@ -91,9 +91,13 @@ func (m *Module) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDes
 			continue
 		}
 		fileName := path.Join(m.backupsPath, bak.Name(), ubak.GlobalBackupFile)
-		if _, err := os.Stat(fileName); err == nil {
-			keys = append(keys, fileName)
+		if _, err := os.Stat(fileName); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("stat backup file %q: %w", fileName, err)
+			}
+			continue
 		}
+		keys = append(keys, fileName)
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, m.logger, keys, func(_ context.Context, key string) ([]byte, error) {

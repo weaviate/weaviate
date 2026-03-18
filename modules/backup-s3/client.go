@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -126,9 +125,6 @@ func (s *s3Client) AllBackups(ctx context.Context,
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
 			return nil, err
-		}
-		if !strings.HasSuffix(info.Key, ubak.GlobalBackupFile) {
-			continue
 		}
 		keys = append(keys, info.Key)
 	}

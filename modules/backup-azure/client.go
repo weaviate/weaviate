@@ -144,7 +144,7 @@ func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBack
 
 		if blob.ListBlobsFlatSegmentResponse.Segment != nil {
 			for _, item := range blob.ListBlobsFlatSegmentResponse.Segment.BlobItems {
-				if item.Name == nil || !strings.Contains(*item.Name, ubak.GlobalBackupFile) {
+				if item.Name == nil {
 					continue
 				}
 				keys = append(keys, *item.Name)
