@@ -131,6 +131,7 @@ func hardlinkBucketFiles(srcDir, dstDir string) error {
 			continue
 		}
 
+		// we just flushed the memtable and dont want the new memtable to be part of the snapshot
 		ext := filepath.Ext(entry.Name())
 		if ext == ".wal" || ext == ".tmp" {
 			continue
