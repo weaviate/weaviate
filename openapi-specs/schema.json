@@ -2582,6 +2582,52 @@
         "payload": {
           "description": "The payload of the task.",
           "type": "object"
+        },
+        "units": {
+          "description": "Units of the task. Only present for tasks that use unit tracking.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "$ref": "#/definitions/DistributedTaskUnit"
+          }
+        }
+      }
+    },
+    "DistributedTaskUnit": {
+      "description": "A unit of a distributed task.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The ID of the unit.",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "The node that owns this unit.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The status of the unit.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "The progress of the unit (0.0 to 1.0).",
+          "type": "number",
+          "format": "float"
+        },
+        "error": {
+          "description": "The error message if the unit failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "updatedAt": {
+          "description": "The time when the unit was last updated.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "description": "The time when the unit finished.",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
