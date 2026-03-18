@@ -23,7 +23,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -56,6 +58,11 @@ const (
 // regex pattern for the chunk files
 var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
 
+// regex pattern for processed chunk tombstone files
+var processedChunkFilePattern = regexp.MustCompile(`^chunk-\d+\.bin\.processed$`)
+
+// A Queue represents anything that can be scheduled by the Scheduler.
+// It must return its ID, size, and be able to dequeue a batch of tasks.
 type Queue interface {
 	ID() string
 	Size() int64
@@ -90,6 +97,11 @@ type DiskQueue struct {
 	diskUsage    int64
 
 	rmLock sync.Mutex
+
+	// maintenanceMode prevents processed chunk files from being deleted from disk;
+	// instead a tombstone (.bin.processed) is created alongside them.
+	// This is used during backup to keep chunk files available for copying.
+	maintenanceMode atomic.Bool
 }
 
 type DiskQueueOptions struct {
@@ -494,9 +506,67 @@ func (q *DiskQueue) Drop() error {
 	return nil
 }
 
+// EnableMaintenanceMode prevents processed chunk files from being deleted.
+// Instead, a tombstone file (.bin.processed) is created alongside each processed chunk.
+// This allows the backup system to copy chunk files without them disappearing mid-copy.
+// Call DisableMaintenanceMode when the backup is complete.
+func (q *DiskQueue) EnableMaintenanceMode() {
+	q.maintenanceMode.Store(true)
+}
+
+// DisableMaintenanceMode re-enables normal chunk deletion and cleans up all
+// tombstone files and their corresponding chunk files left from the freeze period.
+func (q *DiskQueue) DisableMaintenanceMode() error {
+	q.maintenanceMode.Store(false)
+	return q.cleanupProcessedChunks()
+}
+
+// cleanupProcessedChunks scans the queue directory for tombstone files
+// (.bin.processed) and deletes both the tombstone and its corresponding chunk file.
+// This is called on startup (crash recovery) and when disabling maintenance mode.
+func (q *DiskQueue) cleanupProcessedChunks() error {
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		if stderrors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return errors.Wrap(err, "failed to read directory during tombstone cleanup")
+	}
+
+	for _, entry := range entries {
+		if !processedChunkFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+		tombstonePath := filepath.Join(q.dir, entry.Name())
+		chunkPath := strings.TrimSuffix(tombstonePath, ".processed")
+		_ = os.Remove(chunkPath)
+		_ = os.Remove(tombstonePath)
+	}
+
+	return nil
+}
+
 func (q *DiskQueue) removeChunk(c *chunk) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
+
+	if q.maintenanceMode.Load() {
+		q.r.ReleaseChunk(c)
+		tombstonePath := c.path + ".processed"
+		f, err := os.Create(tombstonePath)
+		if err == nil {
+			_ = f.Close()
+			q.m.Lock()
+			q.recordCount -= c.count
+			q.diskUsage -= int64(c.size)
+			q.metrics.DiskUsage(q.diskUsage)
+			q.metrics.Size(q.recordCount)
+			q.m.Unlock()
+			return
+		}
+		q.Logger.WithError(err).WithField("file", c.path).Error("failed to create tombstone, falling back to deletion")
+		// fall through to normal deletion
+	}
 
 	deleted, err := q.r.RemoveChunk(c)
 	if err != nil {
@@ -522,6 +592,11 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 func (q *DiskQueue) analyzeDisk() ([]string, error) {
 	q.m.Lock()
 	defer q.m.Unlock()
+
+	// crash recovery: clean up any tombstones left from a previous maintenance mode session
+	if err := q.cleanupProcessedChunks(); err != nil {
+		return nil, err
+	}
 
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
@@ -594,6 +669,15 @@ func (q *DiskQueue) listFilesNoLock(ctx context.Context, basePath string) ([]str
 		return nil, errors.Wrap(err, "failed to read directory")
 	}
 
+	// build set of already-processed chunk paths to exclude from the backup list
+	processedFiles := make(map[string]struct{})
+	for _, entry := range entries {
+		if processedChunkFilePattern.MatchString(entry.Name()) {
+			chunkName := strings.TrimSuffix(entry.Name(), ".processed")
+			processedFiles[filepath.Join(q.dir, chunkName)] = struct{}{}
+		}
+	}
+
 	chunkList := make([]string, 0, len(entries))
 
 	for _, entry := range entries {
@@ -605,18 +689,28 @@ func (q *DiskQueue) listFilesNoLock(ctx context.Context, basePath string) ([]str
 			continue
 		}
 
+		// skip tombstone files (they match chunkFilePattern since it's unanchored)
+		if processedChunkFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+
 		// check if the entry name matches the regex pattern of a chunk file
 		if !chunkFilePattern.Match([]byte(entry.Name())) {
 			continue
 		}
 
-		relPath, err := filepath.Rel(basePath, filepath.Join(q.dir, entry.Name()))
+		filePath := filepath.Join(q.dir, entry.Name())
+		if _, ok := processedFiles[filePath]; ok {
+			// already processed during maintenance mode, skip for backup
+			continue
+		}
+
+		relPath, err := filepath.Rel(basePath, filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get relative path: %w", err)
 		}
 
 		chunkList = append(chunkList, relPath)
-		continue
 	}
 
 	return chunkList, nil
@@ -1183,6 +1277,15 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 	r.chunkList = append(r.chunkList, f.Name())
 
 	return nil
+}
+
+// ReleaseChunk closes the chunk's file handle and removes it from the reader cache
+// without deleting the file from disk. Used during maintenance mode.
+func (r *chunkReader) ReleaseChunk(c *chunk) {
+	_ = c.Close()
+	r.m.Lock()
+	delete(r.chunks, c.path)
+	r.m.Unlock()
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
