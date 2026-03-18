@@ -167,6 +167,9 @@ func addTypeInformation(r *aggregation.Result, params *aggregation.Params, getCl
 			if pdt.IsReference() {
 				out.Type = aggregation.PropertyTypeReference
 				out.ReferenceAggregation.PointingTo = property.DataType
+				if r.Groups[i].Properties == nil {
+					r.Groups[i].Properties = make(map[string]aggregation.Property)
+				}
 			}
 			r.Groups[i].Properties[property.Name] = out
 		}
