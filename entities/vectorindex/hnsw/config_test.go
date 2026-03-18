@@ -546,6 +546,18 @@ func Test_UserConfig(t *testing.T) {
 		},
 
 		{
+			name: "with negative pq segments",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled":  true,
+					"segments": float64(-1),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "pq segments must be non-negative",
+		},
+
+		{
 			// opposed to from the API
 			name: "with rounded vectorCacheMaxObjects that would otherwise overflow",
 			input: map[string]interface{}{

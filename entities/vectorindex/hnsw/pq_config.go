@@ -76,6 +76,11 @@ func ValidatePQConfig(cfg PQConfig) error {
 	if !cfg.Enabled {
 		return nil
 	}
+
+	if cfg.Segments < 0 {
+		return fmt.Errorf("pq segments must be non-negative")
+	}
+
 	err := validEncoder(cfg.Encoder.Type)
 	if err != nil {
 		return err
