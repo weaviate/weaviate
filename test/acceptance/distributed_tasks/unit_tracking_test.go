@@ -53,10 +53,10 @@ func TestUnitTaskLifecycle_Success(t *testing.T) {
 
 	task := findTask(t, restURI, taskID)
 	assert.Equal(t, "FINISHED", task.Status)
-	require.NotNil(t, task.SubUnits)
-	assert.Len(t, task.SubUnits, 3)
+	require.NotNil(t, task.Units)
+	assert.Len(t, task.Units, 3)
 
-	for _, su := range task.SubUnits {
+	for _, su := range task.Units {
 		assert.Equal(t, "COMPLETED", su.Status, "unit %s should be completed", su.ID)
 		assert.Equal(t, float32(1.0), su.Progress, "unit %s should have progress 1.0", su.ID)
 	}
@@ -80,18 +80,18 @@ func TestUnitTaskLifecycle_Failure(t *testing.T) {
 	task := findTask(t, restURI, taskID)
 	assert.Equal(t, "FAILED", task.Status)
 	assert.Contains(t, task.Error, "dummy failure")
-	require.NotNil(t, task.SubUnits)
+	require.NotNil(t, task.Units)
 
-	var failedSU *models.DistributedTaskSubUnit
-	for _, su := range task.SubUnits {
+	var failedUnit *models.DistributedTaskUnit
+	for _, su := range task.Units {
 		if su.ID == "su-2" {
-			failedSU = su
+			failedUnit = su
 			break
 		}
 	}
-	require.NotNil(t, failedSU)
-	assert.Equal(t, "FAILED", failedSU.Status)
-	assert.Contains(t, failedSU.Error, "dummy failure")
+	require.NotNil(t, failedUnit)
+	assert.Equal(t, "FAILED", failedUnit.Status)
+	assert.Contains(t, failedUnit.Error, "dummy failure")
 }
 
 func TestTask_NoUnits_Rejected(t *testing.T) {
@@ -137,19 +137,19 @@ func TestUnitTask_PerShardFinalize(t *testing.T) {
 		expectedStatus string
 	}{
 		{
-			name:           "MoreSubUnitsThanNodes",
+			name:           "MoreUnitsThanNodes",
 			taskID:         "finalize-more-units",
 			units:          []string{"su-1", "su-2", "su-3", "su-4", "su-5", "su-6"},
 			expectedStatus: "FINISHED",
 		},
 		{
-			name:           "FewerSubUnitsThanNodes",
+			name:           "FewerUnitsThanNodes",
 			taskID:         "finalize-fewer-units",
 			units:          []string{"su-1", "su-2"},
 			expectedStatus: "FINISHED",
 		},
 		{
-			name:           "OneSubUnit",
+			name:           "OneUnit",
 			taskID:         "finalize-one-unit",
 			units:          []string{"su-only"},
 			expectedStatus: "FINISHED",
@@ -300,7 +300,7 @@ func TestRealCollectionSuite(t *testing.T) {
 
 		task := findTask(t, restURI, taskID)
 		assert.Equal(t, "FINISHED", task.Status)
-		assert.Len(t, task.SubUnits, 3)
+		assert.Len(t, task.Units, 3)
 
 		// Verify only targeted units have processing markers
 		awaitProcessingMarkers(t, ctx, compose, taskID, unitIDs, className)
@@ -338,7 +338,7 @@ func TestRealCollectionSuite(t *testing.T) {
 			if task == nil {
 				return false
 			}
-			for _, su := range task.SubUnits {
+			for _, su := range task.Units {
 				for _, fsu := range fastUnits {
 					if su.ID == fsu && su.Status == "COMPLETED" {
 						return true
@@ -424,7 +424,7 @@ func TestMultiTenantSuite(t *testing.T) {
 
 		task := findTask(t, restURI, taskID)
 		assert.Equal(t, "FINISHED", task.Status)
-		assert.Len(t, task.SubUnits, 5)
+		assert.Len(t, task.Units, 5)
 
 		awaitProcessingMarkers(t, ctx, compose, taskID, unitIDs, className)
 
@@ -468,7 +468,7 @@ func TestMultiTenantSuite(t *testing.T) {
 
 		task := findTask(t, restURI, taskID)
 		assert.Equal(t, "FINISHED", task.Status)
-		assert.Len(t, task.SubUnits, 15)
+		assert.Len(t, task.Units, 15)
 
 		awaitProcessingMarkers(t, ctx, compose, taskID, unitIDs, className)
 
@@ -516,7 +516,7 @@ func runStandardCollectionTest(t *testing.T, ctx context.Context, compose *docke
 
 	task := findTask(t, restURI, tc.taskID)
 	assert.Equal(t, "FINISHED", task.Status)
-	assert.Len(t, task.SubUnits, tc.expectedUnits)
+	assert.Len(t, task.Units, tc.expectedUnits)
 
 	awaitProcessingMarkers(t, ctx, compose, tc.taskID, unitIDs, tc.className)
 	awaitFinalizedUnits(t, ctx, compose, tc.taskID, unitIDs, tc.className)
@@ -562,7 +562,7 @@ func runStandardMTTest(t *testing.T, ctx context.Context, compose *docker.Docker
 
 	task := findTask(t, restURI, tc.taskID)
 	assert.Equal(t, "FINISHED", task.Status)
-	assert.Len(t, task.SubUnits, tc.expectedUnits)
+	assert.Len(t, task.Units, tc.expectedUnits)
 
 	awaitProcessingMarkers(t, ctx, compose, tc.taskID, unitIDs, tc.className)
 	awaitFinalizedUnits(t, ctx, compose, tc.taskID, unitIDs, tc.className)
@@ -1092,7 +1092,7 @@ func listTasks(t *testing.T, restURI string) models.DistributedTasks {
 
 type debugStatus struct {
 	TaskCompleted     bool     `json:"taskCompleted"`
-	FinalizedSubUnits []string `json:"finalizedSubUnits"`
+	FinalizedUnits []string `json:"finalizedUnits"`
 }
 
 // getDebugStatus queries the debug status endpoint on a node.

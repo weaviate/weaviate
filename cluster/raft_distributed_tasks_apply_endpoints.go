@@ -50,14 +50,14 @@ func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string,
 // UnitSpecs take precedence over UnitIds when both are present.
 func (s *Raft) AddDistributedTaskWithGroups(
 	ctx context.Context, namespace, taskID string,
-	taskPayload any, subUnitSpecs []distributedtask.UnitSpec,
+	taskPayload any, unitSpecs []distributedtask.UnitSpec,
 ) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task payload: %w", err)
 	}
-	protoSpecs := make([]*cmd.UnitSpec, len(subUnitSpecs))
-	for i, spec := range subUnitSpecs {
+	protoSpecs := make([]*cmd.UnitSpec, len(unitSpecs))
+	for i, spec := range unitSpecs {
 		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
 	}
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{

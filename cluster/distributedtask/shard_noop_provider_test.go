@@ -168,7 +168,7 @@ func (f *providerFixture) startAndAwaitCompleted(t *testing.T, task *Task, expec
 	return handle, f.recorder.getCompleted()
 }
 
-func TestShardNoopProvider_SyntheticSubUnits_NilShardLister(t *testing.T) {
+func TestShardNoopProvider_SyntheticUnits_NilShardLister(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(map[string]*Unit{
 		"su-1": {Status: UnitStatusPending},
@@ -181,7 +181,7 @@ func TestShardNoopProvider_SyntheticSubUnits_NilShardLister(t *testing.T) {
 	assert.ElementsMatch(t, []string{"su-1", "su-2"}, completed)
 }
 
-func TestShardNoopProvider_SyntheticSubUnits_SkipsOtherNodes(t *testing.T) {
+func TestShardNoopProvider_SyntheticUnits_SkipsOtherNodes(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(map[string]*Unit{
 		"su-1": {Status: UnitStatusPending, NodeID: "node1"},
@@ -254,7 +254,7 @@ func TestShardNoopProvider_CollectionAware_ShardListerError(t *testing.T) {
 	defer handle.Terminate()
 }
 
-func TestShardNoopProvider_CollectionAware_FailSubUnit(t *testing.T) {
+func TestShardNoopProvider_CollectionAware_FailUnit(t *testing.T) {
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"shardA", "shardB"},
@@ -343,7 +343,7 @@ func TestShardNoopProvider_OnTaskCompleted(t *testing.T) {
 	assert.True(t, f.provider.IsTaskCompleted(task.TaskDescriptor))
 }
 
-func TestShardNoopProvider_PerReplicaSubUnits_OnlyProcessesLocalShards(t *testing.T) {
+func TestShardNoopProvider_PerReplicaUnits_OnlyProcessesLocalShards(t *testing.T) {
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"s1", "s2"}, // nodeA has both s1 and s2
@@ -384,7 +384,7 @@ func TestShardNoopProvider_PerReplicaSubUnits_OnlyProcessesLocalShards(t *testin
 	assert.ElementsMatch(t, []string{"s1__nodeA", "s2__nodeA"}, completed)
 }
 
-func TestShardNoopProvider_PerReplicaSubUnits_UnknownSubUnitSkipped(t *testing.T) {
+func TestShardNoopProvider_PerReplicaUnits_UnknownUnitSkipped(t *testing.T) {
 	lister := &mockShardLister{
 		shards: map[string][]string{
 			"MyClass": {"s1"},
@@ -419,7 +419,7 @@ func TestShardNoopProvider_PerReplicaSubUnits_UnknownSubUnitSkipped(t *testing.T
 	assert.ElementsMatch(t, []string{"s1__nodeA"}, completed)
 }
 
-func TestShardNoopProvider_SlowSubUnit(t *testing.T) {
+func TestShardNoopProvider_SlowUnit(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 
 	task := f.newTaskWithPayload(

@@ -54,8 +54,8 @@ type DistributedTask struct {
 	// The status of the task.
 	Status string `json:"status,omitempty"`
 
-	// Sub-units of the task. Only present for tasks that use sub-unit tracking.
-	SubUnits []*DistributedTaskSubUnit `json:"subUnits,omitempty"`
+	// Units of the task. Only present for tasks that use unit tracking.
+	Units []*DistributedTaskUnit `json:"units,omitempty"`
 
 	// The version of the task.
 	Version int64 `json:"version,omitempty"`
@@ -73,7 +73,7 @@ func (m *DistributedTask) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateSubUnits(formats); err != nil {
+	if err := m.validateUnits(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -107,22 +107,22 @@ func (m *DistributedTask) validateStartedAt(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *DistributedTask) validateSubUnits(formats strfmt.Registry) error {
-	if swag.IsZero(m.SubUnits) { // not required
+func (m *DistributedTask) validateUnits(formats strfmt.Registry) error {
+	if swag.IsZero(m.Units) { // not required
 		return nil
 	}
 
-	for i := 0; i < len(m.SubUnits); i++ {
-		if swag.IsZero(m.SubUnits[i]) { // not required
+	for i := 0; i < len(m.Units); i++ {
+		if swag.IsZero(m.Units[i]) { // not required
 			continue
 		}
 
-		if m.SubUnits[i] != nil {
-			if err := m.SubUnits[i].Validate(formats); err != nil {
+		if m.Units[i] != nil {
+			if err := m.Units[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("subUnits" + "." + strconv.Itoa(i))
+					return ve.ValidateName("units" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("subUnits" + "." + strconv.Itoa(i))
+					return ce.ValidateName("units" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -137,7 +137,7 @@ func (m *DistributedTask) validateSubUnits(formats strfmt.Registry) error {
 func (m *DistributedTask) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.contextValidateSubUnits(ctx, formats); err != nil {
+	if err := m.contextValidateUnits(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -147,16 +147,16 @@ func (m *DistributedTask) ContextValidate(ctx context.Context, formats strfmt.Re
 	return nil
 }
 
-func (m *DistributedTask) contextValidateSubUnits(ctx context.Context, formats strfmt.Registry) error {
+func (m *DistributedTask) contextValidateUnits(ctx context.Context, formats strfmt.Registry) error {
 
-	for i := 0; i < len(m.SubUnits); i++ {
+	for i := 0; i < len(m.Units); i++ {
 
-		if m.SubUnits[i] != nil {
-			if err := m.SubUnits[i].ContextValidate(ctx, formats); err != nil {
+		if m.Units[i] != nil {
+			if err := m.Units[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("subUnits" + "." + strconv.Itoa(i))
+					return ve.ValidateName("units" + "." + strconv.Itoa(i))
 				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("subUnits" + "." + strconv.Itoa(i))
+					return ce.ValidateName("units" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

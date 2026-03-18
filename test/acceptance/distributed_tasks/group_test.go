@@ -61,10 +61,10 @@ func TestGroupFinalizationSuite(t *testing.T) {
 
 		task := findTask(t, restURI, taskID)
 		assert.Equal(t, "FINISHED", task.Status)
-		require.NotNil(t, task.SubUnits)
-		assert.Len(t, task.SubUnits, 6)
+		require.NotNil(t, task.Units)
+		assert.Len(t, task.Units, 6)
 
-		for _, su := range task.SubUnits {
+		for _, su := range task.Units {
 			assert.Equal(t, "COMPLETED", su.Status, "unit %s should be completed", su.ID)
 		}
 
@@ -124,10 +124,10 @@ func TestGroupFinalizationSuite(t *testing.T) {
 
 		task := findTask(t, restURI, taskID)
 		assert.Equal(t, "FINISHED", task.Status)
-		require.NotNil(t, task.SubUnits)
-		assert.Len(t, task.SubUnits, numGroups*unitsPerGroup)
+		require.NotNil(t, task.Units)
+		assert.Len(t, task.Units, numGroups*unitsPerGroup)
 
-		for _, su := range task.SubUnits {
+		for _, su := range task.Units {
 			assert.Equal(t, "COMPLETED", su.Status, "unit %s should be completed", su.ID)
 		}
 
@@ -151,8 +151,8 @@ func TestGroupFinalizationSuite(t *testing.T) {
 
 		task := findTask(t, restURI, taskID)
 		assert.Equal(t, "FINISHED", task.Status)
-		require.NotNil(t, task.SubUnits)
-		assert.Len(t, task.SubUnits, 3)
+		require.NotNil(t, task.Units)
+		assert.Len(t, task.Units, 3)
 
 		awaitFinalizedUnits(t, ctx, compose, taskID, units)
 		awaitTaskCompletedOnAnyNode(t, compose, taskID)

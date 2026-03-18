@@ -66,7 +66,7 @@ func TestHandler_ListTasks(t *testing.T) {
 				StartedAt:  strfmt.DateTime(now.Add(-time.Hour)),
 				FinishedAt: strfmt.DateTime(now),
 				Payload:    map[string]interface{}{"hello": "world"},
-				SubUnits:   []*models.DistributedTaskSubUnit{},
+				Units:      []*models.DistributedTaskUnit{},
 			},
 		},
 	}, tasks)

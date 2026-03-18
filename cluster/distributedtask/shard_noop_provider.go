@@ -338,7 +338,7 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 	}
 
 	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
-		WithField("subUnitCount", len(task.Units)).WithField("localShardSet", localShardSet).
+		WithField("unitCount", len(task.Units)).WithField("localShardSet", localShardSet).
 		WithField("maxConcurrency", payload.MaxConcurrency).
 		Info("shard-noop provider: starting unit processing")
 

@@ -159,7 +159,7 @@ func verifyCrashRecoveryResult(t *testing.T, ctx context.Context, compose *docke
 
 	task := findTask(t, restURI, taskID)
 	assert.Equal(t, "FINISHED", task.Status)
-	assert.Len(t, task.SubUnits, 9)
+	assert.Len(t, task.Units, 9)
 
 	awaitProcessingMarkers(t, ctx, compose, taskID, unitIDs, className)
 	awaitFinalizedUnits(t, ctx, compose, taskID, unitIDs, className)
@@ -200,7 +200,7 @@ func awaitAnyUnitInProgress(t *testing.T, restURI, taskID string) {
 		if task == nil {
 			return false
 		}
-		for _, su := range task.SubUnits {
+		for _, su := range task.Units {
 			if su.Status == "IN_PROGRESS" {
 				return true
 			}

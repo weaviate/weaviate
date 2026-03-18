@@ -71,7 +71,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				Payload:    payload,
 			}
 
-			dt.SubUnits = mapUnits(task)
+			dt.Units = mapUnits(task)
 
 			resp[namespace] = append(resp[namespace], dt)
 		}
@@ -80,10 +80,10 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 	return resp, nil
 }
 
-func mapUnits(task *distributedtask.Task) []*models.DistributedTaskSubUnit {
-	units := make([]*models.DistributedTaskSubUnit, 0, len(task.Units))
+func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
+	units := make([]*models.DistributedTaskUnit, 0, len(task.Units))
 	for _, su := range task.Units {
-		units = append(units, &models.DistributedTaskSubUnit{
+		units = append(units, &models.DistributedTaskUnit{
 			ID:         su.ID,
 			NodeID:     su.NodeID,
 			Status:     string(su.Status),

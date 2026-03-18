@@ -701,7 +701,7 @@ func TestManager_UpdateUnitProgress_InvalidValues(t *testing.T) {
 	})
 }
 
-func TestManager_SnapshotRestore_WithSubUnits(t *testing.T) {
+func TestManager_SnapshotRestore_WithUnits(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
 	addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})

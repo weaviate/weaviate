@@ -133,7 +133,7 @@ func TestThrottledRecorder_FailureCleansUpThrottleEntry(t *testing.T) {
 	recorder.mu.Unlock()
 }
 
-func TestThrottledRecorder_DifferentSubUnitsTrackedIndependently(t *testing.T) {
+func TestThrottledRecorder_DifferentUnitsTrackedIndependently(t *testing.T) {
 	recorder, clock, inner := newTestThrottledRecorder(t)
 
 	inner.EXPECT().UpdateDistributedTaskUnitProgress(

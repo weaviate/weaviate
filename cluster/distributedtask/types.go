@@ -176,7 +176,7 @@ type Task struct {
 	Error string `json:"error,omitempty"`
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
-	Units map[string]*Unit `json:"subUnits,omitempty"`
+	Units map[string]*Unit `json:"units,omitempty"`
 }
 
 func (t *Task) Clone() *Task {

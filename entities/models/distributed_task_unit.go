@@ -25,37 +25,37 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// DistributedTaskSubUnit A sub-unit of a distributed task.
+// DistributedTaskUnit A unit of a distributed task.
 //
-// swagger:model DistributedTaskSubUnit
-type DistributedTaskSubUnit struct {
+// swagger:model DistributedTaskUnit
+type DistributedTaskUnit struct {
 
-	// The error message if the sub-unit failed.
+	// The error message if the unit failed.
 	Error string `json:"error,omitempty"`
 
-	// The time when the sub-unit finished.
+	// The time when the unit finished.
 	// Format: date-time
 	FinishedAt strfmt.DateTime `json:"finishedAt,omitempty"`
 
-	// The ID of the sub-unit.
+	// The ID of the unit.
 	ID string `json:"id,omitempty"`
 
-	// The node that owns this sub-unit.
+	// The node that owns this unit.
 	NodeID string `json:"nodeId,omitempty"`
 
-	// The progress of the sub-unit (0.0 to 1.0).
+	// The progress of the unit (0.0 to 1.0).
 	Progress float32 `json:"progress,omitempty"`
 
-	// The status of the sub-unit.
+	// The status of the unit.
 	Status string `json:"status,omitempty"`
 
-	// The time when the sub-unit was last updated.
+	// The time when the unit was last updated.
 	// Format: date-time
 	UpdatedAt strfmt.DateTime `json:"updatedAt,omitempty"`
 }
 
-// Validate validates this distributed task sub unit
-func (m *DistributedTaskSubUnit) Validate(formats strfmt.Registry) error {
+// Validate validates this distributed task unit
+func (m *DistributedTaskUnit) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateFinishedAt(formats); err != nil {
@@ -72,7 +72,7 @@ func (m *DistributedTaskSubUnit) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *DistributedTaskSubUnit) validateFinishedAt(formats strfmt.Registry) error {
+func (m *DistributedTaskUnit) validateFinishedAt(formats strfmt.Registry) error {
 	if swag.IsZero(m.FinishedAt) { // not required
 		return nil
 	}
@@ -84,7 +84,7 @@ func (m *DistributedTaskSubUnit) validateFinishedAt(formats strfmt.Registry) err
 	return nil
 }
 
-func (m *DistributedTaskSubUnit) validateUpdatedAt(formats strfmt.Registry) error {
+func (m *DistributedTaskUnit) validateUpdatedAt(formats strfmt.Registry) error {
 	if swag.IsZero(m.UpdatedAt) { // not required
 		return nil
 	}
@@ -96,13 +96,13 @@ func (m *DistributedTaskSubUnit) validateUpdatedAt(formats strfmt.Registry) erro
 	return nil
 }
 
-// ContextValidate validates this distributed task sub unit based on context it is used
-func (m *DistributedTaskSubUnit) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this distributed task unit based on context it is used
+func (m *DistributedTaskUnit) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *DistributedTaskSubUnit) MarshalBinary() ([]byte, error) {
+func (m *DistributedTaskUnit) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -110,8 +110,8 @@ func (m *DistributedTaskSubUnit) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *DistributedTaskSubUnit) UnmarshalBinary(b []byte) error {
-	var res DistributedTaskSubUnit
+func (m *DistributedTaskUnit) UnmarshalBinary(b []byte) error {
+	var res DistributedTaskUnit
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
