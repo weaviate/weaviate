@@ -865,6 +865,25 @@ func TestEnvironmentAuthentication(t *testing.T) {
 					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
 					Certificate:       configRuntime.NewDynamicValue(""),
 					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(false),
+				},
+			},
+		},
+		{
+			name:         "Valid OIDC Auth with SkipTLSVerify",
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "AUTHENTICATION_OIDC_SKIP_TLS_VERIFY"},
+			expected: Authentication{
+				OIDC: OIDC{
+					Enabled:           true,
+					Issuer:            configRuntime.NewDynamicValue(""),
+					ClientID:          configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
+					UsernameClaim:     configRuntime.NewDynamicValue(""),
+					GroupsClaim:       configRuntime.NewDynamicValue(""),
+					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:       configRuntime.NewDynamicValue(""),
+					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(true),
 				},
 			},
 		},
@@ -887,8 +906,8 @@ func TestEnvironmentAuthentication(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.auth_env_var) == 1 {
-				t.Setenv(tt.auth_env_var[0], "true")
+			for _, envVar := range tt.auth_env_var {
+				t.Setenv(envVar, "true")
 			}
 			conf := Config{}
 			err := FromEnv(&conf)

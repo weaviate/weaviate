@@ -70,13 +70,12 @@ func (c *Client) Init() error {
 	c.logger.WithField("action", "oidc_init").Info("validated OIDC configuration")
 
 	ctx := context.Background()
-	if c.Config.Certificate.Get() != "" {
-		client, err := c.useCertificate()
+	if c.Config.Certificate.Get() != "" || c.Config.SkipTLSVerify.Get() {
+		client, err := c.buildHTTPClient()
 		if err != nil {
-			return fmt.Errorf("could not setup client with custom certificate: %w", err)
+			return fmt.Errorf("could not setup OIDC HTTP client: %w", err)
 		}
 		ctx = oidc.ClientContext(ctx, client)
-		c.logger.WithField("action", "oidc_init").Info("configured OIDC client with custom certificate")
 	}
 
 	if c.Config.JWKSUrl.Get() != "" {
@@ -212,7 +211,39 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	return groups
 }
 
+// buildHTTPClient creates an HTTP client with custom TLS settings derived from
+// the OIDC config. It loads a custom certificate pool when a certificate is
+// configured, and disables TLS verification when SkipTLSVerify is set.
+func (c *Client) buildHTTPClient() (*http.Client, error) {
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	if c.Config.Certificate.Get() != "" {
+		certPool, err := c.loadCertPool()
+		if err != nil {
+			return nil, err
+		}
+		tlsCfg.RootCAs = certPool
+	}
+
+	if c.Config.SkipTLSVerify.Get() {
+		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- opt-in via AUTHENTICATION_OIDC_SKIP_TLS_VERIFY
+		c.logger.WithField("action", "oidc_init").Warn("TLS verification disabled for OIDC connections — do not use in production")
+	}
+
+	return &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsCfg},
+	}, nil
+}
+
+// useCertificate is kept for backward compatibility. It loads the certificate
+// and returns a configured HTTP client.
 func (c *Client) useCertificate() (*http.Client, error) {
+	return c.buildHTTPClient()
+}
+
+// loadCertPool fetches the certificate from the configured source (HTTP URL,
+// S3 URI, or inline PEM string) and returns a certificate pool containing it.
+func (c *Client) loadCertPool() (*x509.CertPool, error) {
 	var certificate, certificateSource string
 	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
 		resp, err := http.Get(c.Config.Certificate.Get())
@@ -283,16 +314,5 @@ func (c *Client) useCertificate() (*http.Client, error) {
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(cert)
-
-	// Create an HTTP client with self signed certificate
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs:    certPool,
-				MinVersion: tls.VersionTLS12,
-			},
-		},
-	}
-
-	return client, nil
+	return certPool, nil
 }
