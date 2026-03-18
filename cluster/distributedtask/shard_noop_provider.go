@@ -171,12 +171,12 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 	if len(task.Payload) > 0 {
 		_ = json.Unmarshal(task.Payload, &payload)
 	}
-	for _, suID := range localGroupUnitIDs {
+	for _, uID := range localGroupUnitIDs {
 		var dir string
 		if payload.Collection != "" {
-			shardName := suID
+			shardName := uID
 			if payload.UnitToShard != nil {
-				if sn, ok := payload.UnitToShard[suID]; ok {
+				if sn, ok := payload.UnitToShard[uID]; ok {
 					shardName = sn
 				}
 			}
@@ -194,13 +194,13 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 		var markerName string
 		if payload.Collection != "" {
 			if groupID != "" {
-				markerName = fmt.Sprintf(".dtm-finalize--%s--%s--%s", task.ID, groupID, suID)
+				markerName = fmt.Sprintf(".dtm-finalize--%s--%s--%s", task.ID, groupID, uID)
 			} else {
-				markerName = fmt.Sprintf(".dtm-finalize--%s--%s", task.ID, suID)
+				markerName = fmt.Sprintf(".dtm-finalize--%s--%s", task.ID, uID)
 			}
 		} else {
 			// Synthetic mode: use unit ID as the file name (old layout under dataRoot/.dtm/).
-			markerName = suID
+			markerName = uID
 		}
 		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("finalized by %s", p.nodeID)), 0o644); err != nil {
@@ -348,22 +348,22 @@ func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle
 	}
 
 	ctx := context.Background()
-	for suID, su := range task.Units {
+	for uID, u := range task.Units {
 		select {
 		case <-handle.stopCh:
 			return
 		default:
 		}
 
-		if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
+		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 			continue
 		}
 
-		if !p.shouldProcessUnit(suID, su, payload, localShardSet) {
+		if !p.shouldProcessUnit(uID, u, payload, localShardSet) {
 			continue
 		}
 
-		p.processOneUnit(ctx, task, handle, suID, payload, processingDelay)
+		p.processOneUnit(ctx, task, handle, uID, payload, processingDelay)
 	}
 }
 
@@ -383,12 +383,12 @@ func (p *ShardNoopProvider) processUnitsConcurrent(task *Task, handle *shardNoop
 	}, p.logger)
 
 	var wg sync.WaitGroup
-	for suID, su := range task.Units {
-		if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
+	for uID, u := range task.Units {
+		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 			continue
 		}
 
-		if !p.shouldProcessUnit(suID, su, payload, localShardSet) {
+		if !p.shouldProcessUnit(uID, u, payload, localShardSet) {
 			continue
 		}
 
@@ -397,12 +397,12 @@ func (p *ShardNoopProvider) processUnitsConcurrent(task *Task, handle *shardNoop
 		}
 
 		wg.Add(1)
-		suID := suID // capture loop variable
+		uID := uID // capture loop variable
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			defer limiter.Release()
 
-			p.processOneUnit(ctx, task, handle, suID, payload, processingDelay)
+			p.processOneUnit(ctx, task, handle, uID, payload, processingDelay)
 		}, p.logger)
 	}
 
@@ -410,20 +410,20 @@ func (p *ShardNoopProvider) processUnitsConcurrent(task *Task, handle *shardNoop
 }
 
 // shouldProcessUnit checks whether this node should process the given unit.
-func (p *ShardNoopProvider) shouldProcessUnit(suID string, su *Unit, payload ShardNoopProviderPayload, localShardSet map[string]bool) bool {
+func (p *ShardNoopProvider) shouldProcessUnit(uID string, u *Unit, payload ShardNoopProviderPayload, localShardSet map[string]bool) bool {
 	if localShardSet != nil && payload.UnitToShard != nil {
-		shardName, ok := payload.UnitToShard[suID]
+		shardName, ok := payload.UnitToShard[uID]
 		if !ok || !localShardSet[shardName] {
 			return false
 		}
-		if ownerNode, ok := payload.UnitToNode[suID]; ok && ownerNode != p.nodeID {
+		if ownerNode, ok := payload.UnitToNode[uID]; ok && ownerNode != p.nodeID {
 			return false
 		}
 		return true
 	} else if localShardSet != nil {
-		return localShardSet[suID]
+		return localShardSet[uID]
 	}
-	nodeID := su.NodeID
+	nodeID := u.NodeID
 	if nodeID == "" {
 		nodeID = p.nodeID
 	}
@@ -431,17 +431,17 @@ func (p *ShardNoopProvider) shouldProcessUnit(suID string, su *Unit, payload Sha
 }
 
 // processOneUnit handles a single unit's lifecycle (progress, delay, complete/fail).
-func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, suID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
-	p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
+func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, uID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
+	p.logger.WithField("uID", uID).WithField("nodeID", p.nodeID).
 		Info("shard-noop provider: processing unit")
 
 	p.retryRecorderCall(handle, func() error {
 		return p.recorder.UpdateDistributedTaskUnitProgress(
-			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, 0.5,
+			ctx, task.Namespace, task.ID, task.Version, p.nodeID, uID, 0.5,
 		)
 	})
 
-	if payload.SlowUnitID == suID && payload.SlowUnitDelayMs > 0 {
+	if payload.SlowUnitID == uID && payload.SlowUnitDelayMs > 0 {
 		select {
 		case <-handle.stopCh:
 			return
@@ -459,10 +459,10 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 	case <-time.After(processingDelay):
 	}
 
-	if payload.FailUnitID == suID {
+	if payload.FailUnitID == uID {
 		p.retryRecorderCall(handle, func() error {
 			return p.recorder.RecordDistributedTaskUnitFailure(
-				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, "dummy failure",
+				ctx, task.Namespace, task.ID, task.Version, p.nodeID, uID, "dummy failure",
 			)
 		})
 		return
@@ -470,7 +470,7 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 
 	p.retryRecorderCall(handle, func() error {
 		return p.recorder.RecordDistributedTaskUnitCompletion(
-			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
+			ctx, task.Namespace, task.ID, task.Version, p.nodeID, uID,
 		)
 	})
 
@@ -478,9 +478,9 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 	// {dataRoot}/.dtm/dtm-process/{taskID}/ (synthetic).
 	var dir string
 	if payload.Collection != "" {
-		shardName := suID
+		shardName := uID
 		if payload.UnitToShard != nil {
-			if sn, ok := payload.UnitToShard[suID]; ok {
+			if sn, ok := payload.UnitToShard[uID]; ok {
 				shardName = sn
 			}
 		}
@@ -493,9 +493,9 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 	} else {
 		var markerName string
 		if payload.Collection != "" {
-			markerName = fmt.Sprintf(".dtm-process--%s--%s", task.ID, suID)
+			markerName = fmt.Sprintf(".dtm-process--%s--%s", task.ID, uID)
 		} else {
-			markerName = suID
+			markerName = uID
 		}
 		path := filepath.Join(dir, markerName)
 		if err := os.WriteFile(path, []byte(fmt.Sprintf("processed by %s", p.nodeID)), 0o644); err != nil {

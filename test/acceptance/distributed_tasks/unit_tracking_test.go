@@ -56,9 +56,9 @@ func TestUnitTaskLifecycle_Success(t *testing.T) {
 	require.NotNil(t, task.Units)
 	assert.Len(t, task.Units, 3)
 
-	for _, su := range task.Units {
-		assert.Equal(t, "COMPLETED", su.Status, "unit %s should be completed", su.ID)
-		assert.Equal(t, float32(1.0), su.Progress, "unit %s should have progress 1.0", su.ID)
+	for _, u := range task.Units {
+		assert.Equal(t, "COMPLETED", u.Status, "unit %s should be completed", u.ID)
+		assert.Equal(t, float32(1.0), u.Progress, "unit %s should have progress 1.0", u.ID)
 	}
 }
 
@@ -83,9 +83,9 @@ func TestUnitTaskLifecycle_Failure(t *testing.T) {
 	require.NotNil(t, task.Units)
 
 	var failedUnit *models.DistributedTaskUnit
-	for _, su := range task.Units {
-		if su.ID == "su-2" {
-			failedUnit = su
+	for _, u := range task.Units {
+		if u.ID == "su-2" {
+			failedUnit = u
 			break
 		}
 	}
@@ -338,9 +338,9 @@ func TestRealCollectionSuite(t *testing.T) {
 			if task == nil {
 				return false
 			}
-			for _, su := range task.Units {
+			for _, u := range task.Units {
 				for _, fsu := range fastUnits {
-					if su.ID == fsu && su.Status == "COMPLETED" {
+					if u.ID == fsu && u.Status == "COMPLETED" {
 						return true
 					}
 				}
