@@ -27,39 +27,39 @@ import (
 )
 
 // TestCrashRecovery_SingleNodeRestart verifies that a task completes after one
-// non-leader node crashes and restarts. The crashed node's IN_PROGRESS sub-units
+// non-leader node crashes and restarts. The crashed node's IN_PROGRESS units
 // are re-launched by the Scheduler on restart.
 func TestCrashRecovery_SingleNodeRestart(t *testing.T) {
 	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashSingleNode", "crash-single-node", 2000)
+	taskID, className, unitIDs := setupCrashRecoveryTask(t, compose, "CrashSingleNode", "crash-single-node", 2000)
 
-	// Wait until at least one sub-unit is in progress before crashing.
-	awaitAnySubUnitInProgress(t, restURI, taskID)
+	// Wait until at least one unit is in progress before crashing.
+	awaitAnyUnitInProgress(t, restURI, taskID)
 
 	// Kill node 2 (index 1, non-leader).
 	// Note: StopAt sleeps 3s for memberlist failure detection.
 	require.NoError(t, compose.StopAt(ctx, 1, nil))
 
-	// Restart node 2 — its sub-units are re-launched by the scheduler on startup.
+	// Restart node 2 — its units are re-launched by the scheduler on startup.
 	require.NoError(t, compose.StartAt(ctx, 1))
 
-	// Task must complete — the restarted node re-processes its sub-units.
-	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
+	// Task must complete — the restarted node re-processes its units.
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, unitIDs)
 }
 
 // TestCrashRecovery_MajorityRestart verifies that a task completes after a
 // majority of nodes (2 of 3) crash and restart while one node stays up.
-// Both crashed nodes re-launch their own sub-units on restart.
+// Both crashed nodes re-launch their own units on restart.
 func TestCrashRecovery_MajorityRestart(t *testing.T) {
 	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashMajority", "crash-majority", 2000)
+	taskID, className, unitIDs := setupCrashRecoveryTask(t, compose, "CrashMajority", "crash-majority", 2000)
 
-	// Wait until at least one sub-unit is in progress.
-	awaitAnySubUnitInProgress(t, restURI, taskID)
+	// Wait until at least one unit is in progress.
+	awaitAnyUnitInProgress(t, restURI, taskID)
 
 	// Kill nodes 1 and 2 (indices 1 and 2), leaving node 0 (leader) alive.
 	// Note: StopAt already sleeps 3s for memberlist failure detection.
@@ -73,7 +73,7 @@ func TestCrashRecovery_MajorityRestart(t *testing.T) {
 	// Now restart node 2 — it joins an already-healthy cluster.
 	require.NoError(t, compose.StartAt(ctx, 2))
 
-	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, unitIDs)
 }
 
 // TestCrashRecovery_RollingRestart verifies that a task completes despite
@@ -83,10 +83,10 @@ func TestCrashRecovery_RollingRestart(t *testing.T) {
 	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashRolling", "crash-rolling", 3000)
+	taskID, className, unitIDs := setupCrashRecoveryTask(t, compose, "CrashRolling", "crash-rolling", 3000)
 
 	// Wait for processing to start.
-	awaitAnySubUnitInProgress(t, restURI, taskID)
+	awaitAnyUnitInProgress(t, restURI, taskID)
 
 	// Rolling restart: crash node 1, restart it, then crash node 2, restart it.
 	// Node 0 stays up throughout, maintaining Raft quorum.
@@ -100,17 +100,17 @@ func TestCrashRecovery_RollingRestart(t *testing.T) {
 	// URI may have changed after restart.
 	restURI = compose.GetWeaviate().URI()
 
-	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, unitIDs)
 }
 
 // TestCrashRecovery_CrashBeforeAnyProgress verifies that a task completes when
-// a node crashes before reporting any progress. The node's sub-units remain
+// a node crashes before reporting any progress. The node's units remain
 // PENDING and are re-claimed on restart.
 func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 	ctx, compose, restURI, cleanup := startCrashRecoveryTest(t)
 	defer cleanup()
 
-	taskID, className, subUnitIDs := setupCrashRecoveryTask(t, compose, "CrashBeforeProgress", "crash-before-progress", 5000)
+	taskID, className, unitIDs := setupCrashRecoveryTask(t, compose, "CrashBeforeProgress", "crash-before-progress", 5000)
 
 	// Immediately kill node 2 before it reports any progress.
 	// Note: StopAt sleeps 3s for memberlist failure detection.
@@ -119,7 +119,7 @@ func TestCrashRecovery_CrashBeforeAnyProgress(t *testing.T) {
 	// Restart node 2.
 	require.NoError(t, compose.StartAt(ctx, 1))
 
-	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, subUnitIDs)
+	verifyCrashRecoveryResult(t, ctx, compose, restURI, taskID, className, unitIDs)
 }
 
 // ---------------------------------------------------------------------------
@@ -147,9 +147,9 @@ func startCrashRecoveryTest(t *testing.T) (context.Context, *docker.DockerCompos
 }
 
 // verifyCrashRecoveryResult waits for the task to reach FINISHED status, then
-// asserts the expected sub-unit count, processing/finalized/completion markers,
+// asserts the expected unit count, processing/finalized/completion markers,
 // and finally deletes the collection.
-func verifyCrashRecoveryResult(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI, taskID, className string, subUnitIDs []string) {
+func verifyCrashRecoveryResult(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI, taskID, className string, unitIDs []string) {
 	t.Helper()
 
 	if !awaitTaskStatusWithTimeout(t, restURI, taskID, "FINISHED", 120*time.Second) {
@@ -161,14 +161,14 @@ func verifyCrashRecoveryResult(t *testing.T, ctx context.Context, compose *docke
 	assert.Equal(t, "FINISHED", task.Status)
 	assert.Len(t, task.SubUnits, 9)
 
-	awaitProcessingMarkers(t, ctx, compose, taskID, subUnitIDs, className)
-	awaitFinalizedSubUnits(t, ctx, compose, taskID, subUnitIDs, className)
+	awaitProcessingMarkers(t, ctx, compose, taskID, unitIDs, className)
+	awaitFinalizedUnits(t, ctx, compose, taskID, unitIDs, className)
 	awaitCompletionMarkers(t, ctx, compose, taskID, 3, className)
 
 	deleteCollection(t, restURI, className)
 }
 
-// setupCrashRecoveryTask creates an RF3/3-shard collection and adds a task with 9 per-replica sub-units.
+// setupCrashRecoveryTask creates an RF3/3-shard collection and adds a task with 9 per-replica units.
 func setupCrashRecoveryTask(t *testing.T, compose *docker.DockerCompose, className, taskID string, processingDelayMs int) (string, string, []string) {
 	t.Helper()
 
@@ -176,23 +176,23 @@ func setupCrashRecoveryTask(t *testing.T, compose *docker.DockerCompose, classNa
 	createCollection(t, restURI, className, 3, 3)
 
 	placements := getShardPlacement(t, restURI, className, 9)
-	subUnitIDs, subUnitToShard, subUnitToNode := buildPerReplicaSubUnits(placements)
-	require.Len(t, subUnitIDs, 9)
+	unitIDs, unitToShard, unitToNode := buildPerReplicaUnits(placements)
+	require.Len(t, unitIDs, 9)
 
 	addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
 		ID:                taskID,
-		SubUnits:          subUnitIDs,
+		Units:             unitIDs,
 		Collection:        className,
-		SubUnitToShard:    subUnitToShard,
-		SubUnitToNode:     subUnitToNode,
+		UnitToShard:       unitToShard,
+		UnitToNode:        unitToNode,
 		ProcessingDelayMs: processingDelayMs,
 	})
 
-	return taskID, className, subUnitIDs
+	return taskID, className, unitIDs
 }
 
-// awaitAnySubUnitInProgress polls until at least one sub-unit has IN_PROGRESS status.
-func awaitAnySubUnitInProgress(t *testing.T, restURI, taskID string) {
+// awaitAnyUnitInProgress polls until at least one unit has IN_PROGRESS status.
+func awaitAnyUnitInProgress(t *testing.T, restURI, taskID string) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
@@ -206,7 +206,7 @@ func awaitAnySubUnitInProgress(t *testing.T, restURI, taskID string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 500*time.Millisecond, "expected at least one sub-unit to be IN_PROGRESS")
+	}, 30*time.Second, 500*time.Millisecond, "expected at least one unit to be IN_PROGRESS")
 }
 
 // awaitTaskStatusWithTimeout is like awaitTaskStatusOK but with a configurable timeout.

@@ -28,7 +28,7 @@ import (
 const ShardNoopProviderNamespace = "shard-noop"
 
 // ShardLister provides local shard names for a collection, allowing the
-// [ShardNoopProvider] to determine sub-unit ownership based on real shard
+// [ShardNoopProvider] to determine unit ownership based on real shard
 // topology without importing the db package.
 type ShardLister interface {
 	GetLocalShardNames(collection string) ([]string, error)
@@ -36,44 +36,44 @@ type ShardLister interface {
 
 // ShardNoopProviderPayload is the JSON payload for tasks created with the
 // [ShardNoopProvider]. When Collection is set and a [ShardLister] is available,
-// the provider uses real shard placement for sub-unit ownership instead of the
+// the provider uses real shard placement for unit ownership instead of the
 // synthetic NodeID-based assignment.
 //
-// SubUnitToShard maps sub-unit IDs to shard names, allowing multiple sub-units
-// per shard (one per replica). SubUnitToNode maps sub-unit IDs to the node that
+// UnitToShard maps unit IDs to shard names, allowing multiple units
+// per shard (one per replica). UnitToNode maps unit IDs to the node that
 // should process them, providing deterministic ownership when RF > 1 (where
 // multiple nodes have the same shard locally). Both maps are required when
 // Collection is set.
 //
-// MaxConcurrency controls how many sub-units are processed in parallel on each
-// node. When > 1, processSubUnits fans out with a [ConcurrencyLimiter] instead
+// MaxConcurrency controls how many units are processed in parallel on each
+// node. When > 1, processUnits fans out with a [ConcurrencyLimiter] instead
 // of sequential iteration. Default 0 = sequential (existing behavior).
 type ShardNoopProviderPayload struct {
-	FailSubUnitID      string            `json:"failSubUnitId,omitempty"`
+	FailUnitID         string            `json:"failSubUnitId,omitempty"`
 	Collection         string            `json:"collection,omitempty"`
-	SubUnitToShard     map[string]string `json:"subUnitToShard,omitempty"`
-	SubUnitToNode      map[string]string `json:"subUnitToNode,omitempty"`
-	SlowSubUnitID      string            `json:"slowSubUnitId,omitempty"`
+	UnitToShard        map[string]string `json:"subUnitToShard,omitempty"`
+	UnitToNode         map[string]string `json:"subUnitToNode,omitempty"`
+	SlowUnitID         string            `json:"slowSubUnitId,omitempty"`
 	SlowSubUnitDelayMs int               `json:"slowSubUnitDelayMs,omitempty"`
 	ProcessingDelayMs  int               `json:"processingDelayMs,omitempty"`
 	MaxConcurrency     int               `json:"maxConcurrency,omitempty"`
 }
 
-// ShardNoopProvider is a test-only [SubUnitAwareProvider] used by acceptance tests to exercise
-// the sub-unit lifecycle end-to-end. It is registered in configure_api.go behind the
+// ShardNoopProvider is a test-only [UnitAwareProvider] used by acceptance tests to exercise
+// the unit lifecycle end-to-end. It is registered in configure_api.go behind the
 // SHARD_NOOP_PROVIDER_ENABLED env var and exposed via a debug HTTP endpoint
 // on port 6060.
 //
-// On StartTask, it spawns a goroutine that iterates sub-units sequentially, reports 50%
-// progress, then completes each one. Set FailSubUnitID in the payload to make one sub-unit
+// On StartTask, it spawns a goroutine that iterates units sequentially, reports 50%
+// progress, then completes each one. Set FailUnitID in the payload to make one unit
 // fail instead, which triggers the task-level fail-fast behavior.
 //
 // When a Collection is specified in the payload and a [ShardLister] is provided, the provider
-// only claims sub-units whose IDs match local shard names. This validates that sub-unit
+// only claims units whose IDs match local shard names. This validates that unit
 // ownership aligns with actual shard placement.
 //
 // Marker files are written as hidden dot-files inside shard directories (when a collection is
-// specified) or under {dataRoot}/.dtm/ (for synthetic sub-units). This avoids writing to /tmp
+// specified) or under {dataRoot}/.dtm/ (for synthetic units). This avoids writing to /tmp
 // and keeps side effects scoped to the Weaviate data directory.
 type ShardNoopProvider struct {
 	mu       sync.Mutex
@@ -93,7 +93,7 @@ type ShardNoopProvider struct {
 }
 
 // NewShardNoopProvider creates a new [ShardNoopProvider]. Pass nil for shardLister
-// when real shard topology is not needed (e.g. unit tests with synthetic sub-unit IDs).
+// when real shard topology is not needed (e.g. unit tests with synthetic unit IDs).
 // dataRoot is the Weaviate persistence data path; marker files are written as hidden
 // dot-files inside shard directories (collection-aware mode) or under {dataRoot}/.dtm/
 // (synthetic mode).
@@ -145,13 +145,13 @@ func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
 
 	enterrors.GoWrapper(func() {
 		defer close(handle.doneCh)
-		p.processSubUnits(task, handle)
+		p.processUnits(task, handle)
 	}, p.logger)
 
 	return handle, nil
 }
 
-func (p *ShardNoopProvider) recordFinalizedGroup(desc TaskDescriptor, groupID string, localGroupSubUnitIDs []string) {
+func (p *ShardNoopProvider) recordFinalizedGroup(desc TaskDescriptor, groupID string, localGroupUnitIDs []string) {
 	p.finalizedGroupsMu.Lock()
 	defer p.finalizedGroupsMu.Unlock()
 
@@ -159,24 +159,24 @@ func (p *ShardNoopProvider) recordFinalizedGroup(desc TaskDescriptor, groupID st
 		p.finalizedGroups[desc] = make(map[string][]string)
 	}
 	p.finalizedGroups[desc][groupID] = append(
-		p.finalizedGroups[desc][groupID], localGroupSubUnitIDs...,
+		p.finalizedGroups[desc][groupID], localGroupUnitIDs...,
 	)
 }
 
-func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupSubUnitIDs []string) {
-	p.recordFinalizedGroup(task.TaskDescriptor, groupID, localGroupSubUnitIDs)
+func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) {
+	p.recordFinalizedGroup(task.TaskDescriptor, groupID, localGroupUnitIDs)
 
-	// Write marker files for each finalized sub-unit.
+	// Write marker files for each finalized unit.
 	var payload ShardNoopProviderPayload
 	if len(task.Payload) > 0 {
 		_ = json.Unmarshal(task.Payload, &payload)
 	}
-	for _, suID := range localGroupSubUnitIDs {
+	for _, suID := range localGroupUnitIDs {
 		var dir string
 		if payload.Collection != "" {
 			shardName := suID
-			if payload.SubUnitToShard != nil {
-				if sn, ok := payload.SubUnitToShard[suID]; ok {
+			if payload.UnitToShard != nil {
+				if sn, ok := payload.UnitToShard[suID]; ok {
 					shardName = sn
 				}
 			}
@@ -199,7 +199,7 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 				markerName = fmt.Sprintf(".dtm-finalize--%s--%s", task.ID, suID)
 			}
 		} else {
-			// Synthetic mode: use sub-unit ID as the file name (old layout under dataRoot/.dtm/).
+			// Synthetic mode: use unit ID as the file name (old layout under dataRoot/.dtm/).
 			markerName = suID
 		}
 		path := filepath.Join(dir, markerName)
@@ -209,12 +209,12 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 	}
 
 	p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupSubUnitIDs", localGroupSubUnitIDs).
+		WithField("localGroupUnitIDs", localGroupUnitIDs).
 		Info("shard-noop provider: OnGroupCompleted fired")
 }
 
-// GetFinalizedSubUnits returns all finalized sub-unit IDs across all groups for a task.
-func (p *ShardNoopProvider) GetFinalizedSubUnits(desc TaskDescriptor) []string {
+// GetFinalizedUnits returns all finalized unit IDs across all groups for a task.
+func (p *ShardNoopProvider) GetFinalizedUnits(desc TaskDescriptor) []string {
 	p.finalizedGroupsMu.Lock()
 	defer p.finalizedGroupsMu.Unlock()
 
@@ -225,7 +225,7 @@ func (p *ShardNoopProvider) GetFinalizedSubUnits(desc TaskDescriptor) []string {
 	return all
 }
 
-// GetFinalizedGroups returns the per-group finalized sub-unit IDs for a task.
+// GetFinalizedGroups returns the per-group finalized unit IDs for a task.
 func (p *ShardNoopProvider) GetFinalizedGroups(desc TaskDescriptor) map[string][]string {
 	p.finalizedGroupsMu.Lock()
 	defer p.finalizedGroupsMu.Unlock()
@@ -291,12 +291,12 @@ func (p *ShardNoopProvider) indexDir(collection string) string {
 }
 
 // syntheticMarkerDir returns the base directory for marker files when no
-// collection is specified (synthetic sub-units).
+// collection is specified (synthetic units).
 func (p *ShardNoopProvider) syntheticMarkerDir() string {
 	return filepath.Join(p.dataRoot, ".dtm")
 }
 
-func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHandle) {
+func (p *ShardNoopProvider) processUnits(task *Task, handle *shardNoopTaskHandle) {
 	var payload ShardNoopProviderPayload
 	if len(task.Payload) > 0 {
 		_ = json.Unmarshal(task.Payload, &payload)
@@ -338,36 +338,36 @@ func (p *ShardNoopProvider) processSubUnits(task *Task, handle *shardNoopTaskHan
 	}
 
 	p.logger.WithField("nodeID", p.nodeID).WithField("taskID", task.ID).
-		WithField("subUnitCount", len(task.SubUnits)).WithField("localShardSet", localShardSet).
+		WithField("subUnitCount", len(task.Units)).WithField("localShardSet", localShardSet).
 		WithField("maxConcurrency", payload.MaxConcurrency).
-		Info("shard-noop provider: starting sub-unit processing")
+		Info("shard-noop provider: starting unit processing")
 
 	if payload.MaxConcurrency > 1 {
-		p.processSubUnitsConcurrent(task, handle, payload, localShardSet, processingDelay)
+		p.processUnitsConcurrent(task, handle, payload, localShardSet, processingDelay)
 		return
 	}
 
 	ctx := context.Background()
-	for suID, su := range task.SubUnits {
+	for suID, su := range task.Units {
 		select {
 		case <-handle.stopCh:
 			return
 		default:
 		}
 
-		if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+		if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
 			continue
 		}
 
-		if !p.shouldProcessSubUnit(suID, su, payload, localShardSet) {
+		if !p.shouldProcessUnit(suID, su, payload, localShardSet) {
 			continue
 		}
 
-		p.processOneSubUnit(ctx, task, handle, suID, payload, processingDelay)
+		p.processOneUnit(ctx, task, handle, suID, payload, processingDelay)
 	}
 }
 
-func (p *ShardNoopProvider) processSubUnitsConcurrent(task *Task, handle *shardNoopTaskHandle, payload ShardNoopProviderPayload, localShardSet map[string]bool, processingDelay time.Duration) {
+func (p *ShardNoopProvider) processUnitsConcurrent(task *Task, handle *shardNoopTaskHandle, payload ShardNoopProviderPayload, localShardSet map[string]bool, processingDelay time.Duration) {
 	limiter := NewConcurrencyLimiter(payload.MaxConcurrency)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -383,12 +383,12 @@ func (p *ShardNoopProvider) processSubUnitsConcurrent(task *Task, handle *shardN
 	}, p.logger)
 
 	var wg sync.WaitGroup
-	for suID, su := range task.SubUnits {
-		if su.Status == SubUnitStatusCompleted || su.Status == SubUnitStatusFailed {
+	for suID, su := range task.Units {
+		if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
 			continue
 		}
 
-		if !p.shouldProcessSubUnit(suID, su, payload, localShardSet) {
+		if !p.shouldProcessUnit(suID, su, payload, localShardSet) {
 			continue
 		}
 
@@ -402,21 +402,21 @@ func (p *ShardNoopProvider) processSubUnitsConcurrent(task *Task, handle *shardN
 			defer wg.Done()
 			defer limiter.Release()
 
-			p.processOneSubUnit(ctx, task, handle, suID, payload, processingDelay)
+			p.processOneUnit(ctx, task, handle, suID, payload, processingDelay)
 		}, p.logger)
 	}
 
 	wg.Wait()
 }
 
-// shouldProcessSubUnit checks whether this node should process the given sub-unit.
-func (p *ShardNoopProvider) shouldProcessSubUnit(suID string, su *SubUnit, payload ShardNoopProviderPayload, localShardSet map[string]bool) bool {
-	if localShardSet != nil && payload.SubUnitToShard != nil {
-		shardName, ok := payload.SubUnitToShard[suID]
+// shouldProcessUnit checks whether this node should process the given unit.
+func (p *ShardNoopProvider) shouldProcessUnit(suID string, su *Unit, payload ShardNoopProviderPayload, localShardSet map[string]bool) bool {
+	if localShardSet != nil && payload.UnitToShard != nil {
+		shardName, ok := payload.UnitToShard[suID]
 		if !ok || !localShardSet[shardName] {
 			return false
 		}
-		if ownerNode, ok := payload.SubUnitToNode[suID]; ok && ownerNode != p.nodeID {
+		if ownerNode, ok := payload.UnitToNode[suID]; ok && ownerNode != p.nodeID {
 			return false
 		}
 		return true
@@ -430,18 +430,18 @@ func (p *ShardNoopProvider) shouldProcessSubUnit(suID string, su *SubUnit, paylo
 	return nodeID == p.nodeID
 }
 
-// processOneSubUnit handles a single sub-unit's lifecycle (progress, delay, complete/fail).
-func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, suID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
+// processOneUnit handles a single unit's lifecycle (progress, delay, complete/fail).
+func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, handle *shardNoopTaskHandle, suID string, payload ShardNoopProviderPayload, processingDelay time.Duration) {
 	p.logger.WithField("suID", suID).WithField("nodeID", p.nodeID).
-		Info("shard-noop provider: processing sub-unit")
+		Info("shard-noop provider: processing unit")
 
 	p.retryRecorderCall(handle, func() error {
-		return p.recorder.UpdateDistributedTaskSubUnitProgress(
+		return p.recorder.UpdateDistributedTaskUnitProgress(
 			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, 0.5,
 		)
 	})
 
-	if payload.SlowSubUnitID == suID && payload.SlowSubUnitDelayMs > 0 {
+	if payload.SlowUnitID == suID && payload.SlowSubUnitDelayMs > 0 {
 		select {
 		case <-handle.stopCh:
 			return
@@ -459,9 +459,9 @@ func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, h
 	case <-time.After(processingDelay):
 	}
 
-	if payload.FailSubUnitID == suID {
+	if payload.FailUnitID == suID {
 		p.retryRecorderCall(handle, func() error {
-			return p.recorder.RecordDistributedTaskSubUnitFailure(
+			return p.recorder.RecordDistributedTaskUnitFailure(
 				ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID, "dummy failure",
 			)
 		})
@@ -469,7 +469,7 @@ func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, h
 	}
 
 	p.retryRecorderCall(handle, func() error {
-		return p.recorder.RecordDistributedTaskSubUnitCompletion(
+		return p.recorder.RecordDistributedTaskUnitCompletion(
 			ctx, task.Namespace, task.ID, task.Version, p.nodeID, suID,
 		)
 	})
@@ -479,8 +479,8 @@ func (p *ShardNoopProvider) processOneSubUnit(ctx context.Context, task *Task, h
 	var dir string
 	if payload.Collection != "" {
 		shardName := suID
-		if payload.SubUnitToShard != nil {
-			if sn, ok := payload.SubUnitToShard[suID]; ok {
+		if payload.UnitToShard != nil {
+			if sn, ok := payload.UnitToShard[suID]; ok {
 				shardName = sn
 			}
 		}

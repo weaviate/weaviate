@@ -21,18 +21,18 @@ import (
 )
 
 // ThrottledRecorder wraps a [TaskCompletionRecorder] to prevent progress updates from
-// flooding Raft consensus. Each sub-unit's progress is forwarded at most once per interval
+// flooding Raft consensus. Each unit's progress is forwarded at most once per interval
 // (default 30s); intermediate updates are silently dropped. Completion and failure calls
 // always pass through immediately — they are never throttled.
 //
-// Throttle entries are cleaned up when a sub-unit reaches a terminal state (completion or
-// failure), so the internal map does not grow beyond the number of active sub-units.
+// Throttle entries are cleaned up when a unit reaches a terminal state (completion or
+// failure), so the internal map does not grow beyond the number of active units.
 type ThrottledRecorder struct {
 	inner    TaskCompletionRecorder
 	interval time.Duration
 	clock    clockwork.Clock
 	mu       sync.Mutex
-	lastSent map[string]time.Time // key: "namespace/taskID/version/subUnitID"
+	lastSent map[string]time.Time // key: "namespace/taskID/version/unitID"
 }
 
 func NewThrottledRecorder(inner TaskCompletionRecorder, interval time.Duration, clock clockwork.Clock) *ThrottledRecorder {
@@ -47,25 +47,25 @@ func NewThrottledRecorder(inner TaskCompletionRecorder, interval time.Duration, 
 	}
 }
 
-func (r *ThrottledRecorder) RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error {
-	r.cleanupThrottleEntry(namespace, taskID, version, subUnitID)
-	return r.inner.RecordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID)
+func (r *ThrottledRecorder) RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error {
+	r.cleanupThrottleEntry(namespace, taskID, version, unitID)
+	return r.inner.RecordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID)
 }
 
-func (r *ThrottledRecorder) RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error {
-	r.cleanupThrottleEntry(namespace, taskID, version, subUnitID)
-	return r.inner.RecordDistributedTaskSubUnitFailure(ctx, namespace, taskID, version, nodeID, subUnitID, errMsg)
+func (r *ThrottledRecorder) RecordDistributedTaskUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	r.cleanupThrottleEntry(namespace, taskID, version, unitID)
+	return r.inner.RecordDistributedTaskUnitFailure(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
 }
 
-func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, version uint64, subUnitID string) {
-	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, subUnitID)
+func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, version uint64, unitID string) {
+	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 	r.mu.Lock()
 	delete(r.lastSent, key)
 	r.mu.Unlock()
 }
 
-func (r *ThrottledRecorder) UpdateDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string, progress float32) error {
-	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, subUnitID)
+func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
+	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 
 	r.mu.Lock()
 	last, ok := r.lastSent[key]
@@ -77,5 +77,5 @@ func (r *ThrottledRecorder) UpdateDistributedTaskSubUnitProgress(ctx context.Con
 	r.lastSent[key] = now
 	r.mu.Unlock()
 
-	return r.inner.UpdateDistributedTaskSubUnitProgress(ctx, namespace, taskID, version, nodeID, subUnitID, progress)
+	return r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
 }

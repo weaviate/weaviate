@@ -53,7 +53,7 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"taskCompleted":     provider.IsTaskCompleted(desc),
-			"finalizedSubUnits": provider.GetFinalizedSubUnits(desc),
+			"finalizedSubUnits": provider.GetFinalizedUnits(desc),
 		})
 	}))
 
@@ -66,12 +66,12 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 
 		var req struct {
 			ID                string            `json:"id"`
-			SubUnits          []string          `json:"subUnits,omitempty"`
-			SubUnitGroups     map[string]string `json:"subUnitGroups,omitempty"` // subUnitID → groupID
+			Units             []string          `json:"subUnits,omitempty"`
+			UnitGroups        map[string]string `json:"subUnitGroups,omitempty"` // unitID → groupID
 			FailSubUnit       string            `json:"failSubUnit,omitempty"`
 			Collection        string            `json:"collection,omitempty"`
-			SubUnitToShard    map[string]string `json:"subUnitToShard,omitempty"`
-			SubUnitToNode     map[string]string `json:"subUnitToNode,omitempty"`
+			UnitToShard       map[string]string `json:"subUnitToShard,omitempty"`
+			UnitToNode        map[string]string `json:"subUnitToNode,omitempty"`
 			SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
 			SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
 			ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
@@ -89,23 +89,23 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		}
 
 		payload := distributedtask.ShardNoopProviderPayload{
-			FailSubUnitID:      req.FailSubUnit,
+			FailUnitID:         req.FailSubUnit,
 			Collection:         req.Collection,
-			SubUnitToShard:     req.SubUnitToShard,
-			SubUnitToNode:      req.SubUnitToNode,
-			SlowSubUnitID:      req.SlowSubUnit,
+			UnitToShard:        req.UnitToShard,
+			UnitToNode:         req.UnitToNode,
+			SlowUnitID:         req.SlowSubUnit,
 			SlowSubUnitDelayMs: req.SlowDelayMs,
 			ProcessingDelayMs:  req.ProcessingDelayMs,
 			MaxConcurrency:     req.MaxConcurrency,
 		}
 
 		var err error
-		if len(req.SubUnitGroups) > 0 {
-			specs := make([]distributedtask.SubUnitSpec, 0, len(req.SubUnits))
-			for _, suID := range req.SubUnits {
-				specs = append(specs, distributedtask.SubUnitSpec{
+		if len(req.UnitGroups) > 0 {
+			specs := make([]distributedtask.UnitSpec, 0, len(req.Units))
+			for _, suID := range req.Units {
+				specs = append(specs, distributedtask.UnitSpec{
 					ID:      suID,
-					GroupID: req.SubUnitGroups[suID],
+					GroupID: req.UnitGroups[suID],
 				})
 			}
 			err = appState.ClusterService.AddDistributedTaskWithGroups(
@@ -121,7 +121,7 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 				distributedtask.ShardNoopProviderNamespace,
 				req.ID,
 				payload,
-				req.SubUnits,
+				req.Units,
 			)
 		}
 		if err != nil {

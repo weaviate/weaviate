@@ -191,7 +191,7 @@ func (s *Scheduler) filterStartedTasks(tasks map[TaskDescriptor]*Task) map[TaskD
 		if task.Status != TaskStatusStarted {
 			return false
 		}
-		return task.NodeHasNonTerminalSubUnits(s.localNode)
+		return task.NodeHasNonTerminalUnits(s.localNode)
 	})
 }
 
@@ -287,11 +287,11 @@ func (s *Scheduler) tick() {
 
 		}
 
-		// Fire group-level and task-level callbacks for sub-unit-aware providers.
-		// OnGroupCompleted fires per-group as each group's sub-units all reach terminal
+		// Fire group-level and task-level callbacks for unit-aware providers.
+		// OnGroupCompleted fires per-group as each group's units all reach terminal
 		// state (can fire mid-flight while task is still STARTED).
 		// OnTaskCompleted fires once when the task reaches terminal state.
-		if suProvider, ok := provider.(SubUnitAwareProvider); ok {
+		if suProvider, ok := provider.(UnitAwareProvider); ok {
 			for desc, task := range tasks {
 				if task.Status == TaskStatusCancelled {
 					continue
@@ -299,21 +299,21 @@ func (s *Scheduler) tick() {
 
 				// Phase 1: per-group finalization (fires mid-flight as groups complete).
 				// A group is ready to finalize when either:
-				//   - All sub-units in the group are terminal (normal completion), OR
-				//   - The task itself is terminal (fail-fast: remaining sub-units won't complete)
+				//   - All units in the group are terminal (normal completion), OR
+				//   - The task itself is terminal (fail-fast: remaining units won't complete)
 				taskTerminal := task.Status == TaskStatusFinished || task.Status == TaskStatusFailed
 				for _, groupID := range task.Groups() {
 					if s.groupCallbackFired[desc] != nil && s.groupCallbackFired[desc][groupID] {
 						continue
 					}
-					if !taskTerminal && !task.AllGroupSubUnitsTerminal(groupID) {
+					if !taskTerminal && !task.AllGroupUnitsTerminal(groupID) {
 						continue
 					}
 					if s.groupCallbackFired[desc] == nil {
 						s.groupCallbackFired[desc] = map[string]bool{}
 					}
 					s.groupCallbackFired[desc][groupID] = true
-					localIDs := task.LocalGroupSubUnitIDs(groupID, s.localNode)
+					localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 					if len(localIDs) > 0 {
 						suProvider.OnGroupCompleted(task, groupID, localIDs)
 					}

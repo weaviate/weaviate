@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	testSubUnitLocal  = "su-local"
-	testSubUnitRemote = "su-remote"
+	testUnitLocal  = "su-local"
+	testUnitRemote = "su-remote"
 )
 
 func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
@@ -53,7 +53,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 		Id:                    taskID,
 		Payload:               taskPayload,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -63,7 +63,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Equal(t, taskID, startedTask.ID)
 	require.Equal(t, taskPayload, startedTask.Payload)
 
-	h.expectRecordSubUnitCompletion(t, h.tasksNamespace, taskID, version)
+	h.expectRecordUnitCompletion(t, h.tasksNamespace, taskID, version)
 	startedTask.Complete()
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
@@ -94,13 +94,13 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	h.startScheduler(t)
 	defer h.scheduler.Close()
 
-	// Two sub-units: one for local node, one for remote node.
+	// Two units: one for local node, one for remote node.
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		Payload:               taskPayload,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-local", "su-remote"},
+		UnitIds:               []string{"su-local", "su-remote"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -113,7 +113,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	// knows it only owns su-local.
 	updateProgress(t, h, h.tasksNamespace, taskID, version, "remote-node", "su-remote", 0.1)
 
-	h.expectRecordSubUnitCompletion(t, h.tasksNamespace, taskID, version)
+	h.expectRecordUnitCompletion(t, h.tasksNamespace, taskID, version)
 	localTask.Complete()
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
@@ -121,14 +121,14 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	h.advanceClock(h.schedulerTickInterval)
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 
-	// however, task is not finished in the cluster yet (remote sub-unit still pending)
+	// however, task is not finished in the cluster yet (remote unit still pending)
 	tasks := h.listManagerTasks(t)[h.tasksNamespace]
 	require.Len(t, tasks, 1)
 	require.Equal(t, taskID, tasks[0].ID)
 	require.Equal(t, TaskStatusStarted, tasks[0].Status)
 
-	// remote node completes its sub-unit
-	completeSubUnit(t, h, h.tasksNamespace, taskID, version, "remote-node", "su-remote")
+	// remote node completes its unit
+	completeUnit(t, h, h.tasksNamespace, taskID, version, "remote-node", "su-remote")
 
 	tasks = h.listManagerTasks(t)[h.tasksNamespace]
 	require.Len(t, tasks, 1)
@@ -151,7 +151,7 @@ func TestTaskCancellation(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -191,22 +191,22 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	h.startScheduler(t)
 	defer h.scheduler.Close()
 
-	// Two sub-units: one for local node, one for remote node.
+	// Two units: one for local node, one for remote node.
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-local", "su-remote"},
+		UnitIds:               []string{"su-local", "su-remote"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.startedCh).ID)
 
-	// remote node fails its sub-unit
+	// remote node fails its unit
 	failureMessage := "servers are on fire!!!"
 	failureTime := h.clock.Now().UnixMilli()
-	failSubUnit(t, h, h.tasksNamespace, taskID, version, "other-node", "su-remote", failureMessage)
+	failUnit(t, h, h.tasksNamespace, taskID, version, "other-node", "su-remote", failureMessage)
 
 	// locally running task should be cancelled (task is now FAILED)
 	h.advanceClock(h.schedulerTickInterval)
@@ -238,7 +238,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -248,7 +248,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 
 	failureMessage := "servers are on fire!!!"
 	failureTime := h.clock.Now().UnixMilli()
-	h.expectRecordSubUnitFailure(t, h.tasksNamespace, taskID, version, failureMessage)
+	h.expectRecordUnitFailure(t, h.tasksNamespace, taskID, version, failureMessage)
 	startedTask.Fail(failureMessage)
 
 	recvWithTimeout(t, h.provider.failedCh)
@@ -281,7 +281,7 @@ func TestTaskRecovery(t *testing.T) {
 			Namespace:             h.tasksNamespace,
 			Id:                    taskID,
 			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			SubUnitIds:            []string{"su-1"},
+			UnitIds:               []string{"su-1"},
 		}), 1)
 		require.NoError(t, err)
 		tasksIDs[taskID] = true
@@ -329,7 +329,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    "3",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 15)
 	require.NoError(t, err)
 
@@ -338,7 +338,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    "4",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 18)
 	require.NoError(t, err)
 
@@ -371,7 +371,7 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    "1",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 1)
 	require.NoError(t, err)
 
@@ -379,7 +379,7 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 
-	h.expectRecordSubUnitCompletion(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
+	h.expectRecordUnitCompletion(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
 	startedTask.Complete()
 
 	recvWithTimeout(t, h.provider.completedCh)
@@ -430,7 +430,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Namespace:             tasksNamespace1,
 		Id:                    "complete",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 10)
 	require.NoError(t, err)
 
@@ -438,7 +438,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Namespace:             tasksNamespace2,
 		Id:                    "fail",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 11)
 	require.NoError(t, err)
 
@@ -446,7 +446,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Namespace:             tasksNamespace1,
 		Id:                    "cancel",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 12)
 	require.NoError(t, err)
 
@@ -464,11 +464,11 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	}
 	require.Len(t, startedTasks, 3)
 
-	h.expectRecordSubUnitCompletion(t, tasksNamespace1, "complete", 10)
+	h.expectRecordUnitCompletion(t, tasksNamespace1, "complete", 10)
 	startedTasks["complete"].Complete()
 	recvWithTimeout(t, provider1.completedCh)
 
-	h.expectRecordSubUnitFailure(t, tasksNamespace2, "fail", 11, "failed")
+	h.expectRecordUnitFailure(t, tasksNamespace2, "fail", 11, "failed")
 	startedTasks["fail"].Fail("failed")
 	recvWithTimeout(t, provider2.failedCh)
 
@@ -498,7 +498,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 		Id:                    "1",
 		Payload:               []byte("old payload"),
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 1)
 	require.NoError(t, err)
 
@@ -506,7 +506,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 
 	startedTaskV1 := recvWithTimeout(t, h.provider.startedCh)
 
-	h.expectRecordSubUnitCompletion(t, h.tasksNamespace, startedTaskV1.ID, startedTaskV1.Version)
+	h.expectRecordUnitCompletion(t, h.tasksNamespace, startedTaskV1.ID, startedTaskV1.Version)
 	startedTaskV1.Complete()
 	recvWithTimeout(t, h.provider.completedCh)
 
@@ -519,7 +519,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 		Id:                    "1",
 		Payload:               []byte("new payload"),
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), 2)
 	require.NoError(t, err)
 
@@ -621,24 +621,24 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 	time.Sleep(50 * time.Millisecond)
 }
 
-// expectRecordSubUnitCompletion sets up the mock to expect sub-unit completion and
+// expectRecordUnitCompletion sets up the mock to expect unit completion and
 // actually records it with the manager.
-func (h *testHarness) expectRecordSubUnitCompletion(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.completionRecorder.EXPECT().RecordDistributedTaskSubUnitCompletion(
+func (h *testHarness) expectRecordUnitCompletion(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
+	h.completionRecorder.EXPECT().RecordDistributedTaskUnitCompletion(
 		mock.Anything, expectNamespace, expectTaskID, expectTaskVersion, mock.Anything, mock.Anything,
-	).RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, nodeID, subUnitID string) error {
-		completeSubUnit(t, h, namespace, taskID, taskVersion, nodeID, subUnitID)
+	).RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, nodeID, unitID string) error {
+		completeUnit(t, h, namespace, taskID, taskVersion, nodeID, unitID)
 		return nil
 	})
 }
 
-// expectRecordSubUnitFailure sets up the mock to expect sub-unit failure and
+// expectRecordUnitFailure sets up the mock to expect unit failure and
 // actually records it with the manager.
-func (h *testHarness) expectRecordSubUnitFailure(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64, expectErrMsg string) {
-	h.completionRecorder.EXPECT().RecordDistributedTaskSubUnitFailure(
+func (h *testHarness) expectRecordUnitFailure(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64, expectErrMsg string) {
+	h.completionRecorder.EXPECT().RecordDistributedTaskUnitFailure(
 		mock.Anything, expectNamespace, expectTaskID, expectTaskVersion, mock.Anything, mock.Anything, expectErrMsg,
-	).RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, nodeID, subUnitID, errMsg string) error {
-		failSubUnit(t, h, namespace, taskID, taskVersion, nodeID, subUnitID, errMsg)
+	).RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, nodeID, unitID, errMsg string) error {
+		failUnit(t, h, namespace, taskID, taskVersion, nodeID, unitID, errMsg)
 		return nil
 	})
 }
@@ -707,10 +707,10 @@ func (t *testTask) run() {
 
 	t.provider.startedCh <- t
 
-	// Find the first non-terminal sub-unit assigned to this node (or unassigned)
+	// Find the first non-terminal unit assigned to this node (or unassigned)
 	var suID string
-	for id, su := range t.SubUnits {
-		if su.Status != SubUnitStatusCompleted && su.Status != SubUnitStatusFailed {
+	for id, su := range t.Units {
+		if su.Status != UnitStatusCompleted && su.Status != UnitStatusFailed {
 			if su.NodeID == "" || su.NodeID == t.provider.nodeID {
 				suID = id
 				break
@@ -721,7 +721,7 @@ func (t *testTask) run() {
 	select {
 	case <-t.completeCh:
 		if suID != "" {
-			err := t.provider.recorder.RecordDistributedTaskSubUnitCompletion(
+			err := t.provider.recorder.RecordDistributedTaskUnitCompletion(
 				context.Background(), t.Namespace, t.ID, t.Version, t.provider.nodeID, suID,
 			)
 			require.NoError(t.provider.t, err)
@@ -730,7 +730,7 @@ func (t *testTask) run() {
 		return
 	case errMsg := <-t.failCh:
 		if suID != "" {
-			err := t.provider.recorder.RecordDistributedTaskSubUnitFailure(
+			err := t.provider.recorder.RecordDistributedTaskUnitFailure(
 				context.Background(), t.Namespace, t.ID, t.Version, t.provider.nodeID, suID, errMsg,
 			)
 			require.NoError(t.provider.t, err)
@@ -824,37 +824,37 @@ func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[
 
 // groupCompletedEvent captures the arguments passed to OnGroupCompleted.
 type groupCompletedEvent struct {
-	Task                 *Task
-	GroupID              string
-	LocalGroupSubUnitIDs []string
+	Task              *Task
+	GroupID           string
+	LocalGroupUnitIDs []string
 }
 
-// testSubUnitAwareProvider extends testTaskProvider with sub-unit awareness
-type testSubUnitAwareProvider struct {
+// testUnitAwareProvider extends testTaskProvider with unit awareness
+type testUnitAwareProvider struct {
 	*testTaskProvider
 	onGroupCompletedCh chan groupCompletedEvent
 	onTaskCompletedCh  chan *Task
 }
 
-func newTestSubUnitAwareProvider(t *testing.T) *testSubUnitAwareProvider {
-	return &testSubUnitAwareProvider{
+func newTestUnitAwareProvider(t *testing.T) *testUnitAwareProvider {
+	return &testUnitAwareProvider{
 		testTaskProvider:   newTestTaskProvider(t, nil),
 		onGroupCompletedCh: make(chan groupCompletedEvent, 100),
 		onTaskCompletedCh:  make(chan *Task, 100),
 	}
 }
 
-func (p *testSubUnitAwareProvider) OnGroupCompleted(task *Task, groupID string, localGroupSubUnitIDs []string) {
-	p.onGroupCompletedCh <- groupCompletedEvent{Task: task, GroupID: groupID, LocalGroupSubUnitIDs: localGroupSubUnitIDs}
+func (p *testUnitAwareProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) {
+	p.onGroupCompletedCh <- groupCompletedEvent{Task: task, GroupID: groupID, LocalGroupUnitIDs: localGroupUnitIDs}
 }
 
-func (p *testSubUnitAwareProvider) OnTaskCompleted(task *Task) {
+func (p *testUnitAwareProvider) OnTaskCompleted(task *Task) {
 	p.onTaskCompletedCh <- task
 }
 
-// initSubUnitHarness sets up a test harness with a SubUnitAwareProvider for the given namespace.
-func initSubUnitHarness(t *testing.T, namespace string) (*testHarness, *testSubUnitAwareProvider) {
-	provider := newTestSubUnitAwareProvider(t)
+// initUnitHarness sets up a test harness with a UnitAwareProvider for the given namespace.
+func initUnitHarness(t *testing.T, namespace string) (*testHarness, *testUnitAwareProvider) {
+	provider := newTestUnitAwareProvider(t)
 	h := newTestHarness(t)
 	h.tasksNamespace = namespace
 	h.provider = provider.testTaskProvider
@@ -866,14 +866,14 @@ func initSubUnitHarness(t *testing.T, namespace string) (*testHarness, *testSubU
 func TestSubUnitTask_OnTaskCompletedFires(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
+	startedTask := addAndLaunchUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
 
-	// Complete both sub-units
+	// Complete both units
 	for _, suID := range []string{"su-1", "su-2"} {
-		completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, suID)
+		completeUnit(t, h, namespace, "task1", version, h.localNodeID, suID)
 	}
 
 	// Tick to detect the terminal state and fire OnTaskCompleted
@@ -894,20 +894,20 @@ func TestSubUnitTask_OnTaskCompletedFires(t *testing.T) {
 	startedTask.Terminate()
 }
 
-// launchAndFailSubUnit creates a task, assigns one sub-unit to the local node,
-// launches the task, fails the sub-unit, and returns the started testTask.
-func launchAndFailSubUnit(
-	t *testing.T, h *testHarness, provider *testSubUnitAwareProvider,
+// launchAndFailUnit creates a task, assigns one unit to the local node,
+// launches the task, fails the unit, and returns the started testTask.
+func launchAndFailUnit(
+	t *testing.T, h *testHarness, provider *testUnitAwareProvider,
 	namespace string, version uint64,
 ) *testTask {
 	t.Helper()
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
+	addTaskWithUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
 	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
 
 	h.advanceClock(h.schedulerTickInterval)
 	startedTask := recvWithTimeout(t, provider.startedCh)
 
-	failSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1", "oops")
+	failUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1", "oops")
 	h.advanceClock(h.schedulerTickInterval)
 	return startedTask
 }
@@ -915,10 +915,10 @@ func launchAndFailSubUnit(
 func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := launchAndFailSubUnit(t, h, provider, namespace, version)
+	startedTask := launchAndFailUnit(t, h, provider, namespace, version)
 
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
 	require.Equal(t, TaskStatusFailed, completedTask.Status)
@@ -929,22 +929,22 @@ func TestSubUnitTask_OnTaskCompletedFires_OnFailure(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedFires(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
+	startedTask := addAndLaunchUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
 
-	// Complete both sub-units
+	// Complete both units
 	for _, suID := range []string{"su-1", "su-2"} {
-		completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, suID)
+		completeUnit(t, h, namespace, "task1", version, h.localNodeID, suID)
 	}
 
 	h.advanceClock(h.schedulerTickInterval)
 
-	// OnGroupCompleted should fire with correct local sub-unit IDs
+	// OnGroupCompleted should fire with correct local unit IDs
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)
 	require.Equal(t, "task1", event.Task.ID)
-	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalGroupUnitIDs)
 
 	// OnTaskCompleted should also fire
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
@@ -957,12 +957,12 @@ func TestSubUnitTask_OnGroupCompletedFires(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedBeforeOnTaskCompleted(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1"})
+	startedTask := addAndLaunchUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1"})
 
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	h.advanceClock(h.schedulerTickInterval)
 
 	// Both callbacks fire in the same tick. Verify OnGroupCompleted fires first
@@ -979,16 +979,16 @@ func TestSubUnitTask_OnGroupCompletedBeforeOnTaskCompleted(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedOnFailure(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := launchAndFailSubUnit(t, h, provider, namespace, version)
+	startedTask := launchAndFailUnit(t, h, provider, namespace, version)
 
 	// OnGroupCompleted should fire on failure too
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)
 	require.Equal(t, "task1", event.Task.ID)
 	require.Equal(t, TaskStatusFailed, event.Task.Status)
-	require.ElementsMatch(t, []string{"su-1"}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{"su-1"}, event.LocalGroupUnitIDs)
 
 	// OnTaskCompleted should also fire
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
@@ -1000,21 +1000,21 @@ func TestSubUnitTask_OnGroupCompletedOnFailure(t *testing.T) {
 func TestSubUnitTask_OnGroupCompletedSkipsNodesWithNoLocalSubUnits(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+	addTaskWithUnits(t, h, namespace, "task1", version, []string{"su-1"})
 
-	// Assign the sub-unit to a DIFFERENT node
+	// Assign the unit to a DIFFERENT node
 	updateProgress(t, h, namespace, "task1", version, "remote-node", "su-1", 0.1)
-	completeSubUnit(t, h, namespace, "task1", version, "remote-node", "su-1")
+	completeUnit(t, h, namespace, "task1", version, "remote-node", "su-1")
 
 	h.advanceClock(h.schedulerTickInterval)
 
-	// OnGroupCompleted should NOT fire because this node has no local sub-units
+	// OnGroupCompleted should NOT fire because this node has no local units
 	select {
 	case <-provider.onGroupCompletedCh:
-		require.Fail(t, "OnGroupCompleted should not fire on node with no local sub-units")
+		require.Fail(t, "OnGroupCompleted should not fire on node with no local units")
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -1027,12 +1027,12 @@ func TestSubUnitTask_OnGroupCompletedSkipsNodesWithNoLocalSubUnits(t *testing.T)
 func TestSubUnitTask_CallbacksFireExactlyOnce(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1"})
+	startedTask := addAndLaunchUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1"})
 
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	h.advanceClock(h.schedulerTickInterval)
 
 	// Drain the callbacks
@@ -1058,10 +1058,10 @@ func TestSubUnitTask_CallbacksFireExactlyOnce(t *testing.T) {
 func TestSubUnitTask_DeadHandleDetection(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
+	addTaskWithUnits(t, h, namespace, "task1", version, []string{"su-1", "su-2"})
 
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -1069,14 +1069,14 @@ func TestSubUnitTask_DeadHandleDetection(t *testing.T) {
 	startedTask1 := recvWithTimeout(t, provider.startedCh)
 	require.Equal(t, "task1", startedTask1.ID)
 
-	// Simulate the provider goroutine exiting after completing some work (but not all sub-units).
-	// In real life this happens when processSubUnits returns after processing only local shards.
+	// Simulate the provider goroutine exiting after completing some work (but not all units).
+	// In real life this happens when processUnits returns after processing only local shards.
 	// We terminate the task to cause the goroutine to exit.
 	startedTask1.Terminate()
 	// Wait for Done() to close
 	<-startedTask1.Done()
 
-	// At this point the handle is dead but there are still pending sub-units.
+	// At this point the handle is dead but there are still pending units.
 	// On next tick, the scheduler should detect the dead handle and re-launch.
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -1088,10 +1088,10 @@ func TestSubUnitTask_DeadHandleDetection(t *testing.T) {
 func TestSubUnitTask_NoSpuriousRestart(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+	addTaskWithUnits(t, h, namespace, "task1", version, []string{"su-1"})
 
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -1115,10 +1115,10 @@ func TestSubUnitTask_NoSpuriousRestart(t *testing.T) {
 func TestSubUnitTask_ProviderErrorRecovery(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{"su-1"})
+	addTaskWithUnits(t, h, namespace, "task1", version, []string{"su-1"})
 
 	h.advanceClock(h.schedulerTickInterval)
 
@@ -1127,15 +1127,15 @@ func TestSubUnitTask_ProviderErrorRecovery(t *testing.T) {
 	startedTask1.Terminate()
 	<-startedTask1.Done()
 
-	// Scheduler should re-launch on next tick since sub-units are still pending
+	// Scheduler should re-launch on next tick since units are still pending
 	h.advanceClock(h.schedulerTickInterval)
 
 	startedTask2 := recvWithTimeout(t, provider.startedCh)
 	require.Equal(t, "task1", startedTask2.ID)
 
-	// Now complete the sub-unit so the task finishes
+	// Now complete the unit so the task finishes
 	updateProgress(t, h, namespace, "task1", version, h.localNodeID, "su-1", 0.1)
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	startedTask2.Terminate()
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -1149,30 +1149,30 @@ func TestSubUnitTask_ProviderErrorRecovery(t *testing.T) {
 func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 	defer leaktest.Check(t)()
 
-	h, provider, namespace, version := startSubUnitTest(t)
+	h, provider, namespace, version := startUnitTest(t)
 	defer h.scheduler.Close()
 
-	addTaskWithSubUnits(t, h, namespace, "task1", version, []string{testSubUnitLocal, testSubUnitRemote})
+	addTaskWithUnits(t, h, namespace, "task1", version, []string{testUnitLocal, testUnitRemote})
 
 	// Assign su-local to local node, su-remote to a remote node
-	updateProgress(t, h, namespace, "task1", version, h.localNodeID, testSubUnitLocal, 0.1)
-	updateProgress(t, h, namespace, "task1", version, "remote-node", testSubUnitRemote, 0.1)
+	updateProgress(t, h, namespace, "task1", version, h.localNodeID, testUnitLocal, 0.1)
+	updateProgress(t, h, namespace, "task1", version, "remote-node", testUnitRemote, 0.1)
 
 	h.advanceClock(h.schedulerTickInterval)
 
 	startedTask := recvWithTimeout(t, provider.startedCh)
 	require.Equal(t, "task1", startedTask.ID)
 
-	// Complete local sub-unit
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, testSubUnitLocal)
+	// Complete local unit
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, testUnitLocal)
 
-	// Remote sub-unit is still pending — task is still STARTED
+	// Remote unit is still pending — task is still STARTED
 	tasks := h.listManagerTasks(t)[namespace]
 	require.Len(t, tasks, 1)
 	require.Equal(t, TaskStatusStarted, tasks[0].Status)
 
-	// Complete remote sub-unit
-	completeSubUnit(t, h, namespace, "task1", version, "remote-node", testSubUnitRemote)
+	// Complete remote unit
+	completeUnit(t, h, namespace, "task1", version, "remote-node", testUnitRemote)
 
 	// Task should now be FINISHED
 	tasks = h.listManagerTasks(t)[namespace]
@@ -1181,9 +1181,9 @@ func TestSubUnitTask_MultiNodeSimulation(t *testing.T) {
 
 	h.advanceClock(h.schedulerTickInterval)
 
-	// OnGroupCompleted should fire with only the local sub-unit
+	// OnGroupCompleted should fire with only the local unit
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)
-	require.ElementsMatch(t, []string{testSubUnitLocal}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{testUnitLocal}, event.LocalGroupUnitIDs)
 
 	startedTask.Terminate()
 }
@@ -1205,7 +1205,7 @@ func TestLegacyTask_NoSubUnits_UnchangedBehavior(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -1213,7 +1213,7 @@ func TestLegacyTask_NoSubUnits_UnchangedBehavior(t *testing.T) {
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 	require.Equal(t, taskID, startedTask.ID)
 
-	h.expectRecordSubUnitCompletion(t, h.tasksNamespace, taskID, version)
+	h.expectRecordUnitCompletion(t, h.tasksNamespace, taskID, version)
 	startedTask.Complete()
 	recvWithTimeout(t, h.provider.completedCh)
 
@@ -1282,7 +1282,7 @@ func TestScheduler_StartsEvenWhenInitialListFails(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitIds:            []string{"su-1"},
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 
@@ -1292,7 +1292,7 @@ func TestScheduler_StartsEvenWhenInitialListFails(t *testing.T) {
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 	require.Equal(t, taskID, startedTask.ID)
 
-	h.expectRecordSubUnitCompletion(t, h.tasksNamespace, taskID, version)
+	h.expectRecordUnitCompletion(t, h.tasksNamespace, taskID, version)
 	startedTask.Complete()
 	recvWithTimeout(t, h.provider.completedCh)
 
@@ -1300,48 +1300,48 @@ func TestScheduler_StartsEvenWhenInitialListFails(t *testing.T) {
 	require.Zero(t, h.scheduler.totalRunningTaskCount())
 }
 
-// addTaskWithSubUnitSpecs creates a task with grouped sub-units via SubUnitSpecs.
-func addTaskWithSubUnitSpecs(t *testing.T, h *testHarness, ns, id string, version uint64, specs []*cmd.SubUnitSpec) {
+// addTaskWithUnitSpecs creates a task with grouped units via UnitSpecs.
+func addTaskWithUnitSpecs(t *testing.T, h *testHarness, ns, id string, version uint64, specs []*cmd.UnitSpec) {
 	t.Helper()
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             ns,
 		Id:                    id,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		SubUnitSpecs:          specs,
+		UnitSpecs:             specs,
 	}), version)
 	require.NoError(t, err)
 }
 
-// startSubUnitTest initialises a sub-unit harness with namespace "su-namespace",
+// startUnitTest initialises a unit harness with namespace "su-namespace",
 // starts the scheduler, and registers a cleanup. It returns the harness,
 // provider, namespace and a default version for convenience.
-func startSubUnitTest(t *testing.T) (h *testHarness, provider *testSubUnitAwareProvider, namespace string, version uint64) {
+func startUnitTest(t *testing.T) (h *testHarness, provider *testUnitAwareProvider, namespace string, version uint64) {
 	t.Helper()
 	namespace = "su-namespace"
-	h, provider = initSubUnitHarness(t, namespace)
+	h, provider = initUnitHarness(t, namespace)
 	h.startScheduler(t)
 	return h, provider, namespace, 10
 }
 
-// startGroupTest is the same as startSubUnitTest but uses "group-namespace".
-func startGroupTest(t *testing.T) (h *testHarness, provider *testSubUnitAwareProvider, namespace string, version uint64) {
+// startGroupTest is the same as startUnitTest but uses "group-namespace".
+func startGroupTest(t *testing.T) (h *testHarness, provider *testUnitAwareProvider, namespace string, version uint64) {
 	t.Helper()
 	namespace = "group-namespace"
-	h, provider = initSubUnitHarness(t, namespace)
+	h, provider = initUnitHarness(t, namespace)
 	h.startScheduler(t)
 	return h, provider, namespace, 10
 }
 
-// addAndLaunchSubUnitTask adds a task with the given sub-units, assigns them
+// addAndLaunchUnitTask adds a task with the given units, assigns them
 // all to the local node via progress updates, advances the clock, and returns
 // the started testTask.
-func addAndLaunchSubUnitTask(
-	t *testing.T, h *testHarness, provider *testSubUnitAwareProvider,
-	namespace, taskID string, version uint64, subUnits []string,
+func addAndLaunchUnitTask(
+	t *testing.T, h *testHarness, provider *testUnitAwareProvider,
+	namespace, taskID string, version uint64, units []string,
 ) *testTask {
 	t.Helper()
-	addTaskWithSubUnits(t, h, namespace, taskID, version, subUnits)
-	for _, suID := range subUnits {
+	addTaskWithUnits(t, h, namespace, taskID, version, units)
+	for _, suID := range units {
 		updateProgress(t, h, namespace, taskID, version, h.localNodeID, suID, 0.1)
 	}
 	h.advanceClock(h.schedulerTickInterval)
@@ -1350,14 +1350,14 @@ func addAndLaunchSubUnitTask(
 	return startedTask
 }
 
-// addAndLaunchGroupTask adds a task with SubUnitSpecs, assigns all sub-units
+// addAndLaunchGroupTask adds a task with UnitSpecs, assigns all units
 // to the local node, advances the clock, and returns the started testTask.
 func addAndLaunchGroupTask(
-	t *testing.T, h *testHarness, provider *testSubUnitAwareProvider,
-	namespace, taskID string, version uint64, specs []*cmd.SubUnitSpec,
+	t *testing.T, h *testHarness, provider *testUnitAwareProvider,
+	namespace, taskID string, version uint64, specs []*cmd.UnitSpec,
 ) *testTask {
 	t.Helper()
-	addTaskWithSubUnitSpecs(t, h, namespace, taskID, version, specs)
+	addTaskWithUnitSpecs(t, h, namespace, taskID, version, specs)
 	for _, spec := range specs {
 		updateProgress(t, h, namespace, taskID, version, h.localNodeID, spec.Id, 0.1)
 	}
@@ -1373,7 +1373,7 @@ func TestGroupTask_OnGroupCompletedFiresMidFlight(t *testing.T) {
 	h, provider, namespace, version := startGroupTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := addAndLaunchGroupTask(t, h, provider, namespace, "task1", version, []*cmd.SubUnitSpec{
+	startedTask := addAndLaunchGroupTask(t, h, provider, namespace, "task1", version, []*cmd.UnitSpec{
 		{Id: "su-1", GroupId: "groupA"},
 		{Id: "su-2", GroupId: "groupA"},
 		{Id: "su-3", GroupId: "groupB"},
@@ -1381,15 +1381,15 @@ func TestGroupTask_OnGroupCompletedFiresMidFlight(t *testing.T) {
 	})
 
 	// Complete groupA (su-1, su-2) but not groupB
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2")
 
 	h.advanceClock(h.schedulerTickInterval)
 
 	// OnGroupCompleted should fire for groupA mid-flight (task is still STARTED)
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)
 	require.Equal(t, "groupA", event.GroupID)
-	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalGroupUnitIDs)
 	require.Equal(t, TaskStatusStarted, event.Task.Status)
 
 	// OnTaskCompleted should NOT fire yet (task is still STARTED)
@@ -1400,15 +1400,15 @@ func TestGroupTask_OnGroupCompletedFiresMidFlight(t *testing.T) {
 	}
 
 	// Complete groupB
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-3")
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-4")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-3")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-4")
 
 	h.advanceClock(h.schedulerTickInterval)
 
 	// OnGroupCompleted for groupB
 	event = recvWithTimeout(t, provider.onGroupCompletedCh)
 	require.Equal(t, "groupB", event.GroupID)
-	require.ElementsMatch(t, []string{"su-3", "su-4"}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{"su-3", "su-4"}, event.LocalGroupUnitIDs)
 
 	// OnTaskCompleted should fire now
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
@@ -1424,20 +1424,20 @@ func TestGroupTask_OneGroupFails(t *testing.T) {
 	h, provider, namespace, version := startGroupTest(t)
 	defer h.scheduler.Close()
 
-	startedTask := addAndLaunchGroupTask(t, h, provider, namespace, "task1", version, []*cmd.SubUnitSpec{
+	startedTask := addAndLaunchGroupTask(t, h, provider, namespace, "task1", version, []*cmd.UnitSpec{
 		{Id: "su-1", GroupId: "groupA"},
 		{Id: "su-2", GroupId: "groupB"},
 	})
 
 	// Complete groupA
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
 	h.advanceClock(h.schedulerTickInterval)
 
 	eventA := recvWithTimeout(t, provider.onGroupCompletedCh)
 	require.Equal(t, "groupA", eventA.GroupID)
 
 	// Fail groupB → task goes FAILED
-	failSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2", "oops")
+	failUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2", "oops")
 	h.advanceClock(h.schedulerTickInterval)
 
 	// OnGroupCompleted for groupB should fire (task terminal)
@@ -1458,18 +1458,18 @@ func TestGroupTask_DefaultGroupPreservesOldBehavior(t *testing.T) {
 	h, provider, namespace, version := startGroupTest(t)
 	defer h.scheduler.Close()
 
-	// No explicit groups — all sub-units in default group ""
-	startedTask := addAndLaunchSubUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
+	// No explicit groups — all units in default group ""
+	startedTask := addAndLaunchUnitTask(t, h, provider, namespace, "task1", version, []string{"su-1", "su-2"})
 
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
-	completeSubUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-1")
+	completeUnit(t, h, namespace, "task1", version, h.localNodeID, "su-2")
 
 	h.advanceClock(h.schedulerTickInterval)
 
-	// OnGroupCompleted fires once with groupID="" and all local sub-units
+	// OnGroupCompleted fires once with groupID="" and all local units
 	event := recvWithTimeout(t, provider.onGroupCompletedCh)
 	require.Equal(t, "", event.GroupID)
-	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalGroupSubUnitIDs)
+	require.ElementsMatch(t, []string{"su-1", "su-2"}, event.LocalGroupUnitIDs)
 
 	completedTask := recvWithTimeout(t, provider.onTaskCompletedCh)
 	require.Equal(t, TaskStatusFinished, completedTask.Status)

@@ -32,7 +32,7 @@ func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.Appl
 	return nil
 }
 
-func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string, taskPayload any, subUnitIDs []string) error {
+func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string, taskPayload any, unitIDs []string) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task payload: %w", err)
@@ -42,30 +42,30 @@ func (s *Raft) AddDistributedTask(ctx context.Context, namespace, taskID string,
 		Id:                    taskID,
 		Payload:               payloadBytes,
 		SubmittedAtUnixMillis: time.Now().UnixMilli(),
-		SubUnitIds:            subUnitIDs,
+		UnitIds:               unitIDs,
 	})
 }
 
-// AddDistributedTaskWithGroups creates a task with sub-units that have explicit group assignments.
-// SubUnitSpecs take precedence over SubUnitIds when both are present.
+// AddDistributedTaskWithGroups creates a task with units that have explicit group assignments.
+// UnitSpecs take precedence over UnitIds when both are present.
 func (s *Raft) AddDistributedTaskWithGroups(
 	ctx context.Context, namespace, taskID string,
-	taskPayload any, subUnitSpecs []distributedtask.SubUnitSpec,
+	taskPayload any, subUnitSpecs []distributedtask.UnitSpec,
 ) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task payload: %w", err)
 	}
-	protoSpecs := make([]*cmd.SubUnitSpec, len(subUnitSpecs))
+	protoSpecs := make([]*cmd.UnitSpec, len(subUnitSpecs))
 	for i, spec := range subUnitSpecs {
-		protoSpecs[i] = &cmd.SubUnitSpec{Id: spec.ID, GroupId: spec.GroupID}
+		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
 	}
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
 		Namespace:             namespace,
 		Id:                    taskID,
 		Payload:               payloadBytes,
 		SubmittedAtUnixMillis: time.Now().UnixMilli(),
-		SubUnitSpecs:          protoSpecs,
+		UnitSpecs:             protoSpecs,
 	})
 }
 
@@ -78,33 +78,33 @@ func (s *Raft) CancelDistributedTask(ctx context.Context, namespace, taskID stri
 	})
 }
 
-func (s *Raft) RecordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string) error {
-	return s.recordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID, "")
+func (s *Raft) RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error {
+	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, "")
 }
 
-func (s *Raft) RecordDistributedTaskSubUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error {
-	return s.recordDistributedTaskSubUnitCompletion(ctx, namespace, taskID, version, nodeID, subUnitID, errMsg)
+func (s *Raft) RecordDistributedTaskUnitFailure(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	return s.recordDistributedTaskUnitCompletion(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
 }
 
-func (s *Raft) recordDistributedTaskSubUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID, errMsg string) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_SUB_UNIT_COMPLETED, &cmd.RecordDistributedTaskSubUnitCompletionRequest{
+func (s *Raft) recordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID, errMsg string) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace:            namespace,
 		Id:                   taskID,
 		Version:              version,
 		NodeId:               nodeID,
-		SubUnitId:            subUnitID,
+		UnitId:               unitID,
 		Error:                errMsg,
 		FinishedAtUnixMillis: time.Now().UnixMilli(),
 	})
 }
 
-func (s *Raft) UpdateDistributedTaskSubUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, subUnitID string, progress float32) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_SUB_UNIT_PROGRESS, &cmd.UpdateDistributedTaskSubUnitProgressRequest{
+func (s *Raft) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS, &cmd.UpdateDistributedTaskUnitProgressRequest{
 		Namespace:           namespace,
 		Id:                  taskID,
 		Version:             version,
 		NodeId:              nodeID,
-		SubUnitId:           subUnitID,
+		UnitId:              unitID,
 		Progress:            progress,
 		UpdatedAtUnixMillis: time.Now().UnixMilli(),
 	})

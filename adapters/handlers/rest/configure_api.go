@@ -793,7 +793,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		providers := map[string]distributedtask.Provider{}
 
-		if os.Getenv("SHARD_NOOP_PROVIDER_ENABLED") == "true" {
+		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
 			shardNoopProvider := distributedtask.NewShardNoopProvider(
 				appState.Cluster.LocalName(), appState.Logger, &dbShardLister{db: repo},
 				appState.ServerConfig.Config.Persistence.DataPath,

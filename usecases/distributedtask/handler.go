@@ -71,7 +71,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				Payload:    payload,
 			}
 
-			dt.SubUnits = mapSubUnits(task)
+			dt.SubUnits = mapUnits(task)
 
 			resp[namespace] = append(resp[namespace], dt)
 		}
@@ -80,10 +80,10 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 	return resp, nil
 }
 
-func mapSubUnits(task *distributedtask.Task) []*models.DistributedTaskSubUnit {
-	subUnits := make([]*models.DistributedTaskSubUnit, 0, len(task.SubUnits))
-	for _, su := range task.SubUnits {
-		subUnits = append(subUnits, &models.DistributedTaskSubUnit{
+func mapUnits(task *distributedtask.Task) []*models.DistributedTaskSubUnit {
+	units := make([]*models.DistributedTaskSubUnit, 0, len(task.Units))
+	for _, su := range task.Units {
+		units = append(units, &models.DistributedTaskSubUnit{
 			ID:         su.ID,
 			NodeID:     su.NodeID,
 			Status:     string(su.Status),
@@ -93,8 +93,8 @@ func mapSubUnits(task *distributedtask.Task) []*models.DistributedTaskSubUnit {
 			FinishedAt: strfmt.DateTime(su.FinishedAt),
 		})
 	}
-	sort.Slice(subUnits, func(i, j int) bool {
-		return subUnits[i].ID < subUnits[j].ID
+	sort.Slice(units, func(i, j int) bool {
+		return units[i].ID < units[j].ID
 	})
-	return subUnits
+	return units
 }
