@@ -118,11 +118,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 func (s *Scheduler) Start(ctx context.Context) error {
 	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 30*time.Second, s.clock)
 
-	s.mu.Lock()
-	for _, provider := range s.providers {
-		provider.SetCompletionRecorder(throttledRecorder)
-	}
-	s.mu.Unlock()
+	s.setCompletionRecorders(throttledRecorder)
 
 	// Attempt an initial task listing to bootstrap running tasks. If it fails
 	// (e.g. Raft not ready yet), log and continue — tick() will pick tasks up
@@ -405,6 +401,15 @@ func (s *Scheduler) Close() {
 		for _, task := range tasks {
 			task.Terminate()
 		}
+	}
+}
+
+func (s *Scheduler) setCompletionRecorders(recorder TaskCompletionRecorder) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, provider := range s.providers {
+		provider.SetCompletionRecorder(recorder)
 	}
 }
 

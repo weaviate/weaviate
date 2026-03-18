@@ -132,10 +132,14 @@ func (p *ShardNoopProvider) CleanupTask(desc TaskDescriptor) error {
 	return nil
 }
 
-func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
+func (p *ShardNoopProvider) addTask(desc TaskDescriptor) {
 	p.mu.Lock()
-	p.tasks = append(p.tasks, task.TaskDescriptor)
-	p.mu.Unlock()
+	defer p.mu.Unlock()
+	p.tasks = append(p.tasks, desc)
+}
+
+func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
+	p.addTask(task.TaskDescriptor)
 
 	handle := &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 
@@ -147,15 +151,20 @@ func (p *ShardNoopProvider) StartTask(task *Task) (TaskHandle, error) {
 	return handle, nil
 }
 
-func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupSubUnitIDs []string) {
+func (p *ShardNoopProvider) recordFinalizedGroup(desc TaskDescriptor, groupID string, localGroupSubUnitIDs []string) {
 	p.finalizedGroupsMu.Lock()
-	if p.finalizedGroups[task.TaskDescriptor] == nil {
-		p.finalizedGroups[task.TaskDescriptor] = make(map[string][]string)
+	defer p.finalizedGroupsMu.Unlock()
+
+	if p.finalizedGroups[desc] == nil {
+		p.finalizedGroups[desc] = make(map[string][]string)
 	}
-	p.finalizedGroups[task.TaskDescriptor][groupID] = append(
-		p.finalizedGroups[task.TaskDescriptor][groupID], localGroupSubUnitIDs...,
+	p.finalizedGroups[desc][groupID] = append(
+		p.finalizedGroups[desc][groupID], localGroupSubUnitIDs...,
 	)
-	p.finalizedGroupsMu.Unlock()
+}
+
+func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupSubUnitIDs []string) {
+	p.recordFinalizedGroup(task.TaskDescriptor, groupID, localGroupSubUnitIDs)
 
 	// Write marker files for each finalized sub-unit.
 	var payload ShardNoopProviderPayload
