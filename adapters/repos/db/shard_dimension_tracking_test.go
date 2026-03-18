@@ -477,6 +477,9 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	r := getRandomSeed()
 	dirName := t.TempDir()
 
+	metricsCopy := *monitoring.GetMetrics()
+	metricsCopy.Registerer = monitoring.NoopRegisterer
+
 	shardState := singleShardState()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{
@@ -503,7 +506,7 @@ func Test_DisableDimensionTracking(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 		DisableDimensionMetrics:   runtime.NewDynamicValue(true),
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
