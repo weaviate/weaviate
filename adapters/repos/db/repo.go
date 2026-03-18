@@ -329,6 +329,8 @@ type Config struct {
 
 	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
+
+	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
