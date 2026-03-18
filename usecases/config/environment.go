@@ -55,7 +55,7 @@ const (
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
-	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
+	DefaultTrackVectorDimensionsInterval = 10 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -992,12 +992,12 @@ func FromEnv(config *Config) error {
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
-	DisableDimensionMetrics := false
+	disableDimensionMetrics := false
 	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
-		DisableDimensionMetrics = entcfg.Enabled(v)
+		disableDimensionMetrics = entcfg.Enabled(v)
 	}
 
-	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(DisableDimensionMetrics)
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
 	return nil
 }
