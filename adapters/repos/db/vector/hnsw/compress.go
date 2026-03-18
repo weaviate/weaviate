@@ -54,8 +54,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			p, err := h.cache.Get(context.Background(), uint64(*sampledIndex))
 			if err != nil {
 				var e storobj.ErrNotFound
-				var eTV storobj.ErrTargetVectorNotFound
-				if errors.As(err, &e) || errors.As(err, &eTV) {
+				if errors.As(err, &e) {
 					// object deleted or target vector missing on this object, skip
 					continue
 				}

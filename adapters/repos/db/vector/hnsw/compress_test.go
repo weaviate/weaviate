@@ -947,8 +947,9 @@ func Test_CompressSkipsTargetVectorNotFound(t *testing.T) {
 			uc.PQ = tc.pqCfg
 			uc.SQ = tc.sqCfg
 
-			// Half of the IDs return ErrTargetVectorNotFound to simulate
-			// objects that don't have the target vector configured.
+			// Half of the IDs return ErrNotFound to simulate objects where
+			// the target vector is missing (the shard converts
+			// ErrTargetVectorNotFound to ErrNotFound).
 			index, err := New(Config{
 				RootPath:              t.TempDir(),
 				ID:                    "target_vector_not_found",
@@ -959,7 +960,7 @@ func Test_CompressSkipsTargetVectorNotFound(t *testing.T) {
 						return nil, storobj.NewErrNotFoundf(id, "out of range")
 					}
 					if id%2 == 0 {
-						return nil, storobj.ErrTargetVectorNotFound{TargetVector: "test_vector"}
+						return nil, storobj.NewErrNotFoundf(id, "target vector %q not found", "test_vector")
 					}
 					return vectors[int(id)], nil
 				},
@@ -968,7 +969,7 @@ func Test_CompressSkipsTargetVectorNotFound(t *testing.T) {
 				},
 				TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 					if id%2 == 0 {
-						return nil, storobj.ErrTargetVectorNotFound{TargetVector: "test_vector"}
+						return nil, storobj.NewErrNotFoundf(id, "target vector %q not found", "test_vector")
 					}
 					copy(container.Slice, vectors[int(id)])
 					return container.Slice, nil
