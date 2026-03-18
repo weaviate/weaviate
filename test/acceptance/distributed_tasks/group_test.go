@@ -64,8 +64,8 @@ func TestGroupFinalizationSuite(t *testing.T) {
 		require.NotNil(t, task.Units)
 		assert.Len(t, task.Units, 6)
 
-		for _, su := range task.Units {
-			assert.Equal(t, "COMPLETED", su.Status, "unit %s should be completed", su.ID)
+		for _, u := range task.Units {
+			assert.Equal(t, "COMPLETED", u.Status, "unit %s should be completed", u.ID)
 		}
 
 		awaitGroupFinalizedUnits(t, ctx, compose, taskID, "group-A", []string{"g1-su1", "g1-su2", "g1-su3"})
@@ -127,8 +127,8 @@ func TestGroupFinalizationSuite(t *testing.T) {
 		require.NotNil(t, task.Units)
 		assert.Len(t, task.Units, numGroups*unitsPerGroup)
 
-		for _, su := range task.Units {
-			assert.Equal(t, "COMPLETED", su.Status, "unit %s should be completed", su.ID)
+		for _, u := range task.Units {
+			assert.Equal(t, "COMPLETED", u.Status, "unit %s should be completed", u.ID)
 		}
 
 		spotCheckGroupFinalization(t, ctx, compose, taskID, unitsPerGroup, 0, 9, 19)
@@ -171,9 +171,9 @@ func buildGroupUnits(numGroups, unitsPerGroup int) ([]string, map[string]string)
 	for g := 0; g < numGroups; g++ {
 		groupID := fmt.Sprintf("grp-%03d", g)
 		for s := 0; s < unitsPerGroup; s++ {
-			suID := fmt.Sprintf("%s-su%d", groupID, s)
-			units = append(units, suID)
-			unitGroups[suID] = groupID
+			uID := fmt.Sprintf("%s-u%d", groupID, s)
+			units = append(units, uID)
+			unitGroups[uID] = groupID
 		}
 	}
 	return units, unitGroups
@@ -186,7 +186,7 @@ func spotCheckGroupFinalization(t *testing.T, ctx context.Context, compose *dock
 		groupID := fmt.Sprintf("grp-%03d", g)
 		var expected []string
 		for s := 0; s < unitsPerGroup; s++ {
-			expected = append(expected, fmt.Sprintf("%s-su%d", groupID, s))
+			expected = append(expected, fmt.Sprintf("%s-u%d", groupID, s))
 		}
 		awaitGroupFinalizedUnits(t, ctx, compose, taskID, groupID, expected)
 	}
