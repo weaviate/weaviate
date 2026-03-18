@@ -424,9 +424,9 @@ func TestShardNoopProvider_SlowSubUnit(t *testing.T) {
 
 	task := f.newTaskWithPayload(
 		ShardNoopProviderPayload{
-			SlowUnitID:         "su-slow",
-			SlowSubUnitDelayMs: 500,
-			ProcessingDelayMs:  10,
+			SlowUnitID:        "su-slow",
+			SlowUnitDelayMs:   500,
+			ProcessingDelayMs: 10,
 		},
 		map[string]*Unit{
 			"su-fast": {Status: UnitStatusPending},

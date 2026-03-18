@@ -49,14 +49,14 @@ type ShardLister interface {
 // node. When > 1, processUnits fans out with a [ConcurrencyLimiter] instead
 // of sequential iteration. Default 0 = sequential (existing behavior).
 type ShardNoopProviderPayload struct {
-	FailUnitID         string            `json:"failSubUnitId,omitempty"`
-	Collection         string            `json:"collection,omitempty"`
-	UnitToShard        map[string]string `json:"subUnitToShard,omitempty"`
-	UnitToNode         map[string]string `json:"subUnitToNode,omitempty"`
-	SlowUnitID         string            `json:"slowSubUnitId,omitempty"`
-	SlowSubUnitDelayMs int               `json:"slowSubUnitDelayMs,omitempty"`
-	ProcessingDelayMs  int               `json:"processingDelayMs,omitempty"`
-	MaxConcurrency     int               `json:"maxConcurrency,omitempty"`
+	FailUnitID        string            `json:"failUnitId,omitempty"`
+	Collection        string            `json:"collection,omitempty"`
+	UnitToShard       map[string]string `json:"unitToShard,omitempty"`
+	UnitToNode        map[string]string `json:"unitToNode,omitempty"`
+	SlowUnitID        string            `json:"slowUnitId,omitempty"`
+	SlowUnitDelayMs   int               `json:"slowUnitDelayMs,omitempty"`
+	ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
+	MaxConcurrency    int               `json:"maxConcurrency,omitempty"`
 }
 
 // ShardNoopProvider is a test-only [UnitAwareProvider] used by acceptance tests to exercise
@@ -441,13 +441,13 @@ func (p *ShardNoopProvider) processOneUnit(ctx context.Context, task *Task, hand
 		)
 	})
 
-	if payload.SlowUnitID == suID && payload.SlowSubUnitDelayMs > 0 {
+	if payload.SlowUnitID == suID && payload.SlowUnitDelayMs > 0 {
 		select {
 		case <-handle.stopCh:
 			return
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Duration(payload.SlowSubUnitDelayMs) * time.Millisecond):
+		case <-time.After(time.Duration(payload.SlowUnitDelayMs) * time.Millisecond):
 		}
 	}
 

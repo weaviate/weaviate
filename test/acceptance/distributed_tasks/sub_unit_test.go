@@ -71,9 +71,9 @@ func TestUnitTaskLifecycle_Failure(t *testing.T) {
 
 	taskID := "unit-failure-test"
 	addTaskJSON(t, debugURI, addTaskRequest{
-		ID:          taskID,
-		Units:       []string{"su-1", "su-2", "su-3"},
-		FailSubUnit: "su-2",
+		ID:       taskID,
+		Units:    []string{"su-1", "su-2", "su-3"},
+		FailUnit: "su-2",
 	})
 	awaitTaskStatus(t, restURI, taskID, "FAILED")
 
@@ -166,9 +166,9 @@ func TestUnitTask_PerShardFinalize(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			addTaskJSON(t, compose.GetWeaviate().DebugURI(), addTaskRequest{
-				ID:          tc.taskID,
-				Units:       tc.units,
-				FailSubUnit: tc.failUnit,
+				ID:       tc.taskID,
+				Units:    tc.units,
+				FailUnit: tc.failUnit,
 			})
 			awaitTaskStatus(t, compose.GetWeaviate().URI(), tc.taskID, tc.expectedStatus)
 
@@ -257,7 +257,7 @@ func TestRealCollectionSuite(t *testing.T) {
 			Collection:        className,
 			UnitToShard:       unitToShard,
 			UnitToNode:        unitToNode,
-			FailSubUnit:       failUnit,
+			FailUnit:          failUnit,
 			ProcessingDelayMs: 10,
 		})
 
@@ -325,7 +325,7 @@ func TestRealCollectionSuite(t *testing.T) {
 			Collection:        className,
 			UnitToShard:       unitToShard,
 			UnitToNode:        unitToNode,
-			SlowSubUnit:       slowUnit,
+			SlowUnit:          slowUnit,
 			SlowDelayMs:       5000,
 			ProcessingDelayMs: 10,
 		})
@@ -582,13 +582,13 @@ type shardPlacement struct {
 
 type addTaskRequest struct {
 	ID                string            `json:"id"`
-	Units             []string          `json:"subUnits,omitempty"`
-	UnitGroups        map[string]string `json:"subUnitGroups,omitempty"` // unitID → groupID
-	FailSubUnit       string            `json:"failSubUnit,omitempty"`
+	Units             []string          `json:"units,omitempty"`
+	UnitGroups        map[string]string `json:"unitGroups,omitempty"` // unitID → groupID
+	FailUnit          string            `json:"failUnit,omitempty"`
 	Collection        string            `json:"collection,omitempty"`
-	UnitToShard       map[string]string `json:"subUnitToShard,omitempty"`
-	UnitToNode        map[string]string `json:"subUnitToNode,omitempty"`
-	SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
+	UnitToShard       map[string]string `json:"unitToShard,omitempty"`
+	UnitToNode        map[string]string `json:"unitToNode,omitempty"`
+	SlowUnit          string            `json:"slowUnit,omitempty"`
 	SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
 	ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
 	MaxConcurrency    int               `json:"maxConcurrency,omitempty"`

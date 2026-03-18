@@ -52,8 +52,8 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"taskCompleted":     provider.IsTaskCompleted(desc),
-			"finalizedSubUnits": provider.GetFinalizedUnits(desc),
+			"taskCompleted":  provider.IsTaskCompleted(desc),
+			"finalizedUnits": provider.GetFinalizedUnits(desc),
 		})
 	}))
 
@@ -66,13 +66,13 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 
 		var req struct {
 			ID                string            `json:"id"`
-			Units             []string          `json:"subUnits,omitempty"`
-			UnitGroups        map[string]string `json:"subUnitGroups,omitempty"` // unitID → groupID
-			FailSubUnit       string            `json:"failSubUnit,omitempty"`
+			Units             []string          `json:"units,omitempty"`
+			UnitGroups        map[string]string `json:"unitGroups,omitempty"` // unitID → groupID
+			FailUnit          string            `json:"failUnit,omitempty"`
 			Collection        string            `json:"collection,omitempty"`
-			UnitToShard       map[string]string `json:"subUnitToShard,omitempty"`
-			UnitToNode        map[string]string `json:"subUnitToNode,omitempty"`
-			SlowSubUnit       string            `json:"slowSubUnit,omitempty"`
+			UnitToShard       map[string]string `json:"unitToShard,omitempty"`
+			UnitToNode        map[string]string `json:"unitToNode,omitempty"`
+			SlowUnit          string            `json:"slowUnit,omitempty"`
 			SlowDelayMs       int               `json:"slowDelayMs,omitempty"`
 			ProcessingDelayMs int               `json:"processingDelayMs,omitempty"`
 			MaxConcurrency    int               `json:"maxConcurrency,omitempty"`
@@ -89,14 +89,14 @@ func setupShardNoopDebugHandler(appState *state.State, provider *distributedtask
 		}
 
 		payload := distributedtask.ShardNoopProviderPayload{
-			FailUnitID:         req.FailSubUnit,
-			Collection:         req.Collection,
-			UnitToShard:        req.UnitToShard,
-			UnitToNode:         req.UnitToNode,
-			SlowUnitID:         req.SlowSubUnit,
-			SlowSubUnitDelayMs: req.SlowDelayMs,
-			ProcessingDelayMs:  req.ProcessingDelayMs,
-			MaxConcurrency:     req.MaxConcurrency,
+			FailUnitID:        req.FailUnit,
+			Collection:        req.Collection,
+			UnitToShard:       req.UnitToShard,
+			UnitToNode:        req.UnitToNode,
+			SlowUnitID:        req.SlowUnit,
+			SlowUnitDelayMs:   req.SlowDelayMs,
+			ProcessingDelayMs: req.ProcessingDelayMs,
+			MaxConcurrency:    req.MaxConcurrency,
 		}
 
 		var err error

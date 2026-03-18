@@ -87,23 +87,23 @@
 // regardless of which format a shard is currently serving from.
 //
 // Unit IDs are opaque strings. The Provider defines them at task creation time
-// and stores any shard→subUnit mapping in the task payload:
+// and stores any shard→unit mapping in the task payload:
 //
 //	payload := ReindexPayload{
 //	    ShardMap: map[string]string{  // unitID → shardName
-//	        "su-0": "shard-S1",       // nodeA's replica of S1
-//	        "su-1": "shard-S1",       // nodeB's replica of S1
-//	        "su-2": "shard-S2",       // ...
+//	        "u-0": "shard-S1",       // nodeA's replica of S1
+//	        "u-1": "shard-S1",       // nodeB's replica of S1
+//	        "u-2": "shard-S2",       // ...
 //	    },
 //	}
-//	unitIDs := []string{"su-0", "su-1", "su-2", ...}
+//	unitIDs := []string{"u-0", "u-1", "u-2", ...}
 //
 // Node assignment is automatic: the first node to report progress for a unit
 // claims it (Unit.NodeID is set). The Provider's StartTask iterates units,
 // checks which local shards it owns, and claims the corresponding units.
 //
 // Each shard swaps its bucket pointers immediately upon completing its own reindex
-// (inside the StartTask goroutine, before calling RecordSubUnitCompletion).
+// (inside the StartTask goroutine, before calling RecordUnitCompletion).
 //
 // OnGroupCompleted: no-op — each shard already swapped during its own processing.
 // OnTaskCompleted: optional — e.g., log completion or flip a cosmetic schema flag.

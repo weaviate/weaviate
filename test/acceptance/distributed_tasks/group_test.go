@@ -86,10 +86,10 @@ func TestGroupFinalizationSuite(t *testing.T) {
 		}
 
 		addTaskJSON(t, debugURI, addTaskRequest{
-			ID:          taskID,
-			Units:       units,
-			UnitGroups:  unitGroups,
-			FailSubUnit: "g2-su1",
+			ID:         taskID,
+			Units:      units,
+			UnitGroups: unitGroups,
+			FailUnit:   "g2-su1",
 		})
 
 		awaitTaskStatus(t, restURI, taskID, "FAILED")
