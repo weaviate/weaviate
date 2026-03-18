@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
@@ -62,26 +61,6 @@ var (
 )
 
 const exportMetadataFile = "export_metadata.json"
-
-// BackendProvider provides access to storage backends for export.
-type BackendProvider interface {
-	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
-}
-
-// Selector selects shards and classes for export
-type Selector interface {
-	ListClasses(ctx context.Context) []string
-	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
-	AcquireShardForExport(ctx context.Context, className, shardName string) (shard ShardLike, release func(), skipReason string, err error)
-	IsMultiTenant(ctx context.Context, className string) bool
-	IsAsyncReplicationEnabled(ctx context.Context, className string) bool
-}
-
-// ShardLike is an alias for db.ShardLike
-type ShardLike = interface {
-	Store() *lsmkv.Store
-	Name() string
-}
 
 // Scheduler manages export operations.
 // The node that receives the request acts as coordinator and uses a two-phase

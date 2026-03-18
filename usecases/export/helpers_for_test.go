@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
@@ -43,7 +44,7 @@ func (r *fakeNodeResolver) NodeCount() int {
 	return len(r.nodes) + 1 // +1 for local node
 }
 
-// blockingSelector blocks AcquireShardForExport until blockCh is closed.
+// blockingSelector blocks SnapshotShards until blockCh is closed.
 type blockingSelector struct {
 	blockCh   chan struct{}
 	classList []string
@@ -65,7 +66,7 @@ func (s *blockingSelector) waitForCall(t *testing.T) {
 	select {
 	case <-s.calledCh:
 	case <-time.After(5 * time.Second):
-		t.Fatal("AcquireShardForExport was not called")
+		t.Fatal("SnapshotShards was not called")
 	}
 }
 
@@ -85,7 +86,7 @@ func (s *blockingSelector) IsAsyncReplicationEnabled(_ context.Context, _ string
 	return true
 }
 
-func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), string, error) {
+func (s *blockingSelector) SnapshotShards(ctx context.Context, _ string, _ []string, _ string) ([]ShardSnapshotResult, error) {
 	s.initCalledCh()
 	s.calledMu.Lock()
 	if !s.called {
@@ -96,21 +97,21 @@ func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ strin
 
 	select {
 	case <-ctx.Done():
-		return nil, nil, "", ctx.Err()
+		return nil, ctx.Err()
 	case <-s.blockCh:
-		return nil, nil, "", ctx.Err()
+		return nil, fmt.Errorf("test: blocking selector unblocked")
 	}
 }
 
 // fakeSelector is a configurable test Selector. With no shards configured it
 // acts as a no-op (export completes immediately when the request has no
-// shards). With shards/skipped/mt configured it returns pre-configured
-// testShard instances from AcquireShardForExport.
+// shards). With shards/skipped/mt configured it snapshots and returns results.
 type fakeSelector struct {
-	classList []string
-	shards    map[string]map[string]*testShard // className → shardName → testShard
-	skipped   map[string]map[string]string     // className → shardName → skipReason
-	mt        map[string]bool                  // className → isMultiTenant
+	classList     []string
+	shards        map[string]map[string]*testShard
+	skipped       map[string]map[string]string
+	mt            map[string]bool
+	snapshotsRoot string
 }
 
 func (s *fakeSelector) ListClasses(context.Context) []string {
@@ -129,29 +130,64 @@ func (s *fakeSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bo
 	return true
 }
 
-func (s *fakeSelector) AcquireShardForExport(_ context.Context, className, shardName string) (ShardLike, func(), string, error) {
-	if s.skipped != nil {
-		if reasons, ok := s.skipped[className]; ok {
-			if reason, ok := reasons[shardName]; ok {
-				return nil, nil, reason, nil
+func (s *fakeSelector) SnapshotShards(ctx context.Context, className string, shardNames []string, _ string) ([]ShardSnapshotResult, error) {
+	var results []ShardSnapshotResult
+	for _, shardName := range shardNames {
+		result := ShardSnapshotResult{ShardName: shardName}
+
+		if s.skipped != nil {
+			if reasons, ok := s.skipped[className]; ok {
+				if reason, ok := reasons[shardName]; ok {
+					result.SkipReason = reason
+					results = append(results, result)
+					continue
+				}
 			}
 		}
-	}
-	if s.shards != nil {
-		if classShards, ok := s.shards[className]; ok {
-			if shard, ok := classShards[shardName]; ok {
-				return shard, func() {}, "", nil
-			}
+
+		if s.shards == nil {
+			result.SkipReason = "no shards configured"
+			results = append(results, result)
+			continue
 		}
+		classShards, ok := s.shards[className]
+		if !ok {
+			result.SkipReason = "class not found"
+			results = append(results, result)
+			continue
+		}
+		shard, ok := classShards[shardName]
+		if !ok {
+			result.SkipReason = "shard not found"
+			results = append(results, result)
+			continue
+		}
+
+		store := shard.Store()
+		if store == nil {
+			return results, fmt.Errorf("store not found for shard %s/%s", className, shardName)
+		}
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return results, fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
+		}
+		snapshotDir, err := bucket.CreateSnapshot(ctx, s.snapshotsRoot,
+			fmt.Sprintf("test-%s-%s", className, shardName))
+		if err != nil {
+			return results, err
+		}
+		result.SnapshotDir = snapshotDir
+		result.Strategy = bucket.GetDesiredStrategy()
+		results = append(results, result)
 	}
-	return nil, nil, "shard not found", nil
+	return results, nil
 }
 
 // fakeBackend captures Write calls so tests can verify what was written.
 type fakeBackend struct {
 	mu                 sync.Mutex
 	written            map[string][]byte
-	interceptGetObject func(key string) ([]byte, error, bool) // if set, called before default logic; return (data, err, handled)
+	interceptGetObject func(key string) ([]byte, error, bool)
 }
 
 func (b *fakeBackend) Write(_ context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (int64, error) {
@@ -261,7 +297,7 @@ type expectedFile struct {
 	numRows int
 }
 
-// testShard is a minimal ShardLike backed by an lsmkv.Store for tests.
+// testShard is a minimal shard backed by an lsmkv.Store for tests.
 type testShard struct {
 	store *lsmkv.Store
 	name  string

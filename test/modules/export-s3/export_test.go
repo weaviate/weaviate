@@ -567,6 +567,14 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 	require.Empty(t, expected, "some objects were not found in parquet export")
 }
 
+// TestExport_MultiTenant_ActiveAndInactive verifies that exports handle
+// tenants in different activity states correctly:
+//   - HOT tenants: exported from the live (loaded) bucket
+//   - COLD tenants: exported directly from disk without loading the shard
+//   - OFFLOADED tenants: skipped
+//
+// AutoTenantActivation has no effect on exports because cold tenants are
+// snapshotted from disk without loading.
 func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
@@ -593,20 +601,22 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	}
 	helper.CreateTenants(t, className, tenants)
 
-	var activeObjects []*models.Object
+	var exportableObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-		if tenant.Name == "tenantA" || tenant.Name == "tenantC" {
-			activeObjects = append(activeObjects, objects...)
+		// tenantD will be OFFLOADED and skipped; all others are exported.
+		if tenant.Name != "tenantD" {
+			exportableObjects = append(exportableObjects, objects...)
 		}
 	}
 
-	// Set tenantB to COLD (=INACTIVE), tenantD to OFFLOADED.
-	// Note: FROZEN is a deprecated alias for OFFLOADED (same code path),
-	// so this single test covers both the modern and legacy status names.
+	// tenantB → COLD: exported from disk without loading.
+	// tenantC → COLD: exported from disk without loading.
+	// tenantD → OFFLOADED: skipped entirely.
 	helper.UpdateTenants(t, className, []*models.Tenant{
 		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantC", ActivityStatus: models.TenantActivityStatusCOLD},
 		{Name: "tenantD", ActivityStatus: models.TenantActivityStatusOFFLOADED},
 	})
 
@@ -619,18 +629,13 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
 
-	// Only tenantA and tenantC should be exported (20 objects)
-	verifyParquetExport(t, exportID, className, activeObjects)
+	// tenantA (HOT) + tenantB (COLD) + tenantC (COLD) = 30 objects.
+	verifyParquetExport(t, exportID, className, exportableObjects)
 
-	// Verify skipped tenants have a skip reason
+	// tenantD (OFFLOADED) should be skipped.
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
-
-	progressB, ok := shardStatus["tenantB"]
-	require.True(t, ok, "expected shard status for tenantB")
-	assert.Equal(t, "SKIPPED", progressB.Status)
-	assert.Contains(t, progressB.SkipReason, "COLD", "expected COLD in skip reason for tenantB")
 
 	progressD, ok := shardStatus["tenantD"]
 	require.True(t, ok, "expected shard status for tenantD")
@@ -639,129 +644,18 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 		strings.Contains(progressD.SkipReason, "FROZEN") || strings.Contains(progressD.SkipReason, "FREEZING"),
 		"expected FROZEN or FREEZING in skip reason for tenantD, got: %s", progressD.SkipReason)
 
-	// Verify parquet metadata
-	verifyParquetMetadata(t, exportID, className, true)
-}
-
-func TestExport_MultiTenant_AutoActivation(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:              true,
-			AutoTenantActivation: true,
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	tenants := []*models.Tenant{
-		{Name: "tenantA"},
-		{Name: "tenantB"},
-		{Name: "tenantC"},
-	}
-	helper.CreateTenants(t, className, tenants)
-
-	var allObjects []*models.Object
-	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-		allObjects = append(allObjects, objects...)
-	}
-
-	// Set tenantB to COLD
-	helper.UpdateTenants(t, className, []*models.Tenant{
-		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
-	})
-
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	// All 30 objects should be exported (auto-activation brings tenantB back)
-	verifyParquetExport(t, exportID, className, allObjects)
-
-	// Verify tenantB is COLD again after export
+	// Cold tenants must remain COLD — the export must not activate them.
 	tenantsResp, err := helper.GetTenants(t, className)
 	require.NoError(t, err)
 	for _, tenant := range tenantsResp.Payload {
-		if tenant.Name == "tenantB" {
+		if tenant.Name == "tenantB" || tenant.Name == "tenantC" {
 			require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
-				"tenantB should be deactivated back to COLD after export")
+				"tenant %s should still be COLD after export", tenant.Name)
 		}
 	}
 
 	// Verify parquet metadata
 	verifyParquetMetadata(t, exportID, className, true)
-}
-
-func TestExport_MultiTenant_AllInactive(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:              true,
-			AutoTenantActivation: false,
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	tenants := []*models.Tenant{
-		{Name: "tenantA"},
-		{Name: "tenantB"},
-	}
-	helper.CreateTenants(t, className, tenants)
-
-	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-	}
-
-	// Set both tenants to COLD
-	helper.UpdateTenants(t, className, []*models.Tenant{
-		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
-		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
-	})
-
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	// No objects should be exported (all tenants are COLD, autoActivation disabled)
-	keys := listParquetKeys(t, exportID, className)
-	require.Empty(t, keys, "expected no parquet files when all tenants are inactive")
-
-	// Cold tenants should be reported as SKIPPED at the shard level
-	require.NotNil(t, resp.Payload.ShardStatus)
-	shardStatus := resp.Payload.ShardStatus[className]
-	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
-	for _, tenant := range tenants {
-		progress, ok := shardStatus[tenant.Name]
-		require.True(t, ok, "expected shard status for tenant %s", tenant.Name)
-		assert.Equal(t, "SKIPPED", progress.Status, "cold tenant %s should be SKIPPED", tenant.Name)
-		assert.Equal(t, int64(0), progress.ObjectsExported, "cold tenant %s should have 0 objects exported", tenant.Name)
-	}
 }
 
 // verifyParquetMetadata checks that all parquet files for a class contain

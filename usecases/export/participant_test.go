@@ -213,7 +213,7 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// emptySelector returns no shards so executeExport completes immediately
+	// fakeSelector with no shards configured — executeExport completes immediately
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 
 	p := NewParticipant(

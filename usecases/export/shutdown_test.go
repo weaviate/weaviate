@@ -32,12 +32,13 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// blockingSelector blocks in AcquireShardForExport until released
+	// blockingSelector blocks in SnapshotShards until released
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}
 
-	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -50,7 +51,7 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	require.NoError(t, participant.Prepare(context.Background(), req))
 	require.NoError(t, participant.Commit(context.Background(), "test-export"))
 
-	// Wait for AcquireShardForExport to be called
+	// Wait for SnapshotShards to be called
 	selector.waitForCall(t)
 
 	// Simulate shutdown
@@ -65,61 +66,6 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	}, 5*time.Second, 10*time.Millisecond, "expected node status to be written")
 
 	written := backend.getWritten("node_node1_status.json")
-	var nodeStatus NodeStatus
-	require.NoError(t, json.Unmarshal(written, &nodeStatus))
-	assert.Equal(t, export.Failed, nodeStatus.Status)
-	assert.Contains(t, nodeStatus.Error, "context canceled")
-}
-
-func TestParticipant_ShutdownWritesFailedNodeStatus(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
-	}
-
-	p := &Participant{
-		shutdownCtx: shutdownCtx,
-		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
-		logger:      logger,
-	}
-
-	req := &ExportRequest{
-		ID:       "test-export",
-		Backend:  "s3",
-		Classes:  []string{"TestClass"},
-		Shards:   map[string][]string{"TestClass": {"shard0"}},
-		NodeName: "node1",
-	}
-
-	done := make(chan struct{})
-	go func() {
-		p.executeExport(shutdownCtx, backend, req)
-		close(done)
-	}()
-
-	// Wait for AcquireShardForExport to be called
-	selector.waitForCall(t)
-
-	// Simulate shutdown
-	shutdownCancel()
-
-	// Unblock the selector
-	close(selector.blockCh)
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("executeExport did not return after shutdown")
-	}
-
-	// Verify a failed node status was written
-	written := backend.getWritten("node_node1_status.json")
-	require.NotNil(t, written, "expected node status to be written")
-
 	var nodeStatus NodeStatus
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
 	assert.Equal(t, export.Failed, nodeStatus.Status)
@@ -415,10 +361,11 @@ func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// fakeSelector returns no shards, so export succeeds immediately
+	// fakeSelector with no shards returns no shards, so export succeeds immediately
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
-	participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	participant := NewParticipant(selector, backends, logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -455,7 +402,8 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 
 			selector := &fakeSelector{classList: []string{"TestClass"}}
 			backends := &fakeBackendProvider{backend: backend}
-			participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			participant := NewParticipant(selector, backends, logger,
+				&fakeExportClient{}, &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}, "node1")
 
 			resolver := &fakeNodeResolver{
 				nodes: map[string]string{

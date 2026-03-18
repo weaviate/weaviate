@@ -16,12 +16,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
@@ -488,14 +489,45 @@ func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBacken
 	}
 }
 
+// shardSnapshot holds the result of snapshotting a single shard's objects bucket.
+type shardSnapshot struct {
+	className string
+	shardName string
+	isMT      bool
+	dir       string // snapshot directory path
+	strategy  string // bucket strategy for NewSnapshotBucket
+}
+
 // doExport performs the actual export of all classes/shards in the request.
-// It uses an N-worker pool pattern: a single producer goroutine walks all
-// shards depth-first and submits scanJobs to workers via a shared channel.
-// The caller provides nodeStatus so it can inspect the final state after return.
+//
+// It runs in two phases:
+//
+//  1. Snapshot phase: acquire every shard, snapshot its objects bucket (brief
+//     compaction pause per shard), and release the shard immediately. After
+//     this phase no shards are held and all data is captured in read-only
+//     hard-linked snapshots.
+//
+//  2. Scan phase: open each snapshot as a read-only bucket, compute key
+//     ranges, and submit parallel scan jobs to an N-worker pool. Cleanup
+//     goroutines shut down snapshot buckets and remove snapshot directories
+//     once scanning completes.
 func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, nodeStatus *NodeStatus) error {
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
+	// Phase 1: create snapshots for all shards upfront, releasing each shard
+	// as soon as its snapshot is taken. The defer ensures all snapshot
+	// directories are removed even if phase 2 fails or panics. Snapshots
+	// that are successfully processed by cleanup goroutines in phase 2 will
+	// already have their directories removed; RemoveAll on a non-existent
+	// path is a no-op.
+	snapshots, err := p.snapshotAllShards(ctx, req, nodeStatus)
+	defer p.cleanupSnapshots(snapshots)
+	if err != nil {
+		return err
+	}
+
+	// Phase 2: scan all snapshots in parallel using an N-worker pool.
 	parallelism := runtime.GOMAXPROCS(0) * 2
 	jobCh := make(chan scanJob, parallelism)
 
@@ -514,9 +546,8 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	// cleanupErr collects the first error from any cleanup goroutine
 	// (scan failure, write failure, upload failure). Written under
 	// cleanupErrOnce so only the first error wins.
-	// failFastCancel cancels all in-flight work (scan workers, shard
-	// acquisition, range submission) so we don't waste effort after a
-	// failure.
+	// failFastCancel cancels all in-flight work (scan workers, range
+	// submission) so we don't waste effort after a failure.
 	failFastCtx, failFastCancel := context.WithCancel(ctx)
 	defer failFastCancel()
 
@@ -529,21 +560,21 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		})
 	}
 
-	// Depth-first walk: submit all range jobs for all shards.
+	// Depth-first walk: submit all range jobs for all snapshots.
 	var cleanupWg sync.WaitGroup
-	err := p.submitJobs(failFastCtx, jobCh, &cleanupWg, setCleanupErr, backend, req, nodeStatus, parallelism)
+	submitErr := p.submitSnapshotJobs(failFastCtx, jobCh, &cleanupWg, setCleanupErr, backend, req, nodeStatus, parallelism, snapshots)
 	close(jobCh)
 	workerWg.Wait()
-	// Wait for all per-shard cleanup goroutines (writer flush, shard release)
-	// to finish. This must happen after workers are done so that all scan
-	// results have been produced before cleanup closes the rows channels.
+	// Wait for all per-shard cleanup goroutines (snapshot shutdown, dir
+	// removal) to finish. This must happen after workers are done so that
+	// all scan results have been produced before cleanup runs.
 	cleanupWg.Wait()
 
-	// submitJobs errors (context cancellation, shard acquisition) take
+	// submitSnapshotJobs errors (context cancellation, snapshot open) take
 	// precedence over cleanupErr (writer flush, upload) because cleanup
 	// failures are typically a downstream consequence of the root cause.
-	if err != nil {
-		return err
+	if submitErr != nil {
+		return submitErr
 	}
 	if cleanupErr != nil {
 		return cleanupErr
@@ -553,21 +584,16 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	return nil
 }
 
-// submitJobs walks classes → shards → ranges depth-first, submitting scanJobs
-// to jobCh. For each shard it sets up a Parquet writer pipeline and a cleanup
-// goroutine that waits for all range jobs to complete before flushing.
-// cleanupWg tracks the spawned cleanup goroutines; the caller must wait on it
-// after workers have drained jobCh.
-func (p *Participant) submitJobs(
+// snapshotAllShards snapshots all shards for all classes in one batch per
+// class. The selector handles locking, tenant status checks, and the
+// active-vs-disk decision internally.
+func (p *Participant) snapshotAllShards(
 	ctx context.Context,
-	jobCh chan<- scanJob,
-	cleanupWg *sync.WaitGroup,
-	setCleanupErr func(error),
-	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
 	nodeStatus *NodeStatus,
-	parallelism int,
-) error {
+) ([]shardSnapshot, error) {
+	var snapshots []shardSnapshot
+
 	for _, className := range req.Classes {
 		shardNames, ok := req.Shards[className]
 		if !ok || len(shardNames) == 0 {
@@ -576,38 +602,84 @@ func (p *Participant) submitJobs(
 
 		isMT := p.selector.IsMultiTenant(ctx, className)
 
-		for _, shardName := range shardNames {
-			if err := ctx.Err(); err != nil {
-				nodeStatus.SetFailed(className, err)
-				return fmt.Errorf("export class %s: %w", className, err)
+		results, err := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
+		if err != nil {
+			// Clean up any snapshots created before the error in this batch.
+			for _, r := range results {
+				if r.SnapshotDir != "" {
+					os.RemoveAll(r.SnapshotDir)
+				}
 			}
+			nodeStatus.SetFailed(className, err)
+			return snapshots, fmt.Errorf("snapshot class %s: %w", className, err)
+		}
 
-			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
-			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
-				return fmt.Errorf("acquire shard %s/%s: %w", className, shardName, err)
-			}
-
-			if shard == nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, "", skipReason)
+		for _, r := range results {
+			if r.SkipReason != "" {
+				nodeStatus.SetShardProgress(className, r.ShardName, export.ShardSkipped, "", r.SkipReason)
 				continue
 			}
-
-			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, "", "")
-
-			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus, parallelism); err != nil {
-				return err
+			if r.SnapshotDir == "" {
+				nodeStatus.SetShardProgress(className, r.ShardName, export.ShardSkipped, "", "no data")
+				continue
 			}
+			snapshots = append(snapshots, shardSnapshot{
+				className: className,
+				shardName: r.ShardName,
+				isMT:      isMT,
+				dir:       r.SnapshotDir,
+				strategy:  r.Strategy,
+			})
 		}
 	}
 
+	return snapshots, nil
+}
+
+// cleanupSnapshots removes all snapshot directories. Used on error paths
+// when the scan phase will not run.
+func (p *Participant) cleanupSnapshots(snapshots []shardSnapshot) {
+	for _, snap := range snapshots {
+		os.RemoveAll(snap.dir)
+	}
+}
+
+// submitSnapshotJobs opens each pre-created snapshot as a read-only bucket,
+// computes key ranges, and submits scanJobs to the worker pool. A cleanup
+// goroutine per shard shuts down the snapshot bucket, removes the directory,
+// and updates shard status.
+func (p *Participant) submitSnapshotJobs(
+	ctx context.Context,
+	jobCh chan<- scanJob,
+	cleanupWg *sync.WaitGroup,
+	setCleanupErr func(error),
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	nodeStatus *NodeStatus,
+	parallelism int,
+	snapshots []shardSnapshot,
+) error {
+	for _, snap := range snapshots {
+		if err := ctx.Err(); err != nil {
+			nodeStatus.SetFailed(snap.className, err)
+			return fmt.Errorf("export class %s: %w", snap.className, err)
+		}
+
+		nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardTransferring, "", "")
+
+		if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr,
+			backend, req, snap, nodeStatus, parallelism); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// submitShardJobs validates the shard, computes key ranges, and submits
+// submitShardJobs opens a snapshot bucket, computes key ranges, and submits
 // scanJobs to jobCh. Each scanJob owns its own writer pipeline (one parquet
 // file per range). A cleanup goroutine (tracked by cleanupWg) waits for all
-// range jobs, aggregates counts, and releases the shard.
+// range jobs to complete, then shuts down the snapshot bucket and removes the
+// snapshot directory.
 func (p *Participant) submitShardJobs(
 	ctx context.Context,
 	jobCh chan<- scanJob,
@@ -615,39 +687,31 @@ func (p *Participant) submitShardJobs(
 	setCleanupErr func(error),
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
-	className, shardName string,
-	shard ShardLike,
-	release func(),
-	isMT bool,
+	snap shardSnapshot,
 	nodeStatus *NodeStatus,
 	parallelism int,
 ) error {
-	// Validate store/bucket before submitting jobs.
-	store := shard.Store()
-	if store == nil {
-		release()
-		err := fmt.Errorf("store not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
+	snapshotBucket, err := lsmkv.NewSnapshotBucket(ctx, snap.dir,
+		p.logger, lsmkv.WithStrategy(snap.strategy),
+		lsmkv.WithCalcCountNetAdditions(true))
+	if err != nil {
+		os.RemoveAll(snap.dir)
+		err = fmt.Errorf("open snapshot bucket for %s/%s: %w", snap.className, snap.shardName, err)
+		nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardFailed, err.Error(), "")
 		return err
 	}
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		release()
-		err := fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
-		return err
-	}
-	ranges := computeRanges(bucket, parallelism)
+
+	ranges := computeRanges(snapshotBucket, parallelism)
 
 	writerCfg := &rangeWriterConfig{
 		backend:   backend,
 		req:       req,
-		className: className,
-		shardName: shardName,
-		isMT:      isMT,
+		className: snap.className,
+		shardName: snap.shardName,
+		isMT:      snap.isMT,
 		logger:    p.logger,
 		onFlush: func(n int64) {
-			nodeStatus.AddShardExported(className, shardName, n)
+			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
 		},
 	}
 
@@ -673,7 +737,7 @@ rangeloop:
 		select {
 		case jobCh <- scanJob{
 			ctx:        ctx,
-			bucket:     bucket,
+			bucket:     snapshotBucket,
 			keyRange:   r,
 			rangeIndex: i,
 			writerCfg:  writerCfg,
@@ -688,29 +752,33 @@ rangeloop:
 		}
 	}
 
-	// Cleanup goroutine: waits for all range jobs, updates shard status,
-	// and releases the shard. The written count lives in the shard's atomic
-	// counter and is synced into ObjectsExported by SyncAndSnapshot.
+	// Cleanup goroutine: waits for all range jobs, shuts down the snapshot
+	// bucket, removes the snapshot directory, and updates shard status.
+	// The written count lives in the shard's atomic counter and is synced
+	// into ObjectsExported by SyncAndSnapshot.
 	cleanupWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer cleanupWg.Done()
 		shardWg.Wait()
 
+		if err := snapshotBucket.Shutdown(context.Background()); err != nil {
+			p.logger.WithField("class", snap.className).
+				WithField("shard", snap.shardName).
+				Warnf("failed to shutdown snapshot bucket: %v", err)
+		}
+		os.RemoveAll(snap.dir)
+
 		if shardErr != nil {
-			// setCleanupErr was already called by setErr (which triggered
-			// failFastCancel); here we only record per-shard status.
-			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, shardErr.Error(), "")
-			release()
+			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardFailed, shardErr.Error(), "")
 			return
 		}
 
-		p.logger.WithField("class", className).
-			WithField("shard", shardName).
-			WithField("objects", nodeStatus.GetShardWritten(className, shardName)).
+		p.logger.WithField("class", snap.className).
+			WithField("shard", snap.shardName).
+			WithField("objects", nodeStatus.GetShardWritten(snap.className, snap.shardName)).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, "", "")
-		release()
+		nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardSuccess, "", "")
 	}, p.logger)
 
 	return submitErr

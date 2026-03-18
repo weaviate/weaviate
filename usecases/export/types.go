@@ -13,6 +13,7 @@ package export
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -21,7 +22,38 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
+
+// BackendProvider provides access to storage backends for export.
+type BackendProvider interface {
+	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
+}
+
+// Selector provides access to shards and classes for export operations.
+type Selector interface {
+	ListClasses(ctx context.Context) []string
+	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
+	IsMultiTenant(ctx context.Context, className string) bool
+	IsAsyncReplicationEnabled(ctx context.Context, className string) bool
+
+	// SnapshotShards creates point-in-time snapshots of the objects buckets
+	// for the given shards of a class. For active (loaded) shards it flushes
+	// and hard-links from the live bucket. For inactive (unloaded) shards it
+	// hard-links directly from the on-disk bucket directory without loading
+	// the shard. Skipped shards (e.g. offloaded tenants) are included in the
+	// result with a skip reason and nil snapshot.
+	SnapshotShards(ctx context.Context, className string, shardNames []string, exportID string) ([]ShardSnapshotResult, error)
+}
+
+// ShardSnapshotResult holds the outcome of snapshotting a single shard.
+// If SkipReason is non-empty the shard was skipped and SnapshotDir is empty.
+type ShardSnapshotResult struct {
+	ShardName   string
+	SnapshotDir string // path to the snapshot directory; empty if skipped
+	Strategy    string // bucket strategy (e.g. StrategyReplace)
+	SkipReason  string // non-empty if the shard was skipped
+}
 
 // newBytesReadCloser wraps data in a backup.ReadCloserWithError suitable for
 // BackupBackend.Write calls that write small blobs (metadata, status JSON).
