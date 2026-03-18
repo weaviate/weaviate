@@ -35,6 +35,10 @@ func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.
 	}
 }
 
+// ListTasks converts internal [distributedtask.Task] structs into the REST API model.
+// The raw task payload (opaque bytes internally) is unmarshaled into a generic JSON map —
+// if we ever add sensitive fields to payloads, the [distributedtask.Provider] interface
+// should grow a method to redact them before they reach this layer.
 func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (models.DistributedTasks, error) {
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
@@ -49,13 +53,6 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 	for namespace, tasks := range tasksByNamespace {
 		resp[namespace] = make([]models.DistributedTask, 0, len(tasks))
 		for _, task := range tasks {
-			var finishedNodes []string
-			for node := range task.FinishedNodes {
-				finishedNodes = append(finishedNodes, node)
-			}
-			// sort so it would be more deterministic and easier to test
-			sort.Strings(finishedNodes)
-
 			// Try to unmarshal the raw payload into a generic JSON object.
 			// If we introduce sensitive information to the payload, we can
 			// add another method to Provider to unmarshal the payload and strip all the sensitive data.
@@ -64,18 +61,40 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 				return nil, fmt.Errorf("unmarshal payload: %w", err)
 			}
 
-			resp[namespace] = append(resp[namespace], models.DistributedTask{
-				ID:            task.ID,
-				Version:       int64(task.Version),
-				Status:        task.Status.String(),
-				Error:         task.Error,
-				StartedAt:     strfmt.DateTime(task.StartedAt),
-				FinishedAt:    strfmt.DateTime(task.FinishedAt),
-				FinishedNodes: finishedNodes,
-				Payload:       payload,
-			})
+			dt := models.DistributedTask{
+				ID:         task.ID,
+				Version:    int64(task.Version),
+				Status:     task.Status.String(),
+				Error:      task.Error,
+				StartedAt:  strfmt.DateTime(task.StartedAt),
+				FinishedAt: strfmt.DateTime(task.FinishedAt),
+				Payload:    payload,
+			}
+
+			dt.Units = mapUnits(task)
+
+			resp[namespace] = append(resp[namespace], dt)
 		}
 	}
 
 	return resp, nil
+}
+
+func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
+	units := make([]*models.DistributedTaskUnit, 0, len(task.Units))
+	for _, su := range task.Units {
+		units = append(units, &models.DistributedTaskUnit{
+			ID:         su.ID,
+			NodeID:     su.NodeID,
+			Status:     string(su.Status),
+			Progress:   su.Progress,
+			Error:      su.Error,
+			UpdatedAt:  strfmt.DateTime(su.UpdatedAt),
+			FinishedAt: strfmt.DateTime(su.FinishedAt),
+		})
+	}
+	sort.Slice(units, func(i, j int) bool {
+		return units[i].ID < units[j].ID
+	})
+	return units
 }
