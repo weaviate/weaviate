@@ -451,6 +451,10 @@ func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
+func (c *fakeRemoteClient) CountObjects(ctx context.Context, host, index, shard, string) (int, error) {
+	return 0, nil
+}
+
 func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
@@ -641,4 +645,8 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return nil, nil
+}
+
+func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard, string) (int, error) {
+	return 0, nil
 }
