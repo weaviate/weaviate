@@ -467,6 +467,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	setupDebugHandlers(appState)
+	setupReindexHandler(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
@@ -808,9 +809,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			setupShardNoopDebugHandler(appState, shardNoopProvider)
 		}
 
+		reindexProvider := db.NewReindexProvider(
+			repo, appState.SchemaManager, appState.Logger,
+			appState.Cluster.LocalName(),
+		)
+		providers[db.ReindexNamespace] = reindexProvider
+
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,
 			TasksLister:        appState.ClusterService.Raft,
+			TaskCleaner:        appState.ClusterService.Raft,
 			Providers:          providers,
 			Logger:             appState.Logger,
 			MetricsRegisterer:  metricsRegisterer,

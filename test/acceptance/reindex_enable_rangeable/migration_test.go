@@ -12,6 +12,7 @@
 package reindex_enable_rangeable
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -86,6 +87,8 @@ func TestRuntimeEnableRangeable(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
+		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -95,6 +98,7 @@ func TestRuntimeEnableRangeable(t *testing.T) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
+	restURI := compose.GetWeaviate().URI()
 	debugURI := "http://" + compose.GetWeaviate().DebugURI()
 
 	// Dump container logs on failure.
@@ -195,44 +199,27 @@ func TestRuntimeEnableRangeable(t *testing.T) {
 		}
 	}()
 
-	// 5. Trigger migration — only score and price, NOT name.
-	migrationURL := fmt.Sprintf("%s/debug/reindex/enable-rangeable?collection=%s&property=score&property=price",
-		debugURI, className)
-	t.Logf("triggering migration: %s", migrationURL)
+	// 5. Submit reindex task — only score and price, NOT name.
+	taskID := submitReindex(t, debugURI, className, "enable-rangeable",
+		[]string{"score", "price"}, "")
+	t.Logf("submitted reindex task: %s", taskID)
 
-	resp, err := http.Get(migrationURL) //nolint:gosec
-	require.NoError(t, err, "migration HTTP request failed")
-	defer resp.Body.Close()
+	// 6. Poll until task is FINISHED.
+	awaitReindexFinished(t, restURI, taskID)
 
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading migration response body")
-	t.Logf("migration response (status=%d): %s", resp.StatusCode, string(body))
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"migration endpoint returned non-200: %s", string(body))
-
-	// 6. Stop background query loop.
+	// 7. Stop background query loop.
 	close(stopCh)
 	wg.Wait()
 
 	t.Logf("background queries: %d runs, %d failures", queryRuns.Load(), queryFailures.Load())
 	assert.Zero(t, queryFailures.Load(), "filter queries failed during migration")
 
-	// 7. Final filter queries — must return same results.
+	// 8. Final filter queries — must return same results.
 	for i, bl := range baselines {
 		ids := runFilterQuery(t, filterQueries[i].where)
 		assert.ElementsMatch(t, bl.ids, ids,
 			"post-migration query %q results differ from baseline", bl.name)
 	}
-
-	// 8. Extract shard name.
-	var migrationResult map[string]map[string]string
-	require.NoError(t, json.Unmarshal(body, &migrationResult))
-	var shardName string
-	for k := range migrationResult {
-		shardName = k
-		break
-	}
-	require.NotEmpty(t, shardName, "could not extract shard name from migration response")
 
 	// 9. Verify schema: IndexRangeFilters=true on score and price, NOT on name.
 	updatedClass := helper.GetClass(t, className)
@@ -252,6 +239,7 @@ func TestRuntimeEnableRangeable(t *testing.T) {
 	}
 
 	// 10. Verify filesystem.
+	shardName := getFirstShardName(t, restURI, className)
 	container := compose.GetWeaviate().Container()
 	dirs := listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__rangeable_")
@@ -284,6 +272,106 @@ func TestRuntimeEnableRangeable(t *testing.T) {
 	assertBucketExists(t, dirs, "property_price_rangeable")
 	assertBucketExists(t, dirs, "property_score")
 	assertBucketExists(t, dirs, "property_price")
+}
+
+// submitReindex submits a reindex task via POST /v1/schema/{collection}/reindex
+// on the debug port and returns the task ID.
+func submitReindex(t *testing.T, debugURI, collection, migType string, properties []string, targetTokenization string) string {
+	t.Helper()
+
+	body := map[string]interface{}{
+		"type": migType,
+	}
+	if len(properties) > 0 {
+		body["properties"] = properties
+	}
+	if targetTokenization != "" {
+		body["targetTokenization"] = targetTokenization
+	}
+
+	jsonBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("%s/v1/schema/%s/reindex", debugURI, collection)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody)) //nolint:gosec
+	require.NoError(t, err, "reindex submit request failed")
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	t.Logf("reindex submit response (status=%d): %s", resp.StatusCode, string(respBody))
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"reindex endpoint returned non-202: %s", string(respBody))
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(respBody, &result))
+	return result["taskId"]
+}
+
+// awaitReindexFinished polls GET /v1/tasks until the reindex task reaches FINISHED status.
+func awaitReindexFinished(t *testing.T, restURI, taskID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+
+		for _, task := range tasks["reindex"] {
+			if task.ID == taskID {
+				t.Logf("task %s status: %s", taskID, task.Status)
+				if task.Status == "FAILED" {
+					t.Fatalf("reindex task failed: %s", task.Error)
+				}
+				return task.Status == "FINISHED"
+			}
+		}
+		return false
+	}, 120*time.Second, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+}
+
+// getFirstShardName retrieves the first shard name for a collection via the nodes API.
+func getFirstShardName(t *testing.T, restURI, collection string) string {
+	t.Helper()
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var nodesResp struct {
+		Nodes []struct {
+			Shards []struct {
+				Class string `json:"class"`
+				Name  string `json:"name"`
+			} `json:"shards"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+
+	for _, node := range nodesResp.Nodes {
+		for _, shard := range node.Shards {
+			if shard.Class == collection {
+				return shard.Name
+			}
+		}
+	}
+	t.Fatalf("no shard found for collection %s", collection)
+	return ""
 }
 
 // runFilterQuery executes a filter query and returns the list of object IDs.

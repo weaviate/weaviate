@@ -12,6 +12,7 @@
 package reindex_to_blockmax
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -77,10 +78,12 @@ var bm25Queries = []string{
 func TestRuntimeMigrationToBlockmax(t *testing.T) {
 	ctx := context.Background()
 
-	// Start Weaviate with debug port exposed and non-BMW default.
+	// Start Weaviate with debug port exposed, DTM enabled, and non-BMW default.
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -90,6 +93,7 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
+	restURI := compose.GetWeaviate().URI()
 	debugURI := "http://" + compose.GetWeaviate().DebugURI()
 
 	// On test failure, dump container logs for debugging.
@@ -189,34 +193,27 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 		}
 	}()
 
-	// 5. Trigger migration via debug endpoint.
-	migrationURL := fmt.Sprintf("%s/debug/reindex/to-blockmax?collection=%s", debugURI, className)
-	t.Logf("triggering migration: %s", migrationURL)
+	// 5. Submit reindex task via DTM endpoint.
+	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	t.Logf("submitted reindex task: %s", taskID)
 
-	resp, err := http.Get(migrationURL) //nolint:gosec
-	require.NoError(t, err, "migration HTTP request failed")
-	defer resp.Body.Close()
+	// 6. Poll until task is FINISHED.
+	awaitReindexFinished(t, restURI, taskID)
 
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading migration response body")
-	t.Logf("migration response (status=%d): %s", resp.StatusCode, string(body))
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"migration endpoint returned non-200: %s", string(body))
-
-	// 6. Stop background query loop.
+	// 7. Stop background query loop.
 	close(stopCh)
 	wg.Wait()
 
 	t.Logf("background queries: %d runs, %d failures", queryRuns.Load(), queryFailures.Load())
 	assert.Zero(t, queryFailures.Load(), "BM25 queries failed during migration")
 
-	// 7. Verify schema: UsingBlockMaxWAND should now be true.
+	// 8. Verify schema: UsingBlockMaxWAND should now be true.
 	updatedClass := helper.GetClass(t, className)
 	t.Logf("post-migration InvertedIndexConfig: %+v", updatedClass.InvertedIndexConfig)
 	require.True(t, updatedClass.InvertedIndexConfig.UsingBlockMaxWAND,
 		"UsingBlockMaxWAND should be true after migration")
 
-	// 8. Final BM25 queries — must return the same set of results.
+	// 9. Final BM25 queries — must return the same set of results.
 	// The order may differ slightly for documents with identical BM25 scores
 	// because BlockmaxWAND and the old WAND use different tie-breaking.
 	for _, bl := range baselines {
@@ -225,17 +222,8 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 			"post-migration query %q results differ from baseline", bl.query)
 	}
 
-	// 9. Extract shard name from migration response.
-	var migrationResult map[string]map[string]string
-	require.NoError(t, json.Unmarshal(body, &migrationResult))
-	var shardName string
-	for k := range migrationResult {
-		shardName = k
-		break
-	}
-	require.NotEmpty(t, shardName, "could not extract shard name from migration response")
-
-	// 10. Verify no leftover suffixed bucket directories.
+	// 10. Get shard name from the nodes API and verify no leftover suffixed buckets.
+	shardName := getFirstShardName(t, restURI, className)
 	container := compose.GetWeaviate().Container()
 	dirs := listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__blockmax_")
@@ -256,6 +244,106 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 	// 13. Verify filesystem still clean after restart.
 	dirs = listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__blockmax_")
+}
+
+// submitReindex submits a reindex task via POST /v1/schema/{collection}/reindex
+// on the debug port and returns the task ID.
+func submitReindex(t *testing.T, debugURI, collection, migType string, properties []string, targetTokenization string) string {
+	t.Helper()
+
+	body := map[string]interface{}{
+		"type": migType,
+	}
+	if len(properties) > 0 {
+		body["properties"] = properties
+	}
+	if targetTokenization != "" {
+		body["targetTokenization"] = targetTokenization
+	}
+
+	jsonBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("%s/v1/schema/%s/reindex", debugURI, collection)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody)) //nolint:gosec
+	require.NoError(t, err, "reindex submit request failed")
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	t.Logf("reindex submit response (status=%d): %s", resp.StatusCode, string(respBody))
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"reindex endpoint returned non-202: %s", string(respBody))
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(respBody, &result))
+	return result["taskId"]
+}
+
+// awaitReindexFinished polls GET /v1/tasks until the reindex task reaches FINISHED status.
+func awaitReindexFinished(t *testing.T, restURI, taskID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+
+		for _, task := range tasks["reindex"] {
+			if task.ID == taskID {
+				t.Logf("task %s status: %s", taskID, task.Status)
+				if task.Status == "FAILED" {
+					t.Fatalf("reindex task failed: %s", task.Error)
+				}
+				return task.Status == "FINISHED"
+			}
+		}
+		return false
+	}, 120*time.Second, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+}
+
+// getFirstShardName retrieves the first shard name for a collection via the nodes API.
+func getFirstShardName(t *testing.T, restURI, collection string) string {
+	t.Helper()
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var nodesResp struct {
+		Nodes []struct {
+			Shards []struct {
+				Class string `json:"class"`
+				Name  string `json:"name"`
+			} `json:"shards"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+
+	for _, node := range nodesResp.Nodes {
+		for _, shard := range node.Shards {
+			if shard.Class == collection {
+				return shard.Name
+			}
+		}
+	}
+	t.Fatalf("no shard found for collection %s", collection)
+	return ""
 }
 
 // runBM25Query executes a BM25 query and returns the ordered list of object IDs.

@@ -12,6 +12,7 @@
 package reindex_change_tokenization
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -79,9 +80,11 @@ var bm25Queries = []bm25Query{
 func TestRuntimeChangeTokenization(t *testing.T) {
 	ctx := context.Background()
 
-	// 1. Setup containers.
+	// 1. Setup containers with DTM enabled.
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
+		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
+		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -91,6 +94,7 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
+	restURI := compose.GetWeaviate().URI()
 	debugURI := "http://" + compose.GetWeaviate().DebugURI()
 
 	// Dump container logs on failure.
@@ -158,19 +162,16 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 		"description_search should match tutorial objects")
 
 	// 4b. Baseline filter queries (test the filterable bucket).
-	// Equal filter: "weaviate" on filepath — WORD tokenizes to single token "weaviate".
 	filterEqualWeaviateBaseline := runFilterQuery(t, "filepath", "Equal", "weaviate")
 	t.Logf("baseline filter Equal 'weaviate' on filepath: %d results", len(filterEqualWeaviateBaseline))
 	require.Greater(t, len(filterEqualWeaviateBaseline), 0,
 		"Equal 'weaviate' with WORD should match objects with 'weaviate' token")
 
-	// Equal filter on description "tutorial" (control property).
 	filterEqualDescBaseline := runFilterQuery(t, "description", "Equal", "tutorial")
 	t.Logf("baseline filter Equal 'tutorial' on description: %d results", len(filterEqualDescBaseline))
 	require.Greater(t, len(filterEqualDescBaseline), 0,
 		"Equal 'tutorial' with WORD should match tutorial objects")
 
-	// Like filter: "weaviate*" on filepath — matches tokens starting with "weaviate".
 	filterLikeBaseline := runFilterQuery(t, "filepath", "Like", "weaviate*")
 	t.Logf("baseline filter Like 'weaviate*' on filepath: %d results", len(filterLikeBaseline))
 	require.Greater(t, len(filterLikeBaseline), 0,
@@ -227,29 +228,22 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 		}
 	}()
 
-	// 6. Trigger migration: change filepath tokenization from WORD to FIELD.
-	migrationURL := fmt.Sprintf("%s/debug/reindex/change-tokenization?collection=%s&property=filepath&tokenization=field",
-		debugURI, className)
-	t.Logf("triggering migration: %s", migrationURL)
+	// 6. Submit reindex task: change filepath tokenization from WORD to FIELD.
+	taskID := submitReindex(t, debugURI, className, "change-tokenization",
+		[]string{"filepath"}, "field")
+	t.Logf("submitted reindex task: %s", taskID)
 
-	resp, err := http.Get(migrationURL) //nolint:gosec
-	require.NoError(t, err, "migration HTTP request failed")
-	defer resp.Body.Close()
+	// 7. Poll until task is FINISHED.
+	awaitReindexFinished(t, restURI, taskID)
 
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err, "reading migration response body")
-	t.Logf("migration response (status=%d): %s", resp.StatusCode, string(body))
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"migration endpoint returned non-200: %s", string(body))
-
-	// 7. Stop background query loop.
+	// 8. Stop background query loop.
 	close(stopCh)
 	wg.Wait()
 
 	t.Logf("background queries: %d runs, %d failures", queryRuns.Load(), queryFailures.Load())
 	assert.Zero(t, queryFailures.Load(), "queries failed during migration")
 
-	// 8. Post-migration BM25 queries with new expectations.
+	// 9. Post-migration BM25 queries with new expectations.
 	// After FIELD tokenization on filepath:
 	// - full_path_search: only exact match (1 result)
 	postFullPath := runBM25Query(t, "filepath", "/code/github.com/weaviate/weaviate/all_the_awesome_stuff.go")
@@ -264,37 +258,23 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 	assert.ElementsMatch(t, baselines[2].ids, postDescription,
 		"description_search results should be unchanged")
 
-	// 8b. Post-migration filter queries.
-	// Equal "weaviate" on filepath: FIELD makes full value a single token → no match.
+	// 9b. Post-migration filter queries.
 	postFilterEqualWeaviate := runFilterQuery(t, "filepath", "Equal", "weaviate")
 	assert.Empty(t, postFilterEqualWeaviate,
 		"filter Equal 'weaviate' with FIELD should match no objects")
 
-	// Equal full path on filepath: FIELD → exact single token match.
 	postFilterEqualFull := runFilterQuery(t, "filepath", "Equal",
 		"/code/github.com/weaviate/weaviate/all_the_awesome_stuff.go")
 	assert.Len(t, postFilterEqualFull, 1,
 		"filter Equal full path with FIELD should match exactly one object")
 
-	// Like "weaviate*" on filepath: FIELD → no token starts with "weaviate".
 	postFilterLike := runFilterQuery(t, "filepath", "Like", "weaviate*")
 	assert.Empty(t, postFilterLike,
 		"filter Like 'weaviate*' with FIELD should match no objects")
 
-	// Equal "tutorial" on description: unchanged (control property).
 	postFilterDesc := runFilterQuery(t, "description", "Equal", "tutorial")
 	assert.ElementsMatch(t, filterEqualDescBaseline, postFilterDesc,
 		"filter Equal 'tutorial' on description should be unchanged")
-
-	// 9. Extract shard name.
-	var migrationResult map[string]map[string]string
-	require.NoError(t, json.Unmarshal(body, &migrationResult))
-	var shardName string
-	for k := range migrationResult {
-		shardName = k
-		break
-	}
-	require.NotEmpty(t, shardName, "could not extract shard name from migration response")
 
 	// 10. Verify schema: tokenization changed to "field" on filepath, unchanged on description.
 	updatedClass := helper.GetClass(t, className)
@@ -310,6 +290,7 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 	}
 
 	// 11. Verify filesystem: no leftover retokenize buckets.
+	shardName := getFirstShardName(t, restURI, className)
 	container := compose.GetWeaviate().Container()
 	dirs := listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__retokenize_")
@@ -373,6 +354,106 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 	assertBucketExists(t, dirs, "property_description_searchable")
 	assertBucketExists(t, dirs, "property_filepath")
 	assertBucketExists(t, dirs, "property_description")
+}
+
+// submitReindex submits a reindex task via POST /v1/schema/{collection}/reindex
+// on the debug port and returns the task ID.
+func submitReindex(t *testing.T, debugURI, collection, migType string, properties []string, targetTokenization string) string {
+	t.Helper()
+
+	body := map[string]interface{}{
+		"type": migType,
+	}
+	if len(properties) > 0 {
+		body["properties"] = properties
+	}
+	if targetTokenization != "" {
+		body["targetTokenization"] = targetTokenization
+	}
+
+	jsonBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("%s/v1/schema/%s/reindex", debugURI, collection)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody)) //nolint:gosec
+	require.NoError(t, err, "reindex submit request failed")
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	t.Logf("reindex submit response (status=%d): %s", resp.StatusCode, string(respBody))
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"reindex endpoint returned non-202: %s", string(respBody))
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(respBody, &result))
+	return result["taskId"]
+}
+
+// awaitReindexFinished polls GET /v1/tasks until the reindex task reaches FINISHED status.
+func awaitReindexFinished(t *testing.T, restURI, taskID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+
+		for _, task := range tasks["reindex"] {
+			if task.ID == taskID {
+				t.Logf("task %s status: %s", taskID, task.Status)
+				if task.Status == "FAILED" {
+					t.Fatalf("reindex task failed: %s", task.Error)
+				}
+				return task.Status == "FINISHED"
+			}
+		}
+		return false
+	}, 120*time.Second, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+}
+
+// getFirstShardName retrieves the first shard name for a collection via the nodes API.
+func getFirstShardName(t *testing.T, restURI, collection string) string {
+	t.Helper()
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var nodesResp struct {
+		Nodes []struct {
+			Shards []struct {
+				Class string `json:"class"`
+				Name  string `json:"name"`
+			} `json:"shards"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+
+	for _, node := range nodesResp.Nodes {
+		for _, shard := range node.Shards {
+			if shard.Class == collection {
+				return shard.Name
+			}
+		}
+	}
+	t.Fatalf("no shard found for collection %s", collection)
+	return ""
 }
 
 // runBM25Query executes a BM25 query and returns the list of object IDs.

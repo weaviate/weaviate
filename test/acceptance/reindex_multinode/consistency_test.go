@@ -1,0 +1,110 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package reindex_multinode
+
+import (
+	"context"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+)
+
+func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	className := "ConsistencyTest"
+	restURI := compose.GetWeaviateNode(1).URI()
+	debugURI := compose.GetWeaviateNode(1).DebugURI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	// Record baselines on all nodes.
+	baselines := make(map[string][][]string)
+	for _, q := range testBM25Queries {
+		results := queryAllNodes(t, compose, className, q)
+		assertQueryConsistency(t, results)
+		baselines[q] = results
+		require.NotEmpty(t, results[0], "baseline query %q returned no results", q)
+	}
+
+	// Start 3 concurrent query loops (one per node), cycling through all queries.
+	var queryFailures atomic.Int64
+	var queryRuns atomic.Int64
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
+		wg.Add(1)
+		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
+		go func(uri string, idx int) {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
+				for _, q := range testBM25Queries {
+					ids, err := runBM25QueryOnNode(t, uri, className, q)
+					queryRuns.Add(1)
+					if err != nil {
+						queryFailures.Add(1)
+						t.Logf("node %d query %q error: %v", idx+1, q, err)
+					} else if !idsMatchUnordered(baselines[q][0], ids) {
+						queryFailures.Add(1)
+						t.Logf("node %d query %q mismatch: expected %d got %d",
+							idx+1, q, len(baselines[q][0]), len(ids))
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}(nodeURI, nodeIdx)
+	}
+
+	// Submit reindex (repair-searchable — the most common type).
+	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	t.Logf("submitted reindex task: %s", taskID)
+
+	awaitReindexFinished(t, restURI, taskID)
+
+	// Continue queries for 5s after completion to catch post-swap transients.
+	time.Sleep(5 * time.Second)
+
+	// Stop background queries.
+	close(stopCh)
+	wg.Wait()
+
+	t.Logf("background queries: %d runs, %d failures", queryRuns.Load(), queryFailures.Load())
+	assert.Zero(t, queryFailures.Load(),
+		"zero query failures expected across all goroutines and all nodes")
+
+	// Final consistency check.
+	for _, q := range testBM25Queries {
+		results := queryAllNodes(t, compose, className, q)
+		assertQueryConsistency(t, results)
+		assert.ElementsMatch(t, baselines[q][0], results[0],
+			"post-migration query %q results differ from baseline", q)
+	}
+}
