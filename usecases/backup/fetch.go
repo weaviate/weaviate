@@ -44,7 +44,7 @@ func FetchBackupDescriptors(
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(100) // limit concurrency to 100 fetches at a time
-	metaCh := make(chan *backup.DistributedBackupDescriptor)
+	metaCh := make(chan *backup.DistributedBackupDescriptor, len(filteredKeys))
 
 	for _, key := range filteredKeys {
 		eg.Go(func() error {
