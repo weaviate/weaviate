@@ -285,8 +285,7 @@ func FromEnv(config *Config) error {
 		}
 
 		var skipTLSVerify bool
-		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_TLS_VERIFY")) {
-			skipTLSVerify = true
+		if entcfg.Enabled(os.Getenv("INSECURE_SKIP_OIDC_TLS_VERIFY")) {
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {

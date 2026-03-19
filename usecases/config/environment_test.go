@@ -871,7 +871,7 @@ func TestEnvironmentAuthentication(t *testing.T) {
 		},
 		{
 			name:         "Valid OIDC Auth with SkipTLSVerify",
-			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "AUTHENTICATION_OIDC_SKIP_TLS_VERIFY"},
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "INSECURE_SKIP_OIDC_TLS_VERIFY"},
 			expected: Authentication{
 				OIDC: OIDC{
 					Enabled:           true,

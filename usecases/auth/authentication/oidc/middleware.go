@@ -226,7 +226,7 @@ func (c *Client) buildHTTPClient() (*http.Client, error) {
 	}
 
 	if c.Config.SkipTLSVerify.Get() {
-		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- opt-in via AUTHENTICATION_OIDC_SKIP_TLS_VERIFY
+		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- opt-in via INSECURE_SKIP_OIDC_TLS_VERIFY
 		c.logger.WithField("action", "oidc_init").Warn("TLS verification disabled for OIDC connections — do not use in production")
 	}
 
