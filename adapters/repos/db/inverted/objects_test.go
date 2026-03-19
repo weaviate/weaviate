@@ -84,7 +84,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"uuid[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -275,7 +275,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"number[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescriptions := []Countable{
@@ -454,7 +454,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -513,7 +513,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -563,7 +563,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -619,7 +619,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"SomeClass"},
 				},
 			}
-			res, err := a.Object(sch, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedUUID := []Countable{
@@ -670,7 +670,7 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		res, err := a.Object(sch, props, uuid)
+		res, _, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 

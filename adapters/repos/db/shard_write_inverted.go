@@ -29,10 +29,10 @@ func isPropertyForLength(dt schema.DataType) bool {
 	}
 }
 
-func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedResult, error) {
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
 	if c == nil {
-		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
+		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
 	var schemaMap map[string]interface{}
@@ -42,7 +42,7 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	} else {
 		maybeSchemaMap, ok := object.Properties().(map[string]interface{})
 		if !ok {
-			return nil, nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
+			return nil, nil, nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
 		}
 		schemaMap = maybeSchemaMap
 	}
@@ -79,6 +79,6 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
-	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
-	return props, nilProps, err
+	props, nestedResults, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
+	return props, nilProps, nestedResults, err
 }

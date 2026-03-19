@@ -42,6 +42,32 @@ type NilProperty struct {
 	AddToPropertyLength bool
 }
 
+// NestedValue is a single analyzed value from a nested property, ready to
+// be written to the value bucket. The key in the bucket will be
+// hash8(Path) + Data; the bitmap values will be Positions with the real
+// docID ORed in.
+type NestedValue struct {
+	Path      string   // dot-notation path, e.g. "addresses.city"
+	Data      []byte   // analyzed value bytes
+	Positions []uint64 // positions with docID=0
+}
+
+// NestedResult holds all analyzed values and metadata from position
+// assignment of a single nested property.
+type NestedResult struct {
+	PropName string         // top-level property name (for bucket naming)
+	Values   []NestedValue  // analyzed values for the value bucket
+	Idx      []NestedMeta   // _idx metadata entries
+	Exists   []NestedMeta   // _exists metadata entries
+}
+
+// NestedMeta is an _idx or _exists metadata entry from position assignment.
+type NestedMeta struct {
+	Path      string   // e.g. "addresses" for _idx, "owner.firstname" for _exists
+	Index     int      // 0-based element index (only used for _idx; -1 for _exists)
+	Positions []uint64 // positions with docID=0
+}
+
 func DedupItems(props []Property) []Property {
 	for i := range props {
 		seen := map[string]struct{}{}

@@ -121,7 +121,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, _, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}

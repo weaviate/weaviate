@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -29,26 +30,26 @@ import (
 
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 	uuid strfmt.UUID,
-) ([]Property, error) {
+) ([]Property, []NestedResult, error) {
 	propsMap := map[string]*models.Property{}
 	for _, prop := range props {
 		propsMap[prop.Name] = prop
 	}
 
-	properties, err := a.analyzeProps(propsMap, input)
+	properties, nestedResults, err := a.analyzeProps(propsMap, input)
 	if err != nil {
-		return nil, fmt.Errorf("analyze props: %w", err)
+		return nil, nil, fmt.Errorf("analyze props: %w", err)
 	}
 
 	idProp, err := a.analyzeIDProp(uuid)
 	if err != nil {
-		return nil, fmt.Errorf("analyze uuid prop: %w", err)
+		return nil, nil, fmt.Errorf("analyze uuid prop: %w", err)
 	}
 	properties = append(properties, *idProp)
 
 	tsProps, err := a.analyzeTimestampProps(input)
 	if err != nil {
-		return nil, fmt.Errorf("analyze timestamp props: %w", err)
+		return nil, nil, fmt.Errorf("analyze timestamp props: %w", err)
 	}
 	// tsProps will be nil here if weaviate is
 	// not setup to index by timestamps
@@ -56,42 +57,54 @@ func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 		properties = append(properties, tsProps...)
 	}
 
-	return properties, nil
+	return properties, nestedResults, nil
 }
 
 func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 	input map[string]any,
-) ([]Property, error) {
+) ([]Property, []NestedResult, error) {
 	var out []Property
+	var nestedOut []NestedResult
 	for key, prop := range propsMap {
 		if len(prop.DataType) < 1 {
-			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
-		}
-
-		if !HasAnyInvertedIndex(prop) {
-			continue
+			return nil, nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
 		if schema.IsBlobDataType(prop.DataType) {
 			continue
 		}
 
+		if _, ok := schema.AsNested(prop.DataType); ok {
+			nr, err := a.analyzeNestedProp(prop, input[key])
+			if err != nil {
+				return nil, nil, fmt.Errorf("analyze nested prop %q: %w", key, err)
+			}
+			if nr != nil {
+				nestedOut = append(nestedOut, *nr)
+			}
+			continue
+		}
+
+		if !HasAnyInvertedIndex(prop) {
+			continue
+		}
+
 		if schema.IsRefDataType(prop.DataType) {
 			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		} else if schema.IsArrayDataType(prop.DataType) {
 			if err := a.extendPropertiesWithArrayType(&out, prop, input, key); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		} else {
 			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 
 	}
-	return out, nil
+	return out, nestedOut, nil
 }
 
 func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
@@ -644,3 +657,176 @@ const (
 	HasSearchableIndexPropLength = false
 	HasRangeableIndexPropLength  = false
 )
+
+// analyzeNestedProp runs position assignment on a nested property value,
+// then analyzes each leaf value into bytes suitable for indexing.
+func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedResult, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	assignResult, err := nested.AssignPositions(prop, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(assignResult.Values) == 0 && len(assignResult.Idx) == 0 && len(assignResult.Exists) == 0 {
+		return nil, nil
+	}
+
+	var values []NestedValue
+	for _, pv := range assignResult.Values {
+		analyzed, err := a.analyzeNestedValue(pv)
+		if err != nil {
+			return nil, fmt.Errorf("analyze value at %q: %w", pv.Path, err)
+		}
+		values = append(values, analyzed...)
+	}
+
+	idx := make([]NestedMeta, len(assignResult.Idx))
+	for i, entry := range assignResult.Idx {
+		idx[i] = NestedMeta{
+			Path:      entry.Path,
+			Index:     entry.Index,
+			Positions: entry.Positions,
+		}
+	}
+
+	exists := make([]NestedMeta, len(assignResult.Exists))
+	for i, entry := range assignResult.Exists {
+		exists[i] = NestedMeta{
+			Path:      entry.Path,
+			Index:     -1,
+			Positions: entry.Positions,
+		}
+	}
+
+	return &NestedResult{
+		PropName: prop.Name,
+		Values:   values,
+		Idx:      idx,
+		Exists:   exists,
+	}, nil
+}
+
+// analyzeNestedValue converts a raw positioned value into one or more
+// NestedValue entries with analyzed byte representations. Text values
+// may produce multiple entries (one per token).
+func (a *Analyzer) analyzeNestedValue(pv nested.PositionedValue) ([]NestedValue, error) {
+	switch pv.DataType {
+	case schema.DataTypeText:
+		asString, ok := pv.Value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string for %s, got %T", pv.Path, pv.Value)
+		}
+		items := a.Text(pv.Tokenization, asString)
+		out := make([]NestedValue, len(items))
+		for i, item := range items {
+			out[i] = NestedValue{Path: pv.Path, Data: item.Data, Positions: pv.Positions}
+		}
+		return out, nil
+
+	case schema.DataTypeInt:
+		asInt, err := toInt64(pv.Value)
+		if err != nil {
+			return nil, fmt.Errorf("expected int for %s: %w", pv.Path, err)
+		}
+		items, err := a.Int(asInt)
+		if err != nil {
+			return nil, err
+		}
+		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
+
+	case schema.DataTypeNumber:
+		asFloat, ok := pv.Value.(float64)
+		if !ok {
+			return nil, fmt.Errorf("expected float64 for %s, got %T", pv.Path, pv.Value)
+		}
+		items, err := a.Float(asFloat)
+		if err != nil {
+			return nil, err
+		}
+		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
+
+	case schema.DataTypeBoolean:
+		asBool, ok := pv.Value.(bool)
+		if !ok {
+			return nil, fmt.Errorf("expected bool for %s, got %T", pv.Path, pv.Value)
+		}
+		items, err := a.Bool(asBool)
+		if err != nil {
+			return nil, err
+		}
+		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
+
+	case schema.DataTypeDate:
+		asInt, err := dateToInt64(pv.Value)
+		if err != nil {
+			return nil, fmt.Errorf("expected date for %s: %w", pv.Path, err)
+		}
+		items, err := a.Int(asInt)
+		if err != nil {
+			return nil, err
+		}
+		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
+
+	case schema.DataTypeUUID:
+		asUUID, err := toUUID(pv.Value)
+		if err != nil {
+			return nil, fmt.Errorf("expected uuid for %s: %w", pv.Path, err)
+		}
+		items, err := a.UUID(asUUID)
+		if err != nil {
+			return nil, err
+		}
+		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
+
+	default:
+		return nil, nil
+	}
+}
+
+func toInt64(v any) (int64, error) {
+	switch val := v.(type) {
+	case float64:
+		return int64(val), nil
+	case int64:
+		return val, nil
+	case int:
+		return int64(val), nil
+	case json.Number:
+		f, err := val.Float64()
+		if err != nil {
+			return 0, err
+		}
+		return int64(f), nil
+	default:
+		return 0, fmt.Errorf("cannot convert %T to int64", v)
+	}
+}
+
+func dateToInt64(v any) (int64, error) {
+	switch val := v.(type) {
+	case time.Time:
+		return val.UnixNano(), nil
+	case string:
+		t, err := time.Parse(time.RFC3339Nano, val)
+		if err != nil {
+			return 0, fmt.Errorf("parse date string: %w", err)
+		}
+		return t.UnixNano(), nil
+	default:
+		return 0, fmt.Errorf("expected time.Time or string, got %T", v)
+	}
+}
+
+func toUUID(v any) (uuid.UUID, error) {
+	switch val := v.(type) {
+	case uuid.UUID:
+		return val, nil
+	case string:
+		return uuid.Parse(val)
+	default:
+		return uuid.UUID{}, fmt.Errorf("expected uuid.UUID or string, got %T", v)
+	}
+}

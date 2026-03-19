@@ -248,7 +248,7 @@ func (_c *MockShardLike_Aggregate_Call) RunAndReturn(run func(context.Context, a
 }
 
 // AnalyzeObject provides a mock function with given fields: _a0
-func (_m *MockShardLike) AnalyzeObject(_a0 *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+func (_m *MockShardLike) AnalyzeObject(_a0 *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedResult, error) {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
@@ -257,8 +257,9 @@ func (_m *MockShardLike) AnalyzeObject(_a0 *storobj.Object) ([]inverted.Property
 
 	var r0 []inverted.Property
 	var r1 []inverted.NilProperty
-	var r2 error
-	if rf, ok := ret.Get(0).(func(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)); ok {
+	var r2 []inverted.NestedResult
+	var r3 error
+	if rf, ok := ret.Get(0).(func(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedResult, error)); ok {
 		return rf(_a0)
 	}
 	if rf, ok := ret.Get(0).(func(*storobj.Object) []inverted.Property); ok {
@@ -277,13 +278,21 @@ func (_m *MockShardLike) AnalyzeObject(_a0 *storobj.Object) ([]inverted.Property
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(*storobj.Object) error); ok {
+	if rf, ok := ret.Get(2).(func(*storobj.Object) []inverted.NestedResult); ok {
 		r2 = rf(_a0)
 	} else {
-		r2 = ret.Error(2)
+		if ret.Get(2) != nil {
+			r2 = ret.Get(2).([]inverted.NestedResult)
+		}
 	}
 
-	return r0, r1, r2
+	if rf, ok := ret.Get(3).(func(*storobj.Object) error); ok {
+		r3 = rf(_a0)
+	} else {
+		r3 = ret.Error(3)
+	}
+
+	return r0, r1, r2, r3
 }
 
 // MockShardLike_AnalyzeObject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AnalyzeObject'
@@ -304,12 +313,12 @@ func (_c *MockShardLike_AnalyzeObject_Call) Run(run func(_a0 *storobj.Object)) *
 	return _c
 }
 
-func (_c *MockShardLike_AnalyzeObject_Call) Return(_a0 []inverted.Property, _a1 []inverted.NilProperty, _a2 error) *MockShardLike_AnalyzeObject_Call {
-	_c.Call.Return(_a0, _a1, _a2)
+func (_c *MockShardLike_AnalyzeObject_Call) Return(_a0 []inverted.Property, _a1 []inverted.NilProperty, _a2 []inverted.NestedResult, _a3 error) *MockShardLike_AnalyzeObject_Call {
+	_c.Call.Return(_a0, _a1, _a2, _a3)
 	return _c
 }
 
-func (_c *MockShardLike_AnalyzeObject_Call) RunAndReturn(run func(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)) *MockShardLike_AnalyzeObject_Call {
+func (_c *MockShardLike_AnalyzeObject_Call) RunAndReturn(run func(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedResult, error)) *MockShardLike_AnalyzeObject_Call {
 	_c.Call.Return(run)
 	return _c
 }

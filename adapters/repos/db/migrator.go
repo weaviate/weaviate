@@ -934,7 +934,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.AnalyzeObject(object)
+			props, _, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil
