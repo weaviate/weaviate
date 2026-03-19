@@ -97,6 +97,7 @@ type ShardLike interface {
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
+	CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
@@ -228,17 +229,30 @@ type Shard struct {
 	queues        map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux           sync.RWMutex
-	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
-	asyncReplicationConfig          AsyncReplicationConfig
-	hashtree                        hashtree.AggregatedHashTree
-	hashtreeFullyInitialized        bool
-	minimalHashtreeInitializationCh chan struct{}
-	asyncReplicationCancelFunc      context.CancelFunc
+	asyncReplicationRWMux             sync.RWMutex
+	targetNodeOverrides               additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig            AsyncReplicationConfig
+	hashtree                          hashtree.AggregatedHashTree
+	hashtreeFullyInitialized          bool
+	minimalHashtreeInitializationCh   chan struct{}
+	minimalHashtreeInitializationOnce *sync.Once
+	asyncReplicationCancelFunc        context.CancelFunc
+
+	// hashbeatNotifyCh is set by initHashBeater and cleared by mayStopAsyncReplication.
+	// External callers (e.g. flush callbacks) send to this channel to wake the
+	// hashbeater immediately without waiting for the next periodic tick.
+	// All accesses are protected by asyncReplicationRWMux.
+	hashbeatNotifyCh chan struct{}
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
+	// asyncReplicationStatsMux guards asyncReplicationStatsByTargetNode
+	// independently of asyncReplicationRWMux. This prevents the per-iteration
+	// stats write (in handleHashbeatWakeup) from write-locking asyncReplicationRWMux,
+	// which would stall every concurrent object write and query via writer-preference.
+	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
+	asyncReplicationStatsMux sync.RWMutex
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration

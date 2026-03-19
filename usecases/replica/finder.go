@@ -399,9 +399,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
-		replicaNodeNames = append(replicaNodeNames, replica)
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
+			replicaNodeNames = append(replicaNodeNames, replica)
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
@@ -446,6 +446,19 @@ func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) (ds []types.RepairResponse, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
+}
+
+// CompareDigests sends the source's local digests to the target node and
+// returns a subset requiring source-side action: objects that are missing on
+// the target, stale on the target (source has a strictly newer UpdateTime), or
+// equal-timestamp conflicts where both nodes hold the same UpdateTime but may
+// have diverged. The caller is responsible for applying a deterministic
+// tiebreaker (e.g. node-name comparison) to equal-timestamp conflicts before
+// deciding whether to propagate.
+func (f *Finder) CompareDigests(ctx context.Context,
+	shardName string, host string, digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
 // Overwrite specified object with most recent contents

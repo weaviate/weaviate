@@ -73,6 +73,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -221,6 +223,10 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		common.StopNodeAt(ctx, t, compose, sourceNode)
 	})
 
+	// Re-setup the client to point to node3 (the replication target) since the source node was stopped
+	// and may have been the node the client was originally configured to use.
+	helper.SetupClient(compose.ContainerURI(3))
+
 	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
@@ -259,6 +265,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

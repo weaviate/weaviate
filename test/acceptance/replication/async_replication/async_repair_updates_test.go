@@ -12,7 +12,6 @@
 package replication
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -21,52 +20,43 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 	t := suite.T()
-	mainCtx := context.Background()
-
-	clusterSize := 3
-
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
 
 	paragraphClass := articles.ParagraphsClass()
 
+	t.Cleanup(func() {
+		// best-effort: ignore error if class was never created
+		helper.Client(t).Schema.SchemaObjectsDelete(
+			schema.NewSchemaObjectsDeleteParams().WithClassName(paragraphClass.Class),
+			nil,
+		)
+	})
+
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       int64(clusterSize),
+			Factor:       3,
 			AsyncEnabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 
-		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.SetupClient(suite.compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
 	})
 
 	node := 2
 
 	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, node)
+		common.StopNodeAt(suite.suiteCtx, t, suite.compose, node)
 	})
 
 	t.Run("upsert paragraphs", func(t *testing.T) {
@@ -81,17 +71,17 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		// choose one more node to insert the objects into
 		var targetNode int
 		for {
-			targetNode = 1 + rand.Intn(clusterSize)
+			targetNode = 1 + rand.Intn(3)
 			if targetNode != node {
 				break
 			}
 		}
 
-		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, types.ConsistencyLevelOne)
+		common.CreateObjectsCL(t, suite.compose.GetWeaviateNode(targetNode).URI(), batch, types.ConsistencyLevelOne)
 	})
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, node)
+		common.StartNodeAt(suite.suiteCtx, t, suite.compose, node)
 		time.Sleep(5 * time.Second)
 	})
 
@@ -104,7 +94,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 			require.NotNil(ct, body.Payload)
 
 			resp := body.Payload
-			require.Len(ct, resp.Nodes, clusterSize)
+			require.Len(ct, resp.Nodes, 3)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
 				require.Equal(ct, "HEALTHY", *n.Status)
@@ -114,11 +104,11 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 
 	t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", node), func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			count := common.CountObjects(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class)
+			count := common.CountObjects(t, suite.compose.GetWeaviateNode(node).URI(), paragraphClass.Class)
 			require.EqualValues(ct, len(paragraphIDs), count)
 
 			for i, id := range paragraphIDs {
-				resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, types.ConsistencyLevelOne)
+				resp, err := common.GetObjectCL(t, suite.compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, types.ConsistencyLevelOne)
 				require.NoError(ct, err)
 				require.NotNil(ct, resp)
 				require.Equal(ct, id, resp.ID)

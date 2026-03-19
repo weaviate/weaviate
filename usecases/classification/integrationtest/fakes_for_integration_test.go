@@ -637,6 +637,12 @@ func (c *fakeReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 	return nil, nil
 }
 
+func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
 func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {

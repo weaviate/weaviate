@@ -382,6 +382,13 @@ func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CompareDigests(ctx, sourceDigests)
+}
+
 func (l *LazyLoadShard) ID() string {
 	return shardId(l.shardOpts.index.ID(), l.shardOpts.name)
 }

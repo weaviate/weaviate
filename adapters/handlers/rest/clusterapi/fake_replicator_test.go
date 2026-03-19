@@ -101,6 +101,10 @@ func (f *fakeReplicator) DigestObjectsInRange(ctx context.Context, class, shardN
 	return []types.RepairResponse{}, nil
 }
 
+func (f *fakeReplicator) CompareDigests(ctx context.Context, class, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+	return []types.RepairResponse{}, nil
+}
+
 func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
 	return []hashtree.Digest{}, nil
 }

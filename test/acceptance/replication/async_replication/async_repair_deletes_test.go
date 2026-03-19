@@ -12,7 +12,6 @@
 package replication
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -20,46 +19,37 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 	t := suite.T()
-	mainCtx := context.Background()
-
-	clusterSize := 3
-
-	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
 
 	paragraphClass := articles.ParagraphsClass()
 
+	t.Cleanup(func() {
+		// best-effort: ignore error if class was never created
+		helper.Client(t).Schema.SchemaObjectsDelete(
+			schema.NewSchemaObjectsDeleteParams().WithClassName(paragraphClass.Class),
+			nil,
+		)
+	})
+
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           int64(clusterSize),
+			Factor:           3,
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 			AsyncEnabled:     true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 
-		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.SetupClient(suite.compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
 	})
 
@@ -74,16 +64,16 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 				Object()
 		}
 
-		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
+		common.CreateObjectsCL(t, suite.compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
 	})
 
 	node := 2
 
 	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, node)
+		common.StopNodeAt(suite.suiteCtx, t, suite.compose, node)
 	})
 
-	host := compose.GetWeaviate().URI()
+	host := suite.compose.GetWeaviate().URI()
 	helper.SetupClient(host)
 
 	for _, id := range paragraphIDs {
@@ -91,7 +81,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 	}
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, node)
+		common.StartNodeAt(suite.suiteCtx, t, suite.compose, node)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -103,7 +93,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 			require.NotNil(ct, body.Payload)
 
 			resp := body.Payload
-			require.Len(ct, resp.Nodes, clusterSize)
+			require.Len(ct, resp.Nodes, 3)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
 				require.Equal(ct, "HEALTHY", *n.Status)
@@ -113,7 +103,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 
 	t.Run(fmt.Sprintf("all the objects should have been deleted from node %d", node), func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
+			resp := common.GQLGet(t, suite.compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
 			require.Len(ct, resp, 0)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})

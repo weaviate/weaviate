@@ -29,13 +29,13 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// Wait before taking RLock; see comment in shard_write_put.go::putObjectLSM.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {

@@ -123,6 +123,11 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
 
+	// Wait before taking RLock; see comment in shard_write_put.go::putObjectLSM.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return nil, objectInsertStatus{}, err
+	}
+
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
@@ -131,14 +136,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
 
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
-
 		lock.Lock()
 		defer lock.Unlock()
 
+		var err error
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
@@ -215,13 +216,13 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// Wait before taking RLock; see comment in shard_write_put.go::putObjectLSM.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return out, err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]

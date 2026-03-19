@@ -31,6 +31,7 @@ package helper
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/runtime"
@@ -40,6 +41,21 @@ import (
 	apiclient "github.com/weaviate/weaviate/client"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
+
+// ClientAt creates a Weaviate client that connects to the given URI (host:port)
+// without modifying any global state. This is safe to call concurrently and
+// should be preferred over SetupClient+Client in tests that may run goroutines
+// concurrently (e.g. inside EventuallyWithT callbacks).
+func ClientAt(uri string) *apiclient.Weaviate {
+	scheme, hostPort := parseScheme(uri)
+	host, port := "", ""
+	res := strings.Split(hostPort, ":")
+	if len(res) == 2 {
+		host, port = res[0], res[1]
+	}
+	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{scheme})
+	return apiclient.New(transport, strfmt.Default)
+}
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.

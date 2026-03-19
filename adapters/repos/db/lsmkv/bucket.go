@@ -194,6 +194,12 @@ type Bucket struct {
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
 	skipSecondaryKeyCheck bool
+
+	// flushCallback is an optional function called after each successful
+	// memtable flush. It is called in a non-blocking fashion (fire-and-forget)
+	// to avoid delaying the flush cycle. Protected by flushCallbackMu.
+	flushCallback   func()
+	flushCallbackMu sync.Mutex
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -387,14 +393,6 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-func (b *Bucket) pauseCompaction(ctx context.Context) error {
-	return b.disk.pauseCompaction(ctx)
-}
-
-func (b *Bucket) resumeCompaction(ctx context.Context) error {
-	return b.disk.resumeCompaction(ctx)
-}
-
 // ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
 // and on disk, and applies the given function to each object.
 // The afterInMemCallback is called after the in-memory memtable has been processed.
@@ -402,30 +400,12 @@ func (b *Bucket) resumeCompaction(ctx context.Context) error {
 // objects have been processed.
 // The function f is called for each object, and if it returns an error, the
 // processing is stopped and the error is returned.
-// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+// Cursor stability is guaranteed by the consistent-view mechanism (ref-counted segment
+// snapshots); compaction may proceed concurrently and old segments are only dropped
+// once this function returns and the cursor is closed.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
-	err := b.pauseCompaction(ctx)
-	if err != nil {
-		afterInMemCallback()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer func() {
-		ec := errorcompounder.New()
-
-		if err != nil {
-			ec.AddWrapf(err, "during ApplyToObjectDigests")
-		}
-
-		err = b.resumeCompaction(ctx)
-		if err != nil {
-			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
-		}
-
-		err = ec.ToError()
-	}()
-
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
@@ -433,7 +413,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
+	err := func() error {
 		defer afterInMemCallback()
 
 		inMemCursor := b.CursorInMem()
@@ -571,6 +551,41 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	return b.get(key)
+}
+
+// GetDiskOnlyConsistentView returns a consistent snapshot of the on-disk
+// segments without acquiring flushLock or capturing memtable references.
+// Only maintenanceLock (briefly) and segmentRefCounterLock are taken to
+// ref-count the segments, preventing compaction from removing them while the
+// view is live.
+//
+// The caller must call view.ReleaseView() when all lookups are complete to
+// decrement the segment ref-counts and allow compaction to proceed.
+//
+// Use this together with GetErrDeletedOnDisk for batch operations that must
+// not touch memtables and want to amortise lock acquisition across many keys.
+func (b *Bucket) GetDiskOnlyConsistentView() BucketConsistentView {
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+	return BucketConsistentView{
+		Disk:    diskSegments,
+		release: releaseDiskSegments,
+		Bucket:  b,
+	}
+}
+
+// GetErrDeletedOnDisk looks up key in the on-disk segments of the pre-acquired
+// view, skipping both the active and flushing memtables entirely. The caller
+// must hold the view for the duration of all lookups and release it via
+// view.ReleaseView() when done.
+//
+// Returns lsmkv.ErrDeleted if the key has a tombstone in the segments (note:
+// disk tombstones do not carry a deletion timestamp), lsmkv.NotFound if absent
+// from disk, or nil error with the value if found.
+//
+// Use this for batch lookups where a single consistent view is shared across
+// many keys to amortise lock acquisition cost.
+func (b *Bucket) GetErrDeletedOnDisk(key []byte, view BucketConsistentView) ([]byte, error) {
+	return b.getFromSegmentGroup(key, view.Disk)
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
@@ -1600,6 +1615,14 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 				b.memtableThreshold = uint64(next)
 			}
 		}
+
+		b.flushCallbackMu.Lock()
+		cb := b.flushCallback
+		b.flushCallbackMu.Unlock()
+		if cb != nil {
+			cb()
+		}
+
 		return true
 	}
 	return false
@@ -1607,6 +1630,15 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 
 func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 	return b.active.getAndUpdateWritesSinceLastSync(b.logger)
+}
+
+// SetFlushCallback registers a function to be called after each successful
+// memtable flush. The callback is invoked in a non-blocking, fire-and-forget
+// manner so it must not block. Pass nil to clear a previously set callback.
+func (b *Bucket) SetFlushCallback(fn func()) {
+	b.flushCallbackMu.Lock()
+	b.flushCallback = fn
+	b.flushCallbackMu.Unlock()
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket

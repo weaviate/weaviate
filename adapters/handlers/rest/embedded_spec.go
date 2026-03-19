@@ -8364,6 +8364,13 @@ func init() {
           "x-nullable": true,
           "x-omitempty": true
         },
+        "initShieldCpuEveryN": {
+          "description": "Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
           "type": "integer",
@@ -8394,13 +8401,6 @@ func init() {
         },
         "propagationConcurrency": {
           "description": "Maximum number of concurrent propagation workers.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "propagationDelay": {
-          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -18353,6 +18353,13 @@ func init() {
           "x-nullable": true,
           "x-omitempty": true
         },
+        "initShieldCpuEveryN": {
+          "description": "Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
           "type": "integer",
@@ -18383,13 +18390,6 @@ func init() {
         },
         "propagationConcurrency": {
           "description": "Maximum number of concurrent propagation workers.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "propagationDelay": {
-          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,

@@ -147,6 +147,59 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	return resp.Digests, nil
 }
 
+// CompareDigests sends the source's local digests to the target node using a
+// binary-encoded request and decodes the binary response. The target returns
+// only those digests that the source must act on: objects missing from the
+// target (UpdateTime==0), stale on the target, or tombstoned on the target
+// (Deleted==true) requiring the source to delete its copy.
+//
+// Wire format: CompareDigestsRecordLength bytes per record —
+// 16-byte UUID + 8-byte UpdateTime + 1-byte flags. The flags byte is
+// meaningful only in the response direction: the request always sends
+// flags=0 because the source sends live objects exclusively.
+func (c *replicationClient) CompareDigests(ctx context.Context,
+	host, index, shard string, digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	// Binary-encode the request: N × CompareDigestsRecordLength bytes.
+	body := make([]byte, 0, len(digests)*replica.CompareDigestsRecordLength)
+	var buf [replica.CompareDigestsRecordLength]byte
+	for _, d := range digests {
+		uuidParsed, err := uuid.Parse(d.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid %q: %w", d.ID, err)
+		}
+		copy(buf[:16], uuidParsed[:])
+		binary.BigEndian.PutUint64(buf[16:24], uint64(d.UpdateTime))
+		buf[24] = 0 // request flags are always zero: source sends only live objects
+		body = append(body, buf[:]...)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
+	defer cancel()
+
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodPost, host, index, shard,
+		"", "compareDigests", bytes.NewReader(body), 0)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+
+	return readCompareDigestsBinaryStream(res.Body, res.ContentLength)
+}
+
 // readDigestsInRangeBinaryStream decodes a fixed-size binary stream produced
 // by writeDigestsInRangeResponse. Each record is
 // replica.DigestObjectsInRangeRecordLength bytes: 16-byte UUID (RFC-4122
@@ -175,6 +228,41 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.R
 		results = append(results, types.RepairResponse{
 			ID:         id.String(),
 			UpdateTime: updateTime,
+		})
+	}
+}
+
+// readCompareDigestsBinaryStream decodes a fixed-size binary stream produced
+// by postCompareDigests. Each record is replica.CompareDigestsRecordLength
+// bytes: 16-byte UUID + 8-byte UpdateTime (int64 big-endian) + 1-byte flags
+// (bit 0 = Deleted). The Deleted flag indicates the source must delete its
+// copy of the object rather than propagate it.
+func readCompareDigestsBinaryStream(r io.Reader, contentLength int64) ([]types.RepairResponse, error) {
+	var results []types.RepairResponse
+	if contentLength > 0 {
+		if recordCount := contentLength / int64(replica.CompareDigestsRecordLength); recordCount <= int64(math.MaxInt) {
+			results = make([]types.RepairResponse, 0, int(recordCount))
+		}
+	}
+	var buf [replica.CompareDigestsRecordLength]byte
+	for {
+		_, err := io.ReadFull(r, buf[:])
+		if stderrors.Is(err, io.EOF) {
+			return results, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read compare digests record: %w", err)
+		}
+		id, err := uuid.FromBytes(buf[:16])
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid from compare digests record: %w", err)
+		}
+		updateTime := int64(binary.BigEndian.Uint64(buf[16:24]))
+		deleted := buf[24]&replica.CompareDigestsFlagDeleted != 0
+		results = append(results, types.RepairResponse{
+			ID:         id.String(),
+			UpdateTime: updateTime,
+			Deleted:    deleted,
 		})
 	}
 }
