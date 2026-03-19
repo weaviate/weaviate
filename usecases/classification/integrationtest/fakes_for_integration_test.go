@@ -451,7 +451,7 @@ func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
-func (c *fakeRemoteClient) CountObjects(ctx context.Context, host, index, shard, string) (int, error) {
+func (c *fakeRemoteClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
 	return 0, nil
 }
 
@@ -647,6 +647,6 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard, string) (int, error) {
+func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
 	return 0, nil
 }
