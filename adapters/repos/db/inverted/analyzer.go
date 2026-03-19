@@ -52,10 +52,10 @@ type NestedValue struct {
 	Positions []uint64 // positions with docID=0
 }
 
-// NestedResult holds all analyzed values and metadata from position
+// NestedProperty holds all analyzed values and metadata from position
 // assignment of a single nested property.
-type NestedResult struct {
-	PropName string         // top-level property name (for bucket naming)
+type NestedProperty struct {
+	Name     string         // top-level property name (for bucket naming)
 	Values   []NestedValue  // analyzed values for the value bucket
 	Idx      []NestedMeta   // _idx metadata entries
 	Exists   []NestedMeta   // _exists metadata entries

@@ -25,18 +25,17 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 	uuid strfmt.UUID,
-) ([]Property, []NestedResult, error) {
+) ([]Property, []NestedProperty, error) {
 	propsMap := map[string]*models.Property{}
 	for _, prop := range props {
 		propsMap[prop.Name] = prop
 	}
 
-	properties, nestedResults, err := a.analyzeProps(propsMap, input)
+	properties, nestedProps, err := a.analyzeProps(propsMap, input)
 	if err != nil {
 		return nil, nil, fmt.Errorf("analyze props: %w", err)
 	}
@@ -57,14 +56,14 @@ func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 		properties = append(properties, tsProps...)
 	}
 
-	return properties, nestedResults, nil
+	return properties, nestedProps, nil
 }
 
 func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 	input map[string]any,
-) ([]Property, []NestedResult, error) {
+) ([]Property, []NestedProperty, error) {
 	var out []Property
-	var nestedOut []NestedResult
+	var nestedOut []NestedProperty
 	for key, prop := range propsMap {
 		if len(prop.DataType) < 1 {
 			return nil, nil, fmt.Errorf("prop %q has no datatype", prop.Name)
@@ -217,131 +216,48 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 }
 
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
-	var items []Countable
-	hasFilterableIndex := HasFilterableIndex(prop)
-	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	dt := schema.DataType(prop.DataType[0])
 
-	switch dt := schema.DataType(prop.DataType[0]); dt {
-	case schema.DataTypeTextArray:
-		hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
+	// Text arrays need special handling: TextArray aggregates term frequencies
+	// across all elements, which per-element analyzeValue calls cannot do.
+	if dt == schema.DataTypeTextArray {
 		in, err := stringsFromValues(prop, values)
 		if err != nil {
 			return nil, err
 		}
-		items = a.TextArray(prop.Tokenization, in)
-	case schema.DataTypeIntArray:
-		in := make([]int64, len(values))
-		for i, value := range values {
-			if asJsonNumber, ok := value.(json.Number); ok {
-				var err error
-				value, err = asJsonNumber.Float64()
-				if err != nil {
-					return nil, err
-				}
-			}
+		hasFilterableIndex := HasFilterableIndex(prop) && !a.isFallbackToSearchable()
+		return &Property{
+			Name:               prop.Name,
+			Items:              a.TextArray(prop.Tokenization, in),
+			Length:             len(values),
+			HasFilterableIndex: hasFilterableIndex,
+			HasSearchableIndex: HasSearchableIndex(prop),
+			HasRangeableIndex:  HasRangeableIndex(prop),
+		}, nil
+	}
 
-			if asFloat, ok := value.(float64); ok {
-				// unmarshaling from json into a dynamic schema will assume every number
-				// is a float64
-				value = int64(asFloat)
-			}
-
-			asInt, ok := value.(int64)
-			if !ok {
-				return nil, fmt.Errorf("expected property %s to be of type int64, but got %T", prop.Name, value)
-			}
-			in[i] = asInt
-		}
-
-		var err error
-		items, err = a.IntArray(in)
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeNumberArray:
-		in := make([]float64, len(values))
-		for i, value := range values {
-			if asJsonNumber, ok := value.(json.Number); ok {
-				var err error
-				value, err = asJsonNumber.Float64()
-				if err != nil {
-					return nil, err
-				}
-			}
-
-			asFloat, ok := value.(float64)
-			if !ok {
-				return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
-			}
-			in[i] = asFloat
-		}
-
-		var err error
-		items, err = a.FloatArray(in) // convert to int before analyzing
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeBooleanArray:
-		in := make([]bool, len(values))
-		for i, value := range values {
-			asBool, ok := value.(bool)
-			if !ok {
-				return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", prop.Name, value)
-			}
-			in[i] = asBool
-		}
-
-		var err error
-		items, err = a.BoolArray(in) // convert to int before analyzing
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeDateArray:
-		in := make([]int64, len(values))
-		for i, value := range values {
-			// dates can be either a date-string or directly a time object. Try to parse both
-			if asTime, okTime := value.(time.Time); okTime {
-				in[i] = asTime.UnixNano()
-			} else if asString, okString := value.(string); okString {
-				parsedTime, err := time.Parse(time.RFC3339Nano, asString)
-				if err != nil {
-					return nil, fmt.Errorf("parse time: %w", err)
-				}
-				in[i] = parsedTime.UnixNano()
-			} else {
-				return nil, fmt.Errorf("expected property %s to be a time-string or time object, but got %T", prop.Name, value)
-			}
-		}
-
-		var err error
-		items, err = a.IntArray(in)
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeUUIDArray:
-		parsed, err := validation.ParseUUIDArray(values)
-		if err != nil {
-			return nil, fmt.Errorf("parse uuid array: %w", err)
-		}
-
-		items, err = a.UUIDArray(parsed)
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-
-	default:
-		// ignore unsupported prop type
+	scalarDT := schema.ScalarFromArrayType(dt)
+	if scalarDT == dt {
+		// unknown array type
 		return nil, nil
+	}
+
+	var items []Countable
+	for _, value := range values {
+		analyzed, err := a.analyzeValue(scalarDT, "", value)
+		if err != nil {
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
+		}
+		items = append(items, analyzed...)
 	}
 
 	return &Property{
 		Name:               prop.Name,
 		Items:              items,
 		Length:             len(values),
-		HasFilterableIndex: hasFilterableIndex,
-		HasSearchableIndex: hasSearchableIndex,
-		HasRangeableIndex:  hasRangeableIndex,
+		HasFilterableIndex: HasFilterableIndex(prop),
+		HasSearchableIndex: HasSearchableIndex(prop),
+		HasRangeableIndex:  HasRangeableIndex(prop),
 	}, nil
 }
 
@@ -358,106 +274,24 @@ func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
-	var items []Countable
-	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
+	dt := schema.DataType(prop.DataType[0])
+	items, err := a.analyzeValue(dt, prop.Tokenization, value)
+	if err != nil {
+		return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
+	}
+	if items == nil {
+		return nil, nil
+	}
+
+	propertyLength := -1
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
 
-	switch dt := schema.DataType(prop.DataType[0]); dt {
-	case schema.DataTypeText:
+	if dt == schema.DataTypeText {
 		hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
-		asString, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
-		}
-		items = a.Text(prop.Tokenization, asString)
-		propertyLength = utf8.RuneCountInString(asString)
-	case schema.DataTypeInt:
-		if asFloat, ok := value.(float64); ok {
-			// unmarshaling from json into a dynamic schema will assume every number
-			// is a float64
-			value = int64(asFloat)
-		}
-
-		if asInt, ok := value.(int); ok {
-			// when merging an existing object we may retrieve an untyped int
-			value = int64(asInt)
-		}
-
-		asInt, ok := value.(int64)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type int64, but got %T", prop.Name, value)
-		}
-
-		var err error
-		items, err = a.Int(asInt)
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeNumber:
-		asFloat, ok := value.(float64)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
-		}
-
-		var err error
-		items, err = a.Float(asFloat) // convert to int before analyzing
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeBoolean:
-		asBool, ok := value.(bool)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", prop.Name, value)
-		}
-
-		var err error
-		items, err = a.Bool(asBool) // convert to int before analyzing
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeDate:
-		var err error
 		if asString, ok := value.(string); ok {
-			// for example when patching the date may have been loaded as a string
-			value, err = time.Parse(time.RFC3339Nano, asString)
-			if err != nil {
-				return nil, fmt.Errorf("parse stringified timestamp: %w", err)
-			}
+			propertyLength = utf8.RuneCountInString(asString)
 		}
-		asTime, ok := value.(time.Time)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
-		}
-
-		items, err = a.Int(asTime.UnixNano())
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	case schema.DataTypeUUID:
-		var err error
-
-		if asString, ok := value.(string); ok {
-			// for example when patching the uuid may have been loaded as a string
-			value, err = uuid.Parse(asString)
-			if err != nil {
-				return nil, fmt.Errorf("parse stringified uuid: %w", err)
-			}
-		}
-
-		asUUID, ok := value.(uuid.UUID)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be uuid.UUID, but got %T", prop.Name, value)
-		}
-
-		items, err = a.UUID(asUUID)
-		if err != nil {
-			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
-		}
-	default:
-		// ignore unsupported prop type
-		return nil, nil
 	}
 
 	return &Property{
@@ -466,8 +300,59 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		Length:             propertyLength,
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,
-		HasRangeableIndex:  hasRangeableIndex,
+		HasRangeableIndex:  HasRangeableIndex(prop),
 	}, nil
+}
+
+// analyzeValue converts a raw value to analyzed Countable items based on
+// data type. Shared by analyzePrimitiveProp and analyzeNestedValue.
+func (a *Analyzer) analyzeValue(dt schema.DataType, tokenization string, value any) ([]Countable, error) {
+	switch dt {
+	case schema.DataTypeText:
+		asString, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string, got %T", value)
+		}
+		return a.Text(tokenization, asString), nil
+
+	case schema.DataTypeInt:
+		asInt, err := toInt64(value)
+		if err != nil {
+			return nil, err
+		}
+		return a.Int(asInt)
+
+	case schema.DataTypeNumber:
+		asFloat, ok := value.(float64)
+		if !ok {
+			return nil, fmt.Errorf("expected float64, got %T", value)
+		}
+		return a.Float(asFloat)
+
+	case schema.DataTypeBoolean:
+		asBool, ok := value.(bool)
+		if !ok {
+			return nil, fmt.Errorf("expected bool, got %T", value)
+		}
+		return a.Bool(asBool)
+
+	case schema.DataTypeDate:
+		asInt, err := dateToInt64(value)
+		if err != nil {
+			return nil, err
+		}
+		return a.Int(asInt)
+
+	case schema.DataTypeUUID:
+		asUUID, err := toUUID(value)
+		if err != nil {
+			return nil, err
+		}
+		return a.UUID(asUUID)
+
+	default:
+		return nil, nil
+	}
 }
 
 // extendPropertiesWithReference extends the specified properties arrays with
@@ -660,7 +545,7 @@ const (
 
 // analyzeNestedProp runs position assignment on a nested property value,
 // then analyzes each leaf value into bytes suitable for indexing.
-func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedResult, error) {
+func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedProperty, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -674,7 +559,7 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedR
 		return nil, nil
 	}
 
-	var values []NestedValue
+	values := make([]NestedValue, 0, len(assignResult.Values))
 	for _, pv := range assignResult.Values {
 		analyzed, err := a.analyzeNestedValue(pv)
 		if err != nil {
@@ -701,11 +586,11 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedR
 		}
 	}
 
-	return &NestedResult{
-		PropName: prop.Name,
-		Values:   values,
-		Idx:      idx,
-		Exists:   exists,
+	return &NestedProperty{
+		Name:   prop.Name,
+		Values: values,
+		Idx:    idx,
+		Exists: exists,
 	}, nil
 }
 
@@ -713,77 +598,19 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedR
 // NestedValue entries with analyzed byte representations. Text values
 // may produce multiple entries (one per token).
 func (a *Analyzer) analyzeNestedValue(pv nested.PositionedValue) ([]NestedValue, error) {
-	switch pv.DataType {
-	case schema.DataTypeText:
-		asString, ok := pv.Value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected string for %s, got %T", pv.Path, pv.Value)
-		}
-		items := a.Text(pv.Tokenization, asString)
-		out := make([]NestedValue, len(items))
-		for i, item := range items {
-			out[i] = NestedValue{Path: pv.Path, Data: item.Data, Positions: pv.Positions}
-		}
-		return out, nil
-
-	case schema.DataTypeInt:
-		asInt, err := toInt64(pv.Value)
-		if err != nil {
-			return nil, fmt.Errorf("expected int for %s: %w", pv.Path, err)
-		}
-		items, err := a.Int(asInt)
-		if err != nil {
-			return nil, err
-		}
-		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
-
-	case schema.DataTypeNumber:
-		asFloat, ok := pv.Value.(float64)
-		if !ok {
-			return nil, fmt.Errorf("expected float64 for %s, got %T", pv.Path, pv.Value)
-		}
-		items, err := a.Float(asFloat)
-		if err != nil {
-			return nil, err
-		}
-		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
-
-	case schema.DataTypeBoolean:
-		asBool, ok := pv.Value.(bool)
-		if !ok {
-			return nil, fmt.Errorf("expected bool for %s, got %T", pv.Path, pv.Value)
-		}
-		items, err := a.Bool(asBool)
-		if err != nil {
-			return nil, err
-		}
-		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
-
-	case schema.DataTypeDate:
-		asInt, err := dateToInt64(pv.Value)
-		if err != nil {
-			return nil, fmt.Errorf("expected date for %s: %w", pv.Path, err)
-		}
-		items, err := a.Int(asInt)
-		if err != nil {
-			return nil, err
-		}
-		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
-
-	case schema.DataTypeUUID:
-		asUUID, err := toUUID(pv.Value)
-		if err != nil {
-			return nil, fmt.Errorf("expected uuid for %s: %w", pv.Path, err)
-		}
-		items, err := a.UUID(asUUID)
-		if err != nil {
-			return nil, err
-		}
-		return []NestedValue{{Path: pv.Path, Data: items[0].Data, Positions: pv.Positions}}, nil
-
-	default:
+	items, err := a.analyzeValue(pv.DataType, pv.Tokenization, pv.Value)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
 		return nil, nil
 	}
+
+	out := make([]NestedValue, len(items))
+	for i, item := range items {
+		out[i] = NestedValue{Path: pv.Path, Data: item.Data, Positions: pv.Positions}
+	}
+	return out, nil
 }
 
 func toInt64(v any) (int64, error) {

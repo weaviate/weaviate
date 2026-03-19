@@ -29,7 +29,7 @@ func isPropertyForLength(dt schema.DataType) bool {
 	}
 }
 
-func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedResult, error) {
+func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
 	if c == nil {
 		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
@@ -79,6 +79,6 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
-	props, nestedResults, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
-	return props, nilProps, nestedResults, err
+	props, nestedProps, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
+	return props, nilProps, nestedProps, err
 }

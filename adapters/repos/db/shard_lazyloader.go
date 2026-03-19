@@ -531,7 +531,7 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 	return l.shard.SetPropertyLengths(props)
 }
 
-func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedResult, error) {
+func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
 }
