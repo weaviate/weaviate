@@ -269,6 +269,7 @@ type Index struct {
 
 	metrics          *Metrics
 	replicaMetrics   *replica.Metrics
+	replicaClient    replica.Client
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
@@ -380,6 +381,7 @@ func NewIndex(
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		replicaMetrics:          replicaMetrics,
+		replicaClient:           replicaClient,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
 		scheduler:               scheduler,
@@ -2579,11 +2581,12 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
-	// NOTE(dyma): calculating this is redundant: in absence of replProps and  defaultOverride,
-	// this is bound to always return the fallback value of QUORUM. However, the actual read is always
+	// NOTE(dyma): calculating this is redundant: in absence of replProps and defaultOverride,
+	// this will return the fallback value of QUORUM every time. However, the actual read is invariably
 	// performed with consistency level ONE, as we simply iterate over all existing shards; because of
 	// the plan's "local affinity" readPlan.Shards() will always return a list of local shards. There's
-	// no point in calculating the consistency level.
+	// no point in calculating the consistency level and readPlan can be replaced with a simple call to
+	// i.schemaReader.Shards(i.Config.ClassName.String()).
 	cl := i.consistencyLevel(replProps)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
@@ -2632,6 +2635,8 @@ func (i *Index) aggregateCount(ctx context.Context) (*aggregation.Result, error)
 	}
 	counts := make(map[string]int)
 	for _, shard := range shards {
+		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
+		// That interface has a dozen methods and half of them belong to replica.RClient.
 		c := replica.NewReadCoordinator[any](
 			i.router,
 			i.replicaMetrics,
@@ -2644,7 +2649,7 @@ func (i *Index) aggregateCount(ctx context.Context) (*aggregation.Result, error)
 		// NOTE(dyma): Why do we need to pass both the context and the timeout?
 		results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
 			func(ctx context.Context, host string, _ bool) (any, error) {
-				count, err := c.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
+				count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
 				if err != nil {
 					return nil, err
 				}
@@ -2673,12 +2678,13 @@ func (i *Index) aggregateCount(ctx context.Context) (*aggregation.Result, error)
 	// as an average. For such cases, we fallback to counts[i+1],
 	// hence the len%2 part.
 	var median int
-	medianIdx := len(counts)/2 + len(counts)%2
+	medianIdx := len(counts)/2 + len(counts)%2 - 1
 
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
 		if h := hits[count]; h > modeHits {
 			mode = count
+			modeHits = hits[count]
 		}
 
 		if i == medianIdx {
@@ -2687,7 +2693,7 @@ func (i *Index) aggregateCount(ctx context.Context) (*aggregation.Result, error)
 	}
 
 	var final int
-	if modeHits > 0 {
+	if modeHits > 1 {
 		final = mode
 	} else {
 		final = median

@@ -932,12 +932,6 @@ func (i *Index) IncomingCountObjects(ctx context.Context, shardName string) (int
 	return i.CountObjects(ctx, shardName)
 }
 
-// func (i *Index) IncomingHashTreeLevel(ctx context.Context,
-// 	shardName string, level int, discriminant *hashtree.Bitset,
-// ) (digests []hashtree.Digest, err error) {
-// 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
-// }
-
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (replica.Replica, error) {
