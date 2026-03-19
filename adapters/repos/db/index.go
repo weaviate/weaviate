@@ -2663,10 +2663,9 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	// However, we can only calculate the median correclty for
 	// an odd-numbered set. If a set has even number of elemets
 	// of which none is a mode, then the median would be calculated
-	// as an average. For such cases, we fallback to counts[i+1],
-	// hence the len%2 part.
+	// as an average. For such cases, we fallback to the lower value.
 	var median int
-	medianIdx := len(counts)/2 + len(counts)%2 - 1
+	medianIdx := len(counts) / 2
 
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
