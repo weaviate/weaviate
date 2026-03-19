@@ -47,7 +47,7 @@ const (
 	defaultAsyncReplicationMaxWorkersSingleTenant = 3
 	defaultAsyncReplicationMaxWorkersMultiTenant  = 5
 
-	defaultHashtreeHeightSingleTenant  = 20
+	defaultHashtreeHeightSingleTenant  = 16
 	defaultHashtreeHeightMultiTenant   = 10
 	defaultFrequency                   = 30 * time.Second
 	defaultFrequencyWhilePropagating   = 5 * time.Second
@@ -66,7 +66,7 @@ const (
 	maxMaxWorkers = 10
 
 	minHashtreeHeight = 0
-	maxHashtreeHeight = 22
+	maxHashtreeHeight = 20
 
 	minDiffBatchSize = 1
 	maxDiffBatchSize = 10_000

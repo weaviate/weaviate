@@ -286,11 +286,11 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 					continue
 				}
 
-				prev := batch.Data[batch.Index[i]]
-				x.BelongsToShard = prev.BelongsToShard
-				x.BelongsToNode = prev.BelongsToNode
-				batch.Data[batch.Index[i]] = x
-				x.IsConsistent = true
+				// Do not replace the original object with the repaired version:
+				// the newer object may not satisfy the filter criteria used
+				// to retrieve the original objects. Read-repair has already
+				// propagated the latest version to stale replicas above.
+				batch.Data[batch.Index[i]].IsConsistent = true
 			}
 		}
 
