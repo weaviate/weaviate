@@ -125,17 +125,17 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 		return nil, nil, errTaskNotRunning(namespace, taskID, task.Version)
 	}
 
-	su, ok := task.Units[unitID]
+	u, ok := task.Units[unitID]
 	if !ok {
 		return nil, nil, fmt.Errorf("unit %s does not exist in task %s/%s/%d", unitID, namespace, taskID, task.Version)
 	}
 
-	if su.NodeID != "" && su.NodeID != nodeID {
+	if u.NodeID != "" && u.NodeID != nodeID {
 		return nil, nil, fmt.Errorf("unit %s in task %s/%s/%d belongs to node %s, not %s",
-			unitID, namespace, taskID, task.Version, su.NodeID, nodeID)
+			unitID, namespace, taskID, task.Version, u.NodeID, nodeID)
 	}
 
-	return task, su, nil
+	return task, u, nil
 }
 
 // RecordUnitCompletion handles both success and failure (distinguished by a non-empty error
@@ -152,30 +152,30 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	task, su, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
+	task, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
 
-	if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
+	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 		return fmt.Errorf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version)
 	}
 
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {
-		su.Status = UnitStatusFailed
-		su.Error = r.Error
-		su.FinishedAt = finishedAt
+		u.Status = UnitStatusFailed
+		u.Error = r.Error
+		u.FinishedAt = finishedAt
 		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.FinishedAt = finishedAt
 		return nil
 	}
 
-	su.Status = UnitStatusCompleted
-	su.Progress = 1.0
-	su.FinishedAt = finishedAt
+	u.Status = UnitStatusCompleted
+	u.Progress = 1.0
+	u.FinishedAt = finishedAt
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
@@ -202,12 +202,12 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	_, su, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
+	_, u, err := m.findStartedUnitWithLock(r.Namespace, r.Id, r.Version, r.UnitId, r.NodeId)
 	if err != nil {
 		return err
 	}
 
-	if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
+	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 		return nil // silently ignore progress updates for terminal units
 	}
 
@@ -216,12 +216,12 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 			r.UnitId, r.Namespace, r.Id, r.Version, r.Progress)
 	}
 
-	su.NodeID = r.NodeId
-	su.Progress = r.Progress
-	su.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
+	u.NodeID = r.NodeId
+	u.Progress = r.Progress
+	u.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
 
-	if su.Status == UnitStatusPending {
-		su.Status = UnitStatusInProgress
+	if u.Status == UnitStatusPending {
+		u.Status = UnitStatusInProgress
 	}
 
 	return nil

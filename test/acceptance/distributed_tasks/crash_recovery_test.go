@@ -200,8 +200,8 @@ func awaitAnyUnitInProgress(t *testing.T, restURI, taskID string) {
 		if task == nil {
 			return false
 		}
-		for _, su := range task.Units {
-			if su.Status == "IN_PROGRESS" {
+		for _, u := range task.Units {
+			if u.Status == "IN_PROGRESS" {
 				return true
 			}
 		}

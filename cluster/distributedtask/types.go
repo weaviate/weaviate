@@ -184,8 +184,8 @@ func (t *Task) Clone() *Task {
 	if t.Units != nil {
 		clone.Units = make(map[string]*Unit, len(t.Units))
 		for k, v := range t.Units {
-			subCopy := *v
-			clone.Units[k] = &subCopy
+			uCopy := *v
+			clone.Units[k] = &uCopy
 		}
 	}
 	return &clone
@@ -193,8 +193,8 @@ func (t *Task) Clone() *Task {
 
 // AllUnitsTerminal returns true if all units are in a terminal state (COMPLETED or FAILED).
 func (t *Task) AllUnitsTerminal() bool {
-	for _, su := range t.Units {
-		if su.Status != UnitStatusCompleted && su.Status != UnitStatusFailed {
+	for _, u := range t.Units {
+		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
 	}
@@ -203,8 +203,8 @@ func (t *Task) AllUnitsTerminal() bool {
 
 // AnyUnitFailed returns true if any unit has FAILED status.
 func (t *Task) AnyUnitFailed() bool {
-	for _, su := range t.Units {
-		if su.Status == UnitStatusFailed {
+	for _, u := range t.Units {
+		if u.Status == UnitStatusFailed {
 			return true
 		}
 	}
@@ -214,8 +214,8 @@ func (t *Task) AnyUnitFailed() bool {
 // LocalUnitIDs returns the IDs of units assigned to the given node.
 func (t *Task) LocalUnitIDs(nodeID string) []string {
 	var ids []string
-	for id, su := range t.Units {
-		if su.NodeID == nodeID {
+	for id, u := range t.Units {
+		if u.NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}
@@ -225,8 +225,8 @@ func (t *Task) LocalUnitIDs(nodeID string) []string {
 // Groups returns the distinct GroupIDs across all units (includes "" for ungrouped).
 func (t *Task) Groups() []string {
 	seen := map[string]bool{}
-	for _, su := range t.Units {
-		seen[su.GroupID] = true
+	for _, u := range t.Units {
+		seen[u.GroupID] = true
 	}
 	groups := make([]string, 0, len(seen))
 	for g := range seen {
@@ -237,11 +237,11 @@ func (t *Task) Groups() []string {
 
 // AllGroupUnitsTerminal returns true if all units in the given group are terminal.
 func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
-	for _, su := range t.Units {
-		if su.GroupID != groupID {
+	for _, u := range t.Units {
+		if u.GroupID != groupID {
 			continue
 		}
-		if su.Status != UnitStatusCompleted && su.Status != UnitStatusFailed {
+		if u.Status != UnitStatusCompleted && u.Status != UnitStatusFailed {
 			return false
 		}
 	}
@@ -251,8 +251,8 @@ func (t *Task) AllGroupUnitsTerminal(groupID string) bool {
 // LocalGroupUnitIDs returns the IDs of units in the given group assigned to the given node.
 func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 	var ids []string
-	for id, su := range t.Units {
-		if su.GroupID == groupID && su.NodeID == nodeID {
+	for id, u := range t.Units {
+		if u.GroupID == groupID && u.NodeID == nodeID {
 			ids = append(ids, id)
 		}
 	}
@@ -262,11 +262,11 @@ func (t *Task) LocalGroupUnitIDs(groupID, nodeID string) []string {
 // NodeHasNonTerminalUnits returns true if the given node has units that are not yet terminal.
 // Unassigned units (empty NodeID) are considered as belonging to any node.
 func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
-	for _, su := range t.Units {
-		if su.Status == UnitStatusCompleted || su.Status == UnitStatusFailed {
+	for _, u := range t.Units {
+		if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
 			continue
 		}
-		if su.NodeID == "" || su.NodeID == nodeID {
+		if u.NodeID == "" || u.NodeID == nodeID {
 			return true
 		}
 	}

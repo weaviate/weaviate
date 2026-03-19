@@ -364,6 +364,27 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// GetLocalShardNames returns the names of all shards local to this node for
+// the given collection. Returns an error if the collection is not found or has
+// no local shards.
+func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+	index := db.GetIndex(schema.ClassName(collection))
+	if index == nil {
+		return nil, fmt.Errorf("collection %q not found", collection)
+	}
+	var names []string
+	if err := index.ForEachShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	}
+	return names, nil
+}
+
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil

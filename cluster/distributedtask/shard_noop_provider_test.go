@@ -171,28 +171,28 @@ func (f *providerFixture) startAndAwaitCompleted(t *testing.T, task *Task, expec
 func TestShardNoopProvider_SyntheticUnits_NilShardLister(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(map[string]*Unit{
-		"su-1": {Status: UnitStatusPending},
-		"su-2": {Status: UnitStatusPending},
+		"u-1": {Status: UnitStatusPending},
+		"u-2": {Status: UnitStatusPending},
 	})
 
 	handle, completed := f.startAndAwaitCompleted(t, task, 2)
 	defer handle.Terminate()
 
-	assert.ElementsMatch(t, []string{"su-1", "su-2"}, completed)
+	assert.ElementsMatch(t, []string{"u-1", "u-2"}, completed)
 }
 
 func TestShardNoopProvider_SyntheticUnits_SkipsOtherNodes(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(map[string]*Unit{
-		"su-1": {Status: UnitStatusPending, NodeID: "node1"},
-		"su-2": {Status: UnitStatusPending, NodeID: "node2"}, // belongs to another node
-		"su-3": {Status: UnitStatusPending},                  // unassigned → claimed by this node
+		"u-1": {Status: UnitStatusPending, NodeID: "node1"},
+		"u-2": {Status: UnitStatusPending, NodeID: "node2"}, // belongs to another node
+		"u-3": {Status: UnitStatusPending},                  // unassigned → claimed by this node
 	})
 
 	handle, completed := f.startAndAwaitCompleted(t, task, 2)
 	defer handle.Terminate()
 
-	assert.ElementsMatch(t, []string{"su-1", "su-3"}, completed)
+	assert.ElementsMatch(t, []string{"u-1", "u-3"}, completed)
 }
 
 func TestShardNoopProvider_CollectionAware_OnlyProcessesLocalShards(t *testing.T) {
@@ -246,7 +246,7 @@ func TestShardNoopProvider_CollectionAware_ShardListerError(t *testing.T) {
 	task := f.newTaskWithPayload(
 		ShardNoopProviderPayload{Collection: "NonExistent"},
 		map[string]*Unit{
-			"su-1": {Status: UnitStatusPending},
+			"u-1": {Status: UnitStatusPending},
 		},
 	)
 
@@ -297,41 +297,41 @@ func TestShardNoopProvider_CollectionAware_EmptyPayloadFallsBackToSynthetic(t *t
 	f := newProviderFixture(t, "node1", lister)
 
 	task := f.newTask(map[string]*Unit{
-		"su-1": {Status: UnitStatusPending},
-		"su-2": {Status: UnitStatusPending, NodeID: "node2"},
+		"u-1": {Status: UnitStatusPending},
+		"u-2": {Status: UnitStatusPending, NodeID: "node2"},
 	})
 
 	handle, completed := f.startAndAwaitCompleted(t, task, 1)
 	defer handle.Terminate()
 
-	assert.ElementsMatch(t, []string{"su-1"}, completed,
-		"only su-1 should be processed in synthetic mode (su-2 belongs to node2)")
+	assert.ElementsMatch(t, []string{"u-1"}, completed,
+		"only u-1 should be processed in synthetic mode (u-2 belongs to node2)")
 }
 
 func TestShardNoopProvider_OnGroupCompleted(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(nil)
 
-	f.provider.OnGroupCompleted(task, "", []string{"su-1", "su-2"})
+	f.provider.OnGroupCompleted(task, "", []string{"u-1", "u-2"})
 
 	finalized := f.provider.GetFinalizedUnits(task.TaskDescriptor)
-	assert.ElementsMatch(t, []string{"su-1", "su-2"}, finalized)
+	assert.ElementsMatch(t, []string{"u-1", "u-2"}, finalized)
 }
 
 func TestShardNoopProvider_OnGroupCompleted_MultipleGroups(t *testing.T) {
 	f := newProviderFixture(t, "node1", nil)
 	task := f.newTask(nil)
 
-	f.provider.OnGroupCompleted(task, "groupA", []string{"su-1"})
-	f.provider.OnGroupCompleted(task, "groupB", []string{"su-2", "su-3"})
+	f.provider.OnGroupCompleted(task, "groupA", []string{"u-1"})
+	f.provider.OnGroupCompleted(task, "groupB", []string{"u-2", "u-3"})
 
 	groups := f.provider.GetFinalizedGroups(task.TaskDescriptor)
-	assert.ElementsMatch(t, []string{"su-1"}, groups["groupA"])
-	assert.ElementsMatch(t, []string{"su-2", "su-3"}, groups["groupB"])
+	assert.ElementsMatch(t, []string{"u-1"}, groups["groupA"])
+	assert.ElementsMatch(t, []string{"u-2", "u-3"}, groups["groupB"])
 
 	// GetFinalizedUnits should return all across groups
 	all := f.provider.GetFinalizedUnits(task.TaskDescriptor)
-	assert.ElementsMatch(t, []string{"su-1", "su-2", "su-3"}, all)
+	assert.ElementsMatch(t, []string{"u-1", "u-2", "u-3"}, all)
 }
 
 func TestShardNoopProvider_OnTaskCompleted(t *testing.T) {
@@ -424,13 +424,13 @@ func TestShardNoopProvider_SlowUnit(t *testing.T) {
 
 	task := f.newTaskWithPayload(
 		ShardNoopProviderPayload{
-			SlowUnitID:        "su-slow",
+			SlowUnitID:        "u-slow",
 			SlowUnitDelayMs:   500,
 			ProcessingDelayMs: 10,
 		},
 		map[string]*Unit{
-			"su-fast": {Status: UnitStatusPending},
-			"su-slow": {Status: UnitStatusPending},
+			"u-fast": {Status: UnitStatusPending},
+			"u-slow": {Status: UnitStatusPending},
 		},
 	)
 
@@ -441,7 +441,7 @@ func TestShardNoopProvider_SlowUnit(t *testing.T) {
 	elapsed := time.Since(start)
 	assert.Greater(t, elapsed, 400*time.Millisecond, "slow unit delay should be applied")
 
-	assert.ElementsMatch(t, []string{"su-fast", "su-slow"}, completed)
+	assert.ElementsMatch(t, []string{"u-fast", "u-slow"}, completed)
 }
 
 func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
@@ -452,9 +452,9 @@ func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
 			ProcessingDelayMs: 10, // fast override
 		},
 		map[string]*Unit{
-			"su-1": {Status: UnitStatusPending},
-			"su-2": {Status: UnitStatusPending},
-			"su-3": {Status: UnitStatusPending},
+			"u-1": {Status: UnitStatusPending},
+			"u-2": {Status: UnitStatusPending},
+			"u-3": {Status: UnitStatusPending},
 		},
 	)
 
@@ -466,7 +466,7 @@ func TestShardNoopProvider_ProcessingDelayOverride(t *testing.T) {
 	// With 10ms delay per unit, should be much faster than default 100ms * 3 = 300ms
 	assert.Less(t, elapsed, 200*time.Millisecond, "processing should use fast delay override")
 
-	assert.ElementsMatch(t, []string{"su-1", "su-2", "su-3"}, completed)
+	assert.ElementsMatch(t, []string{"u-1", "u-2", "u-3"}, completed)
 }
 
 func TestShardNoopProvider_TaskLifecycle(t *testing.T) {
