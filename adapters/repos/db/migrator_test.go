@@ -29,6 +29,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
+	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -100,11 +101,15 @@ func TestUpdateIndexTenants(t *testing.T) {
 				return readFunc(class, originalSS)
 			}).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+			asyncSched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{}, nil, logger)
+			require.NoError(t, err)
+			t.Cleanup(asyncSched.Close)
 			index, err := NewIndex(context.Background(), IndexConfig{
-				ClassName:         schema.ClassName("TestClass"),
-				RootPath:          t.TempDir(),
-				ReplicationFactor: 1,
-				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+				ClassName:                 schema.ClassName("TestClass"),
+				RootPath:                  t.TempDir(),
+				ReplicationFactor:         1,
+				ShardLoadLimiter:          loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+				AsyncReplicationScheduler: asyncSched,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
@@ -268,13 +273,17 @@ func TestUpdateIndexShards(t *testing.T) {
 				return readFunc(class, initialState)
 			}).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+			asyncSched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{}, nil, logger)
+			require.NoError(t, err)
+			t.Cleanup(asyncSched.Close)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
-				ClassName:            schema.ClassName("TestClass"),
-				RootPath:             t.TempDir(),
-				ReplicationFactor:    1,
-				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
+				ClassName:                 schema.ClassName("TestClass"),
+				RootPath:                  t.TempDir(),
+				ReplicationFactor:         1,
+				ShardLoadLimiter:          loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+				EnableLazyLoadShards:      tt.lazyLoading, // Enable lazy loading when lazyLoading is true
+				AsyncReplicationScheduler: asyncSched,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
@@ -376,11 +385,15 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		return readFunc(class, originalSS)
 	}).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+	asyncSched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{}, nil, logger)
+	require.NoError(t, err)
+	t.Cleanup(asyncSched.Close)
 	index, err := NewIndex(context.Background(), IndexConfig{
-		ClassName:         schema.ClassName("TestClass"),
-		RootPath:          t.TempDir(),
-		ReplicationFactor: 1,
-		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		ClassName:                 schema.ClassName("TestClass"),
+		RootPath:                  t.TempDir(),
+		ReplicationFactor:         1,
+		ShardLoadLimiter:          loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		AsyncReplicationScheduler: asyncSched,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)

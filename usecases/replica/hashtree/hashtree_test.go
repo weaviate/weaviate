@@ -129,6 +129,62 @@ func TestBigHashTree(t *testing.T) {
 	require.Equal(t, 1, n)
 }
 
+func TestLevelLocal(t *testing.T) {
+	height := 4
+
+	ht, err := NewHashTree(height)
+	require.NoError(t, err)
+
+	leavesCount := LeavesCount(height)
+	for i := 0; i < leavesCount; i++ {
+		err = ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val%d", i)))
+		require.NoError(t, err)
+	}
+
+	digests1 := make([]Digest, leavesCount)
+	digests2 := make([]Digest, leavesCount)
+
+	for level := 0; level <= height; level++ {
+		t.Run(fmt.Sprintf("level%d", level), func(t *testing.T) {
+			// Build a global discriminant with every other node set at this level
+			global := NewBitset(NodesCount(height))
+			offset := InnerNodesCount(level)
+			count := LeavesCount(level) // nodesAtLevel(level)
+			for i := 0; i < count; i += 2 {
+				global.Set(offset + i)
+			}
+
+			// Level() with global discriminant
+			n1, err := ht.Level(level, global, digests1)
+			require.NoError(t, err)
+
+			// LevelLocal() with extracted level-local discriminant
+			local := global.ExtractSlice(offset, count)
+			n2, err := ht.LevelLocal(level, local, digests2)
+			require.NoError(t, err)
+
+			require.Equal(t, n1, n2)
+			require.Equal(t, digests1[:n1], digests2[:n2])
+		})
+	}
+
+	t.Run("SizeMismatch", func(t *testing.T) {
+		_, err := ht.LevelLocal(2, NewBitset(1), digests1)
+		require.ErrorIs(t, err, ErrIllegalArguments)
+	})
+
+	t.Run("NilDiscriminant", func(t *testing.T) {
+		_, err := ht.LevelLocal(0, nil, digests1)
+		require.ErrorIs(t, err, ErrIllegalArguments)
+	})
+
+	t.Run("LevelTooHigh", func(t *testing.T) {
+		local := NewBitset(LeavesCount(height + 1))
+		_, err := ht.LevelLocal(height+1, local, digests1)
+		require.ErrorIs(t, err, ErrIllegalState)
+	})
+}
+
 func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
 	height := 0
 

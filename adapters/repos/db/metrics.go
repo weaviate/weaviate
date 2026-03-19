@@ -44,8 +44,6 @@ type Metrics struct {
 	shardStatusUpdateDurationsSeconds *prometheus.HistogramVec
 
 	// async replication metrics
-	asyncReplicationGoroutinesRunning *prometheus.GaugeVec
-
 	asyncReplicationHashTreeInitCount        prometheus.Counter
 	asyncReplicationHashTreeInitRunning      prometheus.Gauge
 	asyncReplicationHashTreeInitFailureCount prometheus.Counter
@@ -63,6 +61,9 @@ type Metrics struct {
 	asyncReplicationPropagationFailureCount prometheus.Counter
 	asyncReplicationPropagationObjectCount  prometheus.Counter
 	asyncReplicationPropagationDuration     prometheus.Histogram
+
+	asyncReplicationObjectsDiffCount    prometheus.Counter
+	asyncReplicationLocalDeletionsCount prometheus.Counter
 
 	objttlFindUuidsCount             prometheus.Counter
 	objttlFindUuidsFailureCount      prometheus.Counter
@@ -184,18 +185,6 @@ func NewMetrics(
 	// Async Replication Metrics
 
 	var err error
-
-	m.asyncReplicationGoroutinesRunning, _, err = monitoring.EnsureRegisteredMetric(
-		prom.Registerer,
-		prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: "weaviate",
-			Name:      "async_replication_goroutines_running",
-			Help:      "Number of currently running async replication goroutines",
-		}, []string{"type"}), // type: hashbeater, hashbeat_trigger
-	)
-	if err != nil {
-		return nil, fmt.Errorf("registering async_replication_goroutines_running: %w", err)
-	}
 
 	var alreadyRegistered bool
 
@@ -391,6 +380,34 @@ func NewMetrics(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("registering async_replication_propagation_duration_seconds: %w", err)
+	}
+
+	m.asyncReplicationObjectsDiffCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_objects_diff_total",
+			Help:      "Total objects found in diff per hashbeat cycle (queued for propagation or locally deleted before propagation).",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_objects_diff_total: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncReplicationObjectsDiffCount.Add(0)
+	}
+
+	m.asyncReplicationLocalDeletionsCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_local_deletions_total",
+			Help:      "Total local object deletions applied due to remote-deleted verdicts or deletion-conflict responses during async replication.",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_local_deletions_total: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncReplicationLocalDeletionsCount.Add(0)
 	}
 
 	// objects ttl - find uuids
@@ -740,32 +757,6 @@ func (m *Metrics) FilteredVectorSort(dur time.Duration) {
 	m.filteredVectorSort.Observe(float64(dur) / float64(time.Millisecond))
 }
 
-// --- Async Replication Lifecycle ---
-
-func (m *Metrics) IncAsyncReplicationHashbeaterRunning() {
-	if m.monitoring {
-		m.asyncReplicationGoroutinesRunning.With(prometheus.Labels{"type": "hashbeater"}).Inc()
-	}
-}
-
-func (m *Metrics) DecAsyncReplicationHashbeaterRunning() {
-	if m.monitoring {
-		m.asyncReplicationGoroutinesRunning.With(prometheus.Labels{"type": "hashbeater"}).Dec()
-	}
-}
-
-func (m *Metrics) IncAsyncReplicationHashbeatTriggerRunning() {
-	if m.monitoring {
-		m.asyncReplicationGoroutinesRunning.With(prometheus.Labels{"type": "hashbeat_trigger"}).Inc()
-	}
-}
-
-func (m *Metrics) DecAsyncReplicationHashbeatTriggerRunning() {
-	if m.monitoring {
-		m.asyncReplicationGoroutinesRunning.With(prometheus.Labels{"type": "hashbeat_trigger"}).Dec()
-	}
-}
-
 // --- Hash Tree Init ---
 
 func (m *Metrics) IncAsyncReplicationHashTreeInitCount() {
@@ -865,6 +856,18 @@ func (m *Metrics) AddAsyncReplicationPropagationObjectCount(n int) {
 func (m *Metrics) ObserveAsyncReplicationPropagationDuration(d time.Duration) {
 	if m.monitoring {
 		m.asyncReplicationPropagationDuration.Observe(d.Seconds())
+	}
+}
+
+func (m *Metrics) AddAsyncReplicationObjectsDiffCount(n int) {
+	if m.monitoring {
+		m.asyncReplicationObjectsDiffCount.Add(float64(n))
+	}
+}
+
+func (m *Metrics) AddAsyncReplicationLocalDeletionsCount(n int) {
+	if m.monitoring {
+		m.asyncReplicationLocalDeletionsCount.Add(float64(n))
 	}
 }
 

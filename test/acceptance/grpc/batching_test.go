@@ -450,13 +450,11 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 	clsA := articles.ArticlesClass()
 	clsA.ReplicationConfig = &models.ReplicationConfig{
-		Factor:       3,
-		AsyncEnabled: true,
+		Factor: 3,
 	}
 	clsP := articles.ParagraphsClass()
 	clsP.ReplicationConfig = &models.ReplicationConfig{
-		Factor:       3,
-		AsyncEnabled: true,
+		Factor: 3,
 	}
 
 	setupClasses := func() func() {
@@ -496,7 +494,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		// Validate the number of articles created
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjects(t, clsA.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")

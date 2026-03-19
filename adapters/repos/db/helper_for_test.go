@@ -438,6 +438,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		router:                 mockRouter,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	// asyncReplicationScheduler must be non-nil before shards can register.
+	// NewIndex always sets it, but this helper constructs the Index directly.
+	idx.asyncReplicationScheduler = repo.asyncReplicationScheduler
 	idx.initCycleCallbacksNoop()
 	for _, opt := range indexOpts {
 		opt(idx)
@@ -450,6 +453,12 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)
+
+	// Shut down the repo (and its asyncReplicationScheduler) when the test
+	// ends. Registered last so it runs first in t.Cleanup's LIFO order,
+	// before mock cleanups — ensuring no scheduler goroutine calls a mock
+	// after the test has completed.
+	t.Cleanup(func() { _ = repo.Shutdown(context.Background()) })
 
 	return idx.shards.Load(shardName), idx
 }

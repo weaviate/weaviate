@@ -224,6 +224,51 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 	return n, nil
 }
 
+// LevelLocal is like Level but the discriminant is level-local: its size must
+// be exactly nodesAtLevel(level) = LeavesCount(level), and bit i selects the
+// i-th node at the given level (global index InnerNodesCount(level)+i).
+// This avoids sending the full NodesCount(height)-sized discriminant over the
+// wire; callers use Bitset.ExtractSlice to produce the level-local view.
+func (ht *HashTree) LevelLocal(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
+	if level < 0 {
+		return 0, fmt.Errorf("%w: invalid level(%d)", ErrIllegalArguments, level)
+	}
+
+	if level > ht.height {
+		return 0, fmt.Errorf("%w: level(%d) is too high for current height(%d)", ErrIllegalState, level, ht.height)
+	}
+
+	if discriminant == nil {
+		return 0, fmt.Errorf("%w: nil discriminant provided", ErrIllegalArguments)
+	}
+
+	expectedSize := nodesAtLevel(level)
+	if discriminant.Size() != expectedSize {
+		return 0, fmt.Errorf("%w: discriminant size %d does not match expected %d for level %d",
+			ErrIllegalArguments, discriminant.Size(), expectedSize, level)
+	}
+
+	if len(digests) < expectedSize {
+		return 0, fmt.Errorf("%w: output buffer has not enough capacity", ErrIllegalArguments)
+	}
+
+	ht.sync()
+
+	offset := InnerNodesCount(level)
+
+	for i := 0; i < expectedSize; i++ {
+		if discriminant.IsSet(i) {
+			digests[n] = ht.nodes[offset+i]
+			n++
+		}
+	}
+
+	return n, nil
+}
+
 func (ht *HashTree) Clone() AggregatedHashTree {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()

@@ -270,6 +270,14 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		s.haltForTransferCancel()
 	}
 
+	// Flush any memtables written during the halted period so that all
+	// objects are on disk before compaction and async replication resume.
+	// This prevents a race where the async replication catch-up phase
+	// (CursorOnDisk) misses objects that are still in the memtable.
+	if err := s.store.FlushMemtables(ctx); err != nil {
+		return fmt.Errorf("flush memtables on resume: %w", err)
+	}
+
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	g.Go(func() error {

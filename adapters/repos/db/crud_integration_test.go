@@ -2176,7 +2176,7 @@ func Test_PutPatchRestart(t *testing.T) {
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
-	defer repo.Shutdown(context.Background())
+	defer func() { repo.Shutdown(context.Background()) }()
 	require.Nil(t, repo.WaitForStartup(ctx))
 	migrator := NewMigrator(repo, logger, "node1")
 
@@ -2225,6 +2225,15 @@ func Test_PutPatchRestart(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Nil(t, repo.Shutdown(ctx))
+			repo, err = New(logger, "node1", Config{
+				MemtablesFlushDirtyAfter:  60,
+				RootPath:                  dirName,
+				QueryMaximumResults:       100,
+				MaxImportGoroutinesFactor: 1,
+			}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+			require.Nil(t, err)
+			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(t, repo.WaitForStartup(ctx))
 		}
 	})

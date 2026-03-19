@@ -32,13 +32,6 @@ const (
 	SchemaVersionKey = "schema_version"
 )
 
-// DigestObjectsInRangeRecordLength is the size in bytes of a single binary
-// record returned by the digestsInRange endpoint. Each record encodes a UUID
-// (16 bytes, RFC-4122 binary form) followed by the object's UpdateTime (8
-// bytes, int64 big-endian). The Err and Deleted fields of RepairResponse are
-// not populated by ObjectDigestsInRange and are therefore omitted.
-const DigestObjectsInRangeRecordLength = 24
-
 // Client is used to read and write objects on replicas
 type Client interface {
 	RClient
@@ -226,6 +219,25 @@ type RClient interface {
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
 
+	// CompareDigests sends the source node's local digests to the target and
+	// receives back the subset requiring source-side action:
+	//   - Missing objects (UpdateTime==0): present on source but absent on target.
+	//   - Stale objects (source strictly newer than target): source holds a more
+	//     recent version and must propagate it.
+	//   - Deleted objects (RepairResponse.Deleted==true): the target reports the
+	//     object has been deleted. Whether the source should honour the deletion
+	//     or re-propagate the object depends on the collection's DeletionStrategy
+	//     (e.g. NoAutomatedResolution vs. DeleteOnConflict); callers must inspect
+	//     this field and apply the appropriate reconciliation logic.
+	//
+	// Equal-timestamp objects are never returned: because the hashtree digest
+	// is hash(uuid, updateTime), two nodes holding the same UpdateTime produce
+	// identical leaf digests and the hashtree diff never flags them as differing.
+	// This collapses the O(N_remote_pages) nested HTTP scan in
+	// objectsToPropagateWithinRange to a single round-trip per local batch.
+	CompareDigests(ctx context.Context, host, index, shard string,
+		digests []types.RepairResponse) ([]types.RepairResponse, error)
+
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -274,6 +286,19 @@ func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairResponse, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
+}
+
+// CompareDigests sends local digests to the target and returns those requiring
+// source-side action: missing objects, stale objects (source strictly newer),
+// and deleted objects (RepairResponse.Deleted==true) where the target reports a
+// tombstone. Callers must inspect the Deleted field and apply reconciliation
+// logic appropriate to the collection's DeletionStrategy.
+// Equal-timestamp objects are never returned; see RClient.CompareDigests for rationale.
+func (fc FinderClient) CompareDigests(ctx context.Context,
+	host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 
 // FullReads read full objects
