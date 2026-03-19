@@ -27,9 +27,18 @@ import (
 )
 
 // ReindexProvider implements distributedtask.UnitAwareProvider for reindex tasks.
-// It uses the existing ShardReindexTaskGeneric machinery (RunOnShard) to execute
-// the actual migration work, with the DTM providing cluster coordination, progress
-// tracking, and lifecycle management.
+// It uses the existing ShardReindexTaskGeneric machinery to execute the actual
+// migration work, with the DTM providing cluster coordination, progress tracking,
+// and lifecycle management.
+//
+// For format-only migrations (repair-searchable, repair-filterable), each shard
+// runs the full lifecycle independently via RunOnShard.
+//
+// For semantic migrations (change-tokenization, enable-rangeable), barrier
+// semantics apply: all shards reindex first (RunReindexOnlyOnShard), then once
+// all units are terminal, OnGroupCompleted fires and runs the swap phase
+// (RunSwapOnShard) on each local shard. This ensures no shard serves new data
+// until ALL shards are ready.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
@@ -40,6 +49,10 @@ type ReindexProvider struct {
 	localNode     string
 
 	runningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
+
+	// payloads caches deserialized task payloads for use in OnGroupCompleted,
+	// which receives the raw *Task but needs the typed payload.
+	payloads map[distributedtask.TaskDescriptor]*ReindexTaskPayload
 }
 
 // NewReindexProvider creates a new ReindexProvider.
@@ -55,6 +68,7 @@ func NewReindexProvider(
 		logger:         logger,
 		localNode:      localNode,
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
+		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 	}
 }
 
@@ -103,6 +117,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 
 	p.mu.Lock()
 	p.runningHandles[task.TaskDescriptor] = handle
+	p.payloads[task.TaskDescriptor] = &payload
 	p.mu.Unlock()
 
 	throttled := distributedtask.NewThrottledRecorder(p.recorder, 30*time.Second, clockwork.NewRealClock())
@@ -200,11 +215,21 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// Run each reindex task on the shard sequentially.
+	// For semantic migrations (change-tokenization, enable-rangeable), use
+	// two-phase execution: reindex only, then swap after all units complete.
+	// For format-only migrations, run the full lifecycle per shard.
+	semantic := isSemanticMigration(payload.MigrationType)
+
 	for _, reindexTask := range tasks {
-		if err := reindexTask.RunOnShard(ctx, shard); err != nil {
+		var runErr error
+		if semantic {
+			runErr = reindexTask.RunReindexOnlyOnShard(ctx, shard)
+		} else {
+			runErr = reindexTask.RunOnShard(ctx, shard)
+		}
+		if runErr != nil {
 			p.failUnit(ctx, task, unitID, recorder,
-				fmt.Sprintf("RunOnShard (%s): %v", reindexTask.Name(), err))
+				fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
 			return
 		}
 	}
@@ -283,22 +308,114 @@ func (p *ReindexProvider) failUnit(
 	}
 }
 
-// OnGroupCompleted is a no-op for the initial implementation. RunOnShard handles
-// the full lifecycle (reindex + swap + tidy) per shard.
+// OnGroupCompleted fires after all units in a group reach terminal state.
+// For semantic migrations (change-tokenization, enable-rangeable), this is
+// the barrier: all shards have finished reindexing, so we now run the swap
+// phase on each local shard. For format-only migrations, this is a no-op
+// because RunOnShard already completed the full lifecycle.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) {
-	p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
-		WithField("localGroupUnitIDs", localGroupUnitIDs).
-		Info("reindex provider: OnGroupCompleted (no-op)")
+	p.mu.Lock()
+	payload := p.payloads[task.TaskDescriptor]
+	p.mu.Unlock()
+
+	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
+		WithField("localGroupUnitIDs", localGroupUnitIDs)
+
+	if payload == nil {
+		// Payload not cached — this can happen if the node was restarted after
+		// reindex completed but before the group callback fired. Deserialize
+		// from the task.
+		var pl ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &pl); err != nil {
+			logger.WithError(err).Error("reindex provider: OnGroupCompleted: failed to unmarshal payload")
+			return
+		}
+		payload = &pl
+	}
+
+	if !isSemanticMigration(payload.MigrationType) {
+		logger.Info("reindex provider: OnGroupCompleted (format-only, no-op)")
+		return
+	}
+
+	logger.Info("reindex provider: OnGroupCompleted — starting swap phase for semantic migration")
+
+	className := entschema.ClassName(payload.Collection)
+	idx := p.db.GetIndex(className)
+	if idx == nil {
+		logger.Error("reindex provider: OnGroupCompleted: collection not found")
+		return
+	}
+
+	// Run the swap phase on each local shard.
+	ctx := context.Background()
+	for _, unitID := range localGroupUnitIDs {
+		// Skip units that failed during reindex.
+		unit := task.Units[unitID]
+		if unit != nil && unit.Status == distributedtask.UnitStatusFailed {
+			logger.WithField("unit", unitID).Warn("reindex provider: skipping swap for failed unit")
+			continue
+		}
+
+		shardName := payload.UnitToShard[unitID]
+		var shard ShardLike
+		if err := idx.ForEachShard(func(name string, s ShardLike) error {
+			if name == shardName {
+				shard = s
+			}
+			return nil
+		}); err != nil {
+			logger.WithField("unit", unitID).WithError(err).
+				Error("reindex provider: OnGroupCompleted: iterating shards")
+			continue
+		}
+		if shard == nil {
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Error("reindex provider: OnGroupCompleted: shard not found")
+			continue
+		}
+
+		tasks, err := p.createReindexTasks(payload)
+		if err != nil {
+			logger.WithField("unit", unitID).WithError(err).
+				Error("reindex provider: OnGroupCompleted: creating reindex tasks")
+			continue
+		}
+
+		for _, reindexTask := range tasks {
+			if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
+				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed")
+			}
+		}
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Info("reindex provider: swap complete")
+	}
 }
 
 // OnTaskCompleted fires after all units across all nodes are terminal.
-// For the initial implementation this is a no-op because RunOnShard already
-// calls OnMigrationComplete (schema update) per shard. The DTM adds cluster
-// coordination and progress tracking; barrier semantics for semantic migrations
-// (defer swap until all shards done) is a follow-up.
+// Cleanup cached payload data.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+	p.mu.Lock()
+	delete(p.payloads, task.TaskDescriptor)
+	p.mu.Unlock()
+
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
 		Info("reindex provider: OnTaskCompleted")
+}
+
+// isSemanticMigration returns true for migration types that change query
+// behavior. These require barrier semantics: all shards must finish
+// reindexing before any shard swaps.
+//
+// Currently only change-tokenization qualifies: it replaces the searchable
+// and filterable bucket content, so partial swap would serve mixed
+// old/new tokenization across shards.
+//
+// enable-rangeable is NOT semantic because it adds a new bucket alongside
+// the existing one without changing existing bucket content.
+func isSemanticMigration(mt ReindexMigrationType) bool {
+	return mt == ReindexTypeChangeTokenization
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

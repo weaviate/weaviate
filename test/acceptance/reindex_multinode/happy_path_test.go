@@ -12,12 +12,7 @@
 package reindex_multinode
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -73,7 +68,6 @@ func TestMultiNode_MapToBlockmax(t *testing.T) {
 
 	className := "MultiNodeBlockmax"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	// Create collection with RF=3 and import data.
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
@@ -125,9 +119,13 @@ func TestMultiNode_MapToBlockmax(t *testing.T) {
 	}
 
 	// Submit reindex.
-	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
+	// Poll until reindex is done via /indexes endpoint.
+	awaitReindexViaIndexes(t, restURI, className, "text", "searchable")
+
+	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
 	// Stop background queries.
@@ -161,7 +159,6 @@ func TestMultiNode_RoaringSetRefresh(t *testing.T) {
 
 	className := "MultiNodeRoaringSet"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
@@ -178,7 +175,12 @@ func TestMultiNode_RoaringSetRefresh(t *testing.T) {
 		baselines[q] = results
 	}
 
-	taskID := submitReindex(t, debugURI, className, "repair-filterable", nil, "")
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"filterable":{"rebuild":true}}`)
+
+	// Poll until reindex is done via /indexes endpoint.
+	awaitReindexViaIndexes(t, restURI, className, "text", "filterable")
+
+	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
 	// Verify queries still correct on all nodes.
@@ -198,7 +200,6 @@ func TestMultiNode_EnableRangeable(t *testing.T) {
 
 	className := "MultiNodeRangeable"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
@@ -211,8 +212,12 @@ func TestMultiNode_EnableRangeable(t *testing.T) {
 		importObjectWithScore(t, restURI, className, text, i+1)
 	}
 
-	taskID := submitReindex(t, debugURI, className, "enable-rangeable",
-		[]string{"score"}, "")
+	taskID := submitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"enabled":true}}`)
+
+	// Poll until reindex is done via /indexes endpoint.
+	awaitReindexViaIndexes(t, restURI, className, "score", "rangeable")
+
+	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
 	// Verify schema on all nodes.
@@ -237,7 +242,6 @@ func TestMultiNode_ChangeTokenization(t *testing.T) {
 
 	className := "MultiNodeTokenize"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
@@ -254,8 +258,12 @@ func TestMultiNode_ChangeTokenization(t *testing.T) {
 			"node %d: 'alpha' with WORD should match multiple docs", i)
 	}
 
-	taskID := submitReindex(t, debugURI, className, "change-tokenization",
-		[]string{"text"}, "field")
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"tokenization":"field"}}`)
+
+	// Poll until reindex is done via /indexes endpoint.
+	awaitReindexViaIndexes(t, restURI, className, "text", "searchable")
+
+	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
 	// Verify schema on all nodes.

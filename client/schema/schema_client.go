@@ -59,6 +59,10 @@ type ClientService interface {
 
 	SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsGetOK, error)
 
+	SchemaObjectsIndexesGet(params *SchemaObjectsIndexesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesGetOK, error)
+
+	SchemaObjectsIndexesUpdate(params *SchemaObjectsIndexesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesUpdateAccepted, error)
+
 	SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesAddOK, error)
 
 	SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesDeleteOK, error)
@@ -450,6 +454,88 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsIndexesGet gets index status for all properties of a collection
+
+Returns per-property index state including active reindex progress. This powers the UI to show live migration status.
+*/
+func (a *Client) SchemaObjectsIndexesGet(params *SchemaObjectsIndexesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsIndexesGetParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.indexes.get",
+		Method:             "GET",
+		PathPattern:        "/schema/{className}/indexes",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsIndexesGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsIndexesGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.indexes.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsIndexesUpdate updates index configuration for a property triggers reindex
+
+Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.
+*/
+func (a *Client) SchemaObjectsIndexesUpdate(params *SchemaObjectsIndexesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesUpdateAccepted, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsIndexesUpdateParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.indexes.update",
+		Method:             "PUT",
+		PathPattern:        "/schema/{className}/indexes/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsIndexesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsIndexesUpdateAccepted)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.indexes.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

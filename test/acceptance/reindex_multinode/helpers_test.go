@@ -117,34 +117,25 @@ func importObjects(t *testing.T, restURI, className string, texts []string) {
 	}
 }
 
-// submitReindex submits a reindex task via POST /v1/schema/{collection}/reindex
-// on the debug port and returns the task ID.
-func submitReindex(t *testing.T, debugURI, collection, migType string, properties []string, targetTokenization string) string {
+// submitIndexUpdate submits an index update via PUT /v1/schema/{collection}/indexes/{property}
+// on the main API port and returns the task ID.
+func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string) string {
 	t.Helper()
 
-	reqBody := map[string]interface{}{
-		"type": migType,
-	}
-	if len(properties) > 0 {
-		reqBody["properties"] = properties
-	}
-	if targetTokenization != "" {
-		reqBody["targetTokenization"] = targetTokenization
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
+	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
 	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
 
-	url := fmt.Sprintf("http://%s/v1/schema/%s/reindex", debugURI, collection)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody)) //nolint:gosec
-	require.NoError(t, err, "reindex submit request failed")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "index update request failed")
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	t.Logf("reindex submit response (status=%d): %s", resp.StatusCode, string(respBody))
+	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
 	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"reindex endpoint returned non-202: %s", string(respBody))
+		"index update endpoint returned non-202: %s", string(respBody))
 
 	var result map[string]string
 	require.NoError(t, json.Unmarshal(respBody, &result))
@@ -183,6 +174,76 @@ func awaitReindexFinished(t *testing.T, restURI, taskID string) {
 		}
 		return false
 	}, 180*time.Second, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+}
+
+type indexesResponse struct {
+	Collection string `json:"collection"`
+	Properties []struct {
+		Name    string `json:"name"`
+		Indexes []struct {
+			Type               string  `json:"type"`
+			Status             string  `json:"status"`
+			Progress           float32 `json:"progress"`
+			Tokenization       string  `json:"tokenization,omitempty"`
+			TargetTokenization string  `json:"targetTokenization,omitempty"`
+		} `json:"indexes"`
+	} `json:"properties"`
+}
+
+func getIndexes(t *testing.T, restURI, collection string) *indexesResponse {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "get indexes failed: %s", string(body))
+
+	var result indexesResponse
+	require.NoError(t, json.Unmarshal(body, &result))
+	return &result
+}
+
+// awaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
+// the targeted property's index reaches "ready" status.
+func awaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string) {
+	t.Helper()
+	var lastProgress float32
+	var sawIndexing bool
+
+	require.Eventually(t, func() bool {
+		resp := getIndexes(t, restURI, collection)
+
+		for _, prop := range resp.Properties {
+			if prop.Name == property {
+				for _, idx := range prop.Indexes {
+					if idx.Type == indexType {
+						switch idx.Status {
+						case "indexing":
+							sawIndexing = true
+							if idx.Progress < lastProgress {
+								t.Logf("WARNING: progress went backwards: %f -> %f", lastProgress, idx.Progress)
+							}
+							lastProgress = idx.Progress
+							return false
+						case "ready":
+							return true // Accept ready even if we never saw indexing (fast migration)
+						case "pending":
+							return false
+						}
+					}
+				}
+			}
+		}
+		return false
+	}, 180*time.Second, 1*time.Second, "expected property %s index %s to reach ready status", property, indexType)
+
+	if sawIndexing {
+		t.Logf("index monitoring: saw indexing->ready transition for %s/%s (final progress: %f)", property, indexType, lastProgress)
+	} else {
+		t.Logf("index monitoring: task completed too fast to see indexing status for %s/%s", property, indexType)
+	}
 }
 
 // runBM25QueryOnNode executes a BM25 query against a specific node and returns object IDs.

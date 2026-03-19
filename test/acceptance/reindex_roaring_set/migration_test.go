@@ -98,7 +98,7 @@ func TestRuntimeRoaringSetRefresh(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
-		WithWeaviateWithDebugPort().
+		WithWeaviate().
 		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
@@ -111,7 +111,6 @@ func TestRuntimeRoaringSetRefresh(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	restURI := compose.GetWeaviate().URI()
-	debugURI := "http://" + compose.GetWeaviate().DebugURI()
 
 	// On test failure, dump container logs for debugging.
 	defer func() {
@@ -212,9 +211,14 @@ func TestRuntimeRoaringSetRefresh(t *testing.T) {
 		}
 	}()
 
-	// 5. Trigger migration via DTM flow.
-	taskID := submitReindex(t, debugURI, className, "repair-filterable", nil, "")
+	// 5. Trigger migration via PUT /v1/schema/{collection}/indexes/{property}.
+	taskID := submitIndexUpdate(t, restURI, className, "category", `{"filterable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
+
+	// Poll until reindex is done via /indexes endpoint.
+	awaitReindexViaIndexes(t, restURI, className, "category", "filterable")
+
+	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
 	// 6. Stop background query loop.
@@ -233,28 +237,120 @@ func TestRuntimeRoaringSetRefresh(t *testing.T) {
 
 	// 8. Get shard name from nodes API.
 	shardName := getFirstShardName(t, restURI, className)
-
-	// 9. Verify no leftover suffixed bucket directories.
 	container := compose.GetWeaviate().Container()
-	dirs := listLSMDirs(ctx, t, container, className, shardName)
-	assertNoSuffixedBuckets(t, dirs, "__roaringset_")
 
-	// 10. Restart the server.
+	// 9. Restart the server. Deferred finalize (directory renames) happens
+	// during startup via FinalizeCompletedMigrations.
 	t.Log("restarting weaviate container")
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
 	helper.SetupClient(compose.GetWeaviate().URI())
 
-	// 11. Verify filter queries return correct results after restart.
+	// 10. Verify filter queries return correct results after restart.
 	for i, bl := range baselines {
 		ids := runFilterQuery(t, filterQueries[i].where)
 		assert.ElementsMatch(t, bl.ids, ids,
 			"post-restart query %q results differ from baseline", bl.name)
 	}
 
-	// 12. Verify filesystem still clean after restart.
-	dirs = listLSMDirs(ctx, t, container, className, shardName)
+	// 11. Verify filesystem clean after restart (finalize renamed dirs).
+	dirs := listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__roaringset_")
+}
+
+// submitIndexUpdate submits an index update via PUT /v1/schema/{collection}/indexes/{property}
+// on the main API port and returns the task ID.
+func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string) string {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "index update request failed")
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
+	require.Equal(t, http.StatusAccepted, resp.StatusCode,
+		"index update endpoint returned non-202: %s", string(respBody))
+
+	var result map[string]string
+	require.NoError(t, json.Unmarshal(respBody, &result))
+	return result["taskId"]
+}
+
+type indexesResponse struct {
+	Collection string `json:"collection"`
+	Properties []struct {
+		Name    string `json:"name"`
+		Indexes []struct {
+			Type               string  `json:"type"`
+			Status             string  `json:"status"`
+			Progress           float32 `json:"progress"`
+			Tokenization       string  `json:"tokenization,omitempty"`
+			TargetTokenization string  `json:"targetTokenization,omitempty"`
+		} `json:"indexes"`
+	} `json:"properties"`
+}
+
+func getIndexes(t *testing.T, restURI, collection string) *indexesResponse {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "get indexes failed: %s", string(body))
+
+	var result indexesResponse
+	require.NoError(t, json.Unmarshal(body, &result))
+	return &result
+}
+
+// awaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
+// the targeted property's index reaches "ready" status.
+func awaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string) {
+	t.Helper()
+	var lastProgress float32
+	var sawIndexing bool
+
+	require.Eventually(t, func() bool {
+		resp := getIndexes(t, restURI, collection)
+
+		for _, prop := range resp.Properties {
+			if prop.Name == property {
+				for _, idx := range prop.Indexes {
+					if idx.Type == indexType {
+						switch idx.Status {
+						case "indexing":
+							sawIndexing = true
+							if idx.Progress < lastProgress {
+								t.Logf("WARNING: progress went backwards: %f -> %f", lastProgress, idx.Progress)
+							}
+							lastProgress = idx.Progress
+							return false
+						case "ready":
+							return true // Accept ready even if we never saw indexing (fast migration)
+						case "pending":
+							return false
+						}
+					}
+				}
+			}
+		}
+		return false
+	}, 120*time.Second, 1*time.Second, "expected property %s index %s to reach ready status", property, indexType)
+
+	if sawIndexing {
+		t.Logf("index monitoring: saw indexing->ready transition for %s/%s (final progress: %f)", property, indexType, lastProgress)
+	} else {
+		t.Logf("index monitoring: task completed too fast to see indexing status for %s/%s", property, indexType)
+	}
 }
 
 // runFilterQuery executes a filter query and returns the list of object IDs.
@@ -334,59 +430,6 @@ func assertNoSuffixedBuckets(t *testing.T, dirs []string, suffix string) {
 	}
 }
 
-// idsMatchUnordered compares two slices of IDs without regard to order.
-func idsMatchUnordered(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	aSorted := make([]string, len(a))
-	bSorted := make([]string, len(b))
-	copy(aSorted, a)
-	copy(bSorted, b)
-	sort.Strings(aSorted)
-	sort.Strings(bSorted)
-	for i := range aSorted {
-		if aSorted[i] != bSorted[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// submitReindex submits a reindex task via POST /v1/schema/{collection}/reindex
-// on the debug port and returns the task ID.
-func submitReindex(t *testing.T, debugURI, collection, migType string, properties []string, targetTokenization string) string {
-	t.Helper()
-
-	body := map[string]interface{}{
-		"type": migType,
-	}
-	if len(properties) > 0 {
-		body["properties"] = properties
-	}
-	if targetTokenization != "" {
-		body["targetTokenization"] = targetTokenization
-	}
-
-	jsonBody, err := json.Marshal(body)
-	require.NoError(t, err)
-
-	url := fmt.Sprintf("%s/v1/schema/%s/reindex", debugURI, collection)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody)) //nolint:gosec
-	require.NoError(t, err, "reindex submit request failed")
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("reindex submit response (status=%d): %s", resp.StatusCode, string(respBody))
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"reindex endpoint returned non-202: %s", string(respBody))
-
-	var result map[string]string
-	require.NoError(t, json.Unmarshal(respBody, &result))
-	return result["taskId"]
-}
-
 // awaitReindexFinished polls GET /v1/tasks until the reindex task reaches FINISHED status.
 func awaitReindexFinished(t *testing.T, restURI, taskID string) {
 	t.Helper()
@@ -451,4 +494,23 @@ func getFirstShardName(t *testing.T, restURI, collection string) string {
 	}
 	t.Fatalf("no shard found for collection %s", collection)
 	return ""
+}
+
+// idsMatchUnordered compares two slices of IDs without regard to order.
+func idsMatchUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aSorted := make([]string, len(a))
+	bSorted := make([]string, len(b))
+	copy(aSorted, a)
+	copy(bSorted, b)
+	sort.Strings(aSorted)
+	sort.Strings(bSorted)
+	for i := range aSorted {
+		if aSorted[i] != bSorted[i] {
+			return false
+		}
+	}
+	return true
 }

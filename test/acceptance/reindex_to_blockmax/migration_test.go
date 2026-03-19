@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -78,9 +79,9 @@ var bm25Queries = []string{
 func TestRuntimeMigrationToBlockmax(t *testing.T) {
 	ctx := context.Background()
 
-	// Start Weaviate with debug port exposed, DTM enabled, and non-BMW default.
+	// Start Weaviate with DTM enabled and non-BMW default.
 	compose, err := docker.New().
-		WithWeaviateWithDebugPort().
+		WithWeaviate().
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
@@ -94,7 +95,6 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	restURI := compose.GetWeaviate().URI()
-	debugURI := "http://" + compose.GetWeaviate().DebugURI()
 
 	// On test failure, dump container logs for debugging.
 	defer func() {
@@ -183,7 +183,7 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 				if err != nil {
 					queryFailures.Add(1)
 					t.Logf("query %q error during migration: %v", bl.query, err)
-				} else if !idsMatch(bl.ids, ids) {
+				} else if !idsMatchUnordered(bl.ids, ids) {
 					queryFailures.Add(1)
 					t.Logf("query %q mismatch during migration: expected %v, got %v",
 						bl.query, bl.ids, ids)
@@ -193,11 +193,14 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 		}
 	}()
 
-	// 5. Submit reindex task via DTM endpoint.
-	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	// 5. Submit reindex task via PUT /v1/schema/{collection}/indexes/{property}.
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	// 6. Poll until task is FINISHED.
+	// 6. Poll until reindex is done via /indexes endpoint.
+	awaitReindexViaIndexes(t, restURI, className, "text", "searchable")
+
+	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
 	// 7. Stop background query loop.
@@ -222,13 +225,12 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 			"post-migration query %q results differ from baseline", bl.query)
 	}
 
-	// 10. Get shard name from the nodes API and verify no leftover suffixed buckets.
+	// 10. Get shard name from the nodes API.
 	shardName := getFirstShardName(t, restURI, className)
 	container := compose.GetWeaviate().Container()
-	dirs := listLSMDirs(ctx, t, container, className, shardName)
-	assertNoSuffixedBuckets(t, dirs, "__blockmax_")
 
-	// 11. Restart the server.
+	// 11. Restart the server. The deferred finalize (directory renames)
+	// happens during startup via FinalizeCompletedMigrations.
 	t.Log("restarting weaviate container")
 	require.NoError(t, compose.StopAt(ctx, 0, nil))
 	require.NoError(t, compose.StartAt(ctx, 0))
@@ -241,43 +243,104 @@ func TestRuntimeMigrationToBlockmax(t *testing.T) {
 			"post-restart query %q results differ from baseline", bl.query)
 	}
 
-	// 13. Verify filesystem still clean after restart.
-	dirs = listLSMDirs(ctx, t, container, className, shardName)
+	// 13. Verify filesystem clean after restart (finalize renamed dirs).
+	dirs := listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__blockmax_")
 }
 
-// submitReindex submits a reindex task via POST /v1/schema/{collection}/reindex
-// on the debug port and returns the task ID.
-func submitReindex(t *testing.T, debugURI, collection, migType string, properties []string, targetTokenization string) string {
+// submitIndexUpdate submits an index update via PUT /v1/schema/{collection}/indexes/{property}
+// on the main API port and returns the task ID.
+func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string) string {
 	t.Helper()
 
-	body := map[string]interface{}{
-		"type": migType,
-	}
-	if len(properties) > 0 {
-		body["properties"] = properties
-	}
-	if targetTokenization != "" {
-		body["targetTokenization"] = targetTokenization
-	}
-
-	jsonBody, err := json.Marshal(body)
+	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
 	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
 
-	url := fmt.Sprintf("%s/v1/schema/%s/reindex", debugURI, collection)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody)) //nolint:gosec
-	require.NoError(t, err, "reindex submit request failed")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "index update request failed")
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	t.Logf("reindex submit response (status=%d): %s", resp.StatusCode, string(respBody))
+	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
 	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"reindex endpoint returned non-202: %s", string(respBody))
+		"index update endpoint returned non-202: %s", string(respBody))
 
 	var result map[string]string
 	require.NoError(t, json.Unmarshal(respBody, &result))
 	return result["taskId"]
+}
+
+type indexesResponse struct {
+	Collection string `json:"collection"`
+	Properties []struct {
+		Name    string `json:"name"`
+		Indexes []struct {
+			Type               string  `json:"type"`
+			Status             string  `json:"status"`
+			Progress           float32 `json:"progress"`
+			Tokenization       string  `json:"tokenization,omitempty"`
+			TargetTokenization string  `json:"targetTokenization,omitempty"`
+		} `json:"indexes"`
+	} `json:"properties"`
+}
+
+func getIndexes(t *testing.T, restURI, collection string) *indexesResponse {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "get indexes failed: %s", string(body))
+
+	var result indexesResponse
+	require.NoError(t, json.Unmarshal(body, &result))
+	return &result
+}
+
+// awaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
+// the targeted property's index reaches "ready" status.
+func awaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string) {
+	t.Helper()
+	var lastProgress float32
+	var sawIndexing bool
+
+	require.Eventually(t, func() bool {
+		resp := getIndexes(t, restURI, collection)
+
+		for _, prop := range resp.Properties {
+			if prop.Name == property {
+				for _, idx := range prop.Indexes {
+					if idx.Type == indexType {
+						switch idx.Status {
+						case "indexing":
+							sawIndexing = true
+							if idx.Progress < lastProgress {
+								t.Logf("WARNING: progress went backwards: %f -> %f", lastProgress, idx.Progress)
+							}
+							lastProgress = idx.Progress
+							return false
+						case "ready":
+							return true // Accept ready even if we never saw indexing (fast migration)
+						case "pending":
+							return false
+						}
+					}
+				}
+			}
+		}
+		return false
+	}, 120*time.Second, 1*time.Second, "expected property %s index %s to reach ready status", property, indexType)
+
+	if sawIndexing {
+		t.Logf("index monitoring: saw indexing->ready transition for %s/%s (final progress: %f)", property, indexType, lastProgress)
+	} else {
+		t.Logf("index monitoring: task completed too fast to see indexing status for %s/%s", property, indexType)
+	}
 }
 
 // awaitReindexFinished polls GET /v1/tasks until the reindex task reaches FINISHED status.
@@ -421,13 +484,21 @@ func assertNoSuffixedBuckets(t *testing.T, dirs []string, suffix string) {
 	}
 }
 
-// idsMatch compares two slices of IDs for equality (order matters).
-func idsMatch(a, b []string) bool {
+// idsMatchUnordered compares two slices of IDs without regard to order.
+// During a Map→Blockmax migration, BM25 tie-breaking can change for equal-score
+// documents, so we compare result sets rather than ordered lists.
+func idsMatchUnordered(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	aSorted := make([]string, len(a))
+	bSorted := make([]string, len(b))
+	copy(aSorted, a)
+	copy(bSorted, b)
+	sort.Strings(aSorted)
+	sort.Strings(bSorted)
+	for i := range aSorted {
+		if aSorted[i] != bSorted[i] {
 			return false
 		}
 	}

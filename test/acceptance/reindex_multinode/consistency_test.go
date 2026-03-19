@@ -31,7 +31,6 @@ func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
 
 	className := "ConsistencyTest"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
@@ -84,7 +83,7 @@ func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
 	}
 
 	// Submit reindex (repair-searchable — the most common type).
-	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	awaitReindexFinished(t, restURI, taskID)

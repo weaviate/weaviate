@@ -145,6 +145,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
+	// Finalize any completed migrations whose directory renames were deferred
+	// from a runtime swap. This must run before bucket loading (initNonVector)
+	// so that buckets are found at their canonical directory names.
+	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if err := s.initNonVector(ctx, class); err != nil {

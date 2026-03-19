@@ -47,6 +47,12 @@ type ShardReindexTaskGeneric struct {
 	objectsIteratorAsync objectsIteratorAsync
 	config               reindexTaskConfig
 
+	// skipSwapOnFinish, when true, causes the reindex iteration to stop after
+	// markReindexed() without proceeding to runtimeSwap(). This is used by
+	// RunReindexOnlyOnShard for barrier semantics: all shards must finish
+	// reindexing before any shard swaps.
+	skipSwapOnFinish bool
+
 	// callbackDisableFuncs collects the disable functions returned by
 	// registerAddToPropertyValueIndex / registerDeleteFromPropertyValueIndex.
 	// They are called after a runtime swap to stop the double-write callbacks.
@@ -108,6 +114,79 @@ func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLik
 			return nil
 		}
 	}
+}
+
+// RunReindexOnlyOnShard runs the reindex iteration WITHOUT swap/tidy.
+// After this returns, the shard has:
+//   - ingest bucket with double-written data
+//   - reindex bucket with reindexed data
+//   - main bucket unchanged (still serving queries)
+//   - sentinel state: IsReindexed()
+//
+// This is used for barrier semantics: all shards must finish reindexing
+// before any shard swaps. Call RunSwapOnShard after all shards are done.
+func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, shard ShardLike) error {
+	t.skipSwapOnFinish = true
+	defer func() { t.skipSwapOnFinish = false }()
+
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+
+	if err := t.OnAfterLsmInit(ctx, concreteShard); err != nil {
+		return fmt.Errorf("OnAfterLsmInit: %w", err)
+	}
+
+	for {
+		rerunAt, _, err := t.OnAfterLsmInitAsync(ctx, shard)
+		if err != nil {
+			return fmt.Errorf("OnAfterLsmInitAsync: %w", err)
+		}
+		if rerunAt.IsZero() {
+			return nil
+		}
+	}
+}
+
+// RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
+// Precondition: RunReindexOnlyOnShard completed (IsReindexed() == true).
+func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+
+	logger := t.logger.WithFields(map[string]any{
+		"collection": concreteShard.Index().Config.ClassName.String(),
+		"shard":      concreteShard.Name(),
+		"method":     "RunSwapOnShard",
+	})
+
+	rt, err := t.newReindexTracker(concreteShard.pathLSM())
+	if err != nil {
+		return fmt.Errorf("creating reindex tracker: %w", err)
+	}
+
+	if !rt.IsReindexed() {
+		return fmt.Errorf("shard %q is not in reindexed state", concreteShard.Name())
+	}
+
+	props, err := t.readPropsToReindex(rt)
+	if err != nil {
+		return fmt.Errorf("reading props: %w", err)
+	}
+	if len(props) == 0 {
+		return fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
+	}
+
+	logger.WithField("props", props).Info("starting swap phase")
+
+	if err := t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
+		return fmt.Errorf("runtime swap: %w", err)
+	}
+
+	return nil
 }
 
 // unwrapShard extracts the concrete *Shard from a ShardLike,
@@ -297,6 +376,9 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 
 	if isSwapped {
 		if isTidied {
+			// Runtime swap completed: in-memory swap done, dirs deferred.
+			// FinalizeCompletedMigrations (called before us in shard_init)
+			// already renamed the dirs. Nothing left to do.
 			logger.Debug("tidied. nothing to do")
 			return nil
 		}
@@ -648,6 +730,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		if t.config.reloadShards {
 			return zerotime, true, nil
 		}
+		if t.skipSwapOnFinish {
+			logger.Info("reindex complete (swap deferred for barrier)")
+			return zerotime, false, nil
+		}
 		// Runtime swap: merge, swap, tidy all inline — no shard restart needed.
 		if err = t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
 			err = fmt.Errorf("runtime swap: %w", err)
@@ -766,31 +852,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// (formerly ingest) main bucket.
 	t.disableCallbacks()
 
-	// Step 6: Clean up — remove backup dirs (old main data) and rename the
-	// ingest dir to the canonical main name.
-	for _, propName := range props {
-		mainName := t.strategy.SourceBucketName(propName)
-		backupName := t.backupBucketName(propName)
-		backupDir := filepath.Join(lsmPath, backupName)
-		ingestDir := filepath.Join(lsmPath, t.ingestBucketName(propName))
-		mainDir := filepath.Join(lsmPath, mainName)
-
-		if err := os.RemoveAll(backupDir); err != nil {
-			return fmt.Errorf("removing backup dir %q: %w", backupDir, err)
-		}
-		// The ingest bucket was swapped into the main slot, but its directory
-		// still has the ingest name on disk. Rename it to the canonical main name.
-		if ingestDir != mainDir {
-			if err := store.FinalizeBucketSwap(ctx, mainName, mainDir, ingestDir, ""); err != nil {
-				return fmt.Errorf("finalizing bucket swap for %q: %w", mainName, err)
-			}
-		}
-	}
-
+	// Step 6: Mark tidied. The in-memory swap is complete — the ingest bucket
+	// is now serving queries under the main bucket name. The directory on disk
+	// still has the ingest name, and the old main dir is renamed to _bak.
+	// These filesystem renames (ingest→main, remove _bak) happen on next
+	// startup in OnBeforeLsmInit, which reads the sentinel files and performs
+	// the renames BEFORE bucket loading. This keeps the runtime swap
+	// side-effect-free on the filesystem, avoiding issues with renaming
+	// directories of live/initialized buckets.
 	if err := rt.markTidied(); err != nil {
 		return fmt.Errorf("marking tidied: %w", err)
 	}
-	logger.Debug("runtime swap: tidy complete")
+	logger.Debug("runtime swap: tidy complete (fs cleanup deferred to next restart)")
 
 	// Step 7: Signal migration complete (e.g. update schema).
 	if err := t.strategy.OnMigrationComplete(ctx, shard.Index().Config.ClassName.String()); err != nil {

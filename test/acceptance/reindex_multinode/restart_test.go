@@ -29,7 +29,6 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 
 	className := "RestartDuringReindex"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
@@ -47,7 +46,7 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 	}
 
 	// Submit reindex.
-	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Wait briefly then gracefully stop node 3.
@@ -78,6 +77,123 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 	}
 }
 
+func TestMultiNode_CrashDuringReindex(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	className := "CrashDuringReindex"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	// Record baselines.
+	baselines := make(map[string][][]string)
+	for _, q := range testBM25Queries {
+		results := queryAllNodes(t, compose, className, q)
+		assertQueryConsistency(t, results)
+		baselines[q] = results
+	}
+
+	// Submit reindex.
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	t.Logf("submitted reindex task: %s", taskID)
+
+	// Wait briefly then crash node 3 ungracefully.
+	time.Sleep(2 * time.Second)
+	stopTimeout := 1 * time.Second
+	t.Log("crashing node 3 (ungraceful stop)")
+	require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
+
+	// Restart node 3.
+	t.Log("restarting node 3")
+	require.NoError(t, compose.StartAt(ctx, 2))
+
+	// Await FINISHED — scheduler will re-launch units on restarted node.
+	awaitReindexFinished(t, restURI, taskID)
+
+	// Verify queries correct on all nodes.
+	for _, q := range testBM25Queries {
+		results := queryAllNodes(t, compose, className, q)
+		assertQueryConsistency(t, results)
+		assert.ElementsMatch(t, baselines[q][0], results[0],
+			"post-crash query %q results differ", q)
+	}
+
+	// Verify schema update.
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"node %d: UsingBlockMaxWAND should be true", i)
+	}
+}
+
+func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	className := "MajorityCrash"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	baselines := make(map[string][][]string)
+	for _, q := range testBM25Queries {
+		results := queryAllNodes(t, compose, className, q)
+		assertQueryConsistency(t, results)
+		baselines[q] = results
+	}
+
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	t.Logf("submitted reindex task: %s", taskID)
+
+	// Wait then crash majority (nodes 2 and 3).
+	time.Sleep(2 * time.Second)
+	stopTimeout := 1 * time.Second
+	t.Log("crashing node 2 and node 3 (majority lost)")
+	require.NoError(t, compose.StopAt(ctx, 1, &stopTimeout))
+	require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
+
+	// Node 1 is alone — Raft has no quorum.
+	time.Sleep(5 * time.Second)
+
+	// Restore quorum.
+	t.Log("restarting node 2")
+	require.NoError(t, compose.StartAt(ctx, 1))
+	t.Log("restarting node 3")
+	require.NoError(t, compose.StartAt(ctx, 2))
+
+	// Await FINISHED with longer timeout.
+	awaitReindexFinished(t, restURI, taskID)
+
+	// Verify queries on all nodes.
+	for _, q := range testBM25Queries {
+		results := queryAllNodes(t, compose, className, q)
+		assertQueryConsistency(t, results)
+		assert.ElementsMatch(t, baselines[q][0], results[0],
+			"post-majority-crash query %q results differ", q)
+	}
+
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"node %d: UsingBlockMaxWAND should be true", i)
+	}
+}
+
 func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -86,7 +202,6 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 
 	className := "RollingRestart"
 	restURI := compose.GetWeaviateNode(1).URI()
-	debugURI := compose.GetWeaviateNode(1).DebugURI()
 
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
@@ -104,7 +219,7 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	}
 
 	// Complete a reindex.
-	taskID := submitReindex(t, debugURI, className, "repair-searchable", nil, "")
+	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	awaitReindexFinished(t, restURI, taskID)
 
 	// Rolling restart all 3 nodes one at a time.

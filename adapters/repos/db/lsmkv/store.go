@@ -650,8 +650,12 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 }
 
 // FinalizeBucketSwap completes a deferred bucket swap by renaming directories
-// on disk and updating all in-memory paths. Call this at startup after
-// CreateOrLoadBucket has loaded the bucket under its temporary directory.
+// on disk and updating all in-memory paths.
+//
+// IMPORTANT: This MUST only be called during startup, before the bucket serves
+// any queries. It renames the bucket's on-disk directory and rewrites all
+// in-memory segment paths. Calling this on a live, query-serving bucket will
+// cause data races, stale file handles, and potential data loss.
 //
 //   - canonicalDir: the directory the bucket should ultimately live at
 //   - currentDir:   the directory the bucket was loaded from
