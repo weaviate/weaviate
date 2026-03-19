@@ -331,3 +331,30 @@ func IsNested(dataType DataType) bool {
 	}
 	return false
 }
+
+func IsScalarArrayType(dt DataType) bool {
+	switch dt {
+	case DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray,
+		DataTypeBooleanArray, DataTypeDateArray, DataTypeUUIDArray:
+		return true
+	}
+	return false
+}
+
+func ScalarFromArrayType(dt DataType) DataType {
+	switch dt {
+	case DataTypeTextArray:
+		return DataTypeText
+	case DataTypeIntArray:
+		return DataTypeInt
+	case DataTypeNumberArray:
+		return DataTypeNumber
+	case DataTypeBooleanArray:
+		return DataTypeBoolean
+	case DataTypeDateArray:
+		return DataTypeDate
+	case DataTypeUUIDArray:
+		return DataTypeUUID
+	}
+	return dt
+}
