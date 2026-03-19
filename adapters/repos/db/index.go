@@ -364,6 +364,9 @@ func NewIndex(
 	}
 
 	replicaMetrics, err := replica.NewMetrics(promMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("create replica metrics: %w", err)
+	}
 
 	index := &Index{
 		Config:                  cfg,
@@ -2660,7 +2663,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	hits := make(map[int]int)
 
 	// If we can't calculate the mode, we fallback to median.
-	// However, we can only calculate the median correclty for
+	// However, we can only calculate the median correctly for
 	// an odd-numbered set. If a set has even number of elemets
 	// of which none is a mode, then the median would be calculated
 	// as an average. For such cases, we fallback to the lower value.

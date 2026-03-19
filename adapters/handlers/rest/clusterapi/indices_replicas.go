@@ -267,7 +267,7 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 		return
 	case regxCountObjects.MatchString(path):
 		if r.Method == http.MethodGet {
-			i.putOverwriteObjects().ServeHTTP(w, r)
+			i.countObjects().ServeHTTP(w, r)
 			return
 		}
 
