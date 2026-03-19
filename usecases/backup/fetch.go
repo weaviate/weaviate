@@ -16,9 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -45,9 +43,8 @@ func FetchBackupDescriptors(
 	}
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
-	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
-	mu := &sync.Mutex{}
-	meta := make([]*backup.DistributedBackupDescriptor, 0, len(filteredKeys))
+	eg.SetLimit(100) // limit concurrency to 100 fetches at a time
+	metaCh := make(chan *backup.DistributedBackupDescriptor)
 
 	for _, key := range filteredKeys {
 		eg.Go(func() error {
@@ -63,14 +60,17 @@ func FetchBackupDescriptors(
 			if err := json.Unmarshal(contents, &desc); err != nil {
 				return fmt.Errorf("unmarshal descriptor %q: %w", key, err)
 			}
-			mu.Lock()
-			meta = append(meta, &desc)
-			mu.Unlock()
+			metaCh <- &desc
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
+	}
+	close(metaCh)
+	meta := make([]*backup.DistributedBackupDescriptor, 0, len(filteredKeys))
+	for desc := range metaCh {
+		meta = append(meta, desc)
 	}
 	if len(meta) == 0 {
 		return nil, nil
