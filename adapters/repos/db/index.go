@@ -2671,7 +2671,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 		hits[count]++
 		if h := hits[count]; h > modeHits {
 			mode = count
-			modeHits = hits[count]
+			modeHits = h
 		}
 
 		if i == medianIdx {
