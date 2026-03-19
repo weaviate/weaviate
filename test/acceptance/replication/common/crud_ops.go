@@ -14,7 +14,9 @@ package common
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -30,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 // stopNodeAt stops the node container at the given index.
@@ -122,14 +124,32 @@ func GetTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant st
 
 func ObjectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl types.ConsistencyLevel) (bool, error) {
 	t.Helper()
-	helper.SetupClient(host)
-	return helper.ObjectExistsCL(t, class, id, cl)
+	c := helper.ClientAt(host)
+	cls := string(cl)
+	req := objects.NewObjectsClassHeadParams().
+		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
+	resp, err := c.Objects.ObjectsClassHead(req, nil)
+	notFoundErr := objects.NewObjectsClassHeadNotFound()
+	if errors.As(err, &notFoundErr) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return resp.IsCode(http.StatusNoContent), nil
 }
 
 func GetObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl types.ConsistencyLevel) (*models.Object, error) {
 	t.Helper()
-	helper.SetupClient(host)
-	return helper.GetObjectCL(t, class, id, cl)
+	c := helper.ClientAt(host)
+	cls := string(cl)
+	req := objects.NewObjectsClassGetParams().WithID(id).WithClassName(class)
+	req.ConsistencyLevel = &cls
+	getResp, err := c.Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
 }
 
 func GetObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
@@ -252,97 +272,121 @@ func DeleteTenantObjects(t *testing.T, host, class string, path []string, valueT
 
 func GQLGet(t *testing.T, host, class string, cl types.ConsistencyLevel, fields ...string) []interface{} {
 	t.Helper()
-	helper.SetupClient(host)
-
 	if cl == "" {
 		cl = types.ConsistencyLevelQuorum
 	}
-
 	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s)", class, cl) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent vector}"}
 	}
 	q = fmt.Sprintf(q, strings.Join(fields, " "))
-
-	return GQLDo(t, class, q)
+	return GQLDo(t, host, class, q)
 }
 
 func GQLGetNearVec(t *testing.T, host, class string, vec []interface{}, cl types.ConsistencyLevel, fields ...string) []interface{} {
 	t.Helper()
-	helper.SetupClient(host)
-
 	if cl == "" {
 		cl = types.ConsistencyLevelQuorum
 	}
-
 	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s, nearVector: {vector: %s, certainty: 0.8})",
 		class, cl, Vec2String(vec)) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent}"}
 	}
 	q = fmt.Sprintf(q, strings.Join(fields, " "))
-
-	return GQLDo(t, class, q)
+	return GQLDo(t, host, class, q)
 }
 
-func GQLDo(t *testing.T, class, query string) []interface{} {
+// GQLDo executes a raw GraphQL query against the node at the given host and
+// returns the "Get.<class>" slice from the response.  It uses
+// helper.ClientAt(host) so it does NOT touch the global helper.ServerHost /
+// helper.ServerPort state, making it safe to call from concurrent goroutines
+// (e.g. inside EventuallyWithT callbacks).
+func GQLDo(t *testing.T, host, class, query string) []interface{} {
 	t.Helper()
-	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-
-	result := resp.Get("Get").Get(class)
-	return result.Result.([]interface{})
+	c := helper.ClientAt(host)
+	params := graphql.NewGraphqlPostParams().
+		WithBody(&models.GraphQLQuery{Query: query})
+	resp, err := c.Graphql.GraphqlPost(params, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Payload)
+	if len(resp.Payload.Errors) != 0 {
+		j, _ := json.Marshal(resp.Payload.Errors)
+		t.Fatalf("GraphQL resolved to an error: %s", string(j))
+	}
+	data := resp.Payload.Data["Get"]
+	if data == nil {
+		return nil
+	}
+	result := data.(map[string]interface{})[class]
+	if result == nil {
+		return nil
+	}
+	return result.([]interface{})
 }
 
 func GQLTenantGet(t *testing.T, host, class string, cl types.ConsistencyLevel,
 	tenant string, fields ...string,
 ) []interface{} {
 	t.Helper()
-	helper.SetupClient(host)
-
 	if cl == "" {
 		cl = types.ConsistencyLevelQuorum
 	}
-
 	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s, limit: 1000)", class, tenant, cl) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent}"}
 	}
 	q = fmt.Sprintf(q, strings.Join(fields, " "))
-
-	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, q)
-
-	result := resp.Get("Get").Get(class)
-	return result.Result.([]interface{})
+	c := helper.ClientAt(host)
+	params := graphql.NewGraphqlPostParams().
+		WithBody(&models.GraphQLQuery{Query: q})
+	resp, err := c.Graphql.GraphqlPost(params, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Payload)
+	if len(resp.Payload.Errors) != 0 {
+		j, _ := json.Marshal(resp.Payload.Errors)
+		t.Fatalf("GraphQL resolved to an error: %s", string(j))
+	}
+	data := resp.Payload.Data["Get"]
+	if data == nil {
+		return nil
+	}
+	result := data.(map[string]interface{})[class]
+	if result == nil {
+		return nil
+	}
+	return result.([]interface{})
 }
 
 func CountObjects(t *testing.T, host, class string) int64 {
-	helper.SetupClient(host)
-
+	t.Helper()
 	q := fmt.Sprintf(`{Aggregate{%s{meta{count}}}}`, class)
-
-	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, q)
-
-	result := resp.Get("Aggregate").Get(class).AsSlice()
-	require.Len(t, result, 1)
-	meta := result[0].(map[string]interface{})["meta"].(map[string]interface{})
+	c := helper.ClientAt(host)
+	params := graphql.NewGraphqlPostParams().
+		WithBody(&models.GraphQLQuery{Query: q})
+	resp, err := c.Graphql.GraphqlPost(params, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Payload)
+	agg := resp.Payload.Data["Aggregate"].(map[string]interface{})[class].([]interface{})
+	require.Len(t, agg, 1)
+	meta := agg[0].(map[string]interface{})["meta"].(map[string]interface{})
 	count, err := meta["count"].(json.Number).Int64()
 	require.Nil(t, err)
 	return count
 }
 
-func CountTenantObjects(t *testing.T, host, class string,
-	tenant string,
-) int64 {
+func CountTenantObjects(t *testing.T, host, class string, tenant string) int64 {
 	t.Helper()
-	helper.SetupClient(host)
-
 	q := fmt.Sprintf(`{Aggregate{%s(tenant: %q){meta{count}}}}`, class, tenant)
-
-	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, q)
-
-	result := resp.Get("Aggregate").Get(class).AsSlice()
-	require.Len(t, result, 1)
-	meta := result[0].(map[string]interface{})["meta"].(map[string]interface{})
+	c := helper.ClientAt(host)
+	params := graphql.NewGraphqlPostParams().
+		WithBody(&models.GraphQLQuery{Query: q})
+	resp, err := c.Graphql.GraphqlPost(params, nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Payload)
+	agg := resp.Payload.Data["Aggregate"].(map[string]interface{})[class].([]interface{})
+	require.Len(t, agg, 1)
+	meta := agg[0].(map[string]interface{})["meta"].(map[string]interface{})
 	count, err := meta["count"].(json.Number).Int64()
 	require.Nil(t, err)
 	return count
@@ -350,10 +394,9 @@ func CountTenantObjects(t *testing.T, host, class string,
 
 func GetNodes(t *testing.T, host string) *models.NodesStatusResponse {
 	t.Helper()
-	helper.SetupClient(host)
 	verbose := verbosity.OutputVerbose
 	params := nodes.NewNodesGetParams().WithOutput(&verbose)
-	resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+	resp, err := helper.ClientAt(host).Nodes.NodesGet(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
 }

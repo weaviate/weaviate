@@ -131,6 +131,21 @@ func (bset *Bitset) Unmarshal(b []byte) error {
 	return nil
 }
 
+// ExtractSlice returns a new Bitset of size count containing the bits at
+// positions [offset, offset+count) from this bitset. Used to produce a
+// level-local discriminant (size = nodesAtLevel(level)) from the full-tree
+// discriminant (size = NodesCount(height)) before sending it over the wire,
+// reducing per-call payload by a factor of (height+1) across a full traversal.
+func (bset *Bitset) ExtractSlice(offset, count int) *Bitset {
+	result := NewBitset(count)
+	for i := 0; i < count; i++ {
+		if bset.IsSet(offset + i) {
+			result.Set(i)
+		}
+	}
+	return result
+}
+
 func (bset *Bitset) Clone() *Bitset {
 	clone := &Bitset{
 		size:     bset.size,

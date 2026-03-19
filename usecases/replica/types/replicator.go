@@ -41,6 +41,13 @@ type Replicator interface {
 	DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, className, shardName string,
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+	// CompareDigests receives the source node's local digests and returns the
+	// subset that requires attention on the source side: objects missing from
+	// this node (UpdateTime==0), objects stale on this node (source has a
+	// strictly newer UpdateTime), and equal-timestamp conflicts (both nodes
+	// hold the same UpdateTime) so the source can apply a node-name tiebreaker.
+	CompareDigests(ctx context.Context, className, shardName string,
+		digests []types.RepairResponse) ([]types.RepairResponse, error)
 	HashTreeLevel(ctx context.Context, className, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }

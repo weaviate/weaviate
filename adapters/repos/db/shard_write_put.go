@@ -242,14 +242,6 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
-
 		lock.Lock()
 		defer lock.Unlock()
 
@@ -280,10 +272,6 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
-
-		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-			return errors.Wrap(err, "object creation in hashtree")
-		}
 
 		return nil
 	}(); err != nil {

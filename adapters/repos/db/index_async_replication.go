@@ -162,17 +162,6 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_LIMIT", err)
 	}
 
-	propagationDelay := defaultPropagationDelay
-	if cfg.PropagationDelay != nil {
-		propagationDelay = time.Duration(*cfg.PropagationDelay) * time.Millisecond
-	}
-
-	config.propagationDelay, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_DELAY"), propagationDelay)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_DELAY", err)
-	}
-
 	propagationConcurrency := defaultPropagationConcurrency
 	if cfg.PropagationConcurrency != nil {
 		propagationConcurrency = int(*cfg.PropagationConcurrency)
@@ -193,6 +182,23 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 		os.Getenv("ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE"), propagationBatchSize, minPropagationBatchSize, maxPropagationBatchSize)
 	if err != nil {
 		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
+	}
+
+	initShieldCPUEveryN := defaultInitShieldCPUEveryN
+	if cfg.InitShieldCPUEveryN != nil {
+		v := *cfg.InitShieldCPUEveryN
+		if v < int64(minInitShieldCPUEveryN) || v > int64(maxInitShieldCPUEveryN) {
+			return AsyncReplicationConfig{}, fmt.Errorf(
+				"initShieldCPUEveryN value %d out of range: min %d, max %d",
+				v, minInitShieldCPUEveryN, maxInitShieldCPUEveryN)
+		}
+		initShieldCPUEveryN = int(v)
+	}
+
+	config.initShieldCPUEveryN, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N"), initShieldCPUEveryN, minInitShieldCPUEveryN, maxInitShieldCPUEveryN)
+	if err != nil {
+		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N", err)
 	}
 
 	return config, err

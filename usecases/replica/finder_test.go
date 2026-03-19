@@ -13,12 +13,15 @@ package replica_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -26,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
@@ -1108,4 +1112,322 @@ func TestFinderCheckConsistencyOne(t *testing.T) {
 			assert.Equal(t, want, xs)
 		})
 	}
+}
+
+// TestCollectShardDifferences exercises the full traversal + skip-leaf-level +
+// expandDiscriminantToLeaves path end-to-end using a mock RClient.
+func TestCollectShardDifferences(t *testing.T) {
+	const (
+		class  = "C1"
+		shard  = "S0"
+		height = 3
+	)
+	nodes := []string{"A", "B"}
+	ctx := context.Background()
+
+	makeTree := func(t *testing.T) hashtree.AggregatedHashTree {
+		t.Helper()
+		ht, err := hashtree.NewHashTree(height)
+		require.NoError(t, err)
+		return ht
+	}
+
+	// mockRemoteWith registers a HashTreeLevel handler that answers using ht2.
+	// The mock receives the global discriminant (no HTTP extraction in mock path)
+	// so ht2.Level is the correct call to mirror what the real server does.
+	mockRemoteWith := func(f *fakeFactory, ht2 hashtree.AggregatedHashTree) {
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, mock.Anything, mock.Anything,
+		).RunAndReturn(func(_ context.Context, _, _, _ string, level int, discriminant *hashtree.Bitset) ([]hashtree.Digest, error) {
+			digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
+			n, err := ht2.Level(level, discriminant, digests)
+			return digests[:n], err
+		}).Maybe()
+	}
+
+	t.Run("NoDiff", func(t *testing.T) {
+		// Both trees are empty: roots are equal → ErrNoDiffFound after level 0.
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		ht2 := makeTree(t)
+		mockRemoteWith(f, ht2)
+
+		dr, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, nil)
+		require.ErrorIs(t, err, replica.ErrNoDiffFound)
+		require.NotNil(t, dr)
+	})
+
+	t.Run("KnownDiff", func(t *testing.T) {
+		// Leaf 5 differs between ht1 and ht2. The skip-leaf optimisation means
+		// the reader covers a superset of the true diff; leaf 5 must be included.
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		ht2 := makeTree(t)
+		require.NoError(t, ht1.AggregateLeafWith(5, []byte("a")))
+		require.NoError(t, ht2.AggregateLeafWith(5, []byte("b")))
+		mockRemoteWith(f, ht2)
+
+		dr, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, dr)
+		require.Equal(t, "B", dr.TargetNodeName)
+		require.Equal(t, "B", dr.TargetNodeAddress)
+		require.NotNil(t, dr.RangeReader)
+
+		// Drain the range reader. Leaf 5 must be covered by at least one range.
+		covered := false
+		for {
+			from, to, nextErr := dr.RangeReader.Next()
+			if errors.Is(nextErr, hashtree.ErrNoMoreRanges) {
+				break
+			}
+			require.NoError(t, nextErr)
+			if from <= 5 && 5 <= to {
+				covered = true
+			}
+		}
+		require.True(t, covered, "leaf 5 must be covered by at least one diff range")
+	})
+
+	t.Run("RemoteError", func(t *testing.T) {
+		// HashTreeLevel returns a transport error; CollectShardDifferences must
+		// propagate it (not silently treat the shard as in-sync).
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, mock.Anything, mock.Anything,
+		).Return(nil, fmt.Errorf("connection refused")).Once()
+
+		_, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, nil)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, replica.ErrNoDiffFound)
+	})
+
+	t.Run("DigestCountMismatch", func(t *testing.T) {
+		// Remote returns 0 digests when 1 is expected (height mismatch simulation).
+		// CollectShardDifferences must return an error rather than panicking or
+		// silently treating the shard as in-sync.
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		require.NoError(t, ht1.AggregateLeafWith(2, []byte("y")))
+
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, mock.Anything, mock.Anything,
+		).Return([]hashtree.Digest{}, nil).Once()
+
+		_, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, nil)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, replica.ErrNoDiffFound)
+	})
+
+	t.Run("SkipCaseA_HashTreeRootUnchanged", func(t *testing.T) {
+		// Trees differ (leaf 5 has different data). Skip state carries the
+		// current roots with HadWork=true (objects were sent last cycle).
+		// CollectShardDifferences must return ErrHashtreeRootUnchanged after
+		// exactly one HashTreeLevel call (level 0 only — no deeper walk).
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		ht2 := makeTree(t)
+		require.NoError(t, ht1.AggregateLeafWith(5, []byte("a")))
+		require.NoError(t, ht2.AggregateLeafWith(5, []byte("b")))
+
+		localRoot := ht1.Root()
+		remoteRoot := ht2.Root()
+
+		// Expect exactly one HashTreeLevel call (level 0); deeper levels must
+		// not be reached.
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, 0, mock.Anything,
+		).RunAndReturn(func(_ context.Context, _, _, _ string, level int, discriminant *hashtree.Bitset) ([]hashtree.Digest, error) {
+			digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
+			n, err := ht2.Level(level, discriminant, digests)
+			return digests[:n], err
+		}).Once()
+
+		skipStates := map[string]replica.ShardDiffSkipState{
+			"B": {LocalRoot: localRoot, RemoteRoot: remoteRoot, HadWork: true},
+		}
+
+		dr, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, skipStates)
+		require.ErrorIs(t, err, replica.ErrHashtreeRootUnchanged)
+		require.NotNil(t, dr)
+		require.Equal(t, "B", dr.TargetNodeName)
+		require.Equal(t, localRoot, dr.LocalHashtreeRoot)
+		require.Equal(t, remoteRoot, dr.RemoteHashtreeRoot)
+	})
+
+	t.Run("SkipCaseB_NoDiff", func(t *testing.T) {
+		// Trees differ (leaf 3 has different data). Skip state carries the
+		// current roots with HadWork=false (nothing was sent last cycle).
+		// CollectShardDifferences must return ErrNoDiffFound after exactly
+		// one HashTreeLevel call (level 0 only — the full walk is avoided).
+		//
+		// Note: Case B fires inside collectDiffForTargetNode and returns
+		// ErrNoDiffFound, which causes the outer loop to continue to the next
+		// target (correct: other targets may have real differences). With a
+		// single remote target the outer loop falls through to the final
+		// ErrNoDiffFound return, which carries an empty ShardDifferenceReader.
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		ht2 := makeTree(t)
+		require.NoError(t, ht1.AggregateLeafWith(3, []byte("x")))
+		require.NoError(t, ht2.AggregateLeafWith(3, []byte("y")))
+
+		localRoot := ht1.Root()
+		remoteRoot := ht2.Root()
+
+		// Expect exactly one HashTreeLevel call (level 0); deeper levels must
+		// not be reached because the skip fires after the root comparison.
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, 0, mock.Anything,
+		).RunAndReturn(func(_ context.Context, _, _, _ string, level int, discriminant *hashtree.Bitset) ([]hashtree.Digest, error) {
+			digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
+			n, err := ht2.Level(level, discriminant, digests)
+			return digests[:n], err
+		}).Once()
+
+		skipStates := map[string]replica.ShardDiffSkipState{
+			"B": {LocalRoot: localRoot, RemoteRoot: remoteRoot, HadWork: false},
+		}
+
+		_, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, skipStates)
+		require.ErrorIs(t, err, replica.ErrNoDiffFound)
+	})
+
+	t.Run("NoSkipWhenRemoteRootChanged", func(t *testing.T) {
+		// Trees differ (leaf 7 has different data). Skip state carries a
+		// *stale* remote root (from before the remote flushed). The current
+		// remote root differs from the stored one, so neither Case A nor
+		// Case B applies. The full walk must proceed and find the diff.
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		ht2 := makeTree(t)
+		require.NoError(t, ht1.AggregateLeafWith(7, []byte("p")))
+		require.NoError(t, ht2.AggregateLeafWith(7, []byte("q")))
+
+		localRoot := ht1.Root()
+		// Use a zeroed digest to simulate a stale prior remote root that
+		// doesn't match ht2's current root.
+		staleRemoteRoot := hashtree.Digest{}
+
+		mockRemoteWith(f, ht2)
+
+		skipStates := map[string]replica.ShardDiffSkipState{
+			"B": {LocalRoot: localRoot, RemoteRoot: staleRemoteRoot, HadWork: true},
+		}
+
+		dr, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil, skipStates)
+		require.NoError(t, err)
+		require.NotNil(t, dr)
+		require.NotNil(t, dr.RangeReader)
+
+		covered := false
+		for {
+			from, to, nextErr := dr.RangeReader.Next()
+			if errors.Is(nextErr, hashtree.ErrNoMoreRanges) {
+				break
+			}
+			require.NoError(t, nextErr)
+			if from <= 7 && 7 <= to {
+				covered = true
+			}
+		}
+		require.True(t, covered, "leaf 7 must be covered when skip does not apply")
+	})
+
+	t.Run("SkipCaseA_MultiCycle", func(t *testing.T) {
+		// Verifies that Case A (ErrHashtreeRootUnchanged) fires on consecutive
+		// cycles when the remote root remains unchanged, i.e. that the caller's
+		// HadWork=true is correctly preserved between cycles and is not reset to
+		// false by the ErrHashtreeRootUnchanged return.
+		//
+		// Cycle 1: HadWork=true, remote root unchanged → Case A (level-0 only).
+		// Cycle 2: HadWork=true still (preserved), remote root still unchanged
+		//          → Case A again (level-0 only).
+		// Cycle 3: stale prior remote root (simulates remote flush) → no skip,
+		//          full walk finds diff at leaf 5.
+		f := newFakeFactory(t, class, shard, nodes, false)
+		finder := f.newFinder("A")
+
+		ht1 := makeTree(t)
+		ht2 := makeTree(t)
+		require.NoError(t, ht1.AggregateLeafWith(5, []byte("a")))
+		require.NoError(t, ht2.AggregateLeafWith(5, []byte("b")))
+
+		localRoot := ht1.Root()
+		remoteRoot := ht2.Root()
+
+		makeRemoteHandler := func() func(context.Context, string, string, string, int, *hashtree.Bitset) ([]hashtree.Digest, error) {
+			return func(_ context.Context, _, _, _ string, level int, discriminant *hashtree.Bitset) ([]hashtree.Digest, error) {
+				digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
+				n, err := ht2.Level(level, discriminant, digests)
+				return digests[:n], err
+			}
+		}
+
+		// Cycles 1 & 2: only the level-0 call is expected (Case A fires before
+		// deeper levels are reached).
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, 0, mock.Anything,
+		).RunAndReturn(makeRemoteHandler()).Once()
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, 0, mock.Anything,
+		).RunAndReturn(makeRemoteHandler()).Once()
+
+		// Cycle 3: full walk after remote root changes.
+		f.RClient.EXPECT().HashTreeLevel(
+			mock.Anything, "B", class, shard, mock.Anything, mock.Anything,
+		).RunAndReturn(makeRemoteHandler()).Maybe()
+
+		// Cycle 1.
+		_, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil,
+			map[string]replica.ShardDiffSkipState{
+				"B": {LocalRoot: localRoot, RemoteRoot: remoteRoot, HadWork: true},
+			})
+		require.ErrorIs(t, err, replica.ErrHashtreeRootUnchanged, "cycle 1: expected Case A skip")
+
+		// Cycle 2: same skip state to simulate caller preserving HadWork=true.
+		_, err = finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil,
+			map[string]replica.ShardDiffSkipState{
+				"B": {LocalRoot: localRoot, RemoteRoot: remoteRoot, HadWork: true},
+			})
+		require.ErrorIs(t, err, replica.ErrHashtreeRootUnchanged, "cycle 2: expected Case A skip")
+
+		// Cycle 3: stale prior remote root → skip does not apply → full walk.
+		dr, err := finder.CollectShardDifferences(ctx, shard, ht1, 5*time.Second, nil,
+			map[string]replica.ShardDiffSkipState{
+				"B": {LocalRoot: localRoot, RemoteRoot: hashtree.Digest{}, HadWork: true},
+			})
+		require.NoError(t, err, "cycle 3: expected full walk after flush")
+		require.NotNil(t, dr)
+		require.NotNil(t, dr.RangeReader)
+
+		covered := false
+		for {
+			from, to, nextErr := dr.RangeReader.Next()
+			if errors.Is(nextErr, hashtree.ErrNoMoreRanges) {
+				break
+			}
+			require.NoError(t, nextErr)
+			if from <= 5 && 5 <= to {
+				covered = true
+			}
+		}
+		require.True(t, covered, "leaf 5 must be covered when skip does not apply")
+	})
 }

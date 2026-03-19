@@ -173,6 +173,68 @@ func (_c *MockRClient_DigestObjectsInRange_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// CompareDigests provides a mock function with given fields: ctx, host, index, shard, digests
+func (_m *MockRClient) CompareDigests(ctx context.Context, host string, index string, shard string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+	ret := _m.Called(ctx, host, index, shard, digests)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompareDigests")
+	}
+
+	var r0 []types.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []types.RepairResponse) ([]types.RepairResponse, error)); ok {
+		return rf(ctx, host, index, shard, digests)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []types.RepairResponse) []types.RepairResponse); ok {
+		r0 = rf(ctx, host, index, shard, digests)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]types.RepairResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []types.RepairResponse) error); ok {
+		r1 = rf(ctx, host, index, shard, digests)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRClient_CompareDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareDigests'
+type MockRClient_CompareDigests_Call struct {
+	*mock.Call
+}
+
+// CompareDigests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - host string
+//   - index string
+//   - shard string
+//   - digests []types.RepairResponse
+func (_e *MockRClient_Expecter) CompareDigests(ctx interface{}, host interface{}, index interface{}, shard interface{}, digests interface{}) *MockRClient_CompareDigests_Call {
+	return &MockRClient_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, host, index, shard, digests)}
+}
+
+func (_c *MockRClient_CompareDigests_Call) Run(run func(ctx context.Context, host string, index string, shard string, digests []types.RepairResponse)) *MockRClient_CompareDigests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]types.RepairResponse))
+	})
+	return _c
+}
+
+func (_c *MockRClient_CompareDigests_Call) Return(_a0 []types.RepairResponse, _a1 error) *MockRClient_CompareDigests_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRClient_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, string, []types.RepairResponse) ([]types.RepairResponse, error)) *MockRClient_CompareDigests_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FetchObject provides a mock function with given fields: _a0, host, index, shard, id, props, _a6, numRetries
 func (_m *MockRClient) FetchObject(_a0 context.Context, host string, index string, shard string, id strfmt.UUID, props search.SelectProperties, _a6 additional.Properties, numRetries int) (Replica, error) {
 	ret := _m.Called(_a0, host, index, shard, id, props, _a6, numRetries)

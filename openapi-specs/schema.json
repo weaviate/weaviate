@@ -2289,13 +2289,6 @@
           "x-nullable": true,
           "x-omitempty": true
         },
-        "propagationDelay": {
-          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "propagationConcurrency": {
           "description": "Maximum number of concurrent propagation workers.",
           "type": "integer",
@@ -2305,6 +2298,13 @@
         },
         "propagationBatchSize": {
           "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "initShieldCpuEveryN": {
+          "description": "Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,

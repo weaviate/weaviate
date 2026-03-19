@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -61,10 +62,48 @@ var (
 
 type AsyncReplicationTestSuite struct {
 	suite.Suite
+	compose  *docker.DockerCompose
+	suiteCtx context.Context
+}
+
+func (suite *AsyncReplicationTestSuite) SetupSuite() {
+	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	suite.suiteCtx = context.Background()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithText2VecContextionary().
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
+		Start(suite.suiteCtx)
+	suite.Require().NoError(err)
+	suite.compose = compose
+	helper.SetupClient(compose.GetWeaviate().URI())
+}
+
+func (suite *AsyncReplicationTestSuite) TearDownSuite() {
+	if suite.compose != nil {
+		if err := suite.compose.Terminate(suite.suiteCtx); err != nil {
+			suite.T().Logf("failed to terminate test containers: %s", err.Error())
+		}
+	}
 }
 
 func (suite *AsyncReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	t := suite.T()
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verbose := verbosity.OutputVerbose
+		params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		require.NoError(ct, clientErr)
+		require.NotNil(ct, body.Payload)
+		resp := body.Payload
+		require.Len(ct, resp.Nodes, 3)
+		for _, n := range resp.Nodes {
+			require.NotNil(ct, n.Status)
+			require.Equal(ct, "HEALTHY", *n.Status)
+		}
+	}, 30*time.Second, 500*time.Millisecond)
 }
 
 func TestAsyncReplicationTestSuite(t *testing.T) {
@@ -73,25 +112,20 @@ func TestAsyncReplicationTestSuite(t *testing.T) {
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	t := suite.T()
-	mainCtx := context.Background()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
+
+	t.Cleanup(func() {
+		helper.Client(t).Schema.SchemaObjectsDelete(
+			schema.NewSchemaObjectsDeleteParams().WithClassName(paragraphClass.Class),
+			nil,
+		)
+		helper.Client(t).Schema.SchemaObjectsDelete(
+			schema.NewSchemaObjectsDeleteParams().WithClassName(articleClass.Class),
+			nil,
+		)
+	})
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
@@ -115,7 +149,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
+		common.CreateObjects(t, suite.compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("insert articles", func(t *testing.T) {
@@ -126,11 +160,11 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		common.CreateObjects(t, compose.GetWeaviateNode(2).URI(), batch)
+		common.CreateObjects(t, suite.compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("stop node 3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
+		common.StopNodeAt(suite.suiteCtx, t, suite.compose, 3)
 	})
 
 	repairObj := models.Object{
@@ -142,11 +176,11 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	}
 
 	t.Run("add new object to node one", func(t *testing.T) {
-		common.CreateObjectCL(t, compose.GetWeaviate().URI(), &repairObj, types.ConsistencyLevelOne)
+		common.CreateObjectCL(t, suite.compose.GetWeaviate().URI(), &repairObj, types.ConsistencyLevelOne)
 	})
 
 	t.Run("restart node 3", func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, 3)
+		common.StartNodeAt(suite.suiteCtx, t, suite.compose, 3)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -168,7 +202,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(3).URI(),
+			resp, err := common.GetObjectCL(t, suite.compose.GetWeaviateNode(3).URI(),
 				repairObj.Class, repairObj.ID, types.ConsistencyLevelOne)
 			assert.Nil(ct, err)
 			assert.NotNil(ct, resp)
@@ -188,15 +222,15 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	}
 
 	t.Run("stop node 2", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 2)
+		common.StopNodeAt(suite.suiteCtx, t, suite.compose, 2)
 	})
 
 	t.Run("replace object", func(t *testing.T) {
-		common.UpdateObjectCL(t, compose.GetWeaviateNode(3).URI(), &replaceObj, types.ConsistencyLevelOne)
+		common.UpdateObjectCL(t, suite.compose.GetWeaviateNode(3).URI(), &replaceObj, types.ConsistencyLevelOne)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, 2)
+		common.StartNodeAt(suite.suiteCtx, t, suite.compose, 2)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -218,12 +252,12 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(2).URI(),
+			exists, err := common.ObjectExistsCL(t, suite.compose.GetWeaviateNode(2).URI(),
 				replaceObj.Class, replaceObj.ID, types.ConsistencyLevelOne)
 			require.Nil(ct, err)
 			require.True(ct, exists)
 
-			resp, err := common.GetObjectCL(t, compose.GetWeaviate().URI(),
+			resp, err := common.GetObjectCL(t, suite.compose.GetWeaviate().URI(),
 				repairObj.Class, repairObj.ID, types.ConsistencyLevelOne)
 			require.Nil(ct, err)
 			require.NotNil(ct, resp)

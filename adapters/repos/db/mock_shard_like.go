@@ -2189,6 +2189,65 @@ func (_c *MockShardLike_ObjectDigestsInRange_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// CompareDigests provides a mock function with given fields: ctx, sourceDigests
+func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	ret := _m.Called(ctx, sourceDigests)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompareDigests")
+	}
+
+	var r0 []types.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairResponse) ([]types.RepairResponse, error)); ok {
+		return rf(ctx, sourceDigests)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairResponse) []types.RepairResponse); ok {
+		r0 = rf(ctx, sourceDigests)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]types.RepairResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []types.RepairResponse) error); ok {
+		r1 = rf(ctx, sourceDigests)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_CompareDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareDigests'
+type MockShardLike_CompareDigests_Call struct {
+	*mock.Call
+}
+
+// CompareDigests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sourceDigests []types.RepairResponse
+func (_e *MockShardLike_Expecter) CompareDigests(ctx interface{}, sourceDigests interface{}) *MockShardLike_CompareDigests_Call {
+	return &MockShardLike_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, sourceDigests)}
+}
+
+func (_c *MockShardLike_CompareDigests_Call) Run(run func(ctx context.Context, sourceDigests []types.RepairResponse)) *MockShardLike_CompareDigests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]types.RepairResponse))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CompareDigests_Call) Return(objs []types.RepairResponse, err error) *MockShardLike_CompareDigests_Call {
+	_c.Call.Return(objs, err)
+	return _c
+}
+
+func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Context, []types.RepairResponse) ([]types.RepairResponse, error)) *MockShardLike_CompareDigests_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ObjectList provides a mock function with given fields: ctx, limit, sort, cursor, _a4, className
 func (_m *MockShardLike) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, _a4 additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	ret := _m.Called(ctx, limit, sort, cursor, _a4, className)

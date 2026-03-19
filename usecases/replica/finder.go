@@ -43,6 +43,13 @@ var (
 	ErrRead     = errors.New("read error")
 
 	ErrNoDiffFound = errors.New("no diff found")
+
+	// ErrHashtreeRootUnchanged is returned by CollectShardDifferences when the
+	// remote node's hashtree root has not changed since the last propagation
+	// cycle, meaning the remote has not yet flushed the objects that were sent
+	// to it. The caller should keep the fast-poll cadence active and skip the
+	// full CompareDigests + propagation pass until the remote root changes.
+	ErrHashtreeRootUnchanged = errors.New("hashtree root unchanged since last propagation cycle")
 )
 
 type (
@@ -314,10 +321,31 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	return result.Value, result.Err
 }
 
+// ShardDiffSkipState carries the prior-cycle root snapshots and work flag for
+// a single target node. When provided to CollectShardDifferences, the function
+// short-circuits after the level-0 RPC if the skip conditions are met, saving
+// the remaining (Height-1) RPCs needed for the full tree walk.
+type ShardDiffSkipState struct {
+	LocalRoot  hashtree.Digest
+	RemoteRoot hashtree.Digest
+	// HadWork is true when the prior cycle actually sent objects to this target.
+	// Local-only deletions (remoteDeleted verdicts) must NOT set this flag
+	// because they do not change the remote hashtree.
+	HadWork bool
+}
+
 type ShardDifferenceReader struct {
 	TargetNodeName    string
 	TargetNodeAddress string
 	RangeReader       hashtree.AggregatedHashTreeRangeReader
+	// LocalHashtreeRoot and RemoteHashtreeRoot are the level-0 digests observed
+	// at the time of comparison. They are zero when the comparison was skipped
+	// before the level-0 RPC (e.g. early ErrNoDiffFound from target-node
+	// overrides). The caller stores these in its per-target tracking maps so
+	// that the next call to CollectShardDifferences can short-circuit after
+	// the level-0 RPC when the skip conditions (Case A or Case B) are met.
+	LocalHashtreeRoot  hashtree.Digest
+	RemoteHashtreeRoot hashtree.Digest
 }
 
 // CollectShardDifferences collects the differences between the local node and the target nodes.
@@ -325,9 +353,20 @@ type ShardDifferenceReader struct {
 // If no differences are found, it returns ErrNoDiffFound.
 // When ErrNoDiffFound is returned as the error, the returned *ShardDifferenceReader may exist
 // and have some (but not all) of its fields set.
+//
+// skipStateByTarget is optional (may be nil). When provided, after the level-0
+// RPC (which fetches both root digests with a single round-trip) the function
+// checks skip conditions against the stored prior-cycle roots:
+//   - Case A (ErrHashtreeRootUnchanged): remote root unchanged AND prior cycle sent objects →
+//     remote hasn't flushed yet; return immediately to keep the fast-poll cadence.
+//   - Case B (ErrNoDiffFound): both roots unchanged AND prior cycle sent nothing →
+//     nothing has changed; skip the remaining levels.
+//
+// In both cases the full tree walk (up to Height-1 additional RPCs) is avoided.
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
+	skipStateByTarget map[string]ShardDiffSkipState,
 ) (diffReader *ShardDifferenceReader, err error) {
 	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
 	routingPlan, err := f.router.BuildReadRoutingPlan(options)
@@ -339,14 +378,33 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
+		// Assumes the remote shard's hashtree has the same height as the local one.
+		// A height mismatch will be caught implicitly: the remote will return a
+		// different digest count than expected, which is treated as an error below.
 		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
 
+		// NOTE: the traversal is not atomic — concurrent writes to ht between level
+		// reads may cause false-positive diff ranges. This is acceptable: propagation
+		// is idempotent and false negatives cannot occur (a difference present at
+		// traversal start will always be detected).
 		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
 
 		diff.Set(0) // init comparison at root level
 
-		for l := 0; l <= ht.Height(); l++ {
-			_, err := ht.Level(l, diff, digests)
+		// Compare levels 0 through Height-1, skipping the leaf level.
+		// The leaf-level HashTreeLevel response can be very large (up to
+		// 2^height × 16 bytes per call), while skipping it costs at most 2×
+		// wider UUID ranges in the subsequent DigestObjectsInRange scans.
+		// For a height-0 tree the root IS the leaf, so we must include it.
+		loopBound := ht.Height()
+		if loopBound == 0 {
+			loopBound = 1
+		}
+		// localRoot and remoteRoot are captured at level 0 (the tree root) so the
+		// caller can detect whether either side has flushed since the last cycle.
+		var localRoot, remoteRoot hashtree.Digest
+		for l := 0; l < loopBound; l++ {
+			n, err := ht.Level(l, diff, digests)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
@@ -355,9 +413,48 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
-			if len(levelDigests) == 0 {
-				// no differences were found
-				break
+			if len(levelDigests) != n {
+				// Remote returned fewer or more digests than the discriminant requested.
+				// This indicates a height mismatch or an inconsistent remote state.
+				// Return an error so the caller can try the next replica rather than
+				// silently treating the shard as in-sync or panicking in LevelDiff.
+				return nil, fmt.Errorf("%q: level %d: expected %d digests from remote, got %d",
+					targetNodeAddress, l, n, len(levelDigests))
+			}
+
+			if l == 0 && n > 0 {
+				localRoot = digests[0]
+				remoteRoot = levelDigests[0]
+
+				// Short-circuit using only the root digests — avoids the remaining
+				// (Height-1) level RPCs when a skip condition is met.
+				if prior, ok := skipStateByTarget[targetNodeName]; ok {
+					remoteRootUnchanged := remoteRoot == prior.RemoteRoot
+					localRootUnchanged := localRoot == prior.LocalRoot
+					if remoteRootUnchanged && prior.HadWork {
+						// Case A: objects were propagated last cycle but the remote
+						// hasn't flushed its memtable yet. Signal the caller to keep
+						// the fast-poll cadence without re-running the expensive scan.
+						return &ShardDifferenceReader{
+							TargetNodeName:     targetNodeName,
+							TargetNodeAddress:  targetNodeAddress,
+							LocalHashtreeRoot:  localRoot,
+							RemoteHashtreeRoot: remoteRoot,
+						}, ErrHashtreeRootUnchanged
+					}
+					if remoteRootUnchanged && localRootUnchanged && !prior.HadWork {
+						// Case B: nothing was propagated last cycle and neither side
+						// has changed — the next full scan would find the same empty
+						// result. Return ErrNoDiffFound so the caller drops back to
+						// the slow-poll cadence.
+						return &ShardDifferenceReader{
+							TargetNodeName:     targetNodeName,
+							TargetNodeAddress:  targetNodeAddress,
+							LocalHashtreeRoot:  localRoot,
+							RemoteHashtreeRoot: remoteRoot,
+						}, ErrNoDiffFound
+					}
+				}
 			}
 
 			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
@@ -367,17 +464,26 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			}
 		}
 
+		// Expand any non-leaf bits set by LevelDiff to their leaf-level
+		// descendants so that HashTreeDiffReader (which scans only leaf
+		// positions) can enumerate the differing UUID ranges.
+		expandDiscriminantToLeaves(diff, ht.Height())
+
 		if diff.SetCount() == 0 {
 			return &ShardDifferenceReader{
-				TargetNodeName:    targetNodeName,
-				TargetNodeAddress: targetNodeAddress,
+				TargetNodeName:     targetNodeName,
+				TargetNodeAddress:  targetNodeAddress,
+				LocalHashtreeRoot:  localRoot,
+				RemoteHashtreeRoot: remoteRoot,
 			}, ErrNoDiffFound
 		}
 
 		return &ShardDifferenceReader{
-			TargetNodeName:    targetNodeName,
-			TargetNodeAddress: targetNodeAddress,
-			RangeReader:       ht.NewRangeReader(diff),
+			TargetNodeName:     targetNodeName,
+			TargetNodeAddress:  targetNodeAddress,
+			RangeReader:        ht.NewRangeReader(diff),
+			LocalHashtreeRoot:  localRoot,
+			RemoteHashtreeRoot: remoteRoot,
 		}, nil
 	}
 
@@ -399,9 +505,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
-		replicaNodeNames = append(replicaNodeNames, replica)
 		replicaHostAddr, ok := f.nodeResolver.NodeHostname(replica)
 		if ok {
+			replicaNodeNames = append(replicaNodeNames, replica)
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
@@ -425,6 +531,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
+			if errors.Is(err, ErrHashtreeRootUnchanged) {
+				// Case A skip: return immediately so the caller can preserve the
+				// fast-poll cadence for this specific target. Do not continue to
+				// other targets — the skip state is per-target.
+				return diffReader, err
+			}
 			if !errors.Is(err, ErrNoDiffFound) {
 				ec.Add(err)
 			}
@@ -442,10 +554,48 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	return &ShardDifferenceReader{}, ErrNoDiffFound
 }
 
+// expandDiscriminantToLeaves expands every non-leaf set bit in diff to its two
+// leaf-level descendants, working top-down level by level. After stopping the
+// comparison loop at height-1 (to skip the largest HashTreeLevel response),
+// the discriminant has bits set at internal-node positions. HashTreeDiffReader
+// only scans leaf positions, so this expansion is required before constructing
+// the RangeReader.
+//
+// False positives are possible (both leaves under a differing parent are marked
+// even if only one truly differs), but DigestObjectsInRange handles the
+// fine-grained reconciliation, and propagation is idempotent.
+func expandDiscriminantToLeaves(diff *hashtree.Bitset, height int) {
+	for l := 0; l < height; l++ {
+		offset := hashtree.InnerNodesCount(l)
+		count := hashtree.LeavesCount(l)
+		for j := 0; j < count; j++ {
+			node := offset + j
+			if diff.IsSet(node) {
+				diff.Set(2*node + 1)
+				diff.Set(2*node + 2)
+				diff.Unset(node)
+			}
+		}
+	}
+}
+
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) (ds []types.RepairResponse, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
+}
+
+// CompareDigests sends the source's local digests to the target node and
+// returns a subset requiring source-side action: objects that are missing on
+// the target, stale on the target (source has a strictly newer UpdateTime), or
+// equal-timestamp conflicts where both nodes hold the same UpdateTime but may
+// have diverged. The caller is responsible for applying a deterministic
+// tiebreaker (e.g. node-name comparison) to equal-timestamp conflicts before
+// deciding whether to propagate.
+func (f *Finder) CompareDigests(ctx context.Context,
+	shardName string, host string, digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
 // Overwrite specified object with most recent contents

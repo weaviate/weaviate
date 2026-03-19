@@ -18,6 +18,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -114,7 +115,54 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
-	s.mayStopAsyncReplication()
+	// Cancel async replication goroutines before the store shuts down so
+	// they don't run concurrently with store shutdown. The objectFlushCallback
+	// is intentionally kept registered here so that the explicit FlushAndSwitch
+	// below fires updateHashtreeOnFlush, bringing the hashtree fully in sync
+	// with on-disk state before mayStopAsyncReplication persists it.
+	// NOTE: Bucket.Shutdown (called inside store.Shutdown below) flushes the
+	// active memtable via b.active.flush() directly, which does NOT fire
+	// objectFlushCallback. We therefore call FlushAndSwitch explicitly so the
+	// hashtree is updated before mayStopAsyncReplication dumps it to disk.
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock()
+		if s.hashtree != nil && s.asyncReplicationCancelFunc != nil {
+			s.asyncReplicationCancelFunc()
+		}
+	}()
+
+	// Flush any in-memtable objects through FlushAndSwitch so that
+	// objectFlushCallback (updateHashtreeOnFlush) fires and the hashtree
+	// is fully consistent with on-disk state before mayStopAsyncReplication
+	// dumps it. Bucket.Shutdown calls b.active.flush() directly and does not
+	// fire the callback, so this explicit flush is required.
+	// On failure, set hashtreeFlushFailed so mayStopAsyncReplication skips the
+	// dump. A stale .ht file is worse than none: loading it on restart bypasses
+	// initHashtree's corrective disk scan. hashtreeFlushFailed is not protected
+	// by asyncReplicationRWMux because it is only written here (under
+	// shutdownLock) and read by mayStopAsyncReplication (called below, same
+	// goroutine) — initHashtree never touches it, so there is no race.
+	func() {
+		s.asyncReplicationRWMux.RLock()
+		hashtreeActive := s.hashtree != nil
+		s.asyncReplicationRWMux.RUnlock()
+		if !hashtreeActive || s.store == nil {
+			return
+		}
+		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return
+		}
+		if err := bucket.FlushAndSwitch(); err != nil {
+			s.index.logger.
+				WithField("action", "async_replication_shutdown").
+				WithField("class_name", s.index.Config.ClassName.String()).
+				WithField("shard_name", s.name).
+				Warnf("failed to flush objects bucket before hashtree dump, skipping hashtree persistence: %v", err)
+			s.hashtreeFlushFailed = true
+		}
+	}()
 
 	_ = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
@@ -158,6 +206,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		err = s.store.Shutdown(ctx)
 		ec.AddWrapf(err, "stop lsmkv store")
 	}
+
+	// Called after store.Shutdown to ensure the store is fully stopped before
+	// mayStopAsyncReplication unregisters flush callbacks and dumps the hashtree.
+	// The hashtree was already brought in sync by the explicit FlushAndSwitch
+	// above; store.Shutdown's internal flush (b.active.flush) fires no callback.
+	s.mayStopAsyncReplication()
 
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()

@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -44,8 +45,7 @@ import (
 )
 
 func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
-	s.activityTrackerRead.Add(1)
-
+	// Replication-internal operation: do not count as user read activity.
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return types.RepairResponse{}, err
@@ -64,8 +64,6 @@ func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (typ
 	replicaObj := types.RepairResponse{
 		ID:         id.String(),
 		UpdateTime: updateTime,
-		// TODO: use version when supported
-		Version: 0,
 	}
 
 	return replicaObj, nil
@@ -131,8 +129,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 }
 
 func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
-	s.activityTrackerRead.Add(1)
-
+	// Replication-internal operation: do not count as user read activity.
 	objects := make([]types.RepairResponse, len(query))
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -169,24 +166,23 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
 	objs []types.RepairResponse, err error,
 ) {
-	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
+	initialUUID16, err := uuid.Parse(initialUUID.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid initial UUID %q: %w", initialUUID, err)
 	}
-
-	finalUUIDBytes, err := uuid.MustParse(finalUUID.String()).MarshalBinary()
+	finalUUID16, err := uuid.Parse(finalUUID.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	cursor := bucket.CursorOnDisk()
 	defer cursor.Close()
 
 	n := 0
 
-	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
+	for k, v := cursor.Seek(initialUUID16[:]); n < limit && k != nil && bytes.Compare(k, finalUUID16[:]) < 1; k, v = cursor.Next() {
 		if ctx.Err() != nil {
 			return objs, ctx.Err()
 		}
@@ -204,8 +200,6 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		replicaObj := types.RepairResponse{
 			ID:         uuidParsed.String(),
 			UpdateTime: updateTime,
-			// TODO: use version when supported
-			Version: 0,
 		}
 
 		objs = append(objs, replicaObj)
@@ -214,6 +208,148 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	}
 
 	return objs, nil
+}
+
+// CompareDigests identifies which of the caller's sourceDigests require
+// action on the source side. It returns three categories:
+//   - Missing: object absent from this shard; returned with UpdateTime==0.
+//   - Stale: source has a strictly newer UpdateTime; returned with the local
+//     UpdateTime so the caller can use it as remoteStaleUpdateTime.
+//   - Tombstoned: object is deleted on this shard. The configured deletion
+//     strategy is applied here on the target side:
+//     NoAutomatedResolution → suppressed (not returned).
+//     DeleteOnConflict      → returned with Deleted=true.
+//     TimeBasedResolution   → returned with Deleted=true when deletion is
+//     same-or-newer; returned as a normal stale entry when source is strictly
+//     newer so the source propagates the live object to restore it.
+//     Note: tombstones flushed to on-disk segments lose their deletion
+//     timestamp. When deletionTime==0, TimeBasedResolution conservatively
+//     treats deletion as the winner regardless of the source's UpdateTime.
+//
+// Equal-timestamp objects (source and target hold the same UpdateTime) are NOT
+// returned: the hashtree digest for an object is hash(uuid, updateTime), so two
+// nodes holding the same object at the same time produce identical leaf digests.
+// The hashtree diff will not detect them as differing, meaning CompareDigests is
+// never called for such objects during a hashbeat that is already in sync.
+// Returning them would cause the source to re-propagate objects it just
+// successfully delivered (and already present on disk after the next flush),
+// exhausting the propagation limit and preventing genuinely stale objects
+// from being reached.
+//
+// Algorithm: one shared on-disk consistent view is acquired once; then one
+// GetErrDeletedOnDisk call per source UUID — O(N_source × log N_local) —
+// amortising the segment ref-count lock acquisition across the entire batch.
+// Only on-disk segments are consulted, consistent with ObjectDigestsInRange
+// using CursorOnDisk on the source side.
+func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	// Replication-internal operation: do not count as user read activity.
+	if len(sourceDigests) == 0 {
+		return nil, nil
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	view := bucket.GetDiskOnlyConsistentView()
+	defer view.ReleaseView()
+
+	var result []types.RepairResponse
+	for _, d := range sourceDigests {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		u, err := uuid.Parse(d.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse source uuid %q: %w", d.ID, err)
+		}
+
+		v, err := bucket.GetErrDeletedOnDisk(u[:], view)
+		if err != nil {
+			if errors.Is(err, entlsmkv.Deleted) {
+				// Key is tombstoned on this shard.  Extract the deletion timestamp
+				// when available (written by recent deletes); older tombstones or
+				// those from compacted segments may carry no timestamp (zero).
+				var deletionTime int64
+				var errDeleted entlsmkv.ErrDeleted
+				if errors.As(err, &errDeleted) && !errDeleted.DeletionTime().IsZero() {
+					deletionTime = errDeleted.DeletionTime().UnixMilli()
+				}
+
+				// Apply the deletion conflict strategy on the target side so the
+				// source can act on the verdict without needing to re-read strategy.
+				switch s.index.DeletionStrategy() {
+				case models.ReplicationConfigDeletionStrategyNoAutomatedResolution:
+					// No automated resolution: suppress the tombstone so the source
+					// neither propagates nor deletes — leave the conflict for manual
+					// handling.
+					continue
+
+				case models.ReplicationConfigDeletionStrategyDeleteOnConflict:
+					// Deletion always wins: instruct source to delete its live copy.
+					result = append(result, types.RepairResponse{
+						ID:         d.ID,
+						Deleted:    true,
+						UpdateTime: deletionTime,
+					})
+
+				case models.ReplicationConfigDeletionStrategyTimeBasedResolution:
+					if deletionTime > 0 && d.UpdateTime > deletionTime {
+						// Source's live object is strictly newer than the local tombstone:
+						// return as a normal stale entry so the source propagates the live
+						// object to this shard (overwriting the tombstone).
+						result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: deletionTime})
+					} else {
+						// Local deletion is same-or-newer, or deletion time is unknown:
+						// instruct source to delete its live copy.
+						result = append(result, types.RepairResponse{
+							ID:         d.ID,
+							Deleted:    true,
+							UpdateTime: deletionTime,
+						})
+					}
+
+				default:
+					// Unknown strategy: behave conservatively like NoAutomatedResolution.
+					continue
+				}
+				continue
+			}
+			if errors.Is(err, entlsmkv.NotFound) {
+				// Key is absent from this shard — source must propagate.
+				result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: 0})
+				continue
+			}
+			return nil, fmt.Errorf("get object %q: %w", d.ID, err)
+		}
+
+		if v == nil {
+			// Safety guard: GetErrDeletedOnDisk returns NotFound for absent keys
+			// (handled above), but treat unexpected nil as absent to avoid a nil dereference.
+			result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: 0})
+			continue
+		}
+
+		_, localTime, err := storobj.DocIDAndTimeFromBinary(v)
+		if err != nil {
+			return nil, fmt.Errorf("extract update time for %q: %w", d.ID, err)
+		}
+
+		if d.UpdateTime > localTime {
+			// Source has a strictly newer version — this shard is stale and the
+			// source must propagate.
+			//
+			// Equal-timestamp (d.UpdateTime == localTime) is intentionally NOT
+			// returned: objects with the same UpdateTime on both nodes have
+			// identical hashtree digests (hash(uuid, updateTime)), so the
+			// hashtree diff cannot detect them as differing in the first place.
+			// Returning them would only cause the source to re-propagate objects
+			// it just successfully delivered (same version already in target
+			// memtable or on disk), exhausting the propagation limit and
+			// preventing genuinely stale objects from being reached.
+			result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: localTime})
+		}
+	}
+
+	return result, nil
 }
 
 // TODO: This does an actual read which is not really needed, if we see this
@@ -795,14 +931,6 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
-		return err
-	}
-
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -828,7 +956,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
+	docID, _, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
@@ -843,10 +971,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	}
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)

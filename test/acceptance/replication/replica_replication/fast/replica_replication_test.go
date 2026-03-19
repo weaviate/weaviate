@@ -73,6 +73,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -138,6 +140,17 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 				assert.Equal(ct, "HEALTHY", *n.Status)
 			}
 		}, 15*time.Second, 500*time.Millisecond)
+	})
+
+	t.Run("wait for paragraph class to be visible on all nodes", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+			require.Len(ct, body.Payload.Nodes, 3)
+		}, 30*time.Second, 500*time.Millisecond)
 	})
 
 	var uuid strfmt.UUID
@@ -221,6 +234,10 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		common.StopNodeAt(ctx, t, compose, sourceNode)
 	})
 
+	// Re-setup the client to point to node3 (the replication target) since the source node was stopped
+	// and may have been the node the client was originally configured to use.
+	helper.SetupClient(compose.ContainerURI(3))
+
 	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
@@ -259,6 +276,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

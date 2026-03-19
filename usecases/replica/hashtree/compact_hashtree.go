@@ -121,6 +121,10 @@ func (ht *CompactHashTree) Level(level int, discriminant *Bitset, digests []Dige
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
+func (ht *CompactHashTree) LevelLocal(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
+	return ht.hashtree.LevelLocal(level, discriminant, digests)
+}
+
 func (ht *CompactHashTree) Reset() {
 	ht.hashtree.Reset()
 }
