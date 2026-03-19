@@ -625,10 +625,18 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// The HNSW index may return doc IDs for objects that have been deleted from
+	// the object store but whose vectors have not yet been cleaned up from the
+	// vector index (e.g. due to async tombstone processing or incomplete
+	// cleanup). ObjectsByDocIDWithEmpty preserves positional alignment with
+	// distCombined by keeping nil entries; we filter both arrays together so
+	// that objects and distances stay correctly paired.
+	objs, distCombined = filterNilObjects(objs, distCombined)
 
 	took := time.Since(beforeObjects)
 	if filters != nil {
@@ -637,6 +645,26 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 	return objs, distCombined, nil
+}
+
+// filterNilObjects removes nil entries from objs and the corresponding
+// entries from dists, keeping the two slices aligned.
+func filterNilObjects(objs []*storobj.Object, dists []float32) ([]*storobj.Object, []float32) {
+	n := len(objs)
+	if len(dists) < n {
+		n = len(dists)
+	}
+
+	j := 0
+	for i := 0; i < n; i++ {
+		if objs[i] != nil {
+			objs[j] = objs[i]
+			dists[j] = dists[i]
+			j++
+		}
+	}
+
+	return objs[:j], dists[:j]
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {

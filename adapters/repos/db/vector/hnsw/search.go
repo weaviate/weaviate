@@ -791,6 +791,14 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				continue
 			}
 
+			// Skip tombstoned nodes as entrypoint candidates. A node may still
+			// exist in the graph (non-nil) but be logically deleted. Using it as
+			// an entrypoint would waste traversal effort and, in degenerate
+			// cases, cause deleted objects to leak into search results.
+			if h.hasTombstone(cand.ID) {
+				continue
+			}
+
 			if !n.isUnderMaintenance() {
 				entryPointID = cand.ID
 				entryPointDistance = cand.Dist

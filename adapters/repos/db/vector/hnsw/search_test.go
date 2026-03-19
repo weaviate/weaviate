@@ -371,6 +371,64 @@ func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, erro
 	return f.distFn(f.queryVec, vec), nil
 }
 
+// TestTombstoneExclusionInUnfilteredSearch verifies that tombstoned nodes are
+// excluded from unfiltered nearVector search results. This addresses
+// https://github.com/weaviate/weaviate/issues/3868
+func TestTombstoneExclusionInUnfilteredSearch(t *testing.T) {
+	ctx := context.Background()
+	vectors := [][]float32{
+		{1.0, 1.0},   // docID 0
+		{2.0, 2.0},   // docID 1 - will be deleted
+		{3.0, 3.0},   // docID 2
+		{10.0, 10.0}, // docID 3 (far away)
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstone-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
+	}, ent.UserConfig{
+		MaxConnections:        16,
+		EFConstruction:        64,
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	for i := 0; i < len(vectors); i++ {
+		err := index.Add(ctx, uint64(i), vectors[i])
+		require.NoError(t, err)
+	}
+
+	// Verify initial search returns all documents
+	results, _, err := index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
+	require.NoError(t, err)
+	assert.Len(t, results, 4, "should initially find all 4 documents")
+
+	// Delete docID 1
+	err = index.Delete(uint64(1))
+	require.NoError(t, err)
+
+	// Verify tombstone was added
+	assert.True(t, index.hasTombstone(uint64(1)),
+		"tombstone should be present for deleted docID 1")
+
+	// Unfiltered search should exclude the deleted object
+	results, _, err = index.SearchByVector(ctx, []float32{1.0, 1.0}, 10, nil)
+	require.NoError(t, err)
+
+	assert.Len(t, results, 3, "should find 3 documents after deletion")
+	for _, id := range results {
+		assert.NotEqual(t, uint64(1), id,
+			"deleted document with docID 1 should not appear in search results")
+	}
+}
+
 // noopBucketView is a no-op implementation of common.BucketView for testing
 type noopBucketView struct{}
 
