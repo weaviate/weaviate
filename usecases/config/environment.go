@@ -56,6 +56,8 @@ const (
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
+	DefaultMaxShardingCount = 512
+
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
@@ -539,6 +541,20 @@ func FromEnv(config *Config) error {
 		defaultQuantization = strings.ToLower(v)
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
+
+	defaultShardingCount := 0
+	if err := parseNonNegativeInt(
+		"DEFAULT_SHARDING_COUNT",
+		func(v int) { defaultShardingCount = v },
+		0,
+	); err != nil {
+		return err
+	}
+	if defaultShardingCount > DefaultMaxShardingCount {
+		return fmt.Errorf("DEFAULT_SHARDING_COUNT must be <= %d, got %d",
+			DefaultMaxShardingCount, defaultShardingCount)
+	}
+	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
 	config.HFreshEnabled = true
 
@@ -1117,6 +1133,13 @@ func FromEnv(config *Config) error {
 		operationalMode = v
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
+	disableDimensionMetrics := false
+	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
+		disableDimensionMetrics = entcfg.Enabled(v)
+	}
+
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
 	return nil
 }
