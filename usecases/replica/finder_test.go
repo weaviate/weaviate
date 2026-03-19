@@ -1049,8 +1049,8 @@ func TestFinderCheckConsistencyRepairPreservesOriginalObject(t *testing.T) {
 			)
 
 			// B and C both have the newer version in their digests
-			f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids).Return(digestNewer, nil)
-			f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestNewer, nil)
+			f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, ids, 0).Return(digestNewer, nil)
+			f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids, 0).Return(digestNewer, nil)
 
 			// repair fetches the full newer object from whichever replica is selected
 			// (routing order may differ between single-tenant and multi-tenant)
