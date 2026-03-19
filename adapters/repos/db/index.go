@@ -2581,25 +2581,17 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
-	// NOTE(dyma): calculating this is redundant: in absence of replProps and defaultOverride,
-	// this will return the fallback value of QUORUM every time. However, the actual read is invariably
-	// performed with consistency level ONE, as we simply iterate over all existing shards; because of
-	// the plan's "local affinity" readPlan.Shards() will always return a list of local shards. There's
-	// no point in calculating the consistency level and readPlan can be replaced with a simple call to
-	// i.schemaReader.Shards(i.Config.ClassName.String()).
-	cl := i.consistencyLevel(replProps)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	shards, err := i.schemaReader.Shards(i.Config.ClassName.String())
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO(dyma): should there be a way for a user to specify the desired consistency level?
 	if aggregation.IsCountStar(&params) {
-		return i.aggregateCount(ctx)
+		return i.aggregateCount(ctx, shards)
 	}
 
-	results := make([]*aggregation.Result, len(readPlan.Shards()))
-	for j, shardName := range readPlan.Shards() {
+	results := make([]*aggregation.Result, len(shards))
+	for j, shardName := range shards {
 		var err error
 		var res *aggregation.Result
 
@@ -2628,11 +2620,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	return aggregator.NewShardCombiner().Do(results), nil
 }
 
-func (i *Index) aggregateCount(ctx context.Context) (*aggregation.Result, error) {
-	shards, err := i.schemaReader.Shards(i.Config.ClassName.String())
-	if err != nil {
-		return nil, err
-	}
+func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
 	counts := make(map[string]int)
 	for _, shard := range shards {
 		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
