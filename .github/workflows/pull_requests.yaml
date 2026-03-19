@@ -198,6 +198,75 @@ jobs:
           path: /tmp/docker-outputs/
           retention-days: 1
 
+  PR-Docker-Build-Orca-Scan:
+    name: docker build (orca scan)
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
+    timeout-minutes: 45
+    env:
+      PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: .
+          push: false
+          tags: weaviate:${{ github.sha }}
+          platforms: linux/amd64
+          load: true
+          cache-from: |
+            type=gha,scope=weaviate-multi
+            type=gha,scope=weaviate-amd64
+          build-args: |
+            CGO_ENABLED=0
+
+      - name: Run Orca Container Image Scan
+        id: vuln-scan
+        uses: orcasecurity/shiftleft-container-image-action@v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: weaviate:${{ github.sha }}
+          console_output: "table"
+          format: "sarif"
+          output: "results/"
+
+      - name: Upload SARIF file
+        if: always() && steps.vuln-scan.outputs.exit_code != 1
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/image.sarif
+
+      - name: Run Orca SAST Scan
+        id: sast-scan
+        uses: orcasecurity/shiftleft-sast-action@v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          fetch-depth: 0
+          path: "."
+
+      - name: Check security scan results
+        run: |
+          if [[ "${{ steps.vuln-scan.outcome }}" == "failure" ]]; then
+            echo "::error::Vulnerability scan failed"
+            exit 1
+          fi
+          if [[ "${{ steps.sast-scan.outcome }}" == "failure" ]]; then
+            echo "::error::SAST scan failed"
+            exit 1
+          fi
+          echo "All security scans passed"
+
   Generate-Docker-Report:
     name: docker report
     runs-on: ubuntu-latest
