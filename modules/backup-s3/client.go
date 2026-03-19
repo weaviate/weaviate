@@ -146,13 +146,18 @@ func (s *s3Client) AllBackups(ctx context.Context,
 	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
 		obj, err := s.client.GetObject(ctx, s.config.Bucket, key, minio.GetObjectOptions{})
 		if err != nil {
-			return nil, fmt.Errorf("get object %q: %w", key, err)
+			return nil, fmt.Errorf("get object: %w", err)
 		}
 		defer obj.Close()
 
 		var buf bytes.Buffer
 		if _, err = io.Copy(&buf, obj); err != nil {
-			return nil, fmt.Errorf("read object %q: %w", key, err)
+			wrapped := fmt.Errorf("read object: %w", err)
+			var s3Err minio.ErrorResponse
+			if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
+				return nil, backup.NewErrNotFound(wrapped)
+			}
+			return nil, wrapped
 		}
 		return buf.Bytes(), nil
 	})

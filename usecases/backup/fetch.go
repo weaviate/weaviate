@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -52,6 +53,10 @@ func FetchBackupDescriptors(
 		eg.Go(func() error {
 			contents, err := fetch(ctx, key)
 			if err != nil {
+				var notFoundErr backup.ErrNotFound
+				if errors.As(err, &notFoundErr) {
+					return nil // skip not found errors, treat as if no descriptor exists
+				}
 				return fmt.Errorf("fetch descriptor %q: %w", key, err)
 			}
 			var desc backup.DistributedBackupDescriptor
@@ -66,6 +71,9 @@ func FetchBackupDescriptors(
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
+	}
+	if len(meta) == 0 {
+		return nil, nil
 	}
 	return meta, nil
 }

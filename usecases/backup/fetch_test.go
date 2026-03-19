@@ -73,6 +73,26 @@ func TestFetchBackupDescriptors(t *testing.T) {
 			wantIDs: nil,
 		},
 		{
+			name: "not found errors are skipped; partial",
+			keys: []string{key("missing"), key("found")},
+			fetch: func(_ context.Context, k string) ([]byte, error) {
+				if k == key("missing") {
+					return nil, backup.NewErrNotFound(errors.New("not found"))
+				}
+				id := k[:len(k)-len("/"+GlobalBackupFile)]
+				return makeJSON(id), nil
+			},
+			wantIDs: []string{"found"},
+		},
+		{
+			name: "not found errors are skipped; all",
+			keys: []string{key("missing")},
+			fetch: func(_ context.Context, k string) ([]byte, error) {
+				return nil, backup.NewErrNotFound(errors.New("not found"))
+			},
+			wantIDs: nil,
+		},
+		{
 			name: "fetch error propagates",
 			keys: []string{key("bad")},
 			fetch: func(_ context.Context, _ string) ([]byte, error) {
