@@ -192,8 +192,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			"no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, filterable.rebuild, rangeable.enabled"))
 	}
 
-	// Build unit maps from shard placement.
-	shardOwnership, err := h.appState.DB.ShardOwnership(params.HTTPRequest.Context(), collection)
+	// Build unit maps from shard placement. Use ShardReplicaOwnership (not
+	// ShardOwnership) to create one unit per shard per replica node. Each
+	// replica has its own local copy of the data that must be reindexed.
+	shardOwnership, err := h.appState.DB.ShardReplicaOwnership(params.HTTPRequest.Context(), collection)
 	if err != nil {
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 			errorResponse(fmt.Sprintf("getting shard ownership: %v", err)))

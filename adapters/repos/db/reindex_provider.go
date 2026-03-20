@@ -15,15 +15,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // ReindexProvider implements distributedtask.UnitAwareProvider for reindex tasks.
@@ -53,6 +57,14 @@ type ReindexProvider struct {
 	// payloads caches deserialized task payloads for use in OnGroupCompleted,
 	// which receives the raw *Task but needs the typed payload.
 	payloads map[distributedtask.TaskDescriptor]*ReindexTaskPayload
+
+	// reindexTasks caches the ShardReindexTaskGeneric instances created during
+	// processOneUnit, keyed by task descriptor and unit ID. For semantic
+	// migrations, OnGroupCompleted must call RunSwapOnShard on the SAME task
+	// instances that ran RunReindexOnlyOnShard, because those instances have
+	// the double-write callbacks registered via OnAfterLsmInit. Creating new
+	// task instances in OnGroupCompleted would lose those callbacks.
+	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
 }
 
 // NewReindexProvider creates a new ReindexProvider.
@@ -69,6 +81,7 @@ func NewReindexProvider(
 		localNode:      localNode,
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 	}
 }
 
@@ -219,6 +232,17 @@ func (p *ReindexProvider) processOneUnit(
 	// two-phase execution: reindex only, then swap after all units complete.
 	// For format-only migrations, run the full lifecycle per shard.
 	semantic := isSemanticMigration(payload.MigrationType)
+
+	// Cache task instances for semantic migrations so OnGroupCompleted can
+	// call RunSwapOnShard on the same instances (with callbacks registered).
+	if semantic {
+		p.mu.Lock()
+		if p.reindexTasks[task.TaskDescriptor] == nil {
+			p.reindexTasks[task.TaskDescriptor] = make(map[string][]*ShardReindexTaskGeneric)
+		}
+		p.reindexTasks[task.TaskDescriptor][unitID] = tasks
+		p.mu.Unlock()
+	}
 
 	for _, reindexTask := range tasks {
 		var runErr error
@@ -375,14 +399,29 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			continue
 		}
 
-		tasks, err := p.createReindexTasks(payload)
-		if err != nil {
-			logger.WithField("unit", unitID).WithError(err).
-				Error("reindex provider: OnGroupCompleted: creating reindex tasks")
-			continue
+		// Retrieve the cached task instances that ran RunReindexOnlyOnShard.
+		// These have the double-write callbacks registered; creating new
+		// instances would lose them.
+		p.mu.Lock()
+		unitTasks := p.reindexTasks[task.TaskDescriptor][unitID]
+		p.mu.Unlock()
+
+		if len(unitTasks) == 0 {
+			// Fallback: node was restarted after reindex but before swap.
+			// Create new tasks — callbacks won't be registered but the swap
+			// can still complete if the reindex data is on disk.
+			var err error
+			unitTasks, err = p.createReindexTasks(payload)
+			if err != nil {
+				logger.WithField("unit", unitID).WithError(err).
+					Error("reindex provider: OnGroupCompleted: creating reindex tasks")
+				continue
+			}
+			logger.WithField("unit", unitID).
+				Info("reindex provider: OnGroupCompleted: using freshly created tasks (node likely restarted)")
 		}
 
-		for _, reindexTask := range tasks {
+		for _, reindexTask := range unitTasks {
 			if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed")
@@ -398,6 +437,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	p.mu.Lock()
 	delete(p.payloads, task.TaskDescriptor)
+	delete(p.reindexTasks, task.TaskDescriptor)
 	p.mu.Unlock()
 
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
@@ -430,4 +470,39 @@ func (h *reindexTaskHandle) Terminate() {
 
 func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.doneCh
+}
+
+// ShardReplicaOwnership returns a map of node name to shard names, with one
+// entry per replica. Unlike ShardOwnership (which assigns each shard to one
+// node for export load balancing), this returns ALL replica nodes for each
+// shard. This is needed for reindex tasks where every replica must process
+// its own local copy of the data.
+func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error) {
+	result := make(map[string][]string)
+
+	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
+		}
+
+		for shardName, shard := range state.Physical {
+			for _, node := range shard.BelongsToNodes {
+				if node != "" {
+					result[node] = append(result[node], shardName)
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
+	}
+
+	// Sort shard names per node for determinism.
+	for _, shards := range result {
+		sort.Strings(shards)
+	}
+
+	return result, nil
 }

@@ -160,19 +160,18 @@ func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	// Wait then crash majority (nodes 2 and 3).
+	// Wait then crash majority (nodes 3 then 2).
 	time.Sleep(2 * time.Second)
 	stopTimeout := 1 * time.Second
-	t.Log("crashing node 2 and node 3 (majority lost)")
-	require.NoError(t, compose.StopAt(ctx, 1, &stopTimeout))
+	t.Log("crashing node 3")
 	require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
+	t.Log("crashing node 2 (majority lost)")
+	require.NoError(t, compose.StopAt(ctx, 1, &stopTimeout))
 
-	// Node 1 is alone — Raft has no quorum.
-	time.Sleep(5 * time.Second)
-
-	// Restore quorum.
+	// Restore quorum: restart node 2 first (gives 2/3 = majority with node 1).
 	t.Log("restarting node 2")
 	require.NoError(t, compose.StartAt(ctx, 1))
+	// Then restart node 3.
 	t.Log("restarting node 3")
 	require.NoError(t, compose.StartAt(ctx, 2))
 
@@ -206,7 +205,10 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, restURI, className)
+	defer func() {
+		// Re-fetch URI since port mapping changes after node restarts.
+		deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	}()
 
 	importObjects(t, restURI, className, testDocuments)
 
@@ -230,13 +232,23 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 		require.NoError(t, compose.StartAt(ctx, nodeIdx))
 
 		// After restart, verify queries on the restarted node.
+		// Re-fetch URI since port mapping may change after restart.
 		restartedURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 
-		// Wait for node to be ready.
+		// Wait for node to be ready (local queries).
 		require.Eventually(t, func() bool {
 			_, err := runBM25QueryOnNode(t, restartedURI, className, "alpha")
 			return err == nil
 		}, 30*time.Second, 1*time.Second, "node %d should be ready after restart", nodeIdx+1)
+
+		// Wait for Raft quorum to be restored before moving on. Object
+		// imports require Raft consensus, so a successful write proves the
+		// restarted node has fully rejoined the cluster.
+		// Use a node that was NOT just restarted as the write target.
+		writeURI := compose.GetWeaviateNode(((nodeIdx + 1) % 3) + 1).URI()
+		require.Eventually(t, func() bool {
+			return tryImportObject(writeURI, className, "raft-health-probe") == nil
+		}, 60*time.Second, 1*time.Second, "cluster should have Raft quorum after restarting node %d", nodeIdx+1)
 
 		for _, q := range testBM25Queries {
 			ids, err := runBM25QueryOnNode(t, restartedURI, className, q)

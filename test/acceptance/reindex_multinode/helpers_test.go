@@ -348,6 +348,69 @@ func getClassFromNode(t *testing.T, restURI, className string) *models.Class {
 	return &class
 }
 
+// tryImportObject attempts to import a single object and returns an error
+// instead of calling t.Fatal. Useful for polling Raft write-readiness.
+func tryImportObject(restURI, className, text string) error {
+	obj := map[string]interface{}{
+		"class": className,
+		"properties": map[string]interface{}{
+			"text": text,
+		},
+	}
+
+	body, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/v1/objects", restURI),
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("import request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("import failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// tryGetPropertyTokenization retrieves a property's tokenization from a node.
+// Returns "" if the request fails or the property is not found.
+func tryGetPropertyTokenization(restURI, className, propName string) string {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", restURI, className))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+
+	var class models.Class
+	if err := json.Unmarshal(body, &class); err != nil {
+		return ""
+	}
+
+	for _, prop := range class.Properties {
+		if prop.Name == propName {
+			return prop.Tokenization
+		}
+	}
+	return ""
+}
+
 // dumpContainerLogs prints container logs for all nodes on test failure.
 func dumpContainerLogs(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()

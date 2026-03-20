@@ -271,6 +271,13 @@ func TestMultiNode_ChangeTokenization(t *testing.T) {
 	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
+	// For semantic migrations (change-tokenization), the swap phase runs
+	// asynchronously via OnGroupCompleted on the next scheduler tick AFTER
+	// the task reaches FINISHED. Wait for the schema to reflect the update.
+	require.Eventually(t, func() bool {
+		return tryGetPropertyTokenization(restURI, className, "text") == "field"
+	}, 30*time.Second, 1*time.Second, "tokenization should change to field after swap phase")
+
 	// Verify schema on all nodes.
 	for i := 1; i <= 3; i++ {
 		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
@@ -283,10 +290,14 @@ func TestMultiNode_ChangeTokenization(t *testing.T) {
 	}
 
 	// With FIELD tokenization, "alpha" as a partial token should match no docs.
+	// The swap fires asynchronously on each node, so poll until all nodes reflect
+	// the new tokenization behavior.
 	for i := 1; i <= 3; i++ {
-		ids, err := runBM25QueryOnNode(t, compose.GetWeaviateNode(i).URI(), className, "alpha")
-		require.NoError(t, err)
-		assert.Empty(t, ids,
+		nodeURI := compose.GetWeaviateNode(i).URI()
+		require.Eventually(t, func() bool {
+			ids, err := runBM25QueryOnNode(t, nodeURI, className, "alpha")
+			return err == nil && len(ids) == 0
+		}, 30*time.Second, 1*time.Second,
 			"node %d: 'alpha' with FIELD should match no docs", i)
 	}
 
