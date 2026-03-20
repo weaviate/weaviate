@@ -9,6 +9,7 @@ function main() {
   run_acceptance_only_fast_group_2=false
   run_acceptance_only_fast_group_3=false
   run_acceptance_only_fast_group_4=false
+  run_acceptance_distributed_tasks=false
   run_acceptance_only_authz=false
   run_acceptance_only_python=false
   run_acceptance_go_client=false
@@ -55,6 +56,7 @@ function main() {
           --acceptance-only-fast-group-2|-aof-g2) run_all_tests=false; run_acceptance_only_fast_group_2=true;;
           --acceptance-only-fast-group-3|-aof-g3) run_all_tests=false; run_acceptance_only_fast_group_3=true;;
           --acceptance-only-fast-group-4|-aof-g4) run_all_tests=false; run_acceptance_only_fast_group_4=true;;
+          --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
           --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true; run_acceptance_go_client_only_fast_group_2=true;;
@@ -316,6 +318,10 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
+  if $run_acceptance_distributed_tasks || $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance distributed_tasks"
+    run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
+  fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance authz"
     run_acceptance_only_authz "$@"
@@ -379,6 +385,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/authz' \
     | grep -v 'test/acceptance/compaction' \
     | grep -v 'test/acceptance/recovery' \
+    | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 

@@ -964,11 +964,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		delete(settings, k)
 	}
 
-	raft_join := "node1,node2,node3"
+	raft_join := Weaviate0 + "," + Weaviate1 + "," + Weaviate2
 	if size == 1 {
-		raft_join = "node1"
+		raft_join = Weaviate0
 	} else if size == 2 {
-		raft_join = "node1,node2"
+		raft_join = Weaviate0 + "," + Weaviate1
 	}
 
 	cs := make([]*DockerContainer, size)
@@ -1049,14 +1049,14 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 
 	// first node
 	config1 := copySettings(settings)
-	config1["CLUSTER_HOSTNAME"] = "node1"
+	config1["CLUSTER_HOSTNAME"] = Weaviate0
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
 	// Cluster startup mimics k8s behavior: all pods start concurrently, become
 	// "live" quickly (process running, ports listening), then become "ready"
 	// only after Raft quorum is established. This is critical because Raft
 	// bootstrap requires all RAFT_BOOTSTRAP_EXPECT nodes to be running — if we
-	// waited for node 1 to be fully "ready" before starting nodes 2/3, we'd
+	// waited for weaviate-0 to be fully "ready" before starting weaviate-1/weaviate-2, we'd
 	// deadlock since readiness requires quorum which requires all nodes.
 	//
 	// Phase 1: Start all nodes concurrently with liveness-only wait (live endpoint).
@@ -1078,72 +1078,71 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	// fails because another node isn't listening yet), it retries instead of
 	// failing permanently.
 	const maxRetries = 3
+	const perAttemptTimeout = 90 * time.Second
+	const readinessTimeout = 120 * time.Second
+
 	startNodeWithRetry := func(cfg map[string]string, hostname string) (*DockerContainer, error) {
 		var lastErr error
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			if ctx.Err() != nil {
-				return nil, fmt.Errorf("parent context cancelled before attempt %d: %w", attempt+1, ctx.Err())
+				return nil, fmt.Errorf("startCluster[%s]: caller context expired before attempt %d (caller ctx: %w)",
+					hostname, attempt+1, ctx.Err())
 			}
-			// Each attempt gets a fresh context derived from Background, not the
-			// parent ctx. The parent ctx is often the test's overall timeout
-			// (e.g. 7 min) which is shared across all 3 nodes' retry loops —
-			// deriving from it means a cancelled parent immediately kills all
-			// retries. We check ctx.Err() above to respect cancellation between
-			// attempts without letting it kill in-flight retries.
-			attemptCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
 				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
 			cancel()
 			if err == nil {
 				if attempt > 0 {
-					fmt.Printf("startCluster: %s recovered on attempt %d/%d\n",
+					fmt.Printf("startCluster[%s]: recovered on attempt %d/%d\n",
 						hostname, attempt+1, maxRetries+1)
 				}
 				return c, nil
 			}
 			lastErr = err
 			if attempt < maxRetries {
-				fmt.Printf("startCluster: %s failed (attempt %d/%d): %v — retrying\n",
-					hostname, attempt+1, maxRetries+1, err)
+				fmt.Printf("startCluster[%s]: liveness failed (attempt %d/%d, timeout=%s): %v — retrying\n",
+					hostname, attempt+1, maxRetries+1, perAttemptTimeout, err)
 			}
 		}
-		return nil, errors.Wrapf(lastErr, "start %s (after %d attempts)", hostname, maxRetries+1)
+		return nil, fmt.Errorf("startCluster[%s]: all %d liveness attempts failed (timeout=%s each): %w",
+			hostname, maxRetries+1, perAttemptTimeout, lastErr)
 	}
 
 	// Phase 1: Start all nodes concurrently — each blocks until live.
 	eg := errgroup.Group{}
 
 	eg.Go(func() (err error) {
-		cs[0], err = startNodeWithRetry(config1, Weaviate1)
+		cs[0], err = startNodeWithRetry(config1, Weaviate0)
 		return err
 	})
 
 	if size > 1 {
 		config2 := copySettings(settings)
-		config2["CLUSTER_HOSTNAME"] = "node2"
+		config2["CLUSTER_HOSTNAME"] = Weaviate1
 		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
-		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
 		eg.Go(func() (err error) {
-			cs[1], err = startNodeWithRetry(config2, Weaviate2)
+			cs[1], err = startNodeWithRetry(config2, Weaviate1)
 			return err
 		})
 	}
 
 	if size > 2 {
 		config3 := copySettings(settings)
-		config3["CLUSTER_HOSTNAME"] = "node3"
+		config3["CLUSTER_HOSTNAME"] = Weaviate2
 		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
-		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
 		eg.Go(func() (err error) {
-			cs[2], err = startNodeWithRetry(config3, Weaviate3)
+			cs[2], err = startNodeWithRetry(config3, Weaviate2)
 			return err
 		})
 	}
 
 	if err := eg.Wait(); err != nil {
-		return cs, err
+		return cs, fmt.Errorf("startCluster phase 1 (liveness): %w", err)
 	}
 
 	// Phase 2: All nodes are live. Wait for each to become ready (Raft quorum
@@ -1155,18 +1154,26 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if c == nil {
 			continue
 		}
-		hostname := []string{"node1", "node2", "node3"}[i]
+		hostname := []string{Weaviate0, Weaviate1, Weaviate2}[i]
 		readyEg.Go(func() error {
-			readyCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			readyCtx, cancel := context.WithTimeout(context.Background(), readinessTimeout)
 			defer cancel()
 			endpoint := readinessEndpointFunc(hostname)
-			return wait.ForHTTP(endpoint).
+			if err := wait.ForHTTP(endpoint).
 				WithPort(nat.Port("8080/tcp")).
-				WaitUntilReady(readyCtx, c.container)
+				WaitUntilReady(readyCtx, c.container); err != nil {
+				return fmt.Errorf("startCluster[%s]: readiness check failed (endpoint=%s, timeout=%s): %w",
+					hostname, endpoint, readinessTimeout, err)
+			}
+			return nil
 		})
 	}
 
-	return cs, readyEg.Wait()
+	if err := readyEg.Wait(); err != nil {
+		return cs, fmt.Errorf("startCluster phase 2 (readiness): %w", err)
+	}
+
+	return cs, nil
 }
 
 func copySettings(s map[string]string) map[string]string {

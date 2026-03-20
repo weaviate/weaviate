@@ -27,10 +27,9 @@ import (
 )
 
 const (
-	Weaviate1      = "weaviate"
-	Weaviate2      = "weaviate2"
-	Weaviate3      = "weaviate3"
-	Weaviate       = "weaviate"
+	Weaviate0      = "weaviate-0"
+	Weaviate1      = "weaviate-1"
+	Weaviate2      = "weaviate-2"
 	SecondWeaviate = "second-weaviate"
 )
 
@@ -75,7 +74,7 @@ func startWeaviate(ctx context.Context,
 			KeepImage:     false,
 		}
 	}
-	containerName := Weaviate1
+	containerName := Weaviate0
 	if hostname != "" {
 		containerName = hostname
 	}
@@ -159,7 +158,7 @@ func startWeaviate(ctx context.Context,
 
 								return waitStrategy.WaitUntilReady(ctx, container)
 							}(); err != nil {
-								return err
+								return fmt.Errorf("startWeaviate(%s): PostStart wait failed: %w", containerName, err)
 							}
 						}
 						return nil
@@ -190,13 +189,13 @@ func startWeaviate(ctx context.Context,
 			}
 		}
 		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
-			return nil, fmt.Errorf("%w: failed to terminate: %w", err, terminateErr)
+			return nil, fmt.Errorf("startWeaviate(%s): container create/start failed: %w: failed to terminate: %w", containerName, err, terminateErr)
 		}
-		return nil, err
+		return nil, fmt.Errorf("startWeaviate(%s): container create/start failed: %w", containerName, err)
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("startWeaviate(%s): get HTTP endpoint: %w", containerName, err)
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{httpPort, httpUri}
@@ -205,21 +204,21 @@ func startWeaviate(ctx context.Context,
 	if hasClusterPort {
 		clusterURI, err := c.PortEndpoint(ctx, clusterPort, "")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("startWeaviate(%s): get cluster endpoint: %w", containerName, err)
 		}
 		endpoints[CLUSTER] = endpoint{clusterPort, clusterURI}
 	}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("startWeaviate(%s): get gRPC endpoint: %w", containerName, err)
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
 	}
 	if exposeDebugPort {
 		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("startWeaviate(%s): get debug endpoint: %w", containerName, err)
 		}
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
@@ -227,6 +226,6 @@ func startWeaviate(ctx context.Context,
 		name:        containerName,
 		endpoints:   endpoints,
 		container:   c,
-		envSettings: nil,
+		envSettings: env,
 	}, nil
 }

@@ -116,7 +116,8 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 		defer cancel()
 		for {
 			if pollCtx.Err() != nil {
-				return fmt.Errorf("timed out waiting for node %q to be detected as down", stoppedHostname)
+				return fmt.Errorf("StopAt[%s]: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %v)",
+					stoppedHostname, survivorURI, pollCtx.Err())
 			}
 			if !isNodeHealthy(survivorURI, stoppedHostname) {
 				break
@@ -182,7 +183,8 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 		}
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
-			return err
+			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed (caller ctx err: %v): %w",
+				c.name, ctx.Err(), err)
 		}
 	}
 	c.endpoints = endPoints
@@ -219,7 +221,7 @@ func (d *DockerCompose) GetAzurite() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
-	return d.getContainerByName(Weaviate1)
+	return d.getContainerByName(Weaviate0)
 }
 
 func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
@@ -227,18 +229,15 @@ func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
-	return d.getContainerByName(Weaviate2)
+	return d.getContainerByName(Weaviate1)
 }
 
 func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
-	return d.getContainerByName(Weaviate3)
+	return d.getContainerByName(Weaviate2)
 }
 
 func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
-	if n == 1 {
-		return d.GetWeaviate()
-	}
-	return d.getContainerByName(fmt.Sprintf("%s%d", Weaviate, n))
+	return d.getContainerByName(fmt.Sprintf("weaviate-%d", n-1))
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
