@@ -42,23 +42,27 @@ type NilProperty struct {
 	AddToPropertyLength bool
 }
 
-// NestedValue is a single analyzed value from a nested property, ready to
-// be written to the value bucket. The key in the bucket will be
-// hash8(Path) + Data; the bitmap values will be Positions with the real
-// docID ORed in.
+// NestedValue is a single analyzed value from a nested property.
+// The Has*Index flags indicate which buckets this value should be written to.
 type NestedValue struct {
-	Path      string   // dot-notation path, e.g. "addresses.city"
-	Data      []byte   // analyzed value bytes
-	Positions []uint64 // positions with docID=0
+	Path               string   // dot-notation path, e.g. "addresses.city"
+	Data               []byte   // analyzed value bytes
+	Positions          []uint64 // positions with docID=0
+	HasFilterableIndex bool
+	HasSearchableIndex bool
+	HasRangeableIndex  bool
 }
 
 // NestedProperty holds all analyzed values and metadata from position
 // assignment of a single nested property.
 type NestedProperty struct {
-	Name     string         // top-level property name (for bucket naming)
-	Values   []NestedValue  // analyzed values for the value bucket
-	Idx      []NestedMeta   // _idx metadata entries
-	Exists   []NestedMeta   // _exists metadata entries
+	Name               string         // top-level property name (for bucket naming)
+	Values             []NestedValue  // analyzed values for the value bucket
+	Idx                []NestedMeta   // _idx metadata entries
+	Exists             []NestedMeta   // _exists metadata entries
+	HasFilterableIndex bool           // any value needs the filterable bucket
+	HasSearchableIndex bool           // any value needs the searchable bucket
+	HasRangeableIndex  bool           // any value needs the rangeable bucket
 }
 
 // NestedMeta is an _idx or _exists metadata entry from position assignment.

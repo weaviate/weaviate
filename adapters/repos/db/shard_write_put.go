@@ -447,20 +447,22 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
-	props, nilprops, _, err := s.AnalyzeObject(object)
+	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
+	var prevNestedProps []inverted.NestedProperty
 
 	if prevObject != nil {
-		prevProps, prevNilprops, _, err = s.AnalyzeObject(prevObject)
+		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
 	}
+	_ = prevNestedProps // TODO(Step 8): delete previous nested props on update
 
 	// if object updated (with or without docID changed)
 	if status.docIDChanged || status.docIDPreserved {
@@ -524,6 +526,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	before := time.Now()
 	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
+	}
+	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
+		return fmt.Errorf("put nested inverted indices: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 

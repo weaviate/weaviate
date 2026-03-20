@@ -237,6 +237,14 @@ func (s *Shard) createNestedPropertyBuckets(ctx context.Context, prop *models.Pr
 		}
 	}
 
+	if inverted.HasNestedSearchableIndex(prop) {
+		// TODO: create nested searchable bucket (Phase 2)
+	}
+
+	if inverted.HasNestedRangeableIndex(prop) {
+		// TODO: create nested rangeable bucket (Phase 3)
+	}
+
 	if inverted.HasAnyNestedInvertedIndex(prop) {
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketNestedMetaFromPropNameLSM(prop.Name),
