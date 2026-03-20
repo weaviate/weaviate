@@ -7,7 +7,7 @@ help:
 
 .DEFAULT_GOAL := weaviate
 
-GO_VERSION         := 1.25.0
+GO_VERSION         := $(shell go version | cut -d' ' -f3 | sed 's/^go//')
 
 # Git tags
 GIT_REVISION       := $(shell git rev-parse --short HEAD)
