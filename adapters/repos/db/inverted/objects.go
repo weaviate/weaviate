@@ -218,7 +218,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, err
 		}
 		items = a.TextArray(prop.Tokenization, in)
-		rawValues = in
+		if a.captureRawValues {
+			rawValues = in
+		}
 	case schema.DataTypeIntArray:
 		in := make([]int64, len(values))
 		for i, value := range values {
@@ -364,7 +366,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		}
 		items = a.Text(prop.Tokenization, asString)
 		propertyLength = utf8.RuneCountInString(asString)
-		rawValues = []string{asString}
+		if a.captureRawValues {
+			rawValues = []string{asString}
+		}
 	case schema.DataTypeInt:
 		if asFloat, ok := value.(float64); ok {
 			// unmarshaling from json into a dynamic schema will assume every number

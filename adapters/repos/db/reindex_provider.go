@@ -183,6 +183,10 @@ func (p *ReindexProvider) processUnits(
 	wg.Wait()
 }
 
+// processOneUnit executes reindex on a single unit (shard replica).
+// For semantic migrations (e.g. change-tokenization), the task is cached so that
+// OnGroupCompleted can reuse the same instance to run the swap phase — this
+// preserves double-write callbacks registered during reindex.
 func (p *ReindexProvider) processOneUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -333,10 +337,18 @@ func (p *ReindexProvider) failUnit(
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
-// For semantic migrations (change-tokenization, enable-rangeable), this is
-// the barrier: all shards have finished reindexing, so we now run the swap
-// phase on each local shard. For format-only migrations, this is a no-op
-// because RunOnShard already completed the full lifecycle.
+// For semantic migrations (change-tokenization), this is the barrier: all
+// shards have finished reindexing, so we now run the swap phase on each local
+// shard. For format-only migrations, this is a no-op because RunOnShard
+// already completed the full lifecycle.
+//
+// localGroupUnitIDs contains ONLY units assigned to THIS node, not all units
+// in the group. If a node has no units in the group, this callback does not
+// fire on that node.
+//
+// The swap phase attempts to reuse cached task instances from processOneUnit
+// (which preserve double-write callbacks). If the cache is empty (e.g. after
+// node restart), a fresh task is created as fallback.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) {
 	p.mu.Lock()
 	payload := p.payloads[task.TaskDescriptor]
@@ -477,6 +489,9 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 // node for export load balancing), this returns ALL replica nodes for each
 // shard. This is needed for reindex tasks where every replica must process
 // its own local copy of the data.
+//
+// WARNING: Do NOT use ShardOwnership for reindex — it only returns one node per
+// shard and would leave replicas on other nodes un-reindexed.
 func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error) {
 	result := make(map[string][]string)
 

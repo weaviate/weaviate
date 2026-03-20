@@ -970,6 +970,108 @@ func TestIndexInverted(t *testing.T) {
 	})
 }
 
+func TestAnalyzer_RawValues(t *testing.T) {
+	textProp := &models.Property{
+		Name:     "content",
+		DataType: schema.DataTypeText.PropString(),
+	}
+	textArrayProp := &models.Property{
+		Name:     "tags",
+		DataType: schema.DataTypeTextArray.PropString(),
+	}
+	intProp := &models.Property{
+		Name:     "count",
+		DataType: schema.DataTypeInt.PropString(),
+	}
+
+	uid := strfmt.UUID("2609f1bc-7693-48f3-b531-6ddc52cd2501")
+
+	t.Run("NewAnalyzer does not capture RawValues for text", func(t *testing.T) {
+		a := NewAnalyzer(nil, "TestClass")
+		props, err := a.Object(
+			map[string]interface{}{"content": "hello world"},
+			[]*models.Property{textProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "content" {
+				assert.Nil(t, p.RawValues, "RawValues should be nil for normal analyzer")
+				return
+			}
+		}
+		t.Fatal("content property not found")
+	})
+
+	t.Run("NewAnalyzer does not capture RawValues for text array", func(t *testing.T) {
+		a := NewAnalyzer(nil, "TestClass")
+		props, err := a.Object(
+			map[string]interface{}{"tags": []string{"foo", "bar"}},
+			[]*models.Property{textArrayProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "tags" {
+				assert.Nil(t, p.RawValues, "RawValues should be nil for normal analyzer")
+				return
+			}
+		}
+		t.Fatal("tags property not found")
+	})
+
+	t.Run("NewAnalyzerWithRawValues captures RawValues for text", func(t *testing.T) {
+		a := NewAnalyzerWithRawValues(nil, "TestClass")
+		props, err := a.Object(
+			map[string]interface{}{"content": "hello world"},
+			[]*models.Property{textProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "content" {
+				assert.Equal(t, []string{"hello world"}, p.RawValues)
+				return
+			}
+		}
+		t.Fatal("content property not found")
+	})
+
+	t.Run("NewAnalyzerWithRawValues captures RawValues for text array", func(t *testing.T) {
+		a := NewAnalyzerWithRawValues(nil, "TestClass")
+		props, err := a.Object(
+			map[string]interface{}{"tags": []string{"foo", "bar"}},
+			[]*models.Property{textArrayProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "tags" {
+				assert.Equal(t, []string{"foo", "bar"}, p.RawValues)
+				return
+			}
+		}
+		t.Fatal("tags property not found")
+	})
+
+	t.Run("non-text types never have RawValues regardless of analyzer", func(t *testing.T) {
+		a := NewAnalyzerWithRawValues(nil, "TestClass")
+		props, err := a.Object(
+			map[string]interface{}{"count": int64(42)},
+			[]*models.Property{intProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "count" {
+				assert.Nil(t, p.RawValues)
+				return
+			}
+		}
+		t.Fatal("count property not found")
+	})
+}
+
 func mustGetByteIntNumber(in int) []byte {
 	out, err := ent.LexicographicallySortableInt64(int64(in))
 	if err != nil {

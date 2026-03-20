@@ -78,6 +78,10 @@ type Provider interface {
 //  2. OnTaskCompleted — fires once on every node after ALL units terminal
 type UnitAwareProvider interface {
 	Provider
+	// OnGroupCompleted fires when all units in a group reach terminal state.
+	// localGroupUnitIDs contains ONLY units assigned to THIS node, not all units
+	// in the group. If a node has no units in the group, this callback does not
+	// fire on that node.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string)
 	OnTaskCompleted(task *Task)
 }

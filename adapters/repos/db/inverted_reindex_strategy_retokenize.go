@@ -93,6 +93,10 @@ func (s *SearchableRetokenizeStrategy) ShouldProcessProperty(property *inverted.
 	return property.HasSearchableIndex && property.Name == s.propName
 }
 
+// MakeAddCallback returns a callback for adding documents to the searchable index.
+// forTargetStrategy controls which tokenization is used: true uses the new target
+// tokenization (for the reindex bucket), false uses the existing tokenization
+// (for the ingest/double-write bucket that must match the currently live index).
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
@@ -133,6 +137,8 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	}
 }
 
+// MakeDeleteCallback returns a callback for removing documents from the searchable index.
+// forTargetStrategy has the same semantics as in MakeAddCallback.
 func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {

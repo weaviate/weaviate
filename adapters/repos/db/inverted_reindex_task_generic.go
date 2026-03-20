@@ -125,6 +125,10 @@ func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLik
 //
 // This is used for barrier semantics: all shards must finish reindexing
 // before any shard swaps. Call RunSwapOnShard after all shards are done.
+//
+// The task instance registers double-write callbacks that MUST remain active
+// until RunSwapOnShard completes — callers must use the same task instance for
+// both calls.
 func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, shard ShardLike) error {
 	t.skipSwapOnFinish = true
 	defer func() { t.skipSwapOnFinish = false }()
@@ -150,7 +154,12 @@ func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, sha
 }
 
 // RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
-// Precondition: RunReindexOnlyOnShard completed (IsReindexed() == true).
+//
+// Preconditions:
+//   - MUST have completed RunReindexOnlyOnShard (IsReindexed() == true).
+//   - MUST use the same task instance that ran RunReindexOnlyOnShard
+//     (preserves double-write callbacks registered during reindex).
+//   - MUST NOT call on an already-swapped shard.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -1532,7 +1541,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			}
 
 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				props, _, err := shard.AnalyzeObject(obj)
+				props, _, err := shard.AnalyzeObjectForMigration(obj)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break

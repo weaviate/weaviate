@@ -411,6 +411,95 @@ func tryGetPropertyTokenization(restURI, className, propName string) string {
 	return ""
 }
 
+// runRangeQueryOnNode executes a range filter query (e.g. score > 10) against a specific node
+// and returns matching object IDs.
+func runRangeQueryOnNode(t *testing.T, restURI, className, propName, operator string, value int) ([]string, error) {
+	t.Helper()
+
+	gqlQuery := fmt.Sprintf(`{
+		Get {
+			%s(where: {path: [%q], operator: %s, valueInt: %d}) {
+				_additional { id }
+			}
+		}
+	}`, className, propName, operator, value)
+
+	reqBody := map[string]interface{}{
+		"query": gqlQuery,
+	}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/v1/graphql", restURI),
+		"application/json",
+		bytes.NewReader(jsonBody),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("graphql request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	var gqlResp struct {
+		Data struct {
+			Get map[string][]map[string]interface{} `json:"Get"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &gqlResp); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+	if len(gqlResp.Errors) > 0 {
+		return nil, fmt.Errorf("graphql errors: %v", gqlResp.Errors[0].Message)
+	}
+
+	items := gqlResp.Data.Get[className]
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		additional := item["_additional"].(map[string]interface{})
+		ids = append(ids, additional["id"].(string))
+	}
+	return ids, nil
+}
+
+// queryAllNodesRange runs a range query on all 3 nodes and returns results per node.
+func queryAllNodesRange(t *testing.T, compose *docker.DockerCompose, className, propName, operator string, value int) [][]string {
+	t.Helper()
+
+	results := make([][]string, 3)
+	for i := 0; i < 3; i++ {
+		uri := compose.GetWeaviateNode(i + 1).URI()
+		ids, err := runRangeQueryOnNode(t, uri, className, propName, operator, value)
+		require.NoError(t, err, "range query on node %d failed", i+1)
+		results[i] = ids
+	}
+	return results
+}
+
+// runBM25QueryOnNodeWithRetry executes a BM25 query with one retry on transient
+// errors (connection refused, timeouts). This is useful in background query loops
+// where a single transient failure during node swap should not count as a test failure.
+func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string) ([]string, error) {
+	t.Helper()
+
+	ids, err := runBM25QueryOnNode(t, restURI, className, query)
+	if err != nil {
+		// Retry once after a short delay for transient errors.
+		time.Sleep(200 * time.Millisecond)
+		ids, err = runBM25QueryOnNode(t, restURI, className, query)
+	}
+	return ids, err
+}
+
 // dumpContainerLogs prints container logs for all nodes on test failure.
 func dumpContainerLogs(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()

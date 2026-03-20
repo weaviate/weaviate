@@ -108,7 +108,7 @@ func TestMultiNode_MapToBlockmax(t *testing.T) {
 				default:
 				}
 				for _, q := range testBM25Queries {
-					ids, err := runBM25QueryOnNode(t, uri, className, q)
+					ids, err := runBM25QueryOnNodeWithRetry(t, uri, className, q)
 					queryRuns.Add(1)
 					if err != nil {
 						queryFailures.Add(1)
@@ -188,6 +188,22 @@ func TestMultiNode_RoaringSetRefresh(t *testing.T) {
 	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
+	// Verify filterable index is healthy on all nodes via /indexes endpoint.
+	for i := 1; i <= 3; i++ {
+		nodeURI := compose.GetWeaviateNode(i).URI()
+		indexes := getIndexes(t, nodeURI, className)
+		for _, prop := range indexes.Properties {
+			if prop.Name == "text" {
+				for _, idx := range prop.Indexes {
+					if idx.Type == "filterable" {
+						assert.Equal(t, "ready", idx.Status,
+							"node %d: filterable index should be ready", i)
+					}
+				}
+			}
+		}
+	}
+
 	// Verify queries still correct on all nodes.
 	for _, q := range testBM25Queries {
 		results := queryAllNodes(t, compose, className, q)
@@ -212,7 +228,7 @@ func TestMultiNode_EnableRangeable(t *testing.T) {
 	})
 	defer deleteCollection(t, restURI, className)
 
-	// Import objects with score values.
+	// Import objects with score values (1..25).
 	for i, text := range testDocuments {
 		importObjectWithScore(t, restURI, className, text, i+1)
 	}
@@ -237,6 +253,19 @@ func TestMultiNode_EnableRangeable(t *testing.T) {
 			}
 		}
 	}
+
+	// After reindex: verify range queries work on all nodes.
+	// score > 10 should return docs with scores 11..25 (15 docs).
+	gtResults := queryAllNodesRange(t, compose, className, "score", "GreaterThan", 10)
+	assertQueryConsistency(t, gtResults)
+	assert.Len(t, gtResults[0], 15,
+		"score > 10 should match 15 documents (scores 11-25)")
+
+	// score < 5 should return docs with scores 1..4 (4 docs).
+	ltResults := queryAllNodesRange(t, compose, className, "score", "LessThan", 5)
+	assertQueryConsistency(t, ltResults)
+	assert.Len(t, ltResults[0], 4,
+		"score < 5 should match 4 documents (scores 1-4)")
 }
 
 func TestMultiNode_ChangeTokenization(t *testing.T) {

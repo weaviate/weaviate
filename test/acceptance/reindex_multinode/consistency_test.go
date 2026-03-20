@@ -66,7 +66,7 @@ func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
 				default:
 				}
 				for _, q := range testBM25Queries {
-					ids, err := runBM25QueryOnNode(t, uri, className, q)
+					ids, err := runBM25QueryOnNodeWithRetry(t, uri, className, q)
 					queryRuns.Add(1)
 					if err != nil {
 						queryFailures.Add(1)
@@ -88,8 +88,35 @@ func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
 
 	awaitReindexFinished(t, restURI, taskID)
 
-	// Continue queries for 5s after completion to catch post-swap transients.
-	time.Sleep(5 * time.Second)
+	// Continue queries for several consecutive successful rounds after
+	// completion to catch post-swap transients. We require 10 consecutive
+	// successful rounds (each cycling all queries on all nodes) before stopping.
+	const requiredConsecutiveSuccesses = 10
+	consecutiveSuccesses := 0
+	require.Eventually(t, func() bool {
+		allOK := true
+		for _, q := range testBM25Queries {
+			for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
+				nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
+				ids, err := runBM25QueryOnNode(t, nodeURI, className, q)
+				if err != nil || !idsMatchUnordered(baselines[q][0], ids) {
+					allOK = false
+					break
+				}
+			}
+			if !allOK {
+				break
+			}
+		}
+		if allOK {
+			consecutiveSuccesses++
+		} else {
+			consecutiveSuccesses = 0
+		}
+		return consecutiveSuccesses >= requiredConsecutiveSuccesses
+	}, 30*time.Second, 200*time.Millisecond,
+		"expected %d consecutive successful query rounds after reindex completion",
+		requiredConsecutiveSuccesses)
 
 	// Stop background queries.
 	close(stopCh)
@@ -98,6 +125,13 @@ func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
 	t.Logf("background queries: %d runs, %d failures", queryRuns.Load(), queryFailures.Load())
 	assert.Zero(t, queryFailures.Load(),
 		"zero query failures expected across all goroutines and all nodes")
+
+	// Verify schema update on all nodes.
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"node %d: UsingBlockMaxWAND should be true", i)
+	}
 
 	// Final consistency check.
 	for _, q := range testBM25Queries {

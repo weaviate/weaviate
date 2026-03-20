@@ -708,6 +708,10 @@ jobs:
             test: "--acceptance-recovery"
           - name: "python"
             test: "--acceptance-only-python"
+          - name: "reindex-multinode"
+            test: "--acceptance-reindex-multinode"
+          - name: "reindex-singlenode"
+            test: "--acceptance-reindex-singlenode"
     steps:
       - uses: actions/checkout@v6
       - name: Set up Go

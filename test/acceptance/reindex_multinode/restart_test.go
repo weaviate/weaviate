@@ -258,6 +258,13 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 		}
 	}
 
+	// Verify UsingBlockMaxWAND persists after rolling restart on all nodes.
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"node %d: UsingBlockMaxWAND should persist after rolling restart", i)
+	}
+
 	// Final consistency check across all nodes.
 	for _, q := range testBM25Queries {
 		results := queryAllNodes(t, compose, className, q)

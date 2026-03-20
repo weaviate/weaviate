@@ -29,7 +29,11 @@ import (
 //   - Detect the migration type from the dir name to determine bucket suffixes
 //   - Rename ingest dirs to canonical names, remove backup dirs
 //
-// This runs at shard startup BEFORE bucket loading, so renames are safe.
+// CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live buckets.
+// Renaming directories while buckets are open would corrupt the store.
+// The deferred finalization design ensures that runtime swap (via DTM) completes
+// the in-memory swap and marks tidied, but directory renames are deferred to the
+// next startup when no buckets are loaded.
 func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)

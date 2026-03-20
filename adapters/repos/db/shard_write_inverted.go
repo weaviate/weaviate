@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -29,12 +30,7 @@ func isPropertyForLength(dt schema.DataType) bool {
 	}
 }
 
-func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
-	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
-	if c == nil {
-		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
-	}
-
+func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (map[string]interface{}, []inverted.NilProperty, error) {
 	var schemaMap map[string]interface{}
 
 	if object.Properties() == nil {
@@ -79,6 +75,38 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
+	return schemaMap, nilProps, nil
+}
+
+func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
+	if c == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
+	}
+
+	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
+	return props, nilProps, err
+}
+
+// AnalyzeObjectForMigration is like AnalyzeObject but captures raw (pre-tokenization)
+// text values in Property.RawValues. Use this only during migration reads where
+// retokenize strategies need the original text.
+func (s *Shard) AnalyzeObjectForMigration(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
+	if c == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
+	}
+
+	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	props, err := inverted.NewAnalyzerWithRawValues(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, err
 }

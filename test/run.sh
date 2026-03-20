@@ -42,6 +42,8 @@ function main() {
   run_acceptance_compaction_recovery=false
   run_acceptance_compaction=false
   run_acceptance_recovery=false
+  run_acceptance_reindex_multinode=false
+  run_acceptance_reindex_singlenode=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -82,6 +84,8 @@ function main() {
           --acceptance-compaction-recovery|-acr) run_all_tests=false; run_acceptance_compaction_recovery=true;;
           --acceptance-compaction|-ac) run_all_tests=false; run_acceptance_compaction=true;;
           --acceptance-recovery|-ar) run_all_tests=false; run_acceptance_recovery=true;;
+          --acceptance-reindex-multinode|-arm) run_all_tests=false; run_acceptance_reindex_multinode=true;;
+          --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -113,6 +117,8 @@ function main() {
               "--acceptance-compaction-recovery | -acr"\
               "--acceptance-compaction | -ac"\
               "--acceptance-recovery | -ar"\
+              "--acceptance-reindex-multinode | -arm"\
+              "--acceptance-reindex-singlenode | -ars"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -231,6 +237,16 @@ function main() {
   if $run_acceptance_compaction_recovery || $run_acceptance_recovery || $run_acceptance_tests || $run_all_tests; then
     echo "running recovery acceptance tests"
     run_acceptance_recovery
+  fi
+
+  if $run_acceptance_reindex_multinode; then
+    echo "running reindex multinode acceptance tests"
+    run_acceptance_reindex_multinode
+  fi
+
+  if $run_acceptance_reindex_singlenode; then
+    echo "running reindex singlenode acceptance tests"
+    run_acceptance_reindex_singlenode
   fi
   echo "Done!"
 }
@@ -385,6 +401,11 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/authz' \
     | grep -v 'test/acceptance/compaction' \
     | grep -v 'test/acceptance/recovery' \
+    | grep -v 'test/acceptance/reindex_multinode' \
+    | grep -v 'test/acceptance/reindex_to_blockmax' \
+    | grep -v 'test/acceptance/reindex_change_tokenization' \
+    | grep -v 'test/acceptance/reindex_enable_rangeable' \
+    | grep -v 'test/acceptance/reindex_roaring_set' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
@@ -538,6 +559,21 @@ function run_acceptance_compaction() {
 function run_acceptance_recovery() {
   build_weaviate_test_image
   run_aof_group "recovery" test/acceptance/recovery
+}
+
+function run_acceptance_reindex_multinode() {
+  echo_green "acceptance — reindex-multinode"
+  run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_singlenode() {
+  echo_green "acceptance — reindex-singlenode"
+  run_aof_group "reindex-singlenode" \
+    test/acceptance/reindex_to_blockmax \
+    test/acceptance/reindex_change_tokenization \
+    test/acceptance/reindex_enable_rangeable \
+    test/acceptance/reindex_roaring_set \
+    test/acceptance/distributed_tasks
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
