@@ -39,7 +39,12 @@ func start3NodeReindexCluster(ctx context.Context, t *testing.T) (*docker.Docker
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
 		Start(ctx)
-	require.NoError(t, err)
+	if err != nil {
+		if compose != nil {
+			dumpStartupLogs(ctx, t, compose)
+		}
+		require.NoError(t, err)
+	}
 
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
@@ -508,8 +513,22 @@ func dumpContainerLogs(ctx context.Context, t *testing.T, compose *docker.Docker
 		return
 	}
 
+	dumpStartupLogs(ctx, t, compose)
+}
+
+// dumpStartupLogs unconditionally prints container logs for all available nodes.
+// Use this when you need logs before the test has been marked as failed (e.g. on
+// startup errors).
+func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
 	for i := 1; i <= 3; i++ {
-		reader, err := compose.GetWeaviateNode(i).Container().Logs(ctx)
+		node := compose.GetWeaviateNode(i)
+		if node == nil {
+			t.Logf("=== Node %d: container not available ===", i)
+			continue
+		}
+		reader, err := node.Container().Logs(ctx)
 		if err != nil {
 			t.Logf("failed to get logs for node %d: %v", i, err)
 			continue

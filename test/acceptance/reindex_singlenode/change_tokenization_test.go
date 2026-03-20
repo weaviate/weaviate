@@ -44,8 +44,10 @@ type retokenizeBaseline struct {
 	ids  []string
 }
 
-var retokenizeBaselines []retokenizeBaseline
-var filterEqualDescBaseline []string
+var (
+	retokenizeBaselines     []retokenizeBaseline
+	filterEqualDescBaseline []string
+)
 
 func testChangeTokenization(t *testing.T, restURI string) {
 	class := &models.Class{
