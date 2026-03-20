@@ -135,43 +135,15 @@ jobs:
         include:
           - arch: "amd64"
             runner: ubuntu-latest
-            platforms: "linux/amd64"
             push-args: "--amd64-only"
           - arch: "arm64"
             runner: ubuntu-24.04-arm
-            platforms: "linux/arm64"
             push-args: "--arm64-only"
     steps:
       - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build and cache Docker image
-        id: build
-        uses: docker/build-push-action@v6
-        env:
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: .
-          push: false
-          tags: weaviate:${{ github.sha }}
-          platforms: ${{ matrix.platforms }}
-          # Load the result into the local Docker engine only for amd64. Avoids slow emulation on arm64.
-          load: ${{ matrix.arch == 'amd64' }}
-          # Use both arch caches as "read" sources, so BuildKit can reuse whatever matches.
-          cache-from: |
-            type=gha,scope=weaviate-multi
-            type=gha,scope=weaviate-${{ matrix.arch }}
-          # Write back only to this job's cache scope to keep per-arch caches clean.
-          # ignore-error=true prevents the build from failing if the cache export flakes.
-          cache-to: |
-            type=gha,scope=weaviate-${{ matrix.arch }},mode=max,ignore-error=true
-          # CGO disabled for faster cross-compilation and better cache consistency.
-          # No build metadata for PR builds to maximize cache reuse across PRs.
-          build-args: |
-            CGO_ENABLED=0
-            TARGETARCH=${{ matrix.arch }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
