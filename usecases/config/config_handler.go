@@ -159,8 +159,6 @@ type Config struct {
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig     `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
@@ -267,19 +265,6 @@ type Config struct {
 
 	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
-}
-
-type MapToBlockamaxConfig struct {
-	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
-	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {
@@ -489,10 +474,6 @@ const (
 
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
-
-	DefaultMapToBlockmaxProcessingDurationSeconds  = 3 * 60
-	DefaultMapToBlockmaxPauseDurationSeconds       = 60
-	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
 // MetadataServer is experimental.

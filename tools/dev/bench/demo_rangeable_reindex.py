@@ -4,7 +4,9 @@ Runtime Rangeable Reindex Benchmark
 
 Demonstrates the performance benefit of enabling indexRangeFilters at runtime.
 Range queries (>, <, >=, <=) on numeric properties become dramatically faster
-after the filterable→rangeable migration, while exact-match queries stay the same.
+after the filterable->rangeable migration, while exact-match queries stay the same.
+
+Uses the PUT /v1/schema/{collection}/indexes/{property} API with progress tracking.
 
 Usage:
     .venv/bin/python tools/dev/bench/demo_rangeable_reindex.py
@@ -30,7 +32,7 @@ BATCH_SIZE = 10_000
 QUERY_REPEATS = 3
 QUERY_LIMIT = 10_000
 
-# ── Weaviate process management ────────────────────────────────────────────
+# -- Weaviate process management ------------------------------------------------
 
 _weaviate_proc = None
 _tmpdir = None
@@ -39,7 +41,7 @@ _tmpdir = None
 def _cleanup():
     global _weaviate_proc, _tmpdir
     if _weaviate_proc is not None:
-        print("\nShutting down Weaviate…")
+        print("\nShutting down Weaviate...")
         _weaviate_proc.terminate()
         try:
             _weaviate_proc.wait(timeout=10)
@@ -64,7 +66,7 @@ signal.signal(signal.SIGTERM, _signal_handler)
 
 
 def build_weaviate(binary_path: str):
-    print("Building Weaviate binary…")
+    print("Building Weaviate binary...")
     t0 = time.monotonic()
     subprocess.check_call(
         ["go", "build", "-o", binary_path, "./cmd/weaviate-server"],
@@ -84,8 +86,9 @@ def start_weaviate(binary_path: str, data_dir: str) -> subprocess.Popen:
         "DISABLE_TELEMETRY": "true",
         "LOG_LEVEL": "error",
         "PERSISTENCE_DATA_PATH": data_dir,
+        "DISTRIBUTED_TASKS_ENABLED": "true",
     }
-    print("Starting Weaviate…")
+    print("Starting Weaviate...")
     proc = subprocess.Popen(
         [binary_path, "--scheme=http", "--host=0.0.0.0", "--port=8080"],
         env=env,
@@ -106,11 +109,11 @@ def start_weaviate(binary_path: str, data_dir: str) -> subprocess.Popen:
     raise RuntimeError("Weaviate failed to start within 120s")
 
 
-# ── Collection setup ───────────────────────────────────────────────────────
+# -- Collection setup -----------------------------------------------------------
 
 
 def create_collection(client: weaviate.WeaviateClient):
-    print("Creating collection RangeableBench…")
+    print("Creating collection RangeableBench...")
     client.collections.create(
         name="RangeableBench",
         vectorizer_config=Configure.Vectorizer.none(),
@@ -120,12 +123,12 @@ def create_collection(client: weaviate.WeaviateClient):
     )
 
 
-# ── Data import ────────────────────────────────────────────────────────────
+# -- Data import ----------------------------------------------------------------
 
 
 def import_data(client: weaviate.WeaviateClient):
     collection = client.collections.get("RangeableBench")
-    print(f"Importing {NUM_OBJECTS:,} objects…")
+    print(f"Importing {NUM_OBJECTS:,} objects...")
     t0 = time.monotonic()
 
     for start in range(0, NUM_OBJECTS, BATCH_SIZE):
@@ -142,7 +145,7 @@ def import_data(client: weaviate.WeaviateClient):
     print(f"  Import complete in {elapsed:.1f}s ({NUM_OBJECTS / elapsed:,.0f} obj/s)")
 
 
-# ── Benchmark ──────────────────────────────────────────────────────────────
+# -- Benchmark ------------------------------------------------------------------
 
 RANGE_QUERIES = [
     ("value > 9999000", Filter.by_property("value").greater_than(9_999_000)),
@@ -196,7 +199,7 @@ def run_query(collection, filt):
 def benchmark(client: weaviate.WeaviateClient, queries, label: str):
     collection = client.collections.get("RangeableBench")
     results = {}
-    print(f"  Running {label}…")
+    print(f"  Running {label}...")
     for name, filt in queries:
         times = [run_query(collection, filt) for _ in range(QUERY_REPEATS)]
         median = statistics.median(times)
@@ -204,30 +207,87 @@ def benchmark(client: weaviate.WeaviateClient, queries, label: str):
     return results
 
 
-# ── Reindex trigger ───────────────────────────────────────────────────────
+# -- Reindex trigger with progress tracking ------------------------------------
+
+
+def _progress_bar(progress: float, width: int = 40) -> str:
+    filled = int(width * progress)
+    bar = "#" * filled + "-" * (width - filled)
+    return f"[{bar}] {progress * 100:5.1f}%"
 
 
 def trigger_reindex():
-    print("\nTriggering filterable → rangeable reindex…")
+    print("\nTriggering filterable -> rangeable reindex via API...")
     t0 = time.monotonic()
-    r = requests.get(
-        "http://localhost:6060/debug/reindex/enable-rangeable",
-        params={"collection": "RangeableBench", "property": "value"},
-        timeout=600,
+
+    # Submit reindex request via the new API.
+    r = requests.put(
+        "http://localhost:8080/v1/schema/RangeableBench/indexes/value",
+        json={"rangeable": {"enabled": True}},
+        timeout=30,
     )
-    elapsed = time.monotonic() - t0
-    assert r.status_code == 200, f"Reindex failed: {r.status_code} {r.text}"
-    print(f"  Reindex complete in {elapsed:.1f}s")
-    print(f"  Response: {r.json()}")
+    assert r.status_code == 202, f"Reindex submit failed: {r.status_code} {r.text}"
+    resp = r.json()
+    task_id = resp.get("taskId", "")
+    print(f"  Submitted task: {task_id}")
+
+    # Poll progress via the indexes endpoint.
+    last_progress = -1.0
+    while True:
+        time.sleep(1)
+
+        # Check index status for progress.
+        idx_r = requests.get(
+            "http://localhost:8080/v1/schema/RangeableBench/indexes",
+            timeout=10,
+        )
+        if idx_r.status_code == 200:
+            idx_data = idx_r.json()
+            for prop in idx_data.get("properties", []):
+                if prop.get("name") != "value":
+                    continue
+                for idx in prop.get("indexes", []):
+                    if idx.get("type") != "rangeable":
+                        continue
+                    progress = idx.get("progress", 0)
+                    status = idx.get("status", "unknown")
+                    if progress != last_progress:
+                        elapsed = time.monotonic() - t0
+                        print(
+                            f"\r  {_progress_bar(progress)}  "
+                            f"status={status}  elapsed={elapsed:.0f}s",
+                            end="",
+                            flush=True,
+                        )
+                        last_progress = progress
+                    if status == "ready":
+                        elapsed = time.monotonic() - t0
+                        print(
+                            f"\r  {_progress_bar(1.0)}  "
+                            f"status=ready  elapsed={elapsed:.0f}s"
+                        )
+                        print(f"  Reindex complete in {elapsed:.1f}s")
+                        return
+
+        # Also check task status as fallback.
+        task_r = requests.get("http://localhost:8080/v1/tasks", timeout=10)
+        if task_r.status_code == 200:
+            for task in task_r.json():
+                if task.get("id") == task_id and task.get("status") == "FINISHED":
+                    elapsed = time.monotonic() - t0
+                    print(f"\n  Reindex complete in {elapsed:.1f}s (via task status)")
+                    return
 
 
-# ── Output ─────────────────────────────────────────────────────────────────
+# -- Output --------------------------------------------------------------------
 
 
 def print_table(title: str, before: dict, after: dict):
     print(f"\n{title}:")
-    print(f"  {'Query':<40} {'Before (ms)':>12} {'After (ms)':>12} {'Speedup':>10}")
-    print(f"  {'─' * 40} {'─' * 12} {'─' * 12} {'─' * 10}")
+    print(
+        f"  {'Query':<40} {'Before (ms)':>12} {'After (ms)':>12} {'Speedup':>10}"
+    )
+    print(f"  {'-' * 40} {'-' * 12} {'-' * 12} {'-' * 10}")
     for name in before:
         b = before[name]
         a = after[name]
@@ -235,7 +295,7 @@ def print_table(title: str, before: dict, after: dict):
         print(f"  {name:<40} {b:>12.1f} {a:>12.1f} {speedup:>9.1f}x")
 
 
-# ── Main ───────────────────────────────────────────────────────────────────
+# -- Main ----------------------------------------------------------------------
 
 
 def _port_in_use(port: int) -> bool:
@@ -269,13 +329,13 @@ def main():
 
         print(f"\n=== Rangeable Reindex Benchmark ({NUM_OBJECTS:,} objects) ===")
 
-        print("\nBenchmarking BEFORE reindex…")
+        print("\nBenchmarking BEFORE reindex...")
         range_before = benchmark(client, RANGE_QUERIES, "range queries")
         exact_before = benchmark(client, EXACT_QUERIES, "exact-match queries")
 
         trigger_reindex()
 
-        print("\nBenchmarking AFTER reindex…")
+        print("\nBenchmarking AFTER reindex...")
         range_after = benchmark(client, RANGE_QUERIES, "range queries")
         exact_after = benchmark(client, EXACT_QUERIES, "exact-match queries")
 

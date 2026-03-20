@@ -40,7 +40,6 @@ func NewRuntimeFilterableToRangeableTask(
 	cfg := reindexTaskConfig{
 		swapBuckets:                   true,
 		tidyBuckets:                   true,
-		reloadShards:                  false,
 		concurrency:                   2,
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,

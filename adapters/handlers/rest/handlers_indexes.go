@@ -116,12 +116,11 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 
 // updateIndex implements PUT /v1/schema/{className}/indexes/{propertyName}.
 //
-// Known limitation: concurrent reindex tasks of the same migration type on
-// different properties of the same collection can conflict at the shard level
-// if they share the same file-based tracker directory. The conflict check
-// below prevents identical tasks but not all overlap scenarios. For
-// enable-rangeable, the migration dir is per-property to avoid this.
-// TODO: generalize per-task tracker isolation for all migration types.
+// Concurrent non-conflicting reindex tasks are allowed. Two tasks conflict if
+// they would touch the same bucket for the same property. The conflict check
+// rejects same-type same-property tasks, plus cross-type conflicts (e.g.
+// repair-searchable blocks change-tokenization on any property since
+// repair-searchable touches all searchable buckets).
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, _ *models.Principal) middleware.Responder {
 	collection := params.ClassName
 	propertyName := params.PropertyName
@@ -224,19 +223,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], suffix)
 	}
 
-	// Check for conflicting active tasks targeting the same collection+property+type.
+	// Check for conflicting active tasks. Two tasks conflict if they would
+	// touch the same bucket type for the same property.
 	if h.appState.ClusterService != nil {
 		tasks, err := h.appState.ClusterService.ListDistributedTasks(params.HTTPRequest.Context())
 		if err == nil {
-			conflictPrefix := fmt.Sprintf("%s:%s", collection, migrationType)
-			if len(properties) > 0 {
-				conflictPrefix = fmt.Sprintf("%s:%s:%s", collection, migrationType, properties[0])
-			}
-			for _, task := range tasks[db.ReindexNamespace] {
-				if task.Status == distributedtask.TaskStatusStarted && strings.HasPrefix(task.ID, conflictPrefix) {
-					return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(
-						errorResponse(fmt.Sprintf("reindex task %q is already running for %s", task.ID, conflictPrefix)))
-				}
+			if reason := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace]); reason != "" {
+				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(reason))
 			}
 		}
 	}
@@ -346,4 +339,91 @@ func errorResponse(msg string) *models.ErrorResponse {
 			{Message: msg},
 		},
 	}
+}
+
+// checkReindexConflict checks if a new reindex task would conflict with any
+// running tasks. Returns an empty string if no conflict, or a human-readable
+// reason if a conflict is detected.
+//
+// Two tasks conflict if they touch the same index bucket type for the same
+// property. The bucket types each migration touches:
+//   - repair-searchable:    searchable buckets (ALL properties)
+//   - repair-filterable:    filterable buckets (ALL properties)
+//   - change-tokenization:  searchable + filterable buckets (specified property)
+//   - enable-rangeable:     rangeable buckets (specified property) — no cross-type conflicts
+func checkReindexConflict(collection string, newType db.ReindexMigrationType,
+	newProps []string, tasks []*distributedtask.Task,
+) string {
+	for _, task := range tasks {
+		if task.Status != distributedtask.TaskStatusStarted {
+			continue
+		}
+
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+
+		if conflict := typesConflict(newType, newProps, payload.MigrationType, payload.Properties); conflict != "" {
+			return fmt.Sprintf("reindex task %q conflicts: %s", task.ID, conflict)
+		}
+	}
+	return ""
+}
+
+// typesConflict returns a non-empty reason string if two migration types on
+// the same collection would touch the same bucket type for overlapping
+// properties.
+func typesConflict(newType db.ReindexMigrationType, newProps []string,
+	existType db.ReindexMigrationType, existProps []string,
+) string {
+	newSearchable := touchesSearchable(newType)
+	newFilterable := touchesFilterable(newType)
+	existSearchable := touchesSearchable(existType)
+	existFilterable := touchesFilterable(existType)
+
+	// No overlap in bucket types → no conflict.
+	if (!newSearchable || !existSearchable) && (!newFilterable || !existFilterable) {
+		return ""
+	}
+
+	// Both touch the same bucket type. Check property overlap.
+	// Empty props means "all properties" for that type.
+	if propsOverlap(newProps, existProps) {
+		if newSearchable && existSearchable && newFilterable && existFilterable {
+			return "both touch searchable and filterable indexes for overlapping properties"
+		}
+		if newSearchable && existSearchable {
+			return "both touch searchable indexes for overlapping properties"
+		}
+		return "both touch filterable indexes for overlapping properties"
+	}
+	return ""
+}
+
+func touchesSearchable(t db.ReindexMigrationType) bool {
+	return t == db.ReindexTypeRepairSearchable || t == db.ReindexTypeChangeTokenization
+}
+
+func touchesFilterable(t db.ReindexMigrationType) bool {
+	return t == db.ReindexTypeRepairFilterable || t == db.ReindexTypeChangeTokenization
+}
+
+// propsOverlap returns true if two property sets overlap. An empty set means
+// "all properties", which overlaps with everything.
+func propsOverlap(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return true // one of them targets all properties
+	}
+	for _, ap := range a {
+		for _, bp := range b {
+			if ap == bp {
+				return true
+			}
+		}
+	}
+	return false
 }

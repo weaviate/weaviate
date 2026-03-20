@@ -150,13 +150,15 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 			ingestSuffix:     "__rangeable_ingest",
 			backupSuffix:     "__rangeable_backup",
 		}
-	case migName == "searchable_retokenize":
+	// Per-property dir names: "searchable_retokenize_propName"
+	case strings.HasPrefix(migName, "searchable_retokenize"):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
 			ingestSuffix:     "__retokenize_ingest",
 			backupSuffix:     "__retokenize_backup",
 		}
-	case migName == "filterable_retokenize":
+	// Per-property dir names: "filterable_retokenize_propName"
+	case strings.HasPrefix(migName, "filterable_retokenize"):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p },
 			ingestSuffix:     "__filt_retokenize_ingest",

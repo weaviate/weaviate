@@ -68,7 +68,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/usage"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -707,7 +706,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
-	reindexer := configureReindexer(appState, reindexCtx)
+	reindexer := configureReindexer()
 	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
@@ -851,38 +850,10 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
-	tasks := []db.ShardReindexTaskV3{}
-	logger := appState.Logger.WithField("action", "reindexV3")
-	cfg := appState.ServerConfig.Config
-	concurrency := concurrency.TimesFloatGOMAXPROCS(cfg.ReindexerGoroutinesFactor)
-
-	if cfg.ReindexMapToBlockmaxAtStartup {
-		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
-			logger,
-			cfg.ReindexMapToBlockmaxConfig.SwapBuckets,
-			cfg.ReindexMapToBlockmaxConfig.UnswapBuckets,
-			cfg.ReindexMapToBlockmaxConfig.TidyBuckets,
-			cfg.ReindexMapToBlockmaxConfig.ReloadShards,
-			cfg.ReindexMapToBlockmaxConfig.Rollback,
-			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
-			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
-			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
-			time.Millisecond*time.Duration(cfg.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds),
-			concurrency, cfg.ReindexMapToBlockmaxConfig.Selected, appState.SchemaManager,
-		))
-	}
-
-	if len(tasks) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-
-	reindexer := db.NewShardReindexerV3(reindexCtx, logger, appState.DB.GetIndex, concurrency)
-	for i := range tasks {
-		reindexer.RegisterTask(tasks[i])
-	}
-	reindexer.Init()
-	return reindexer
+func configureReindexer() db.ShardReindexerV3 {
+	// All reindex operations are now triggered via the REST API (DTM-based).
+	// The V3 startup reindexer is no longer used.
+	return db.NewShardReindexerV3Noop()
 }
 
 type metaStoreReady struct {

@@ -402,11 +402,8 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/compaction' \
     | grep -v 'test/acceptance/recovery' \
     | grep -v 'test/acceptance/reindex_multinode' \
-    | grep -v 'test/acceptance/reindex_to_blockmax' \
-    | grep -v 'test/acceptance/reindex_change_tokenization' \
-    | grep -v 'test/acceptance/reindex_enable_rangeable' \
-    | grep -v 'test/acceptance/reindex_roaring_set' \
     | grep -v 'test/acceptance/reindex_singlenode' \
+    | grep -v 'test/acceptance/reindex_concurrent' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }

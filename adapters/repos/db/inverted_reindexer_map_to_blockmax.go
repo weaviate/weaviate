@@ -12,81 +12,15 @@
 package db
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// NewShardInvertedReindexTaskMapToBlockmax creates a ShardReindexTaskV3 for
-// migrating searchable properties from MapCollection to Inverted (blockmax WAND).
-// This is a thin constructor that wires MapToBlockmaxStrategy into
-// ShardReindexTaskGeneric.
-func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
-	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback, conditionalStart bool,
-	processingDuration, pauseDuration time.Duration, perObjectDelay time.Duration, concurrency int,
-	cptSelected []config.CollectionPropsTenants, schemaManager *schema.Manager,
-) *ShardReindexTaskGeneric {
-	strategy := &MapToBlockmaxStrategy{schemaManager: schemaManager}
-
-	selectionEnabled := false
-	var selectedPropsByCollection, selectedShardsByCollection map[string]map[string]struct{}
-	if count := len(cptSelected); count > 0 {
-		selectionEnabled = true
-		selectedPropsByCollection = make(map[string]map[string]struct{}, count)
-		selectedShardsByCollection = make(map[string]map[string]struct{}, count)
-
-		for _, cpt := range cptSelected {
-			var props, shards map[string]struct{}
-			if countp := len(cpt.Props); countp > 0 {
-				props = make(map[string]struct{}, countp)
-				for _, prop := range cpt.Props {
-					props[prop] = struct{}{}
-				}
-			}
-			if counts := len(cpt.Tenants); counts > 0 {
-				shards = make(map[string]struct{}, counts)
-				for _, shard := range cpt.Tenants {
-					shards[shard] = struct{}{}
-				}
-			}
-			selectedPropsByCollection[cpt.Collection] = props
-			selectedShardsByCollection[cpt.Collection] = shards
-		}
-	}
-
-	cfg := reindexTaskConfig{
-		swapBuckets:                   swapBuckets,
-		unswapBuckets:                 unswapBuckets,
-		tidyBuckets:                   tidyBuckets,
-		reloadShards:                  reloadShards,
-		rollback:                      rollback,
-		concurrency:                   concurrency,
-		conditionalStart:              conditionalStart,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            processingDuration,
-		pauseDuration:                 pauseDuration,
-		checkProcessingEveryNoObjects: 1000,
-		selectionEnabled:              selectionEnabled,
-		selectedPropsByCollection:     selectedPropsByCollection,
-		selectedShardsByCollection:    selectedShardsByCollection,
-		perObjectDelay:                perObjectDelay,
-	}
-
-	logger.WithField("config", fmt.Sprintf("%+v", cfg)).Debug("task created")
-
-	return NewShardReindexTaskGeneric(
-		"MapToBlockmax", logger, strategy, cfg,
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
-	)
-}
-
 // NewRuntimeMapToBlockmaxTask creates a ShardReindexTaskGeneric configured for
-// runtime (live) Map→Blockmax migration. It uses reloadShards=false so the
-// migration is performed via atomic bucket pointer swaps without shard restart.
+// runtime (live) Map→Blockmax migration. The migration is performed via atomic
+// bucket pointer swaps without shard restart.
 func NewRuntimeMapToBlockmaxTask(logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
 ) *ShardReindexTaskGeneric {
@@ -95,7 +29,6 @@ func NewRuntimeMapToBlockmaxTask(logger logrus.FieldLogger,
 	cfg := reindexTaskConfig{
 		swapBuckets:                   true,
 		tidyBuckets:                   true,
-		reloadShards:                  false,
 		concurrency:                   2,
 		memtableOptFactor:             4,
 		backupMemtableOptFactor:       1,

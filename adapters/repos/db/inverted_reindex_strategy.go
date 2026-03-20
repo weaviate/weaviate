@@ -94,7 +94,6 @@ type reindexTaskConfig struct {
 	swapBuckets                   bool
 	unswapBuckets                 bool
 	tidyBuckets                   bool
-	reloadShards                  bool
 	rollback                      bool
 	conditionalStart              bool
 	concurrency                   int

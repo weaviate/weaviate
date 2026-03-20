@@ -100,12 +100,11 @@ func newTestClass(className string) *models.Class {
 	}
 }
 
-func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy, reloadShards bool) *ShardReindexTaskGeneric {
+func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
 		reindexTaskConfig{
 			swapBuckets:                   true,
 			tidyBuckets:                   true,
-			reloadShards:                  reloadShards,
 			concurrency:                   2,
 			memtableOptFactor:             4,
 			backupMemtableOptFactor:       1,
@@ -115,106 +114,6 @@ func newTestTask(logger logrus.FieldLogger, strategy MigrationStrategy, reloadSh
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-}
-
-// TestMapToBlockmaxMigration_RestartBased tests the complete migration
-// lifecycle using the restart-based flow:
-//
-//	Boot 1: discover MapCollection buckets → create reindex+ingest buckets →
-//	  reindex existing objects → accept double-writes for new objects
-//	Boot 2: merge reindex into ingest → swap ingest with source →
-//	  tidy backup → finalize migration
-func TestMapToBlockmaxMigration_RestartBased(t *testing.T) {
-	ctx := testCtx()
-	className := "TestMigrationRestart"
-	class := newTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-
-	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
-	require.Equal(t, lsmkv.StrategyMapCollection,
-		shard.store.Bucket(searchBucketName).Strategy(),
-		"searchable bucket should start as MapCollection")
-
-	// Insert initial objects
-	initialObjects := make([]*storobj.Object, 10)
-	for i := range initialObjects {
-		initialObjects[i] = createTestObjectWithText(className, "hello world document number "+uuid.NewString())
-		require.NoError(t, shard.PutObject(ctx, initialObjects[i]))
-	}
-
-	// Start migration (reloadShards=true → restart-based flow)
-	strategy := &testMigrationStrategy{}
-	task := newTestTask(idx.logger, strategy, true)
-
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-
-	reindexBucketName := searchBucketName + "__blockmax_reindex"
-	ingestBucketName := searchBucketName + "__blockmax_ingest"
-	require.NotNil(t, shard.store.Bucket(reindexBucketName))
-	require.NotNil(t, shard.store.Bucket(ingestBucketName))
-
-	// Run async reindex
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
-
-	// Insert double-write objects (after reindex, before restart)
-	doubleWriteObjects := make([]*storobj.Object, 5)
-	for i := range doubleWriteObjects {
-		doubleWriteObjects[i] = createTestObjectWithText(className, "during migration "+uuid.NewString())
-		require.NoError(t, shard.PutObject(ctx, doubleWriteObjects[i]))
-	}
-
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
-	require.True(t, rt.IsReindexed())
-	require.False(t, rt.IsMerged())
-
-	// Simulate restart
-	shardName := shard.Name()
-	require.NoError(t, shard.Shutdown(ctx))
-
-	strategy2 := &testMigrationStrategy{}
-	task2 := newTestTask(idx.logger, strategy2, true)
-	idx.shardReindexer = &testShardReindexer{task: task2}
-
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-	require.NoError(t, err)
-	shard2 := shd2.(*Shard)
-	idx.shards.Store(shardName, shd2)
-
-	// Verify migration completed
-	rt2 := NewFileMapToBlockmaxReindexTracker(shard2.pathLSM(), &UuidKeyParser{})
-	assert.True(t, rt2.IsMerged())
-	assert.True(t, rt2.IsSwapped())
-	assert.True(t, rt2.IsTidied())
-	assert.True(t, strategy2.migrationCompleted)
-
-	assert.Equal(t, lsmkv.StrategyInverted,
-		shard2.store.Bucket(searchBucketName).Strategy())
-
-	for _, obj := range initialObjects {
-		result, err := shard2.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
-		require.NoError(t, err, "initial object %s should be readable", obj.ID())
-		require.NotNil(t, result, "initial object %s should exist", obj.ID())
-	}
-	for _, obj := range doubleWriteObjects {
-		result, err := shard2.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
-		require.NoError(t, err, "double-write object %s should be readable", obj.ID())
-		require.NotNil(t, result, "double-write object %s should exist", obj.ID())
-	}
-
-	backupBucketName := searchBucketName + "__blockmax_map"
-	assert.Nil(t, shard2.store.Bucket(backupBucketName))
-	assert.Nil(t, shard2.store.Bucket(reindexBucketName))
-
-	require.NoError(t, shard2.Shutdown(ctx))
 }
 
 // TestMapToBlockmaxMigration_RuntimeSwap tests the runtime swap path where
@@ -242,7 +141,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 
 	// Start migration (reloadShards=false → runtime swap)
 	strategy := &testMigrationStrategy{}
-	task := newTestTask(idx.logger, strategy, false)
+	task := newTestTask(idx.logger, strategy)
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
@@ -340,7 +239,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{}
-	task := newTestTask(idx.logger, strategy, false)
+	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	for {
@@ -357,7 +256,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	require.NoError(t, shard.Shutdown(ctx))
 
 	strategy2 := &testMigrationStrategy{}
-	task2 := newTestTask(idx.logger, strategy2, false)
+	task2 := newTestTask(idx.logger, strategy2)
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)

@@ -736,9 +736,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			err = fmt.Errorf("marking reindexed: %w", err)
 			return zerotime, false, err
 		}
-		if t.config.reloadShards {
-			return zerotime, true, nil
-		}
 		if t.skipSwapOnFinish {
 			logger.Info("reindex complete (swap deferred for barrier)")
 			return zerotime, false, nil
@@ -2067,7 +2064,7 @@ func (t *fileReindexTracker) GetStatusStrings() (status string, message string, 
 	if !t.IsStarted() {
 		status = "not started"
 		message = "reindexing not started"
-		action = "enable relevant REINDEX_MAP_TO_BLOCKMAX_* env vars"
+		action = "use PUT /v1/schema/{collection}/indexes/{property} API to trigger reindex"
 		if t.HasStartCondition() {
 			message = "reindexing will start on next restart"
 			action = "restart"
@@ -2223,8 +2220,6 @@ func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *r
 			config.unswapBuckets = entcfg.Enabled(value)
 		case "tidyBuckets":
 			config.tidyBuckets = entcfg.Enabled(value)
-		case "reloadShards":
-			config.reloadShards = entcfg.Enabled(value)
 		case "rollback":
 			config.rollback = entcfg.Enabled(value)
 		case "conditionalStart":
