@@ -360,6 +360,53 @@ func (_c *MockShardLike_ConvertQueue_Call) RunAndReturn(run func(string) error) 
 	return _c
 }
 
+// Counter provides a mock function with no fields
+func (_m *MockShardLike) Counter() *indexcounter.Counter {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Counter")
+	}
+
+	var r0 *indexcounter.Counter
+	if rf, ok := ret.Get(0).(func() *indexcounter.Counter); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*indexcounter.Counter)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_Counter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Counter'
+type MockShardLike_Counter_Call struct {
+	*mock.Call
+}
+
+// Counter is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) Counter() *MockShardLike_Counter_Call {
+	return &MockShardLike_Counter_Call{Call: _e.mock.On("Counter")}
+}
+
+func (_c *MockShardLike_Counter_Call) Run(run func()) *MockShardLike_Counter_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_Counter_Call) Return(_a0 *indexcounter.Counter) *MockShardLike_Counter_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_Counter_Call) RunAndReturn(run func() *indexcounter.Counter) *MockShardLike_Counter_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateBackupSnapshot provides a mock function with given fields: ctx, sd, stagingRoot
 func (_m *MockShardLike) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
 	ret := _m.Called(ctx, sd, stagingRoot)
@@ -416,53 +463,6 @@ func (_c *MockShardLike_CreateBackupSnapshot_Call) Return(_a0 []string, _a1 erro
 }
 
 func (_c *MockShardLike_CreateBackupSnapshot_Call) RunAndReturn(run func(context.Context, *backup.ShardDescriptor, string) ([]string, error)) *MockShardLike_CreateBackupSnapshot_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Counter provides a mock function with no fields
-func (_m *MockShardLike) Counter() *indexcounter.Counter {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Counter")
-	}
-
-	var r0 *indexcounter.Counter
-	if rf, ok := ret.Get(0).(func() *indexcounter.Counter); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*indexcounter.Counter)
-		}
-	}
-
-	return r0
-}
-
-// MockShardLike_Counter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Counter'
-type MockShardLike_Counter_Call struct {
-	*mock.Call
-}
-
-// Counter is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) Counter() *MockShardLike_Counter_Call {
-	return &MockShardLike_Counter_Call{Call: _e.mock.On("Counter")}
-}
-
-func (_c *MockShardLike_Counter_Call) Run(run func()) *MockShardLike_Counter_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockShardLike_Counter_Call) Return(_a0 *indexcounter.Counter) *MockShardLike_Counter_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_Counter_Call) RunAndReturn(run func() *indexcounter.Counter) *MockShardLike_Counter_Call {
 	_c.Call.Return(run)
 	return _c
 }
