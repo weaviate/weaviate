@@ -29,7 +29,7 @@ func TestFetchTokenSuccess(t *testing.T) {
 	expected := AuthBrokerToken{
 		AccessToken: "test-access-token",
 		TokenType:   "Bearer",
-		Expiry:      time.Now().Add(time.Hour).Truncate(time.Second),
+		Expiry:      time.Now().UTC().Add(time.Hour).Truncate(time.Second),
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +98,7 @@ func TestFetchTokenWithRetryRetriesOnRetryableError(t *testing.T) {
 	expected := AuthBrokerToken{
 		AccessToken: "test-access-token",
 		TokenType:   "Bearer",
-		Expiry:      time.Now().Add(time.Hour).Truncate(time.Second),
+		Expiry:      time.Now().UTC().Add(time.Hour).Truncate(time.Second),
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
