@@ -465,7 +465,7 @@ function get_other_packages() {
 # Groups 1-3 contain explicitly assigned packages for load balancing.
 # Group 4 automatically contains all other fast acceptance packages.
 function run_acceptance_only_fast_group() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   local GROUP="$1"
 
   local -a AOF_GROUP1=()
@@ -505,20 +505,14 @@ function run_acceptance_only_fast_group() {
   esac
 }
 
-function run_acceptance_compaction_recovery() {
-  echo_green "acceptance — compaction + recovery"
-  run_aof_group "compaction-recovery" \
-    test/acceptance/compaction \
-    test/acceptance/recovery
-}
-
-function run_acceptance_compaction() {
-  echo_green "acceptance — compaction"
-  run_aof_group "compaction" test/acceptance/compaction
-}
-
-function run_acceptance_recovery() {
-  echo_green "acceptance — recovery: building weaviate/test-server image..."
+# build_weaviate_test_image builds the weaviate/test-server Docker image with
+# race detector enabled. Sets TEST_WEAVIATE_IMAGE so testcontainers reuse it
+# instead of building from source on every test function.
+function build_weaviate_test_image() {
+  if [[ -n "${TEST_WEAVIATE_IMAGE:-}" ]]; then
+    return  # already built or provided externally
+  fi
+  echo_green "Building weaviate/test-server image..."
   GIT_REVISION=$(git rev-parse --short HEAD)
   GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
   docker compose -f docker-compose-test.yml build \
@@ -527,7 +521,22 @@ function run_acceptance_recovery() {
     --build-arg EXTRA_BUILD_ARGS="-race" \
     weaviate
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
-  echo_green "acceptance — recovery"
+}
+
+function run_acceptance_compaction_recovery() {
+  build_weaviate_test_image
+  run_aof_group "compaction-recovery" \
+    test/acceptance/compaction \
+    test/acceptance/recovery
+}
+
+function run_acceptance_compaction() {
+  build_weaviate_test_image
+  run_aof_group "compaction" test/acceptance/compaction
+}
+
+function run_acceptance_recovery() {
+  build_weaviate_test_image
   run_aof_group "recovery" test/acceptance/recovery
 }
 
@@ -606,7 +615,7 @@ function run_go_client_group() {
 # Group 1 contains explicitly assigned packages for load balancing.
 # Group 2 automatically contains all other fast go client packages.
 function run_acceptance_go_client_only_fast_group() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   local GROUP="$1"
 
   local -a GROUP1=()
@@ -634,7 +643,7 @@ function run_acceptance_go_client_only_fast_group() {
 }
 
 function run_acceptance_go_client_named_vectors_single_node() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
@@ -647,7 +656,7 @@ function run_acceptance_go_client_named_vectors_single_node() {
 }
 
 function run_acceptance_go_client_named_vectors_cluster() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
@@ -660,7 +669,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 }
 
 function run_acceptance_graphql_tests() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
@@ -670,7 +679,7 @@ function run_acceptance_graphql_tests() {
 }
 
 function run_acceptance_only_authz() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
