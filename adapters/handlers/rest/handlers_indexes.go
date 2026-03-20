@@ -191,10 +191,39 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			"no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, filterable.rebuild, rangeable.enabled"))
 	}
 
+	// --- Multi-tenancy handling ---
+	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
+	tenants := params.Tenants
+	semantic := isSemanticMigration(migrationType)
+
+	// Validate MT + tenants combination.
+	if !isMT && len(tenants) > 0 {
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
+			errorResponse("tenants parameter is only valid for multi-tenant collections"))
+	}
+	if semantic && len(tenants) > 0 {
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
+			errorResponse("tenants parameter cannot be used with semantic migrations (change-tokenization); all tenants must be targeted"))
+	}
+
+	// For MT collections with specific tenants, validate they exist and are not OFFLOADED/FROZEN.
+	if isMT && len(tenants) > 0 {
+		if err := validateTenants(h.appState.DB, params.HTTPRequest.Context(), collection, tenants); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+		}
+	}
+
 	// Build unit maps from shard placement. Use ShardReplicaOwnership (not
 	// ShardOwnership) to create one unit per shard per replica node. Each
 	// replica has its own local copy of the data that must be reindexed.
-	shardOwnership, err := h.appState.DB.ShardReplicaOwnership(params.HTTPRequest.Context(), collection)
+	ctx := params.HTTPRequest.Context()
+	var shardOwnership map[string][]string
+	var err error
+	if isMT {
+		shardOwnership, err = h.appState.DB.ShardReplicaOwnershipForMT(ctx, collection, tenants)
+	} else {
+		shardOwnership, err = h.appState.DB.ShardReplicaOwnership(ctx, collection)
+	}
 	if err != nil {
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 			errorResponse(fmt.Sprintf("getting shard ownership: %v", err)))
@@ -211,6 +240,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		Properties:         properties,
 		TargetTokenization: targetTok,
 		BucketStrategy:     bucketStrategy,
+		Tenants:            tenants,
 		UnitToNode:         unitToNode,
 		UnitToShard:        unitToShard,
 	}
@@ -226,7 +256,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Check for conflicting active tasks. Two tasks conflict if they would
 	// touch the same bucket type for the same property.
 	if h.appState.ClusterService != nil {
-		tasks, err := h.appState.ClusterService.ListDistributedTasks(params.HTTPRequest.Context())
+		tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
 		if err == nil {
 			if reason := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace]); reason != "" {
 				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(reason))
@@ -234,11 +264,23 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	if err := h.appState.ClusterService.AddDistributedTask(
-		params.HTTPRequest.Context(), db.ReindexNamespace, taskID, payload, unitIDs,
-	); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-			errorResponse(fmt.Sprintf("submitting task: %v", err)))
+	// Submit the task. For MT semantic migrations, use grouped units so that
+	// OnGroupCompleted fires per-tenant (giving per-tenant barrier semantics).
+	if isMT && semantic {
+		unitSpecs := buildUnitSpecs(shardOwnership)
+		if err := h.appState.ClusterService.AddDistributedTaskWithGroups(
+			ctx, db.ReindexNamespace, taskID, payload, unitSpecs,
+		); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
+				errorResponse(fmt.Sprintf("submitting task: %v", err)))
+		}
+	} else {
+		if err := h.appState.ClusterService.AddDistributedTask(
+			ctx, db.ReindexNamespace, taskID, payload, unitIDs,
+		); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
+				errorResponse(fmt.Sprintf("submitting task: %v", err)))
+		}
 	}
 
 	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{

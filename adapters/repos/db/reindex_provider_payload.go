@@ -39,6 +39,9 @@ type ReindexTaskPayload struct {
 	TargetTokenization string               `json:"targetTokenization,omitempty"`
 	BucketStrategy     string               `json:"bucketStrategy,omitempty"`
 
+	// Tenants records which tenants were targeted (informational, for MT collections).
+	Tenants []string `json:"tenants,omitempty"`
+
 	// UnitToNode maps unit IDs to the node name that should process them.
 	UnitToNode map[string]string `json:"unitToNode"`
 	// UnitToShard maps unit IDs to shard names.

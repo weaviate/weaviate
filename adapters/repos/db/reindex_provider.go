@@ -51,6 +51,7 @@ type ReindexProvider struct {
 	schemaManager *schema.Manager
 	logger        logrus.FieldLogger
 	localNode     string
+	concurrency   func() int
 
 	runningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
 
@@ -67,18 +68,22 @@ type ReindexProvider struct {
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
 }
 
-// NewReindexProvider creates a new ReindexProvider.
+// NewReindexProvider creates a new ReindexProvider. The concurrency function
+// is called at task start time to determine how many shards to reindex in
+// parallel (typically backed by a runtime.DynamicValue).
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
 	logger logrus.FieldLogger,
 	localNode string,
+	concurrency func() int,
 ) *ReindexProvider {
 	return &ReindexProvider{
 		db:             db,
 		schemaManager:  schemaManager,
 		logger:         logger,
 		localNode:      localNode,
+		concurrency:    concurrency,
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
@@ -157,7 +162,7 @@ func (p *ReindexProvider) processUnits(
 	localUnits []string,
 	recorder distributedtask.TaskCompletionRecorder,
 ) {
-	limiter := distributedtask.NewConcurrencyLimiter(2)
+	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
 
 	var wg sync.WaitGroup
 	for _, unitID := range localUnits {
@@ -482,6 +487,64 @@ func (h *reindexTaskHandle) Terminate() {
 
 func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.doneCh
+}
+
+// ShardReplicaOwnershipForMT returns shard ownership filtered for multi-tenant
+// collections. It filters by the given tenant names (or all tenants if empty)
+// and skips tenants whose activity status indicates no local data (OFFLOADED,
+// OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING).
+func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
+	result := make(map[string][]string)
+	tenantSet := make(map[string]struct{}, len(tenantNames))
+	for _, tn := range tenantNames {
+		tenantSet[tn] = struct{}{}
+	}
+
+	err := db.schemaReader.Read(className, true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
+		}
+
+		for shardName, shard := range state.Physical {
+			// Filter by tenant names if specified.
+			if len(tenantSet) > 0 {
+				if _, ok := tenantSet[shardName]; !ok {
+					continue
+				}
+			}
+
+			// Skip tenants without local data.
+			status := entschema.ActivityStatus(shard.Status)
+			switch status {
+			case models.TenantActivityStatusHOT,
+				models.TenantActivityStatusACTIVE,
+				models.TenantActivityStatusCOLD,
+				models.TenantActivityStatusINACTIVE:
+				// These have local data — include them.
+			default:
+				// OFFLOADED, OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING — skip.
+				continue
+			}
+
+			for _, node := range shard.BelongsToNodes {
+				if node != "" {
+					result[node] = append(result[node], shardName)
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", className, err)
+	}
+
+	// Sort shard names per node for determinism.
+	for _, shards := range result {
+		sort.Strings(shards)
+	}
+
+	return result, nil
 }
 
 // ShardReplicaOwnership returns a map of node name to shard names, with one

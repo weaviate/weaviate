@@ -21,12 +21,16 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // SchemaObjectsIndexesUpdateURL generates an URL for the schema objects indexes update operation
 type SchemaObjectsIndexesUpdateURL struct {
 	ClassName    string
 	PropertyName string
+
+	Tenants []string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -73,6 +77,27 @@ func (o *SchemaObjectsIndexesUpdateURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var tenantsIR []string
+	for _, tenantsI := range o.Tenants {
+		tenantsIS := tenantsI
+		if tenantsIS != "" {
+			tenantsIR = append(tenantsIR, tenantsIS)
+		}
+	}
+
+	tenants := swag.JoinByFormat(tenantsIR, "")
+
+	if len(tenants) > 0 {
+		qsv := tenants[0]
+		if qsv != "" {
+			qs.Set("tenants", qsv)
+		}
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

@@ -5237,6 +5237,15 @@ func init() {
             "required": true
           },
           {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
@@ -15545,6 +15554,15 @@ func init() {
             "name": "propertyName",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
           },
           {
             "name": "body",

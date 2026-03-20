@@ -404,6 +404,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_multinode' \
     | grep -v 'test/acceptance/reindex_singlenode' \
     | grep -v 'test/acceptance/reindex_concurrent' \
+    | grep -v 'test/acceptance/reindex_mt' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }

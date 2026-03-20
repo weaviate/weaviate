@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -82,6 +83,12 @@ type SchemaObjectsIndexesUpdateParams struct {
 
 	// PropertyName.
 	PropertyName string
+
+	/* Tenants.
+
+	   Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.
+	*/
+	Tenants []string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -169,6 +176,17 @@ func (o *SchemaObjectsIndexesUpdateParams) SetPropertyName(propertyName string) 
 	o.PropertyName = propertyName
 }
 
+// WithTenants adds the tenants to the schema objects indexes update params
+func (o *SchemaObjectsIndexesUpdateParams) WithTenants(tenants []string) *SchemaObjectsIndexesUpdateParams {
+	o.SetTenants(tenants)
+	return o
+}
+
+// SetTenants adds the tenants to the schema objects indexes update params
+func (o *SchemaObjectsIndexesUpdateParams) SetTenants(tenants []string) {
+	o.Tenants = tenants
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsIndexesUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -192,8 +210,36 @@ func (o *SchemaObjectsIndexesUpdateParams) WriteToRequest(r runtime.ClientReques
 		return err
 	}
 
+	if o.Tenants != nil {
+
+		// binding items for tenants
+		joinedTenants := o.bindParamTenants(reg)
+
+		// query array param tenants
+		if err := r.SetQueryParam("tenants", joinedTenants...); err != nil {
+			return err
+		}
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
+}
+
+// bindParamSchemaObjectsIndexesUpdate binds the parameter tenants
+func (o *SchemaObjectsIndexesUpdateParams) bindParamTenants(formats strfmt.Registry) []string {
+	tenantsIR := o.Tenants
+
+	var tenantsIC []string
+	for _, tenantsIIR := range tenantsIR { // explode []string
+
+		tenantsIIV := tenantsIIR // string as string
+		tenantsIC = append(tenantsIC, tenantsIIV)
+	}
+
+	// items.CollectionFormat: ""
+	tenantsIS := swag.JoinByFormat(tenantsIC, "")
+
+	return tenantsIS
 }

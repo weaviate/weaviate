@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -61,6 +62,10 @@ type SchemaObjectsIndexesUpdateParams struct {
 	  In: path
 	*/
 	PropertyName string
+	/*Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.
+	  In: query
+	*/
+	Tenants []string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -71,6 +76,8 @@ func (o *SchemaObjectsIndexesUpdateParams) BindRequest(r *http.Request, route *m
 	var res []error
 
 	o.HTTPRequest = r
+
+	qs := runtime.Values(r.URL.Query())
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -109,6 +116,11 @@ func (o *SchemaObjectsIndexesUpdateParams) BindRequest(r *http.Request, route *m
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
+
+	qTenants, qhkTenants, _ := qs.GetOK("tenants")
+	if err := o.bindTenants(qTenants, qhkTenants, route.Formats); err != nil {
+		res = append(res, err)
+	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -139,6 +151,33 @@ func (o *SchemaObjectsIndexesUpdateParams) bindPropertyName(rawData []string, ha
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.PropertyName = raw
+
+	return nil
+}
+
+// bindTenants binds and validates array parameter Tenants from query.
+//
+// Arrays are parsed according to CollectionFormat: "" (defaults to "csv" when empty).
+func (o *SchemaObjectsIndexesUpdateParams) bindTenants(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var qvTenants string
+	if len(rawData) > 0 {
+		qvTenants = rawData[len(rawData)-1]
+	}
+
+	// CollectionFormat:
+	tenantsIC := swag.SplitByFormat(qvTenants, "")
+	if len(tenantsIC) == 0 {
+		return nil
+	}
+
+	var tenantsIR []string
+	for _, tenantsIV := range tenantsIC {
+		tenantsI := tenantsIV
+
+		tenantsIR = append(tenantsIR, tenantsI)
+	}
+
+	o.Tenants = tenantsIR
 
 	return nil
 }

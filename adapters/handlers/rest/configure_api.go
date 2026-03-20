@@ -810,6 +810,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		reindexProvider := db.NewReindexProvider(
 			repo, appState.SchemaManager, appState.Logger,
 			appState.Cluster.LocalName(),
+			appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		)
 		providers[db.ReindexNamespace] = reindexProvider
 

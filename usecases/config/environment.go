@@ -50,6 +50,7 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+	DefaultReindexConcurrency                    = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
@@ -1028,6 +1029,19 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
 		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	}
+
+	if err = parser.ParseDynamicIntWithValidation(
+		"REINDEX_CONCURRENCY", DefaultReindexConcurrency,
+		func(val int) error {
+			if val < 1 {
+				return fmt.Errorf("must be >= 1")
+			}
+			return nil
+		},
+		func(val *configRuntime.DynamicValue[int]) { config.DistributedTasks.ReindexConcurrency = val },
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
