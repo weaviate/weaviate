@@ -339,7 +339,7 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 	}
 
 	// Post-restart: filesystem still clean.
-	dirs = listLSMDirs(ctx, t, container, className, shardName)
+	dirs := listLSMDirs(ctx, t, container, className, shardName)
 	assertNoSuffixedBuckets(t, dirs, "__retokenize_")
 	assertNoSuffixedBuckets(t, dirs, "__filt_retokenize_")
 	assertBucketExists(t, dirs, "property_filepath_searchable")
