@@ -43,8 +43,8 @@ type gcsClient struct {
 	dataPath  string
 }
 
-func options(ctx context.Context) ([]option.ClientOption, error) {
-	options := []option.ClientOption{}
+func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
 	useTokenSource := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT") != ""
 
@@ -56,19 +56,19 @@ func options(ctx context.Context) ([]option.ClientOption, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "find default credentials")
 		}
-		options = append(options, option.WithCredentials(creds))
+		opts = append(opts, option.WithCredentials(creds))
 	} else if useTokenSource {
-		options = append(
-			options,
+		opts = append(
+			opts,
 			option.WithTokenSource(
 				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT"))),
 			),
 		)
 	} else {
-		options = append(options, option.WithoutAuthentication())
+		opts = append(opts, option.WithoutAuthentication())
 	}
 
-	return options, nil
+	return opts, nil
 }
 
 func projectID() string {
@@ -84,7 +84,7 @@ func projectID() string {
 }
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
-	opts, err := options(ctx)
+	opts, err := storageOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
