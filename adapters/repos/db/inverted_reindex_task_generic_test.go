@@ -301,11 +301,14 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	assert.Nil(t, shard.store.Bucket(reindexBucketName), "reindex bucket should not exist")
 	assert.Nil(t, shard.store.Bucket(ingestBucketName), "ingest bucket should not exist")
 
-	// Verify reindex/backup dirs are gone from disk
+	// Verify reindex dir is gone from disk (segments were prepended into ingest).
 	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), reindexBucketName)),
 		"reindex dir should not exist on disk")
-	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), backupBucketName)),
-		"backup dir should not exist on disk")
+	// Backup dir persists on disk until next startup — runtimeSwap defers
+	// filesystem cleanup (ingest→main rename, backup removal) to
+	// FinalizeCompletedMigrations which runs in OnBeforeLsmInit.
+	assert.True(t, dirExists(filepath.Join(shard.pathLSM(), backupBucketName)),
+		"backup dir should still exist on disk (deferred finalize)")
 
 	// New writes should still work after migration
 	postMigrationObj := createTestObjectWithText(className, "post migration "+uuid.NewString())

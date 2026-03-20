@@ -237,6 +237,19 @@ func TestRuntimeChangeTokenization(t *testing.T) {
 	// Verify task reached FINISHED state.
 	awaitReindexFinished(t, restURI, taskID)
 
+	// For semantic migrations (change-tokenization), the swap phase runs
+	// asynchronously via OnGroupCompleted on the next scheduler tick AFTER
+	// the task reaches FINISHED. Wait for the schema to reflect the update.
+	require.Eventually(t, func() bool {
+		cls := helper.GetClass(t, className)
+		for _, prop := range cls.Properties {
+			if prop.Name == "filepath" {
+				return prop.Tokenization == "field"
+			}
+		}
+		return false
+	}, 30*time.Second, 1*time.Second, "tokenization should change to field after swap phase")
+
 	// 8. Stop background query loop.
 	close(stopCh)
 	wg.Wait()
