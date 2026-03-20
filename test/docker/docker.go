@@ -116,7 +116,7 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 		defer cancel()
 		for {
 			if pollCtx.Err() != nil {
-				return fmt.Errorf("StopAt[%s]: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %v)",
+				return fmt.Errorf("StopAt[%s]: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %w)",
 					stoppedHostname, survivorURI, pollCtx.Err())
 			}
 			if !isNodeHealthy(survivorURI, stoppedHostname) {
@@ -183,8 +183,8 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 		}
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
-			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed (caller ctx err: %v): %w",
-				c.name, ctx.Err(), err)
+			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
+				c.name, err)
 		}
 	}
 	c.endpoints = endPoints
