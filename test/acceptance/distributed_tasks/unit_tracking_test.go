@@ -996,6 +996,7 @@ func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerComp
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
+		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
 		Start(ctx)
 	if err != nil {
 		if compose != nil {
