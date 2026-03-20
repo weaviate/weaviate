@@ -75,6 +75,14 @@ func TempBucketFromBucketName(bucketName string) string {
 	return bucketName + "_temp"
 }
 
+func BucketNestedFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property.nested_%s", propName)
+}
+
+func BucketNestedMetaFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property.nestedmeta_%s", propName)
+}
+
 func BucketSearchableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + "_searchable")
 }
