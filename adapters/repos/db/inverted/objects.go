@@ -14,6 +14,7 @@ package inverted
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -512,6 +513,38 @@ func HasRangeableIndex(prop *models.Property) bool {
 
 func HasAnyInvertedIndex(prop *models.Property) bool {
 	return HasFilterableIndex(prop) || HasSearchableIndex(prop) || HasRangeableIndex(prop)
+}
+
+func isNestedFilterable(prop *models.NestedProperty) bool {
+	if prop.IndexFilterable == nil {
+		return true
+	}
+	return *prop.IndexFilterable
+}
+
+// HasNestedFilterableIndex returns true if any descendant NestedProperty
+// of the given property has a filterable index. Used to decide whether
+// the nested value bucket needs to be created.
+func HasNestedFilterableIndex(prop *models.Property) bool {
+	return slices.ContainsFunc(prop.NestedProperties, hasNestedFilterableRecursive)
+}
+
+func hasNestedFilterableRecursive(prop *models.NestedProperty) bool {
+	return isNestedFilterable(prop) ||
+		slices.ContainsFunc(prop.NestedProperties, hasNestedFilterableRecursive)
+}
+
+// HasAnyNestedInvertedIndex returns true if any descendant NestedProperty
+// of the given property has any inverted index enabled. Used to decide
+// whether the nested metadata bucket needs to be created.
+func HasAnyNestedInvertedIndex(prop *models.Property) bool {
+	return slices.ContainsFunc(prop.NestedProperties, hasAnyNestedInvertedIndexRecursive)
+}
+
+func hasAnyNestedInvertedIndexRecursive(prop *models.NestedProperty) bool {
+	// Phase 1: only filterable. Extend with searchable/rangeable in later phases.
+	return isNestedFilterable(prop) ||
+		slices.ContainsFunc(prop.NestedProperties, hasAnyNestedInvertedIndexRecursive)
 }
 
 const (

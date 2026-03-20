@@ -985,3 +985,109 @@ func mustGetByteFloatNumber(in float64) []byte {
 	}
 	return out
 }
+
+func boolPtr(v bool) *bool { return &v }
+
+func TestHasNestedFilterableIndex(t *testing.T) {
+	t.Run("child filterable by default", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "nested",
+			DataType: schema.DataTypeObject.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city"},
+			},
+		}
+		assert.True(t, HasNestedFilterableIndex(prop))
+	})
+
+	t.Run("child explicitly filterable", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "nested",
+			DataType: schema.DataTypeObject.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", IndexFilterable: boolPtr(true)},
+			},
+		}
+		assert.True(t, HasNestedFilterableIndex(prop))
+	})
+
+	t.Run("all children not filterable", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "nested",
+			DataType: schema.DataTypeObject.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", IndexFilterable: boolPtr(false)},
+			},
+		}
+		assert.False(t, HasNestedFilterableIndex(prop))
+	})
+
+	t.Run("deeply nested child is filterable", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "cars",
+			DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "tires",
+					IndexFilterable: boolPtr(false),
+					DataType:        schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", IndexFilterable: boolPtr(true)},
+					},
+				},
+			},
+		}
+		assert.True(t, HasNestedFilterableIndex(prop))
+	})
+
+	t.Run("no nested properties", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "nested",
+			DataType: schema.DataTypeObject.PropString(),
+		}
+		assert.False(t, HasNestedFilterableIndex(prop))
+	})
+}
+
+func TestHasAnyNestedInvertedIndex(t *testing.T) {
+	t.Run("child filterable", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "nested",
+			DataType: schema.DataTypeObject.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", IndexFilterable: boolPtr(true)},
+			},
+		}
+		assert.True(t, HasAnyNestedInvertedIndex(prop))
+	})
+
+	t.Run("all children not indexed", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "nested",
+			DataType: schema.DataTypeObject.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", IndexFilterable: boolPtr(false)},
+				{Name: "name", IndexFilterable: boolPtr(false)},
+			},
+		}
+		assert.False(t, HasAnyNestedInvertedIndex(prop))
+	})
+
+	t.Run("parent not indexed but deeply nested child is", func(t *testing.T) {
+		prop := &models.Property{
+			Name:     "cars",
+			DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name:            "tires",
+					IndexFilterable: boolPtr(false),
+					DataType:        schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", IndexFilterable: boolPtr(true)},
+					},
+				},
+			},
+		}
+		assert.True(t, HasAnyNestedInvertedIndex(prop))
+	})
+}
