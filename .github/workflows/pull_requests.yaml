@@ -198,8 +198,8 @@ jobs:
           path: /tmp/docker-outputs/
           retention-days: 1
 
-  PR-Docker-Build-Orca-Scan:
-    name: docker build (orca scan)
+  PR-Vulnerability-Check:
+    name: vulnerability check
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
     timeout-minutes: 45
@@ -338,7 +338,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -361,7 +361,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -386,7 +386,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Integration test
         run: ./test/run.sh ${{ matrix.test }}
@@ -419,7 +419,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
@@ -498,7 +498,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -534,7 +534,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -604,7 +604,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: check
         env:
@@ -688,7 +688,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -727,7 +727,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -774,7 +774,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -834,7 +834,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -889,7 +889,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: start weaviate
         shell: bash
