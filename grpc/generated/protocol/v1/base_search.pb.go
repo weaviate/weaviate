@@ -420,7 +420,9 @@ type Hybrid struct {
 	Targets            *Targets               `protobuf:"bytes,10,opt,name=targets,proto3" json:"targets,omitempty"`
 	Bm25SearchOperator *SearchOperatorOptions `protobuf:"bytes,11,opt,name=bm25_search_operator,json=bm25SearchOperator,proto3,oneof" json:"bm25_search_operator,omitempty"`
 	AlphaParam         *float32               `protobuf:"fixed32,12,opt,name=alpha_param,json=alphaParam,proto3,oneof" json:"alpha_param,omitempty"`
-	UseAlphaParam      bool                   `protobuf:"varint,13,opt,name=use_alpha_param,json=useAlphaParam,proto3" json:"use_alpha_param,omitempty"` // if true, alpha_param is used instead of alpha. This is for backward compatibility, as alpha was used before alpha_param was introduced.
+	// if true, alpha_param is used instead of alpha.
+	// This is for backward compatibility, as alpha was used before alpha_param was introduced.
+	UseAlphaParam bool `protobuf:"varint,13,opt,name=use_alpha_param,json=useAlphaParam,proto3" json:"use_alpha_param,omitempty"`
 	// only vector distance, but keep it extendable
 	//
 	// Types that are valid to be assigned to Threshold:
