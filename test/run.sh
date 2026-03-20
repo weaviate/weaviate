@@ -406,6 +406,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_change_tokenization' \
     | grep -v 'test/acceptance/reindex_enable_rangeable' \
     | grep -v 'test/acceptance/reindex_roaring_set' \
+    | grep -v 'test/acceptance/reindex_singlenode' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
@@ -569,10 +570,7 @@ function run_acceptance_reindex_multinode() {
 function run_acceptance_reindex_singlenode() {
   echo_green "acceptance — reindex-singlenode"
   run_aof_group "reindex-singlenode" \
-    test/acceptance/reindex_to_blockmax \
-    test/acceptance/reindex_change_tokenization \
-    test/acceptance/reindex_enable_rangeable \
-    test/acceptance/reindex_roaring_set \
+    test/acceptance/reindex_singlenode \
     test/acceptance/distributed_tasks
 }
 
