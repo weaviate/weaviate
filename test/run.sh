@@ -561,11 +561,29 @@ function run_acceptance_recovery() {
 }
 
 function run_acceptance_reindex_multinode() {
+  echo_green "acceptance — reindex-multinode: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
   echo_green "acceptance — reindex-multinode"
   run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_singlenode() {
+  echo_green "acceptance — reindex-singlenode: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
   echo_green "acceptance — reindex-singlenode"
   run_aof_group "reindex-singlenode" \
     test/acceptance/reindex_singlenode \
