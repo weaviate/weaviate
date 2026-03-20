@@ -46,12 +46,12 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 		options = append(options, option.WithoutAuthentication())
 	}
 
-	useTokenSource := os.Getenv("USAGE_GCS_AUTH_PROXY_ENDPOINT") != ""
-	if useTokenSource {
+	usageGCSAuthProxyEndpoint := os.Getenv("USAGE_GCS_AUTH_PROXY_ENDPOINT")
+	if usageGCSAuthProxyEndpoint != "" {
 		options = append(
 			options,
 			option.WithTokenSource(
-				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(os.Getenv("USAGE_GCS_AUTH_PROXY_ENDPOINT"))),
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(usageGCSAuthProxyEndpoint)),
 			),
 		)
 	}

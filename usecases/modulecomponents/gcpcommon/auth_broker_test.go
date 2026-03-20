@@ -23,7 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFetchToken_Success(t *testing.T) {
+const testIdentityToken = "test-identity-token"
+
+func TestFetchTokenSuccess(t *testing.T) {
 	expected := AuthBrokerToken{
 		AccessToken: "test-access-token",
 		TokenType:   "Bearer",
@@ -31,7 +33,7 @@ func TestFetchToken_Success(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer identity-token", r.Header.Get("Authorization"))
+		assert.Equal(t, fmt.Sprintf("Bearer %s", testIdentityToken), r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(expected)
 	}))
@@ -39,14 +41,14 @@ func TestFetchToken_Success(t *testing.T) {
 
 	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
-	tok, err := b.fetchToken(t.Context(), "identity-token")
+	tok, err := b.fetchToken(t.Context(), testIdentityToken)
 	require.NoError(t, err)
 	assert.Equal(t, expected.AccessToken, tok.AccessToken)
 	assert.Equal(t, expected.TokenType, tok.TokenType)
 	assert.Equal(t, expected.Expiry, tok.Expiry)
 }
 
-func TestFetchToken_5xx_ReturnsRetryable(t *testing.T) {
+func TestFetchToken5xxReturnsRetryable(t *testing.T) {
 	for _, status := range []int{500, 502, 503, 504} {
 		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,14 +58,14 @@ func TestFetchToken_5xx_ReturnsRetryable(t *testing.T) {
 
 			b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
-			_, err := b.fetchToken(t.Context(), "identity-token")
+			_, err := b.fetchToken(t.Context(), testIdentityToken)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, ErrRetryableAuthBroker)
 		})
 	}
 }
 
-func TestFetchToken_4xx_NotRetryable(t *testing.T) {
+func TestFetchToken4xxNotRetryable(t *testing.T) {
 	for _, status := range []int{400, 401, 403, 404} {
 		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,25 +75,25 @@ func TestFetchToken_4xx_NotRetryable(t *testing.T) {
 
 			b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
-			_, err := b.fetchToken(t.Context(), "identity-token")
+			_, err := b.fetchToken(t.Context(), testIdentityToken)
 			require.Error(t, err)
 			assert.NotErrorIs(t, err, ErrRetryableAuthBroker)
 		})
 	}
 }
 
-func TestFetchToken_NetworkError_ReturnsRetryable(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+func TestFetchTokenNetworkErrorReturnsRetryable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(nil))
 	srv.Close() // close immediately so all connections fail
 
 	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
-	_, err := b.fetchToken(t.Context(), "identity-token")
+	_, err := b.fetchToken(t.Context(), testIdentityToken)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrRetryableAuthBroker)
 }
 
-func TestFetchTokenWithRetry_RetriesOnRetryableError(t *testing.T) {
+func TestFetchTokenWithRetryRetriesOnRetryableError(t *testing.T) {
 	attempt := 0
 	expected := AuthBrokerToken{
 		AccessToken: "test-access-token",
@@ -112,13 +114,13 @@ func TestFetchTokenWithRetry_RetriesOnRetryableError(t *testing.T) {
 
 	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
-	tok, err := b.fetchTokenWithRetry(t.Context(), "identity-token")
+	tok, err := b.fetchTokenWithRetry(t.Context(), testIdentityToken)
 	require.NoError(t, err)
 	assert.Equal(t, expected.AccessToken, tok.AccessToken)
 	assert.Equal(t, 3, attempt)
 }
 
-func TestFetchTokenWithRetry_NoRetryOnNonRetryableError(t *testing.T) {
+func TestFetchTokenWithRetryNoRetryOnNonRetryableError(t *testing.T) {
 	attempt := 0
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +131,7 @@ func TestFetchTokenWithRetry_NoRetryOnNonRetryableError(t *testing.T) {
 
 	b := &AuthBrokerTokenSource{endpoint: srv.URL, client: srv.Client()}
 
-	_, err := b.fetchTokenWithRetry(t.Context(), "identity-token")
+	_, err := b.fetchTokenWithRetry(t.Context(), testIdentityToken)
 	require.Error(t, err)
 	assert.Equal(t, 1, attempt)
 }

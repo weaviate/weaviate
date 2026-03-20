@@ -14,13 +14,13 @@ package gcpcommon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
 	"github.com/googleapis/gax-go/v2"
-	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
 
@@ -32,9 +32,8 @@ type AuthBrokerTokenSource struct {
 const maxRetries = 3
 
 var (
-	_                      oauth2.TokenSource = (*AuthBrokerTokenSource)(nil)
-	httpClientTimeout                         = 5 * time.Second
-	ErrRetryableAuthBroker                    = errors.New("retryable error from auth broker")
+	httpClientTimeout      = 5 * time.Second
+	ErrRetryableAuthBroker = errors.New("retryable error from auth broker")
 )
 
 type AuthBrokerToken struct {
@@ -83,7 +82,7 @@ func (b *AuthBrokerTokenSource) fetchTokenWithRetry(ctx context.Context, identit
 			return nil, err
 		}
 
-		if sleepErr := gax.Sleep(ctx, backoff.Pause()); sleepErr != nil {
+		if gax.Sleep(ctx, backoff.Pause()) != nil {
 			return nil, err
 		}
 	}
@@ -135,8 +134,10 @@ func (b *AuthBrokerTokenSource) getIdentityToken(ctx context.Context) (string, e
 		fmt.Sprintf("instance/service-accounts/default/identity?audience=%s&format=full", b.endpoint),
 	)
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to get identity token")
+		return "", fmt.Errorf("failed to get identity token: %w", err)
 	}
 
 	return tok, nil
 }
+
+var _ oauth2.TokenSource = (*AuthBrokerTokenSource)(nil)

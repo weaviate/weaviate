@@ -46,7 +46,7 @@ type gcsClient struct {
 func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
 	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
-	useTokenSource := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT") != ""
+	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
 
 	if useAuth {
 		scopes := []string{
@@ -57,11 +57,11 @@ func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
 			return nil, errors.Wrap(err, "find default credentials")
 		}
 		opts = append(opts, option.WithCredentials(creds))
-	} else if useTokenSource {
+	} else if backupGCSAuthProxyEndpoint != "" {
 		opts = append(
 			opts,
 			option.WithTokenSource(
-				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT"))),
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(backupGCSAuthProxyEndpoint)),
 			),
 		)
 	} else {
