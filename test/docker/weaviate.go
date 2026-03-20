@@ -14,6 +14,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -173,6 +174,21 @@ func startWeaviate(ctx context.Context,
 		Reuse:            false,
 	})
 	if err != nil {
+		// Capture container logs before terminating — critical for diagnosing
+		// startup crashes (exit code 1) where the container is gone by the time
+		// test helpers try to read logs.
+		if c != nil {
+			if reader, logErr := c.Logs(ctx); logErr == nil {
+				logs, _ := io.ReadAll(reader)
+				reader.Close()
+				lines := strings.Split(string(logs), "\n")
+				if len(lines) > 50 {
+					lines = lines[len(lines)-50:]
+				}
+				err = fmt.Errorf("%w\n--- %s container logs (last 50 lines) ---\n%s",
+					err, containerName, strings.Join(lines, "\n"))
+			}
+		}
 		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
 			return nil, fmt.Errorf("%w: failed to terminate: %w", err, terminateErr)
 		}

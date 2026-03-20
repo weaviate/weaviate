@@ -13,7 +13,10 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"time"
 
@@ -90,15 +93,69 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 	if nodeIndex >= len(d.containers) {
 		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
 	}
-	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
+	stoppedNode := d.containers[nodeIndex]
+	if err := stoppedNode.container.Stop(ctx, timeout); err != nil {
 		return err
 	}
 
-	// sleep to make sure that the off node is detected by memberlist and marked failed
-	// it shall be used with combination of "MEMBERLIST_FAST_FAILURE_DETECTION" env flag
-	time.Sleep(3 * time.Second)
+	// Poll a surviving node's /v1/nodes endpoint until the stopped node is no
+	// longer reported as HEALTHY. This replaces a hardcoded 3s sleep and adapts
+	// to the actual memberlist failure detection speed.
+	stoppedHostname := stoppedNode.name
+	var survivorURI string
+	for i, c := range d.containers {
+		if i != nodeIndex {
+			if uri, ok := c.endpoints[HTTP]; ok {
+				survivorURI = uri.uri
+				break
+			}
+		}
+	}
+	if survivorURI != "" {
+		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		for {
+			if pollCtx.Err() != nil {
+				return fmt.Errorf("timed out waiting for node %q to be detected as down", stoppedHostname)
+			}
+			if !isNodeHealthy(survivorURI, stoppedHostname) {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 
 	return nil
+}
+
+// isNodeHealthy checks whether a node is reported as HEALTHY via /v1/nodes on
+// a surviving node. Returns false if the node is missing, unhealthy, or the
+// request fails.
+func isNodeHealthy(survivorURI, nodeName string) bool {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes", survivorURI))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	var result struct {
+		Nodes []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	for _, n := range result.Nodes {
+		if n.Name == nodeName {
+			return n.Status == "HEALTHY"
+		}
+	}
+	return false // node not in list = not healthy
 }
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
