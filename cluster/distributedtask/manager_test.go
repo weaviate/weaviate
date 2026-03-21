@@ -481,28 +481,28 @@ func addTaskWithUnits(t *testing.T, h *testHarness, ns, id string, version uint6
 }
 
 // completeUnit records a successful unit completion.
-func completeUnit(t *testing.T, h *testHarness, ns, id string, version uint64, node, su string) {
+func completeUnit(t *testing.T, h *testHarness, ns, id string, version uint64, node, unitID string) {
 	t.Helper()
 	err := h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace:            ns,
 		Id:                   id,
 		Version:              version,
 		NodeId:               node,
-		UnitId:               su,
+		UnitId:               unitID,
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}))
 	require.NoError(t, err)
 }
 
 // failUnit records a failed unit completion.
-func failUnit(t *testing.T, h *testHarness, ns, id string, version uint64, node, su, errMsg string) {
+func failUnit(t *testing.T, h *testHarness, ns, id string, version uint64, node, unitID, errMsg string) {
 	t.Helper()
 	err := h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
 		Namespace:            ns,
 		Id:                   id,
 		Version:              version,
 		NodeId:               node,
-		UnitId:               su,
+		UnitId:               unitID,
 		Error:                errMsg,
 		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}))
@@ -510,14 +510,14 @@ func failUnit(t *testing.T, h *testHarness, ns, id string, version uint64, node,
 }
 
 // updateProgress updates a unit's progress value.
-func updateProgress(t *testing.T, h *testHarness, ns, id string, version uint64, node, su string, progress float32) {
+func updateProgress(t *testing.T, h *testHarness, ns, id string, version uint64, node, unitID string, progress float32) {
 	t.Helper()
 	err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
 		Namespace:           ns,
 		Id:                  id,
 		Version:             version,
 		NodeId:              node,
-		UnitId:              su,
+		UnitId:              unitID,
 		Progress:            progress,
 		UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
 	}))
@@ -544,10 +544,10 @@ func TestManager_AddTask_WithUnits(t *testing.T) {
 	require.NotNil(t, task.Units)
 	require.Len(t, task.Units, 3)
 	for _, id := range []string{"su-1", "su-2", "su-3"} {
-		su, ok := task.Units[id]
+		u, ok := task.Units[id]
 		require.True(t, ok, "unit %s should exist", id)
-		assert.Equal(t, UnitStatusPending, su.Status)
-		assert.Equal(t, id, su.ID)
+		assert.Equal(t, UnitStatusPending, u.Status)
+		assert.Equal(t, id, u.ID)
 	}
 }
 
@@ -634,10 +634,10 @@ func TestManager_UpdateUnitProgress(t *testing.T) {
 	updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.5)
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	su := tasks["ns"][0].Units["su-1"]
-	assert.Equal(t, UnitStatusInProgress, su.Status)
-	assert.Equal(t, float32(0.5), su.Progress)
-	assert.Equal(t, "node-1", su.NodeID)
+	u := tasks["ns"][0].Units["su-1"]
+	assert.Equal(t, UnitStatusInProgress, u.Status)
+	assert.Equal(t, float32(0.5), u.Progress)
+	assert.Equal(t, "node-1", u.NodeID)
 }
 
 func TestManager_UpdateUnitProgress_Failures(t *testing.T) {

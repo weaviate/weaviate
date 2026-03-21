@@ -74,7 +74,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -454,6 +453,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -514,7 +514,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	nodeName := appState.Cluster.LocalName()
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
+	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
 	grpcConfig := appState.ServerConfig.Config.GRPC
 	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
@@ -801,7 +801,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
 			shardNoopProvider := distributedtask.NewShardNoopProvider(
-				appState.Cluster.LocalName(), appState.Logger, &dbShardLister{db: repo},
+				appState.Cluster.LocalName(), appState.Logger, repo,
 				appState.ServerConfig.Config.Persistence.DataPath,
 			)
 			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
@@ -836,31 +836,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	return appState
-}
-
-// dbShardLister adapts [db.DB] to the [distributedtask.ShardLister] interface,
-// allowing the [distributedtask.ShardNoopProvider] to discover which shards are
-// local to this node for a given collection.
-type dbShardLister struct {
-	db *db.DB
-}
-
-func (v *dbShardLister) GetLocalShardNames(collection string) ([]string, error) {
-	index := v.db.GetIndex(entschema.ClassName(collection))
-	if index == nil {
-		return nil, fmt.Errorf("collection %q not found", collection)
-	}
-	var names []string
-	if err := index.ForEachShard(func(name string, _ db.ShardLike) error {
-		names = append(names, name)
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("collection %q has no local shards", collection)
-	}
-	return names, nil
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
@@ -2177,6 +2152,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
