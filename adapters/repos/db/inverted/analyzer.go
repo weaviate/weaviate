@@ -31,6 +31,7 @@ type Countable struct {
 type Property struct {
 	Name               string
 	Items              []Countable
+	RawValues          []string // Original text values before tokenization (text/text[] only)
 	Length             int
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
@@ -65,6 +66,7 @@ func DedupItems(props []Property) []Property {
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
 	className              string
+	captureRawValues       bool
 }
 
 // Text tokenizes given input according to selected tokenization,
@@ -246,4 +248,15 @@ func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable, className string
 		isFallbackToSearchable = func() bool { return false }
 	}
 	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable, className: className}
+}
+
+// NewAnalyzerWithRawValues creates an analyzer that captures raw (pre-tokenization)
+// text values in Property.RawValues. This is only needed during migration reads
+// where retokenize strategies require the original text. Normal ingestion should
+// use NewAnalyzer to avoid the extra allocation on the hot path.
+func NewAnalyzerWithRawValues(isFallbackToSearchable IsFallbackToSearchable, className string) *Analyzer {
+	if isFallbackToSearchable == nil {
+		isFallbackToSearchable = func() bool { return false }
+	}
+	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable, className: className, captureRawValues: true}
 }

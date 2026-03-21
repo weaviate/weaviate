@@ -168,6 +168,14 @@ func (l *LazyLoadShard) Store() *lsmkv.Store {
 	return l.shard.Store()
 }
 
+// Unwrap loads the shard if necessary and returns the underlying concrete *Shard.
+func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard, nil
+}
+
 func (l *LazyLoadShard) NotifyReady() {
 	l.mustLoad()
 	l.shard.NotifyReady()
@@ -534,6 +542,11 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
+}
+
+func (l *LazyLoadShard) AnalyzeObjectForMigration(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+	l.mustLoad()
+	return l.shard.AnalyzeObjectForMigration(object)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {

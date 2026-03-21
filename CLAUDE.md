@@ -55,6 +55,37 @@ go test -count 1 -race -timeout 15m ./test/acceptance/grpc/...
 ```
 When adding new e2e tests, prefer creating a separate package. Only extend existing packages when tests clearly fit.
 
+**Pre-building the Docker image for acceptance tests:**
+By default, testcontainers builds the Weaviate Docker image from source on every test run. For packages with many test functions (e.g. `reindex_multinode` with 9 tests), this rebuilds the image 9 times, wasting disk and time.
+
+Pre-build once and reuse:
+```bash
+# Build the image once (tag it with a recognizable name)
+make weaviate-image WEAVIATE_IMAGE=weaviate-test:local
+
+# Run tests with the pre-built image (skips docker build entirely)
+TEST_WEAVIATE_IMAGE=weaviate-test:local go test -count 1 -race -timeout 20m ./test/acceptance/reindex_multinode/...
+```
+
+Always rebuild the image after code changes. The `TEST_WEAVIATE_IMAGE` env var is read by `test/docker/compose.go` and applies to all testcontainer-based tests.
+
+**Adding new acceptance test CI jobs (`test/run.sh`):**
+When adding a new `run_acceptance_*` function in `test/run.sh`, it **must** build the Docker image and export `TEST_WEAVIATE_IMAGE` before running tests. Without this, testcontainers builds from source on every test function, which is slow and can exceed startup timeouts. Follow this pattern:
+```bash
+function run_acceptance_my_new_tests() {
+  echo_green "acceptance — my-tests: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  run_aof_group "my-tests" test/acceptance/my_tests
+}
+```
+
 ### Linting
 Always validate linters pass at the end of a task:
 ```bash

@@ -5171,6 +5171,135 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/indexes": {
+      "get": {
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get index status for all properties of a collection",
+        "operationId": "schema.objects.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status for all properties.",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/indexes/{propertyName}": {
+      "put": {
+        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update index configuration for a property (triggers reindex)",
+        "operationId": "schema.objects.indexes.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "409": {
+            "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Distributed tasks not enabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -7728,6 +7857,103 @@ func init() {
         "oidc"
       ]
     },
+    "IndexStatus": {
+      "type": "object",
+      "properties": {
+        "progress": {
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "indexing",
+            "pending"
+          ]
+        },
+        "targetTokenization": {
+          "type": "string"
+        },
+        "tokenization": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
+        }
+      }
+    },
+    "IndexStatusResponse": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyIndexStatus"
+          }
+        }
+      }
+    },
+    "IndexUpdateFilterable": {
+      "type": "object",
+      "properties": {
+        "rebuild": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRangeable": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "filterable": {
+          "$ref": "#/definitions/IndexUpdateFilterable"
+        },
+        "rangeable": {
+          "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "searchable": {
+          "$ref": "#/definitions/IndexUpdateSearchable"
+        }
+      }
+    },
+    "IndexUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateSearchable": {
+      "type": "object",
+      "properties": {
+        "rebuild": {
+          "type": "boolean"
+        },
+        "tokenization": {
+          "type": "string"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
@@ -8608,6 +8834,26 @@ func init() {
             "kagome_ja",
             "gse_ch"
           ]
+        }
+      }
+    },
+    "PropertyIndexStatus": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "name": {
+          "type": "string"
         }
       }
     },
@@ -15244,6 +15490,135 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/indexes": {
+      "get": {
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get index status for all properties of a collection",
+        "operationId": "schema.objects.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status for all properties.",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/indexes/{propertyName}": {
+      "put": {
+        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update index configuration for a property (triggers reindex)",
+        "operationId": "schema.objects.indexes.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "409": {
+            "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Distributed tasks not enabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -18006,6 +18381,103 @@ func init() {
         "oidc"
       ]
     },
+    "IndexStatus": {
+      "type": "object",
+      "properties": {
+        "progress": {
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "indexing",
+            "pending"
+          ]
+        },
+        "targetTokenization": {
+          "type": "string"
+        },
+        "tokenization": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
+        }
+      }
+    },
+    "IndexStatusResponse": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyIndexStatus"
+          }
+        }
+      }
+    },
+    "IndexUpdateFilterable": {
+      "type": "object",
+      "properties": {
+        "rebuild": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRangeable": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "filterable": {
+          "$ref": "#/definitions/IndexUpdateFilterable"
+        },
+        "rangeable": {
+          "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "searchable": {
+          "$ref": "#/definitions/IndexUpdateSearchable"
+        }
+      }
+    },
+    "IndexUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateSearchable": {
+      "type": "object",
+      "properties": {
+        "rebuild": {
+          "type": "boolean"
+        },
+        "tokenization": {
+          "type": "string"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
@@ -19059,6 +19531,26 @@ func init() {
             "kagome_ja",
             "gse_ch"
           ]
+        }
+      }
+    },
+    "PropertyIndexStatus": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "name": {
+          "type": "string"
         }
       }
     },

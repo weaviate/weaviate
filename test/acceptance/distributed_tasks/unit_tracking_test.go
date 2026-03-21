@@ -996,8 +996,14 @@ func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerComp
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
+		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
 		Start(ctx)
-	require.NoError(t, err)
+	if err != nil {
+		if compose != nil {
+			dumpAllContainerLogs(ctx, t, compose)
+		}
+		require.NoError(t, err)
+	}
 
 	return compose, func() { require.NoError(t, compose.Terminate(ctx)) }
 }
@@ -1041,7 +1047,12 @@ func dumpTaskAndLogs(t *testing.T, ctx context.Context, compose *docker.DockerCo
 	t.Logf("task state on failure:\n%s", taskJSON)
 
 	for i := 1; i <= 3; i++ {
-		logs, err := compose.GetWeaviateNode(i).Container().Logs(ctx)
+		node := compose.GetWeaviateNode(i)
+		if node == nil {
+			t.Logf("node%d: container not available", i)
+			continue
+		}
+		logs, err := node.Container().Logs(ctx)
 		if err != nil {
 			t.Logf("node%d: failed to get logs: %v", i, err)
 			continue
@@ -1053,6 +1064,33 @@ func dumpTaskAndLogs(t *testing.T, ctx context.Context, compose *docker.DockerCo
 				t.Logf("node%d: %s", i, line)
 			}
 		}
+	}
+}
+
+// dumpAllContainerLogs unconditionally prints the last 200 lines of container
+// logs for all available nodes. Use this on startup failures where t.Failed()
+// hasn't been set yet.
+func dumpAllContainerLogs(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
+	for i := 1; i <= 3; i++ {
+		node := compose.GetWeaviateNode(i)
+		if node == nil {
+			t.Logf("=== Node %d: container not available ===", i)
+			continue
+		}
+		reader, err := node.Container().Logs(ctx)
+		if err != nil {
+			t.Logf("=== Node %d: failed to get logs: %v ===", i, err)
+			continue
+		}
+		buf, _ := io.ReadAll(reader)
+		reader.Close()
+		lines := strings.Split(string(buf), "\n")
+		if len(lines) > 200 {
+			lines = lines[len(lines)-200:]
+		}
+		t.Logf("=== Node %d logs (last 200 lines) ===\n%s", i, strings.Join(lines, "\n"))
 	}
 }
 

@@ -205,6 +205,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
 	var items []Countable
+	var rawValues []string
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
 	hasRangeableIndex := HasRangeableIndex(prop)
@@ -217,6 +218,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, err
 		}
 		items = a.TextArray(prop.Tokenization, in)
+		if a.captureRawValues {
+			rawValues = in
+		}
 	case schema.DataTypeIntArray:
 		in := make([]int64, len(values))
 		for i, value := range values {
@@ -325,6 +329,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	return &Property{
 		Name:               prop.Name,
 		Items:              items,
+		RawValues:          rawValues,
 		Length:             len(values),
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,
@@ -346,6 +351,7 @@ func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
 	var items []Countable
+	var rawValues []string
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
@@ -360,6 +366,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		}
 		items = a.Text(prop.Tokenization, asString)
 		propertyLength = utf8.RuneCountInString(asString)
+		if a.captureRawValues {
+			rawValues = []string{asString}
+		}
 	case schema.DataTypeInt:
 		if asFloat, ok := value.(float64); ok {
 			// unmarshaling from json into a dynamic schema will assume every number
@@ -450,6 +459,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	return &Property{
 		Name:               prop.Name,
 		Items:              items,
+		RawValues:          rawValues,
 		Length:             propertyLength,
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,

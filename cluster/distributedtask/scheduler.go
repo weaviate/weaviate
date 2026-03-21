@@ -309,12 +309,12 @@ func (s *Scheduler) tick() {
 					if !taskTerminal && !task.AllGroupUnitsTerminal(groupID) {
 						continue
 					}
-					if s.groupCallbackFired[desc] == nil {
-						s.groupCallbackFired[desc] = map[string]bool{}
-					}
-					s.groupCallbackFired[desc][groupID] = true
 					localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 					if len(localIDs) > 0 {
+						if s.groupCallbackFired[desc] == nil {
+							s.groupCallbackFired[desc] = map[string]bool{}
+						}
+						s.groupCallbackFired[desc][groupID] = true
 						suProvider.OnGroupCompleted(task, groupID, localIDs)
 					}
 				}
