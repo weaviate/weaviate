@@ -135,43 +135,15 @@ jobs:
         include:
           - arch: "amd64"
             runner: ubuntu-latest
-            platforms: "linux/amd64"
             push-args: "--amd64-only"
           - arch: "arm64"
             runner: ubuntu-24.04-arm
-            platforms: "linux/arm64"
             push-args: "--arm64-only"
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
-      - name: Build and cache Docker image
-        id: build
-        uses: docker/build-push-action@v7
-        env:
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: .
-          push: false
-          tags: weaviate:${{ github.sha }}
-          platforms: ${{ matrix.platforms }}
-          # Load the result into the local Docker engine only for amd64. Avoids slow emulation on arm64.
-          load: ${{ matrix.arch == 'amd64' }}
-          # Use both arch caches as "read" sources, so BuildKit can reuse whatever matches.
-          cache-from: |
-            type=gha,scope=weaviate-multi
-            type=gha,scope=weaviate-${{ matrix.arch }}
-          # Write back only to this job's cache scope to keep per-arch caches clean.
-          # ignore-error=true prevents the build from failing if the cache export flakes.
-          cache-to: |
-            type=gha,scope=weaviate-${{ matrix.arch }},mode=max,ignore-error=true
-          # CGO disabled for faster cross-compilation and better cache consistency.
-          # No build metadata for PR builds to maximize cache reuse across PRs.
-          build-args: |
-            CGO_ENABLED=0
-            TARGETARCH=${{ matrix.arch }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -197,6 +169,75 @@ jobs:
           name: docker-outputs-pr-${{ matrix.arch }}
           path: /tmp/docker-outputs/
           retention-days: 1
+
+  PR-Vulnerability-Check:
+    name: vulnerability check
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
+    timeout-minutes: 45
+    env:
+      PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: .
+          push: false
+          tags: weaviate:${{ github.sha }}
+          platforms: linux/amd64
+          load: true
+          cache-from: |
+            type=gha,scope=weaviate-multi
+            type=gha,scope=weaviate-amd64
+          build-args: |
+            CGO_ENABLED=0
+
+      - name: Run Orca Container Image Scan
+        id: vuln-scan
+        uses: orcasecurity/shiftleft-container-image-action@v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: weaviate:${{ github.sha }}
+          console_output: "table"
+          format: "sarif"
+          output: "results/"
+
+      - name: Upload SARIF file
+        if: always() && steps.vuln-scan.outputs.exit_code != 1
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results/image.sarif
+
+      - name: Run Orca SAST Scan
+        id: sast-scan
+        uses: orcasecurity/shiftleft-sast-action@v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          fetch-depth: 0
+          path: "."
+
+      - name: Check security scan results
+        run: |
+          if [[ "${{ steps.vuln-scan.outcome }}" == "failure" ]]; then
+            echo "::error::Vulnerability scan failed"
+            exit 1
+          fi
+          if [[ "${{ steps.sast-scan.outcome }}" == "failure" ]]; then
+            echo "::error::SAST scan failed"
+            exit 1
+          fi
+          echo "All security scans passed"
 
   Generate-Docker-Report:
     name: docker report
@@ -719,7 +760,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v4
