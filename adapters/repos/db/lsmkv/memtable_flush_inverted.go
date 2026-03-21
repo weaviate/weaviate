@@ -13,15 +13,14 @@ package lsmkv
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"math"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -189,8 +188,6 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	totalWritten += len(tombstoneBuffer)
 	propLengthsOffset := totalWritten
 
-	b := new(bytes.Buffer)
-
 	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
 
 	if propLengthCount == 0 || math.IsNaN(propLengthAvg) || math.IsInf(propLengthAvg, 0) {
@@ -209,25 +206,19 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	}
 	totalWritten += 8
 
-	e := gob.NewEncoder(b)
+	encoded := gobenc.Encode(docIdsLengths)
 
-	// Encoding the map
-	err := e.Encode(docIdsLengths)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
+	binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
 	if _, err := bw.Write(buf); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += 8
 
-	if _, err := bw.Write(b.Bytes()); err != nil {
+	if _, err := bw.Write(encoded); err != nil {
 		return nil, nil, err
 	}
 
-	totalWritten += b.Len()
+	totalWritten += len(encoded)
 
 	treeOffset := totalWritten
 

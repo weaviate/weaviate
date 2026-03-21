@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"io"
 	"maps"
@@ -27,6 +26,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -274,15 +274,7 @@ func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
-	b := new(bytes.Buffer)
-
-	e := gob.NewEncoder(b)
-
-	// Encoding the map
-	err := e.Encode(propLengths)
-	if err != nil {
-		return 0, err
-	}
+	encoded := gobenc.Encode(propLengths)
 
 	count, average := c.combinePropertyLengths()
 
@@ -298,16 +290,16 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 		return 0, err
 	}
 
-	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
+	binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
 	if _, err := c.segmentFile.BodyWriter().Write(buf); err != nil {
 		return 0, err
 	}
 
-	if _, err := c.segmentFile.BodyWriter().Write(b.Bytes()); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(encoded); err != nil {
 		return 0, err
 	}
-	c.offset += b.Len() + 8 + 8 + 8
-	return b.Len() + 8 + 8 + 8, nil
+	c.offset += len(encoded) + 8 + 8 + 8
+	return len(encoded) + 8 + 8 + 8, nil
 }
 
 func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
