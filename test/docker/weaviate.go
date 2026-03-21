@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -40,6 +41,7 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
+	staticIP string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -166,6 +168,14 @@ func startWeaviate(ctx context.Context,
 				},
 			},
 		},
+	}
+	if staticIP != "" && networkName != "" {
+		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
+			s := settings[networkName]
+			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{
+				IPv4Address: staticIP,
+			}
+		}
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
