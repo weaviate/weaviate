@@ -319,8 +319,15 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 	// Get the container ID
 	containerID := container.container.GetContainerID()
 
-	// Execute docker network connect command
-	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, containerID)
+	// Execute docker network connect command. If the container has a static IP,
+	// pass --ip to preserve it — otherwise Docker assigns a new IP and Raft/memberlist
+	// can't resolve the rejoining node.
+	args := []string{"network", "connect"}
+	if ip := container.StaticIP(); ip != "" {
+		args = append(args, "--ip", ip)
+	}
+	args = append(args, networkName, containerID)
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to connect container %s (id: %s) to network: %w", container.name, containerID, err)
 	}

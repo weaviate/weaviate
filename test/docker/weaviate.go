@@ -41,7 +41,6 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
-	staticIP string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -169,11 +168,11 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
-	if staticIP != "" && networkName != "" {
+	if ip := StaticIPForHostname(containerName); ip != "" && networkName != "" {
 		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
 			s := settings[networkName]
 			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{
-				IPv4Address: staticIP,
+				IPv4Address: ip,
 			}
 		}
 	}

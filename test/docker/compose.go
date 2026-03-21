@@ -687,7 +687,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		tescontainersnetwork.WithAttachable(),
 		tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
 			Config: []dockernetwork.IPAMConfig{
-				{Subnet: "10.99.0.0/16", Gateway: "10.99.0.1"},
+				{Subnet: TestSubnet, Gateway: TestGateway},
 			},
 		}),
 	)
@@ -932,7 +932,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, "")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1087,7 +1087,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	const perAttemptTimeout = 90 * time.Second
 	const readinessTimeout = 120 * time.Second
 
-	startNodeWithRetry := func(cfg map[string]string, hostname, staticIP string) (*DockerContainer, error) {
+	startNodeWithRetry := func(cfg map[string]string, hostname string) (*DockerContainer, error) {
 		var lastErr error
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			if ctx.Err() != nil {
@@ -1096,7 +1096,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, staticIP)
+				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
 			cancel()
 			if err == nil {
 				if attempt > 0 {
@@ -1116,13 +1116,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	// Phase 1: Start all nodes concurrently — each blocks until live.
+	// Static IPs are derived from hostnames via StaticIPForHostname.
 	eg := errgroup.Group{}
 
-	// Static IPs for cluster nodes to prevent IP changes on container restart.
-	nodeIPs := []string{"10.99.0.10", "10.99.0.11", "10.99.0.12"}
-
 	eg.Go(func() (err error) {
-		cs[0], err = startNodeWithRetry(config1, Weaviate0, nodeIPs[0])
+		cs[0], err = startNodeWithRetry(config1, Weaviate0)
 		return err
 	})
 
@@ -1133,7 +1131,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
 		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
 		eg.Go(func() (err error) {
-			cs[1], err = startNodeWithRetry(config2, Weaviate1, nodeIPs[1])
+			cs[1], err = startNodeWithRetry(config2, Weaviate1)
 			return err
 		})
 	}
@@ -1145,7 +1143,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
 		eg.Go(func() (err error) {
-			cs[2], err = startNodeWithRetry(config3, Weaviate2, nodeIPs[2])
+			cs[2], err = startNodeWithRetry(config3, Weaviate2)
 			return err
 		})
 	}
