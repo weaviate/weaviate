@@ -206,12 +206,12 @@ func NewSnapshotBucket(
 	}
 
 	noopCB := cyclemanager.NewCallbackGroupNoop()
-	// Append snapshot-enforced options AFTER caller opts so they cannot be
+	// Snapshot-enforced options go AFTER caller opts so they cannot be
 	// overridden — snapshot buckets must always be read-only and non-compacting.
-	allOpts := append(opts,
-		WithDisableCompaction(true),
-		WithReadOnly(true),
-	)
+	// Copy into a new slice to avoid mutating the caller's underlying array.
+	allOpts := make([]BucketOption, len(opts), len(opts)+2)
+	copy(allOpts, opts)
+	allOpts = append(allOpts, WithDisableCompaction(true), WithReadOnly(true))
 	return NewBucketCreator().NewBucket(ctx, snapshotDir, snapshotDir,
 		logger, nil, noopCB, noopCB, allOpts...)
 }
