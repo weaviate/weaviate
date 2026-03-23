@@ -297,6 +297,40 @@ func TestDecodeErrors(t *testing.T) {
 			errMsg: "too large",
 		},
 		{
+			name: "value_overflows_uint32",
+			data: func() []byte {
+				// Encode a valid single-entry map, then patch the value to be > MaxUint32.
+				// We build the payload manually: preamble + msg length + dataPrefix + count(1) + key(1) + value(MaxUint32+1)
+				val := uint64(math.MaxUint32) + 1
+				bodySize := len(dataPrefix) + gobUintSize(1) + gobUintSize(1) + gobUintSize(val)
+				buf := make([]byte, 0, len(gobMapPreamble)+gobUintSize(uint64(bodySize))+bodySize)
+				buf = append(buf, gobMapPreamble...)
+				buf = appendGobUint(buf, uint64(bodySize))
+				buf = append(buf, dataPrefix...)
+				buf = appendGobUint(buf, 1) // count
+				buf = appendGobUint(buf, 1) // key
+				buf = appendGobUint(buf, val)
+				return buf
+			},
+			errMsg: "overflows uint32",
+		},
+		{
+			name: "invalid_gob_uint_length_byte",
+			data: func() []byte {
+				// Craft data where readGobUint encounters a length byte implying n > 8.
+				// Byte 128 means n = 256-128 = 128, which is invalid.
+				// Place it where the map count is read.
+				bodySize := len(dataPrefix) + 1 // dataPrefix + one byte for the bad count
+				buf := make([]byte, 0, len(gobMapPreamble)+gobUintSize(uint64(bodySize))+bodySize)
+				buf = append(buf, gobMapPreamble...)
+				buf = appendGobUint(buf, uint64(bodySize))
+				buf = append(buf, dataPrefix...)
+				buf = append(buf, 128) // length byte: n = 256-128 = 128 > 8
+				return buf
+			},
+			errMsg: "invalid gob uint length",
+		},
+		{
 			name: "trailing_bytes_after_valid_entries",
 			data: func() []byte {
 				d := Encode(map[uint64]uint32{1: 2})

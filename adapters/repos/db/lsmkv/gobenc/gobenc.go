@@ -11,7 +11,7 @@
 
 // Package gobenc provides allocation-efficient encoding and decoding of
 // map[uint64]uint32. Decoding/gob's reflection machinery causes thousands of heap
-// allocations per call which is a serious problems in hot paths.
+// allocations per call which is a serious problem in hot paths.
 // This package produces the identical wire format so old and new segments are
 // fully interchangeable (backward and forward compatible during rolling
 // upgrades), while cutting allocations to near zero.
@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"math"
 )
 
 // gobMapPreamble is the fixed gob type-definition message for map[uint64]uint32.
@@ -145,6 +146,9 @@ func decodeFast(data []byte) (map[uint64]uint32, error) {
 		}
 		pos += n
 
+		if val > math.MaxUint32 {
+			return nil, fmt.Errorf("value %d at index %d overflows uint32", val, i)
+		}
 		m[key] = uint32(val)
 	}
 
@@ -210,6 +214,9 @@ func readGobUint(data []byte, pos int) (uint64, int, error) {
 		return uint64(b), 1, nil
 	}
 	n := int(256 - int(b)) // number of value bytes
+	if n > 8 {
+		return 0, 0, fmt.Errorf("invalid gob uint length %d at offset %d", n, pos)
+	}
 	if pos+1+n > len(data) {
 		return 0, 0, fmt.Errorf("need %d bytes at offset %d, have %d", n, pos+1, len(data)-pos-1)
 	}
