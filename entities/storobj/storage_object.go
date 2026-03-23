@@ -12,12 +12,10 @@
 package storobj
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"runtime"
 
@@ -372,6 +370,11 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 		return nil, err
 	}
 
+	if includeEmpty {
+		// Positions are meaningful: nils indicate missing objects; do not compact.
+		return out, nil
+	}
+
 	// fix gaps in the output array
 	j := 0
 	for i := range out {
@@ -704,39 +707,20 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	if len(in) < 9 {
 		return 0, errors.Errorf("binary data too short")
 	}
-	// first by is kind, then 8 bytes for the docID
+	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
 }
 
-func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
-	r := bytes.NewReader(in)
-
-	var version uint8
-
-	le := binary.LittleEndian
-
-	if err := binary.Read(r, le, &version); err != nil {
-		return 0, 0, err
+func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
+	// Additional fields may follow after the header and are ignored.
+	if len(in) < marshallerV1HeaderLen {
+		return 0, 0, errors.Errorf("binary data too short")
 	}
-
-	if version != 1 {
-		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", version)
+	if in[0] != 1 {
+		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", in[0])
 	}
-
-	err = binary.Read(r, le, &docID)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	var buf [1 + 16 + 8 + 8]byte // kind uuid createtime updatetime
-
-	_, err = io.ReadFull(r, buf[:])
-	if err != nil {
-		return 0, 0, err
-	}
-
-	updateTime = int64(binary.LittleEndian.Uint64(buf[1+16+8:]))
-
+	docID := binary.LittleEndian.Uint64(in[1:9])
+	updateTime := int64(binary.LittleEndian.Uint64(in[marshallerV1UpdateTimeOffset:marshallerV1HeaderLen]))
 	return docID, updateTime, nil
 }
 
@@ -772,6 +756,13 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // 4             | uint32                   | length of multivectors segment (in bytes)
 // 4 + (2 + n*4) | uint32 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 // TODO vec lengths immediately following num vecs so you can jump straight to specific vec?
+
+// Binary header layout (version 1):
+// version(1) + docID(8) + kind(1) + uuid(16) + createTime(8) + updateTime(8) = 42 bytes
+const (
+	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8 // 42
+	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
+)
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -1435,7 +1426,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
 	if vecLen == 0 {
 		return nil, fmt.Errorf("vector length is 0")
 	}
@@ -1484,7 +1475,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
 
 	var out []float32
 	vecStart := 44

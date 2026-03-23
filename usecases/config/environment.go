@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -53,6 +55,8 @@ const (
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
+
+	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -120,9 +124,41 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
-	config.EnableLazyLoadShards = true
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.EnableLazyLoadShards = false
+		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+	}
+
+	// Lazy load shard count threshold for auto-detection
+	// Determines at what shard count auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_COUNT_THRESHOLD as int: %w", err)
+		}
+		if asInt < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 0")
+		}
+		config.LazyLoadShardCountThreshold = asInt
+		if config.LazyLoadShardCountThreshold == 0 {
+			config.EnableLazyLoadShards = true
+		}
+	} else {
+		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Lazy load shard size threshold for auto-detection (in GB)
+	// Determines at what total shard size auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB as float: %w", err)
+		}
+		if asFloat < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB must be >= 0")
+		}
+		config.LazyLoadShardSizeThresholdGB = asFloat
+	} else {
+		config.LazyLoadShardSizeThresholdGB = DefaultLazyLoadShardSizeThresholdGB
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -506,6 +542,20 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultShardingCount := 0
+	if err := parseNonNegativeInt(
+		"DEFAULT_SHARDING_COUNT",
+		func(v int) { defaultShardingCount = v },
+		0,
+	); err != nil {
+		return err
+	}
+	if defaultShardingCount > DefaultMaxShardingCount {
+		return fmt.Errorf("DEFAULT_SHARDING_COUNT must be <= %d, got %d",
+			DefaultMaxShardingCount, defaultShardingCount)
+	}
+	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
+
 	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
@@ -648,6 +698,17 @@ func FromEnv(config *Config) error {
 		config.Backup.ChunkTargetSize = parsed
 	} else {
 		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
+	}
+
+	if v := os.Getenv("BACKUP_SPLIT_FILE_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_SPLIT_FILE_SIZE: %w", err)
+		}
+
+		config.Backup.SplitFileSize = parsed
+	} else {
+		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -920,8 +981,18 @@ func FromEnv(config *Config) error {
 		config.TelemetryPushInterval = interval
 	}
 
-	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
-		config.HNSWStartupWaitForVectorCache = true
+	{
+		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
+		switch {
+		// Deprecated flag: still honored, environment always wins over auto-detection.
+		case waitEnvSet:
+			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. Vector cache prefill is now always enabled and will match the lazy load shard configuration.")
+
+		default:
+			config.HNSWStartupWaitForVectorCache = true
+
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -1062,6 +1133,13 @@ func FromEnv(config *Config) error {
 		operationalMode = v
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
+	disableDimensionMetrics := false
+	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
+		disableDimensionMetrics = entcfg.Enabled(v)
+	}
+
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
 	return nil
 }
@@ -1464,7 +1542,7 @@ const (
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 30
+	DefaultAsyncReplicationClusterMaxWorkers   = 15
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 

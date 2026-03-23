@@ -37,6 +37,10 @@ type ExportStatusResponse struct {
 	// List of collections in this export
 	Classes []string `json:"classes"`
 
+	// When the export completed (successfully, with failure, or was canceled)
+	// Format: date-time
+	CompletedAt strfmt.DateTime `json:"completedAt,omitempty"`
+
 	// Error message if export failed
 	Error string `json:"error,omitempty"`
 
@@ -54,7 +58,7 @@ type ExportStatusResponse struct {
 	StartedAt strfmt.DateTime `json:"startedAt,omitempty"`
 
 	// Current status of the export
-	// Enum: [STARTED TRANSFERRING SUCCESS FAILED SKIPPED]
+	// Enum: [STARTED TRANSFERRING SUCCESS FAILED CANCELED]
 	Status string `json:"status,omitempty"`
 
 	// Duration of the export in milliseconds
@@ -64,6 +68,10 @@ type ExportStatusResponse struct {
 // Validate validates this export status response
 func (m *ExportStatusResponse) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateCompletedAt(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateShardStatus(formats); err != nil {
 		res = append(res, err)
@@ -80,6 +88,18 @@ func (m *ExportStatusResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ExportStatusResponse) validateCompletedAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.CompletedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("completedAt", "body", "date-time", m.CompletedAt.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -129,7 +149,7 @@ var exportStatusResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED","SKIPPED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -151,8 +171,8 @@ const (
 	// ExportStatusResponseStatusFAILED captures enum value "FAILED"
 	ExportStatusResponseStatusFAILED string = "FAILED"
 
-	// ExportStatusResponseStatusSKIPPED captures enum value "SKIPPED"
-	ExportStatusResponseStatusSKIPPED string = "SKIPPED"
+	// ExportStatusResponseStatusCANCELED captures enum value "CANCELED"
+	ExportStatusResponseStatusCANCELED string = "CANCELED"
 )
 
 // prop value enum

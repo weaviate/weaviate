@@ -150,7 +150,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	exportUsecase "github.com/weaviate/weaviate/usecases/export"
+	exportusecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -411,6 +411,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
 		EnableLazyLoadShards:                appState.ServerConfig.Config.EnableLazyLoadShards,
+		LazyLoadShardCountThreshold:         appState.ServerConfig.Config.LazyLoadShardCountThreshold,
+		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
@@ -451,6 +453,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -511,7 +514,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	nodeName := appState.Cluster.LocalName()
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
+	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
 	grpcConfig := appState.ServerConfig.Config.GRPC
 	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
@@ -678,7 +681,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.BackupManager = backupManager
 
 	// Create export participant early so the cluster API server can register it
-	appState.ExportParticipant = exportUsecase.NewParticipant(serverShutdownCtx, appState.DB, appState.Modules, appState.Logger)
+	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportParticipant = exportusecase.NewParticipant(
+		appState.DB, appState.Modules, appState.Logger,
+		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -790,10 +797,21 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		providers := map[string]distributedtask.Provider{}
+
+		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
+			shardNoopProvider := distributedtask.NewShardNoopProvider(
+				appState.Cluster.LocalName(), appState.Logger, repo,
+				appState.ServerConfig.Config.Persistence.DataPath,
+			)
+			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+			setupShardNoopDebugHandler(appState, shardNoopProvider)
+		}
+
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,
 			TasksLister:        appState.ClusterService.Raft,
-			Providers:          map[string]distributedtask.Provider{},
+			Providers:          providers,
 			Logger:             appState.Logger,
 			MetricsRegisterer:  metricsRegisterer,
 			LocalNode:          appState.Cluster.LocalName(),
@@ -977,19 +995,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
-	exportScheduler := startExportScheduler(serverShutdownCtx, appState)
+	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 	}
-
-	var grpcInstrument []grpc.ServerOption
-	if appState.ServerConfig.Config.Monitoring.Enabled {
-		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
-	}
-
-	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
 	telemeter := telemetry.New(
 		appState.DB,
@@ -998,6 +1009,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
 	)
+
+	var grpcInstrument []grpc.ServerOption
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
+	}
+
+	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1021,6 +1039,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		// Reject new export requests and signal in-flight exports to stop
+		// early, while the server can still serve other requests. The actual
+		// wait for export drain happens in ServerShutdown.
+		exportScheduler.StartShutdown()
+		appState.ExportParticipant.StartShutdown()
 		batchDrain()
 	}
 
@@ -1029,6 +1052,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
+
+		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
+		exportDone := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(exportDone)
+			exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer exportCancel()
+			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+				appState.Logger.
+					WithError(err).
+					WithField("action", "shutdown export participant").
+					Errorf("failed to gracefully shutdown")
+			}
+		}, appState.Logger)
 
 		// drain any ongoing operations
 		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
@@ -1066,6 +1103,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
+
+		// Ensure export cleanup finished before closing the infrastructure
+		// it depends on (internal server, cluster service, modules).
+		<-exportDone
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -1115,31 +1156,18 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	return backupScheduler
 }
 
-func startExportScheduler(shutdownCtx context.Context, appState *state.State) *exportUsecase.Scheduler {
-	var client exportUsecase.ExportClient
-	var nodeResolver exportUsecase.NodeResolver
-	var localNode string
-
-	if appState.Cluster != nil {
-		localNode = appState.Cluster.LocalName()
-		if appState.ClusterHttpClient != nil {
-			client = clients.NewClusterExports(appState.ClusterHttpClient)
-			nodeResolver = appState.Cluster
-		}
-	}
-
-	exportScheduler := exportUsecase.NewScheduler(
-		shutdownCtx,
+func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
+	return exportusecase.NewScheduler(
 		appState.Authorizer,
+		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.DB,
 		appState.Modules,
 		appState.Logger,
-		client,
-		nodeResolver,
-		localNode,
+		clients.NewClusterExports(appState.ClusterHttpClient),
+		appState.Cluster,
+		appState.Cluster.LocalName(),
 		appState.ExportParticipant,
 	)
-	return exportScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
@@ -1221,6 +1249,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
+	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
@@ -2123,6 +2152,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier

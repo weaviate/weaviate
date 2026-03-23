@@ -282,11 +282,20 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			}
 			nearVec := search.Hybrid.NearVector
 
+			var alpha float64
+			if !hs.UseAlphaParam {
+				alpha = float64(hs.Alpha)
+			} else if hs.AlphaParam != nil {
+				alpha = float64(*hs.AlphaParam)
+			} else {
+				alpha = common_filters.DefaultAlpha
+			}
+
 			params.Hybrid = &searchparams.HybridSearch{
 				Query:           hs.Query,
 				Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
 				Vector:          vector,
-				Alpha:           float64(hs.Alpha),
+				Alpha:           alpha,
 				FusionAlgorithm: fusionType,
 				TargetVectors:   targetVectors,
 				Distance:        distance,

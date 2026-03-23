@@ -60,6 +60,9 @@ func (c *ClusterExports) Prepare(ctx context.Context, host string, req *export.E
 		return fmt.Errorf("prepare request: %w", err)
 	}
 
+	if statusCode == http.StatusConflict {
+		return fmt.Errorf("%w: %s", export.ErrExportAlreadyActive, respBody)
+	}
 	if statusCode != http.StatusOK {
 		return fmt.Errorf("prepare failed: status %d (%s)", statusCode, respBody)
 	}
@@ -89,15 +92,22 @@ func (c *ClusterExports) Commit(ctx context.Context, host, exportID string) erro
 }
 
 // Abort tells a participant to release its reservation.
-func (c *ClusterExports) Abort(ctx context.Context, host, exportID string) {
+func (c *ClusterExports) Abort(ctx context.Context, host, exportID string) error {
 	u := url.URL{Scheme: "http", Host: host, Path: pathExportAbort, RawQuery: "id=" + url.QueryEscape(exportID)}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
 	if err != nil {
-		return
+		return fmt.Errorf("new abort request: %w", err)
 	}
 
-	c.do(httpReq)
+	respBody, statusCode, err := c.do(httpReq)
+	if err != nil {
+		return err
+	}
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("abort failed: status %d (%s)", statusCode, respBody)
+	}
+	return nil
 }
 
 // IsRunning checks whether a participant node is still running the given export.

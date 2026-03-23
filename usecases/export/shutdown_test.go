@@ -15,8 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,69 +25,50 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestScheduler_ShutdownWritesFailedMetadata(t *testing.T) {
+func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
 	// blockingSelector blocks in AcquireShardForExport until released
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}
 
-	participant := NewParticipant(shutdownCtx, selector, &fakeBackendProvider{backend: backend}, logger)
+	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
-	s := &Scheduler{
-		shutdownCtx: shutdownCtx,
-		logger:      logger,
-		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
-		participant: participant,
+	req := &ExportRequest{
+		ID:       "test-export",
+		Backend:  "s3",
+		Classes:  []string{"TestClass"},
+		Shards:   map[string][]string{"TestClass": {"shard0"}},
+		NodeName: "node1",
 	}
 
-	status := &models.ExportStatusResponse{
-		ID:      "test-export",
-		Backend: "s3",
-		Status:  string(export.Transferring),
-		Classes: []string{"TestClass"},
-	}
-
-	done := make(chan struct{})
-	go func() {
-		s.performSingleNodeExport(shutdownCtx, backend, "test-export", status, []string{"TestClass"}, "", "")
-		close(done)
-	}()
+	require.NoError(t, participant.Prepare(context.Background(), req))
+	require.NoError(t, participant.Commit(context.Background(), "test-export"))
 
 	// Wait for AcquireShardForExport to be called
 	selector.waitForCall(t)
 
 	// Simulate shutdown
-	shutdownCancel()
+	participant.StartShutdown()
 
 	// Unblock the selector so it can return the context error
 	close(selector.blockCh)
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("performSingleNodeExport did not return after shutdown")
-	}
+	// Wait for the export goroutine to finish by polling for the status file
+	require.Eventually(t, func() bool {
+		return backend.getWritten("node_node1_status.json") != nil
+	}, 5*time.Second, 10*time.Millisecond, "expected node status to be written")
 
-	// Verify a failed metadata was written
-	require.Equal(t, string(export.Failed), status.Status)
-
-	written := backend.getWritten(exportMetadataFile)
-	require.NotNil(t, written, "expected metadata to be written")
-
-	var meta ExportMetadata
-	require.NoError(t, json.Unmarshal(written, &meta))
-	assert.Equal(t, export.Failed, meta.Status)
-	assert.Contains(t, meta.Error, "context canceled")
+	written := backend.getWritten("node_node1_status.json")
+	var nodeStatus NodeStatus
+	require.NoError(t, json.Unmarshal(written, &nodeStatus))
+	assert.Equal(t, export.Failed, nodeStatus.Status)
+	assert.Contains(t, nodeStatus.Error, "context canceled")
 }
 
 func TestParticipant_ShutdownWritesFailedNodeStatus(t *testing.T) {
@@ -157,14 +137,21 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 		},
 	}
 
+	// node1 is alive and still running the export
+	client := &fakeExportClient{
+		isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+			return true, nil
+		},
+	}
+
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
+		client:       client,
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -175,173 +162,13 @@ func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// node2 is dead and has no status file → overall status should be FAILED
 	assert.Equal(t, string(export.Failed), status.Status)
 	assert.Contains(t, status.Error, "node2")
 	assert.Contains(t, status.Error, "no longer part of the cluster")
-}
-
-// fakeNodeResolver returns hostnames only for nodes in its map.
-// Nodes not in the map are considered dead.
-type fakeNodeResolver struct {
-	nodes map[string]string
-}
-
-func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
-	host, ok := r.nodes[nodeName]
-	return host, ok
-}
-
-// blockingSelector blocks AcquireShardForExport until blockCh is closed.
-type blockingSelector struct {
-	blockCh   chan struct{}
-	classList []string
-	called    bool
-	calledMu  sync.Mutex
-	calledCh  chan struct{}
-	once      sync.Once
-}
-
-func (s *blockingSelector) initCalledCh() {
-	s.once.Do(func() {
-		s.calledCh = make(chan struct{})
-	})
-}
-
-func (s *blockingSelector) waitForCall(t *testing.T) {
-	t.Helper()
-	s.initCalledCh()
-	select {
-	case <-s.calledCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("AcquireShardForExport was not called")
-	}
-}
-
-func (s *blockingSelector) ListClasses(_ context.Context) []string {
-	return s.classList
-}
-
-func (s *blockingSelector) ShardOwnership(_ context.Context, _ string) (map[string][]string, error) {
-	return nil, nil
-}
-
-func (s *blockingSelector) IsMultiTenant(_ context.Context, _ string) bool {
-	return false
-}
-
-func (s *blockingSelector) ExportShardNames(_ string) ([]string, bool, error) {
-	return []string{"shard0"}, false, nil
-}
-
-func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), string, error) {
-	s.initCalledCh()
-	s.calledMu.Lock()
-	if !s.called {
-		s.called = true
-		close(s.calledCh)
-	}
-	s.calledMu.Unlock()
-
-	select {
-	case <-ctx.Done():
-		return nil, nil, "", ctx.Err()
-	case <-s.blockCh:
-		return nil, nil, "", ctx.Err()
-	}
-}
-
-// fakeBackend captures Write calls so tests can verify what was written.
-type fakeBackend struct {
-	mu      sync.Mutex
-	written map[string][]byte
-}
-
-func (b *fakeBackend) Write(_ context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (int64, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return 0, err
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.written == nil {
-		b.written = make(map[string][]byte)
-	}
-	b.written[key] = data
-	return int64(len(data)), nil
-}
-
-func (b *fakeBackend) getWritten(key string) []byte {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.written[key]
-}
-
-func (b *fakeBackend) HomeDir(_, _, _ string) string { return "" }
-func (b *fakeBackend) Initialize(context.Context, string, string, string) error {
-	return nil
-}
-
-func (b *fakeBackend) GetObject(_ context.Context, _ string, key string, _, _ string) ([]byte, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if data, ok := b.written[key]; ok {
-		return data, nil
-	}
-	return nil, backup.NewErrNotFound(fmt.Errorf("not found: %s", key))
-}
-
-func (b *fakeBackend) IsExternal() bool       { return true }
-func (b *fakeBackend) Name() string           { return "fake" }
-func (b *fakeBackend) SourceDataPath() string { return "" }
-func (b *fakeBackend) PutObject(context.Context, string, string, string, string, []byte) error {
-	return nil
-}
-
-func (b *fakeBackend) WriteToFile(context.Context, string, string, string, string, string) error {
-	return nil
-}
-
-func (b *fakeBackend) Read(context.Context, string, string, string, string, io.WriteCloser) (int64, error) {
-	return 0, nil
-}
-
-func (b *fakeBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	return nil, nil
-}
-
-// fakeBackendProvider returns the same fakeBackend for any backend name.
-type fakeBackendProvider struct {
-	backend modulecapabilities.BackupBackend
-}
-
-func (p *fakeBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
-	return p.backend, nil
-}
-
-// fakeExportClient implements ExportClient for tests.
-type fakeExportClient struct {
-	isRunningFn func(ctx context.Context, host, exportID string) (bool, error)
-}
-
-func (c *fakeExportClient) Prepare(_ context.Context, _ string, _ *ExportRequest) error {
-	return nil
-}
-
-func (c *fakeExportClient) Commit(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (c *fakeExportClient) Abort(_ context.Context, _, _ string) {}
-
-func (c *fakeExportClient) IsRunning(ctx context.Context, host, exportID string) (bool, error) {
-	if c.isRunningFn != nil {
-		return c.isRunningFn(ctx, host, exportID)
-	}
-	return false, nil
 }
 
 func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
@@ -362,14 +189,13 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 	}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		client:       client,
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -379,12 +205,87 @@ func TestScheduler_RestartedNodeMarkedAsFailed(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
 	assert.Contains(t, status.Error, "node1")
 	assert.Contains(t, status.Error, "no longer running")
+}
+
+// TestScheduler_LivenessReReadResolvesRace verifies that when IsRunning
+// returns false but the status file was updated to Success between the
+// initial read and the liveness check, the re-read resolves the race and
+// the export is reported as successful (not failed).
+func TestScheduler_LivenessReReadResolvesRace(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := &fakeBackend{}
+
+	resolver := &fakeNodeResolver{
+		nodes: map[string]string{
+			"node1": "host1:8080",
+		},
+	}
+
+	// Simulate the race: the first GetObject (initial read) returns
+	// ErrNotFound, the second GetObject (re-read after liveness failure)
+	// returns a Success status. IsRunning returns false because the
+	// participant cleared its active export between the two reads.
+	var readCount atomic.Int32
+	successStatus := &NodeStatus{
+		NodeName:    "node1",
+		Status:      export.Success,
+		CompletedAt: time.Now().UTC(),
+		ShardProgress: map[string]map[string]*ShardProgress{
+			"TestClass": {
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 5},
+			},
+		},
+	}
+	successData, err := json.Marshal(successStatus)
+	require.NoError(t, err)
+
+	// Intercept reads: first call → not found, second call → Success.
+	backend.interceptGetObject = func(key string) ([]byte, error, bool) {
+		if key != "node_node1_status.json" {
+			return nil, nil, false // pass through
+		}
+		n := readCount.Add(1)
+		if n == 1 {
+			return nil, backup.NewErrNotFound(fmt.Errorf("not found")), true
+		}
+		return successData, nil, true
+	}
+
+	client := &fakeExportClient{
+		isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+			return false, nil // not running — goroutine finished
+		},
+	}
+
+	s := &Scheduler{
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		client:       client,
+		nodeResolver: resolver,
+	}
+
+	meta := &ExportMetadata{
+		ID:      "test-export",
+		Backend: "s3",
+		Classes: []string{"TestClass"},
+		NodeAssignments: map[string]map[string][]string{
+			"node1": {"TestClass": {"shard0"}},
+		},
+		StartedAt: time.Now().UTC(),
+	}
+
+	status, allTerminal, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(export.Success), status.Status, "re-read should resolve the race to Success")
+	assert.True(t, allTerminal, "node reached terminal state via re-read")
+	assert.Empty(t, status.Error, "no error expected for successful re-read")
 }
 
 func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
@@ -397,14 +298,15 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		Status:   export.Transferring,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 300},
-				"shard1": {Status: export.Transferring, ObjectsExported: 200},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 300},
+				"shard1": {Status: export.ShardTransferring, ObjectsExported: 200},
 			},
 		},
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{
@@ -419,14 +321,13 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 	}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		client:       client,
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -436,7 +337,7 @@ func TestScheduler_TransferringNodeStaysTransferring(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// Overall status stays Transferring
@@ -461,14 +362,15 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		Status:   export.Transferring,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 300},
-				"shard1": {Status: export.Transferring, ObjectsExported: 100},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 300},
+				"shard1": {Status: export.ShardTransferring, ObjectsExported: 100},
 			},
 		},
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	// node1 is no longer in the cluster
 	resolver := &fakeNodeResolver{
@@ -476,13 +378,13 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
+		client:       &fakeExportClient{},
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -492,7 +394,7 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(export.Failed), status.Status)
@@ -509,41 +411,130 @@ func TestScheduler_DeadNodeShardProgress(t *testing.T) {
 	assert.Equal(t, int64(100), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
 }
 
-func TestScheduler_MetadataWrittenWithSuccessStatus(t *testing.T) {
+func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// emptySelector returns no shards, so export succeeds immediately
-	selector := &emptySelector{classList: []string{"TestClass"}}
+	// fakeSelector returns no shards, so export succeeds immediately
+	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
-	participant := NewParticipant(context.Background(), selector, backends, logger)
+	participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
-	s := &Scheduler{
-		shutdownCtx: context.Background(),
-		logger:      logger,
-		selector:    selector,
-		backends:    backends,
-		participant: participant,
+	req := &ExportRequest{
+		ID:       "test-export",
+		Backend:  "s3",
+		Classes:  []string{"TestClass"},
+		Shards:   map[string][]string{"TestClass": nil},
+		NodeName: "node1",
 	}
 
-	status := &models.ExportStatusResponse{
-		ID:      "test-export",
-		Backend: "s3",
-		Status:  string(export.Transferring),
-		Classes: []string{"TestClass"},
+	require.NoError(t, participant.Prepare(context.Background(), req))
+	require.NoError(t, participant.Commit(context.Background(), "test-export"))
+
+	// Wait for the export goroutine to finish by polling for the status file
+	require.Eventually(t, func() bool {
+		return backend.getWritten("node_node1_status.json") != nil
+	}, 5*time.Second, 10*time.Millisecond, "expected node status to be written")
+
+	written := backend.getWritten("node_node1_status.json")
+	var nodeStatus NodeStatus
+	require.NoError(t, json.Unmarshal(written, &nodeStatus))
+	assert.Equal(t, export.Success, nodeStatus.Status)
+	assert.Empty(t, nodeStatus.Error)
+}
+
+func TestScheduler_CancelAndExportRace(t *testing.T) {
+	// Fires Cancel() while a participant export is running concurrently
+	// 100 times to verify that Cancel correctly aborts or detects that
+	// the export already finished.
+	for i := range 100 {
+		t.Run(fmt.Sprintf("iter_%d", i), func(t *testing.T) {
+			t.Parallel()
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			selector := &fakeSelector{classList: []string{"TestClass"}}
+			backends := &fakeBackendProvider{backend: backend}
+			participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+
+			resolver := &fakeNodeResolver{
+				nodes: map[string]string{
+					"node1": "host1:8080",
+				},
+			}
+
+			client := &fakeExportClient{
+				isRunningFn: func(_ context.Context, _ string, _ string) (bool, error) {
+					return participant.IsRunning("test-export"), nil
+				},
+			}
+
+			s := &Scheduler{
+				logger:       logger,
+				authorizer:   mocks.NewMockAuthorizer(),
+				selector:     selector,
+				backends:     backends,
+				participant:  participant,
+				client:       client,
+				nodeResolver: resolver,
+				localNode:    "node1",
+			}
+
+			// Write initial metadata so Cancel() can find it.
+			initialMeta := &ExportMetadata{
+				ID:      "test-export",
+				Backend: "s3",
+				Status:  export.Started,
+				Classes: []string{"TestClass"},
+				NodeAssignments: map[string]map[string][]string{
+					"node1": {"TestClass": nil},
+				},
+				StartedAt: time.Now().UTC(),
+			}
+			metaData, err := json.Marshal(initialMeta)
+			require.NoError(t, err)
+			_, err = backend.Write(context.Background(), "test-export", exportMetadataFile, "", "", newBytesReadCloser(metaData))
+			require.NoError(t, err)
+
+			// Start the export via Prepare/Commit
+			req := &ExportRequest{
+				ID:       "test-export",
+				Backend:  "s3",
+				Classes:  []string{"TestClass"},
+				Shards:   map[string][]string{"TestClass": nil},
+				NodeName: "node1",
+			}
+			require.NoError(t, participant.Prepare(context.Background(), req))
+			require.NoError(t, participant.Commit(context.Background(), "test-export"))
+
+			// Fire Cancel concurrently.
+			cancelErr := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+
+			// Wait for the export goroutine to finish
+			require.Eventually(t, func() bool {
+				return !participant.IsRunning("test-export")
+			}, 5*time.Second, 10*time.Millisecond)
+
+			written := backend.getWritten(exportMetadataFile)
+			require.NotNil(t, written, "expected metadata to be written")
+
+			var meta ExportMetadata
+			require.NoError(t, json.Unmarshal(written, &meta))
+
+			switch meta.Status {
+			case export.Success, export.Failed:
+				// Export finished before cancel took effect — cancel should
+				// return AlreadyFinished or have written the metadata itself.
+				// Both are acceptable race outcomes.
+			case export.Canceled:
+				assert.NoError(t, cancelErr)
+			case export.Started:
+				// Cancel may not have promoted yet — acceptable race outcome.
+			default:
+				t.Fatalf("unexpected terminal status: %s", meta.Status)
+			}
+		})
 	}
-
-	s.performSingleNodeExport(context.Background(), backend, "test-export", status, []string{"TestClass"}, "", "")
-
-	require.Equal(t, string(export.Success), status.Status)
-
-	written := backend.getWritten(exportMetadataFile)
-	require.NotNil(t, written, "expected metadata to be written")
-
-	var meta ExportMetadata
-	require.NoError(t, json.Unmarshal(written, &meta))
-	assert.Equal(t, export.Success, meta.Status)
-	assert.Empty(t, meta.Error)
 }
 
 func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
@@ -556,14 +547,15 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		Status:   export.Success,
 		ShardProgress: map[string]map[string]*ShardProgress{
 			"TestClass": {
-				"shard0": {Status: export.Success, ObjectsExported: 500},
-				"shard1": {Status: export.Skipped, ObjectsExported: 0},
+				"shard0": {Status: export.ShardSuccess, ObjectsExported: 500},
+				"shard1": {Status: export.ShardSkipped, ObjectsExported: 0},
 			},
 		},
 	}
 	data, err := json.Marshal(nodeStatus)
 	require.NoError(t, err)
-	backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	_, err = backend.Write(context.Background(), "", "node_node1_status.json", "", "", newBytesReadCloser(data))
+	require.NoError(t, err)
 
 	resolver := &fakeNodeResolver{
 		nodes: map[string]string{
@@ -578,14 +570,13 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 	}
 
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
 		client:       client,
 		nodeResolver: resolver,
 	}
 
-	plan := &ExportPlan{
+	meta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
 		Classes: []string{"TestClass"},
@@ -595,7 +586,7 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 		StartedAt: time.Now().UTC(),
 	}
 
-	status, err := s.assembleStatusFromPlan(context.Background(), backend, nil, "test-export", "", "", plan)
+	status, _, err := s.assembleStatusFromMetadata(context.Background(), backend, "test-export", "", "", meta)
 	require.NoError(t, err)
 
 	// Overall status is Success — skipped shards don't block completion
@@ -604,34 +595,8 @@ func TestScheduler_SkippedShardInStatusAssembly(t *testing.T) {
 
 	// Per-shard status is correctly reported
 	require.NotNil(t, status.ShardStatus["TestClass"])
-	assert.Equal(t, string(export.Success), status.ShardStatus["TestClass"]["shard0"].Status)
+	assert.Equal(t, string(export.ShardSuccess), status.ShardStatus["TestClass"]["shard0"].Status)
 	assert.Equal(t, int64(500), status.ShardStatus["TestClass"]["shard0"].ObjectsExported)
-	assert.Equal(t, string(export.Skipped), status.ShardStatus["TestClass"]["shard1"].Status)
+	assert.Equal(t, string(export.ShardSkipped), status.ShardStatus["TestClass"]["shard1"].Status)
 	assert.Equal(t, int64(0), status.ShardStatus["TestClass"]["shard1"].ObjectsExported)
-}
-
-// emptySelector returns no shards for any class, allowing exportClass to
-// complete immediately without needing real store/parquet infrastructure.
-type emptySelector struct {
-	classList []string
-}
-
-func (s *emptySelector) ListClasses(context.Context) []string {
-	return s.classList
-}
-
-func (s *emptySelector) ShardOwnership(context.Context, string) (map[string][]string, error) {
-	return nil, nil
-}
-
-func (s *emptySelector) IsMultiTenant(_ context.Context, _ string) bool {
-	return false
-}
-
-func (s *emptySelector) ExportShardNames(_ string) ([]string, bool, error) {
-	return nil, false, nil
-}
-
-func (s *emptySelector) AcquireShardForExport(_ context.Context, _, _ string) (ShardLike, func(), string, error) {
-	return nil, func() {}, "", nil
 }

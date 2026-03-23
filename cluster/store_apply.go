@@ -389,10 +389,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)
 		}
-	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:
-		f = func() {
-			ret.Error = st.distributedTasksManager.RecordNodeCompletion(&cmd, st.numberOfNodesInTheCluster())
-		}
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
 		f = func() {
 			ret.Error = st.distributedTasksManager.CancelTask(&cmd)
@@ -400,6 +396,14 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordUnitCompletion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS:
+		f = func() {
+			ret.Error = st.distributedTasksManager.UpdateUnitProgress(&cmd)
 		}
 
 	default:
@@ -425,8 +429,4 @@ func (st *Store) Apply(l *raft.Log) any {
 	wg.Wait()
 
 	return ret
-}
-
-func (st *Store) numberOfNodesInTheCluster() int {
-	return len(st.raft.GetConfiguration().Configuration().Servers)
 }

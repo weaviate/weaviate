@@ -42,20 +42,22 @@ type modulesProvider interface {
 }
 
 type Parser struct {
-	clusterState        clusterState
-	configParser        VectorConfigParser
-	validator           validator
-	modules             modulesProvider
-	defaultQuantization *configRuntime.DynamicValue[string]
+	clusterState         clusterState
+	configParser         VectorConfigParser
+	validator            validator
+	modules              modulesProvider
+	defaultQuantization  *configRuntime.DynamicValue[string]
+	defaultShardingCount *configRuntime.DynamicValue[int]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string], defaultShardingCount *configRuntime.DynamicValue[int]) *Parser {
 	return &Parser{
-		clusterState:        cs,
-		configParser:        vCfg,
-		validator:           v,
-		modules:             modules,
-		defaultQuantization: defaultQuantization,
+		clusterState:         cs,
+		configParser:         vCfg,
+		validator:            v,
+		modules:              modules,
+		defaultQuantization:  defaultQuantization,
+		defaultShardingCount: defaultShardingCount,
 	}
 }
 
@@ -177,7 +179,16 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
+		// Override nodeCount with the configured default. This runs before RAFT
+		// proposal, so the resolved desiredCount is committed to the log and
+		// all nodes see the same value regardless of their local config.
+		nodeCount := p.clusterState.NodeCount()
+		if p.defaultShardingCount != nil {
+			if override := p.defaultShardingCount.Get(); override > 0 {
+				nodeCount = override
+			}
+		}
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, nodeCount)
 		if err != nil {
 			return err
 		}
