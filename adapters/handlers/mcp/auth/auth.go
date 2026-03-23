@@ -54,9 +54,14 @@ func (a *Auth) Authorize(ctx context.Context, req mcp.CallToolRequest, verb stri
 
 // AuthorizeCollectionData checks that the principal has the given verb permission
 // on the specified collection and tenant data, matching the authorization pattern
-// used by the REST and GraphQL endpoints (authorization.ShardsData).
+// used by the gRPC endpoint (service.go classGetterWithAuthzFunc): use
+// CollectionsData when no tenant is specified, ShardsData when one is.
 func (a *Auth) AuthorizeCollectionData(ctx context.Context, principal *models.Principal, verb, collection, tenant string) error {
-	return a.authorizer.Authorize(ctx, principal, verb, authorization.ShardsData(collection, tenant)...)
+	resources := authorization.CollectionsData(collection)
+	if tenant != "" {
+		resources = authorization.ShardsData(collection, tenant)
+	}
+	return a.authorizer.Authorize(ctx, principal, verb, resources...)
 }
 
 func (a *Auth) principalFromRequest(req mcp.CallToolRequest) (*models.Principal, error) {
