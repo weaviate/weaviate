@@ -421,7 +421,7 @@ jobs:
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
       - name: Acceptance tests (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: 2
@@ -491,7 +491,7 @@ jobs:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -527,7 +527,7 @@ jobs:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -738,7 +738,7 @@ jobs:
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
       - name: Acceptance tests Large
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
@@ -776,7 +776,7 @@ jobs:
             echo "retry_max_attempts=1" >> $GITHUB_ENV
           fi
       - name: Acceptance tests Large
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
