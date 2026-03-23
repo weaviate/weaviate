@@ -487,10 +487,14 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 //   - count * (bytesPerScheme + 1): vector IDs and version
 func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
-	// copy metadata to a new array
-	handle := bufferPool.Get(len(metadata), len(metadata))
-	copy(*handle, metadata)
-	return p.bucket.Put(key[:], *handle)
+	// Copy metadata before passing to the LSM bucket: bucket.Put stores the
+	// value slice directly in the memtable BST without copying, so the caller
+	// must not reuse or pool the buffer afterwards. Using a plain make here
+	// (rather than bufferPool) avoids draining the pool with buffers that can
+	// never be returned.
+	metadataCopy := make([]byte, len(metadata))
+	copy(metadataCopy, metadata)
+	return p.bucket.Put(key[:], metadataCopy)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
@@ -514,9 +518,13 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 		}
 
 		postingID := binary.LittleEndian.Uint64(k[len(p.keyPrefix):])
-		handle := bufferPool.Get(len(v), len(v))
-		copy(*handle, v)
-		err := fn(postingID, PackedPostingMetadata(*handle))
+		// Copy the cursor value: the cursor slice is only valid until the next
+		// advance, and callbacks (e.g. Restore) store the PackedPostingMetadata
+		// permanently. Using plain make rather than bufferPool avoids draining
+		// the pool with buffers that are never returned.
+		metadata := make([]byte, len(v))
+		copy(metadata, v)
+		err := fn(postingID, PackedPostingMetadata(metadata))
 		if err != nil {
 			return err
 		}
