@@ -607,6 +607,14 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+// WithWeaviateFiles copies the given files into each Weaviate container
+// before it starts. Useful for injecting configuration files such as runtime
+// override YAML.
+func (d *Compose) WithWeaviateFiles(files ...testcontainers.ContainerFile) *Compose {
+	d.weaviateFiles = append(d.weaviateFiles, files...)
+	return d
+}
+
 func (d *Compose) WithMockOIDC() *Compose {
 	d.withMockOIDC = true
 	return d

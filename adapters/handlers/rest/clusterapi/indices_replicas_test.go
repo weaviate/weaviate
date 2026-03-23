@@ -12,7 +12,9 @@
 package clusterapi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,14 +23,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
@@ -294,6 +300,10 @@ func TestReplicatedIndicesShutdown(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			noopAuth := clusterapi.NewNoopAuthHandler()
 			fakeReplicator := replicaTypes.NewMockReplicator(t)
+			fakeReplicator.EXPECT().
+				CommitReplication(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(replica.SimpleResponse{}).
+				Maybe()
 			logger, _ := test.NewNullLogger()
 
 			indices := clusterapi.NewReplicatedIndices(
@@ -584,4 +594,131 @@ func TestReplicatedIndicesShutdownWithStuckRequests(t *testing.T) {
 
 	// Wait for the stuck request to complete (it should eventually timeout)
 	wg.Wait()
+}
+
+func newOverwriteServer(t *testing.T) (*httptest.Server, string) {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	indices := clusterapi.NewReplicatedIndices(
+		newFakeReplicator(false),
+		clusterapi.NewNoopAuthHandler(),
+		func() bool { return false },
+		cluster.RequestQueueConfig{},
+		logger,
+		func() bool { return true },
+	)
+	mux := http.NewServeMux()
+	mux.Handle("/replicas/indices/", indices.Indices())
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	url := server.URL + "/replicas/indices/C1/shards/S1/objects/_overwrite"
+	return server, url
+}
+
+func vobjectPayload(t *testing.T) []byte {
+	t.Helper()
+	now := time.Now()
+	vobjs := []*objects.VObject{
+		{
+			LatestObject: &models.Object{
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241"),
+				Class:              "C1",
+				LastUpdateTimeUnix: now.UnixMilli(),
+			},
+			StaleUpdateTime: now.UnixMilli(),
+		},
+	}
+	body, err := clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjs)
+	require.NoError(t, err)
+	return body
+}
+
+func TestPutOverwriteObjectsCompression(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		compressionHdr string
+		encodingHdr    string
+		compressBody   bool
+		useBinaryBody  bool
+		wantStatus     int
+	}{
+		{
+			name:           "ZstdCompressedBinaryRequest",
+			compressionHdr: "zstd",
+			encodingHdr:    "binary",
+			compressBody:   true,
+			useBinaryBody:  true,
+			wantStatus:     http.StatusOK,
+		},
+
+		{
+			name:           "UncompressedJSONFallback",
+			compressionHdr: "",
+			encodingHdr:    "",
+			compressBody:   false,
+			useBinaryBody:  false,
+			wantStatus:     http.StatusOK,
+		},
+
+		{
+			name:           "UnsupportedCompressionAlgorithm",
+			compressionHdr: "gzip",
+			compressBody:   false,
+			useBinaryBody:  false,
+			wantStatus:     http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, url := newOverwriteServer(t)
+
+			var body []byte
+			if tc.useBinaryBody {
+				body = vobjectPayload(t) // MarshalV2 binary format
+			} else {
+				now := time.Now()
+				vobjs := []*objects.VObject{{
+					LatestObject: &models.Object{
+						ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241"),
+						Class:              "C1",
+						LastUpdateTimeUnix: now.UnixMilli(),
+					},
+					StaleUpdateTime: now.UnixMilli(),
+				}}
+				var err error
+				body, err = clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjs)
+				require.NoError(t, err)
+			}
+
+			if tc.compressBody {
+				enc, err := zstd.NewWriter(nil)
+				require.NoError(t, err)
+				body = enc.EncodeAll(body, make([]byte, 0, len(body)))
+				enc.Close()
+			}
+
+			req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+			require.NoError(t, err)
+			if tc.compressionHdr != "" {
+				req.Header.Set("X-Request-Compression", tc.compressionHdr)
+			}
+			if tc.encodingHdr != "" {
+				req.Header.Set("X-Request-Encoding", tc.encodingHdr)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tc.wantStatus, resp.StatusCode)
+
+			if tc.wantStatus == http.StatusOK {
+				var result []interface{}
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+			}
+		})
+	}
 }

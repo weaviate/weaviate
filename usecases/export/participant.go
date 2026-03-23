@@ -45,6 +45,7 @@ const (
 //  3. Abort: releases the reservation immediately.
 type Participant struct {
 	shutdownCtx          context.Context
+	shutdownCancel       context.CancelFunc
 	selector             Selector
 	backends             BackendProvider
 	logger               logrus.FieldLogger
@@ -55,6 +56,11 @@ type Participant struct {
 	client       ExportClient
 	nodeResolver NodeResolver
 	localNode    string
+
+	// exportWg tracks in-flight export goroutines so Shutdown can wait for
+	// them to finish their cleanup (final status flush, sibling abort, metadata
+	// promotion) before the server process exits.
+	exportWg sync.WaitGroup
 
 	// mu guards preparedReq, abortTimer, and cancelExport, which are set
 	// during Prepare/Commit and consumed during Commit/Abort.
@@ -67,11 +73,10 @@ type Participant struct {
 }
 
 // NewParticipant creates a new export participant.
-// The shutdownCtx is canceled on graceful server shutdown, allowing in-flight
-// exports to detect the shutdown and write a failed status before exiting.
+// Call StartShutdown to signal in-flight exports to stop, then Shutdown to
+// wait for them to drain.
 // client and nodeResolver enable best-effort sibling aborts on failure.
 func NewParticipant(
-	shutdownCtx context.Context,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
@@ -85,14 +90,40 @@ func NewParticipant(
 	if nodeResolver == nil {
 		panic("export: participant requires a non-nil nodeResolver")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Participant{
-		shutdownCtx:  shutdownCtx,
-		selector:     selector,
-		backends:     backends,
-		logger:       logger,
-		client:       client,
-		nodeResolver: nodeResolver,
-		localNode:    localNode,
+		shutdownCtx:    ctx,
+		shutdownCancel: cancel,
+		selector:       selector,
+		backends:       backends,
+		logger:         logger,
+		client:         client,
+		nodeResolver:   nodeResolver,
+		localNode:      localNode,
+	}
+}
+
+// StartShutdown signals in-flight exports to stop. It returns immediately;
+// call Shutdown to wait for exports to finish their cleanup.
+func (p *Participant) StartShutdown() {
+	p.shutdownCancel()
+}
+
+// Shutdown waits for any in-flight export goroutine to finish its cleanup
+// (final status flush, sibling abort, metadata promotion). The caller should
+// call StartShutdown first to signal exports to stop, then call Shutdown to
+// wait for them to drain. The provided context bounds how long we wait.
+func (p *Participant) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		p.exportWg.Wait()
+		close(done)
+	}, p.logger)
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -248,7 +279,9 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		WithField("classes", req.Classes).
 		Info("participant starting export")
 
+	p.exportWg.Add(1)
 	enterrors.GoWrapper(func() {
+		defer p.exportWg.Done()
 		p.executeExport(exportCtx, backendStore, req)
 	}, p.logger)
 
@@ -399,6 +432,9 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 // terminal status and, if so, writes the final export metadata file. This
 // promotes the multi-node export to a terminal state without requiring a
 // Status() API call.
+// NOTE: this may race with Scheduler.Status which does the same promotion.
+// Both paths assemble from the same per-node status files so the result is
+// identical — last writer wins with the same data.
 func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBackend, req *ExportRequest, ownStatus *NodeStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

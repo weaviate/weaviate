@@ -454,6 +454,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -514,7 +515,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	nodeName := appState.Cluster.LocalName()
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
+	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
 	grpcConfig := appState.ServerConfig.Config.GRPC
 	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
@@ -683,7 +684,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
 	appState.ExportParticipant = exportusecase.NewParticipant(
-		serverShutdownCtx, appState.DB, appState.Modules, appState.Logger,
+		appState.DB, appState.Modules, appState.Logger,
 		exportClient, appState.Cluster, appState.Cluster.LocalName(),
 	)
 
@@ -797,10 +798,21 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		providers := map[string]distributedtask.Provider{}
+
+		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
+			shardNoopProvider := distributedtask.NewShardNoopProvider(
+				appState.Cluster.LocalName(), appState.Logger, repo,
+				appState.ServerConfig.Config.Persistence.DataPath,
+			)
+			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+			setupShardNoopDebugHandler(appState, shardNoopProvider)
+		}
+
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,
 			TasksLister:        appState.ClusterService.Raft,
-			Providers:          map[string]distributedtask.Provider{},
+			Providers:          providers,
 			Logger:             appState.Logger,
 			MetricsRegisterer:  metricsRegisterer,
 			LocalNode:          appState.Cluster.LocalName(),
@@ -1030,6 +1042,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		// Reject new export requests and signal in-flight exports to stop
+		// early, while the server can still serve other requests. The actual
+		// wait for export drain happens in ServerShutdown.
+		exportScheduler.StartShutdown()
+		appState.ExportParticipant.StartShutdown()
 		batchDrain()
 	}
 
@@ -1038,6 +1055,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
+
+		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
+		exportDone := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(exportDone)
+			exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer exportCancel()
+			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+				appState.Logger.
+					WithError(err).
+					WithField("action", "shutdown export participant").
+					Errorf("failed to gracefully shutdown")
+			}
+		}, appState.Logger)
 
 		// drain any ongoing operations
 		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
@@ -1075,6 +1106,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
+
+		// Ensure export cleanup finished before closing the infrastructure
+		// it depends on (internal server, cluster service, modules).
+		<-exportDone
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -2120,6 +2155,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier

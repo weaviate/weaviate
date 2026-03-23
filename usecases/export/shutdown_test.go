@@ -31,14 +31,13 @@ import (
 func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
 	// blockingSelector blocks in AcquireShardForExport until released
 	selector := &blockingSelector{
 		blockCh: make(chan struct{}),
 	}
 
-	participant := NewParticipant(shutdownCtx, selector, &fakeBackendProvider{backend: backend}, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -55,7 +54,7 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	selector.waitForCall(t)
 
 	// Simulate shutdown
-	shutdownCancel()
+	participant.StartShutdown()
 
 	// Unblock the selector so it can return the context error
 	close(selector.blockCh)
@@ -419,7 +418,7 @@ func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	// fakeSelector returns no shards, so export succeeds immediately
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
-	participant := NewParticipant(context.Background(), selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -456,7 +455,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 
 			selector := &fakeSelector{classList: []string{"TestClass"}}
 			backends := &fakeBackendProvider{backend: backend}
-			participant := NewParticipant(context.Background(), selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 			resolver := &fakeNodeResolver{
 				nodes: map[string]string{

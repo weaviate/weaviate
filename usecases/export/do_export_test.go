@@ -121,7 +121,7 @@ func TestDoExport(t *testing.T) {
 				}
 			}
 
-			p := NewParticipant(context.Background(), sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 			req := &ExportRequest{
 				ID:       "test-export",
 				Backend:  "fake",
@@ -175,7 +175,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		},
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -226,7 +226,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
 
-	p := NewParticipant(context.Background(), selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -255,7 +255,7 @@ func TestDoExport_NilStore(t *testing.T) {
 		},
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -293,7 +293,7 @@ func TestDoExport_NilBucket(t *testing.T) {
 		},
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
