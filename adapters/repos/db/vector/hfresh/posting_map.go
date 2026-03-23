@@ -398,7 +398,11 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 		currentBytesPerValue := currentScheme.BytesPerValue()
 		newSize := headerSize + int(newCount)*(currentBytesPerValue+1)
 		if cap(p) < newSize {
-			newHandle := bufferPool.Get(len(p), newSize)
+			// Over-allocate using doubling growth (same strategy as Go's append)
+			// so that sequential AddVector calls hit the cap(p) >= newSize branch
+			// and reuse the buffer without reallocating each time.
+			newCap := max(newSize, 2*cap(p))
+			newHandle := bufferPool.Get(len(p), newCap)
 			copy(*newHandle, p)
 			if pHandle != nil {
 				bufferPool.Put(pHandle)
@@ -425,7 +429,9 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	versionsSize := int(newCount) // 1 byte per version
 	newSize := headerSize + idsSize + versionsSize
 
-	newHandle := bufferPool.Get(newSize, newSize)
+	// Over-allocate using doubling growth so that the buffer survives the next
+	// few AddVector calls without reallocation after the scheme upgrade.
+	newHandle := bufferPool.Get(newSize, max(newSize, 2*cap(p)))
 	newData := *newHandle
 	// write new header
 	newData[0] = byte(newScheme)
