@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -329,6 +330,111 @@ func TestSnapshotConcurrentCreation(t *testing.T) {
 		require.Equal(t, 100, cursorCount(t, snapBucket), "snapshot %d", i)
 		require.NoError(t, snapBucket.Shutdown(ctx))
 	}
+}
+
+// TestSnapshotNoFlushRaceDuringHardlink verifies that CreateSnapshot produces
+// a point-in-time view even when the flush cycle is actively running. It uses
+// a real CycleManager with a short tick interval and a low memtable threshold
+// so the flush callback fires frequently — the same way it works in production.
+//
+// Concurrent writers feed data into the bucket while CreateSnapshot runs. The
+// snapshot must contain all baseline data and must be a valid, openable bucket
+// (no partial segments from a concurrent flush).
+func TestSnapshotNoFlushRaceDuringHardlink(t *testing.T) {
+	ctx := t.Context()
+
+	logger := testLogger()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+	flushCallbacks := cyclemanager.NewCallbackGroup("flush", logger, 1)
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
+		noopCB,         // compaction — noop is fine, CreateSnapshot pauses it anyway
+		flushCallbacks, // flush — real group so Deactivate/Activate work
+		WithStrategy(StrategyReplace),
+		WithMemtableThreshold(1), // 1 byte — triggers flush on nearly every cycle
+		WithDirtyThreshold(10*time.Millisecond), // very short — ensures the flush fires quickly
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+
+	// Start a CycleManager that drives the flush callback, just like production.
+	flushCycle := cyclemanager.NewManager(
+		cyclemanager.NewFixedTicker(10*time.Millisecond),
+		flushCallbacks.CycleCallback, logger,
+	)
+	flushCycle.Start()
+	defer flushCycle.StopAndWait(ctx)
+
+	// Write the baseline data and flush it to disk.
+	const baselineObjects = 100
+	for i := range baselineObjects {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		require.NoError(t, bucket.Put(key, []byte("baseline")))
+	}
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	// Start concurrent writers that continuously insert new keys.
+	// These writes happen AFTER the baseline. The CycleManager will
+	// trigger FlushAndSwitch via the callback — this is the operation
+	// that used to race with CreateSnapshot's hardlink step.
+	writersDone := make(chan struct{})
+	var wg sync.WaitGroup
+	for w := range 4 {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; ; i++ {
+				select {
+				case <-writersDone:
+					return
+				default:
+				}
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(baselineObjects+workerID*100_000+i))
+				if err := bucket.Put(key, []byte("concurrent")); err != nil {
+					return
+				}
+			}
+		}(w)
+	}
+
+	// Take a snapshot while writers and the flush cycle are active.
+	snapshotDir, err := bucket.CreateSnapshot(ctx, t.TempDir(), "race-test")
+	require.NoError(t, err)
+
+	// Stop writers.
+	close(writersDone)
+	wg.Wait()
+
+	// Open the snapshot and verify.
+	snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, logger,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	defer snapBucket.Shutdown(ctx)
+
+	count := cursorCount(t, snapBucket)
+
+	// The snapshot must contain at least the baseline. It may contain some
+	// concurrent writes that landed before CreateSnapshot's internal flush,
+	// but it must be a valid, openable bucket (no partial segments).
+	require.GreaterOrEqual(t, count, baselineObjects,
+		"snapshot must contain at least the baseline objects")
+
+	// Verify all baseline keys are present with the correct value.
+	c := snapBucket.Cursor()
+	defer c.Close()
+	baselineFound := 0
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		id := binary.BigEndian.Uint64(k)
+		if id < baselineObjects {
+			require.Equal(t, []byte("baseline"), v,
+				"baseline key %d should have original value", id)
+			baselineFound++
+		}
+	}
+	require.Equal(t, baselineObjects, baselineFound,
+		"all baseline keys must be present in the snapshot")
 }
 
 func cursorCount(t *testing.T, b *Bucket) int {

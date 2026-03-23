@@ -14,11 +14,13 @@
 //
 // How it works:
 //
-//  1. CreateSnapshot briefly pauses compaction, flushes the active memtable
-//     to disk, and hard-links every immutable segment file (.db, .bloom, .cna)
-//     into a separate snapshot directory. Compaction is resumed immediately
-//     after — the pause window is only as long as the flush + file enumeration
-//     + link creation.
+//  1. CreateSnapshot pauses both compaction and the flush cycle, flushes the
+//     active memtable to disk, and hard-links every immutable segment file
+//     (.db, .bloom, .cna) into a separate snapshot directory. Both cycles are
+//     resumed on return. Pausing the flush cycle ensures no concurrent
+//     FlushAndSwitch can produce new segment files during the hard-link
+//     window, and Deactivate waits for any in-progress flush to complete
+//     before returning — guaranteeing a true point-in-time snapshot.
 //
 //  2. NewSnapshotBucket opens a read-only Bucket on the snapshot directory.
 //     Because segment files are immutable (compaction produces new files rather
@@ -75,10 +77,11 @@ func IsSnapshotDir(dir string) bool {
 	return strings.HasPrefix(filepath.Base(dir), SnapshotDirPrefix)
 }
 
-// CreateSnapshot pauses compaction, flushes the memtable to disk, hard-links
-// all immutable segment files into a snapshot directory, and then resumes
-// compaction. The pause window is brief — only long enough to flush and
-// enumerate files.
+// CreateSnapshot pauses compaction and the flush cycle, flushes the memtable
+// to disk, hard-links all immutable segment files into a snapshot directory,
+// and resumes both cycles on return. Pausing the flush cycle (via Deactivate)
+// waits for any in-progress flush to complete — ensuring no new segment files
+// appear during the hard-link window.
 //
 // The snapshot is placed at <snapshotsRoot>/<SnapshotDirPrefix><name>. The
 // caller provides snapshotsRoot (typically <indexPath>/.snapshots) and a name
@@ -95,20 +98,23 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 	if err := b.pauseCompaction(ctx); err != nil {
 		return "", fmt.Errorf("pause compaction: %w", err)
 	}
+	defer b.resumeCompaction(ctx)
+
+	// Pause the flush cycle so no concurrent FlushAndSwitch can produce new
+	// segment files while we enumerate and hard-link. Deactivate waits for
+	// any in-progress flush to complete before returning.
+	if err := b.flushCallbackCtrl.Deactivate(ctx); err != nil {
+		return "", fmt.Errorf("pause flush cycle: %w", err)
+	}
+	defer b.flushCallbackCtrl.Activate()
 
 	if err := b.FlushMemtable(); err != nil {
-		b.resumeCompaction(ctx) //nolint:errcheck
 		return "", fmt.Errorf("flush memtable: %w", err)
 	}
 
 	if err := HardlinkBucketFiles(b.disk.dir, snapshotDir, false); err != nil {
-		b.resumeCompaction(ctx) //nolint:errcheck
 		os.RemoveAll(snapshotDir)
 		return "", fmt.Errorf("hardlink snapshot: %w", err)
-	}
-
-	if err := b.resumeCompaction(ctx); err != nil {
-		return "", fmt.Errorf("resume compaction: %w", err)
 	}
 
 	return snapshotDir, nil
