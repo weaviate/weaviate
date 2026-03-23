@@ -168,6 +168,13 @@ func (e *VarIntEncoder) Encode(values []uint64) []byte {
 	return output
 }
 
+func (e *VarIntEncoder) EncodeAppend(values []uint64, arena []byte) ([]byte, []byte) {
+	n := encodeReusable(values, e.buf, false)
+	start := len(arena)
+	arena = append(arena, e.buf[:n]...)
+	return arena[start:], arena
+}
+
 func (e *VarIntEncoder) Decode(data []byte) []uint64 {
 	decodeReusable(e.values, data, false)
 	return e.values
@@ -200,6 +207,13 @@ func (e *VarIntDeltaEncoder) Encode(values []uint64) []byte {
 	output := make([]byte, n)
 	copy(output, e.buf[:n])
 	return output
+}
+
+func (e *VarIntDeltaEncoder) EncodeAppend(values []uint64, arena []byte) ([]byte, []byte) {
+	n := encodeReusable(values, e.buf, true)
+	start := len(arena)
+	arena = append(arena, e.buf[:n]...)
+	return arena[start:], arena
 }
 
 func (e *VarIntDeltaEncoder) Decode(data []byte) []uint64 {

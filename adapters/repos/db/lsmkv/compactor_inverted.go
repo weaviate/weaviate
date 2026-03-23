@@ -59,7 +59,6 @@ type compactorInverted struct {
 	tombstonesToClean *sroar.Bitmap
 
 	propertyLengthsToWrite map[uint64]uint32
-	propertyLengthsToClean map[uint64]uint32
 
 	invertedHeader *segmentindex.HeaderInverted
 
@@ -74,6 +73,11 @@ type compactorInverted struct {
 
 	segmentFile    *segmentindex.SegmentFile
 	maxNewFileSize int64
+
+	// reusable buffers to reduce allocations during compaction
+	writeBuf   [8]byte                  // reused by writeIndividualNode to avoid per-key allocation
+	arena      keyArena                 // arena allocator for key copies
+	encodeBufs compactorInvertedBuffers // reusable encode pipeline buffers
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -109,6 +113,7 @@ func newCompactorInverted(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
 		allocChecker:             allocChecker,
+		encodeBufs:               newCompactorInvertedBuffers(),
 	}
 }
 
@@ -144,11 +149,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	c.propertyLengthsToWrite = make(map[uint64]uint32, len(propertyLengthsToWrite))
-	c.propertyLengthsToClean = make(map[uint64]uint32, len(propertyLengthsToClean))
-
+	// Merge both segments' property lengths into a single map. We copy into
+	// a new map (not the segment's cached map) to avoid data races. Entries
+	// from c2 (clean) override c1 (write) on duplicate keys.
+	c.propertyLengthsToWrite = make(map[uint64]uint32, len(propertyLengthsToWrite)+len(propertyLengthsToClean))
 	maps.Copy(c.propertyLengthsToWrite, propertyLengthsToWrite)
-	maps.Copy(c.propertyLengthsToClean, propertyLengthsToClean)
+	maps.Copy(c.propertyLengthsToWrite, propertyLengthsToClean)
 
 	tombstones := c.computeTombstonesAndPropLengths()
 
@@ -171,7 +177,7 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "write property lengths")
 	}
 	treeOffset := uint64(c.offset)
-	if err := c.writeIndices(kis); err != nil {
+	if err := c.writeIndices(kis, uint64(keysOffset)); err != nil {
 		return errors.Wrap(err, "write index")
 	}
 
@@ -310,13 +316,13 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 	return b.Len() + 8 + 8 + 8, nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
+func (c *compactorInverted) writeKeys() ([]segmentindex.KeyRedux, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 
-	var kis []segmentindex.Key
+	kis := make([]segmentindex.KeyRedux, 0, c.c1.segment.index.KeyCount()+c.c2.segment.index.KeyCount())
 	sim := newSortedMapMerger()
 
 	for {
@@ -386,41 +392,25 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 
 func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	values []MapPair, propertyLengths map[uint64]uint32,
-) (segmentindex.Key, error) {
-	// NOTE: There are no guarantees in the cursor logic that any memory is valid
-	// for more than a single iteration. Every time you call next() to advance
-	// the cursor, any memory might be reused.
-	//
-	// This includes the key buffer which was the cause of
-	// https://github.com/weaviate/weaviate/issues/3517
-	//
-	// A previous logic created a new assignment in each iteration, but thatwas
-	// not an explicit guarantee. A change in v1.21 (for pread/mmap) added a
-	// reusable buffer for the key which surfaced this bug.
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
+) (segmentindex.KeyRedux, error) {
+	// With reusable cursors, the key buffer is shared across iterations.
+	// We must copy it before writing, as the KeyRedux stores a reference.
+	// See: https://github.com/weaviate/weaviate/issues/3517
+	keyCopy := c.arena.CopyKey(key)
 
 	return segmentInvertedNode{
 		values:      values,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.segmentFile.BodyWriter(), c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
+	}.KeyIndexAndWriteToCompaction(c.segmentFile.BodyWriter(), c.writeBuf[:], &c.encodeBufs, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
-func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
-	indices := segmentindex.Indexes{
-		Keys:                keys,
-		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyInverted,
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
+func (c *compactorInverted) writeIndices(keys []segmentindex.KeyRedux, dataStartOffset uint64) error {
+	if c.secondaryIndexCount > 0 {
+		return fmt.Errorf("unsupported secondary indexes in compactorInverted")
 	}
-
-	_, err := indices.WriteTo(c.segmentFile.BodyWriter(), uint64(c.maxNewFileSize))
+	_, err := segmentindex.MarshalSortedKeys(c.segmentFile.BodyWriter(), keys, dataStartOffset)
 	return err
 }
 
@@ -447,7 +437,7 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 }
 
 func (c *compactorInverted) computeTombstonesAndPropLengths() *sroar.Bitmap {
-	maps.Copy(c.propertyLengthsToWrite, c.propertyLengthsToClean)
+	// Property lengths are already merged in do() — no merge needed here.
 
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
