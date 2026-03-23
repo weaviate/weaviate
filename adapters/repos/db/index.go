@@ -2584,11 +2584,12 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
-	shards, err := i.schemaReader.Shards(i.Config.ClassName.String())
+	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, tenant)
 	if err != nil {
 		return nil, err
 	}
 
+	shards := readPlan.Shards()
 	if aggregation.IsCountStar(&params) {
 		return i.aggregateCount(ctx, shards)
 	}

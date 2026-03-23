@@ -17,8 +17,10 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -30,7 +32,6 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -41,25 +42,44 @@ func TestIndex_aggregateCount(t *testing.T) {
 	replicaMetrics, err := replica.NewMetrics(monitoring.GetMetrics())
 	require.NoError(t, err, "create replica metrics")
 
-	startServer := func(t *testing.T, count int) *httptest.Server {
+	shardRegex := regexp.MustCompile(`\/shards\/([^\/]*)`)
+	addReplicas := func(t *testing.T, id int, shards map[string]int) []types.Replica {
 		t.Helper()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			groups := shardRegex.FindStringSubmatch(r.URL.Path)
+			count := shards[groups[1]]
 			io.WriteString(w, strconv.Itoa(count))
 		}))
 		t.Cleanup(srv.Close)
-		return srv
+
+		var replicas []types.Replica
+		for name := range shards {
+			replicas = append(replicas, types.Replica{
+				NodeName:  fmt.Sprintf("node-%d", id),
+				HostAddr:  srv.URL[7:],
+				ShardName: name,
+			})
+		}
+		return replicas
 	}
 
 	// Each test case will spin up N test HTTP servers, where N=len(counts).
 	// Each server mocks a replica and reports its counts[i].
 	// To simplify the setup, we assume the test collection "Abc" is
-	// fully contained within a single shard "abc".
+	// fully contained within a single shard "abc" if tt.nodes is nil.
+	// Otherwise [tt.nodes] defines the counts for each shard and [tt.shards]
+	// defines all shards belonging to "Abc".
 	// The aggregation requests satisfies [aggregate.IsCountStar], so we expect
 	// each of the replicas to be queried and their results "averaged".
 	for _, tt := range []struct {
 		name   string // Test case name
 		counts []int  // Counts reported by each replica.
-		want   int    // Expected aggregated count
+
+		nodes  []map[string]int // Per-shard count in each node.
+		shards []string         // Complete list of shards in collection.
+		tenant string
+
+		want int // Expected aggregated count
 	}{
 		{
 			name:   "consistent count",
@@ -79,41 +99,69 @@ func TestIndex_aggregateCount(t *testing.T) {
 		{
 			name:   "shifted median (4 replicas disagree)",
 			counts: []int{1, 2, 3, 4},
-			want:   2,
+			want:   3,
+		},
+		{
+			name:   "multiple shards",
+			shards: []string{"abc", "xyz"},
+			nodes: []map[string]int{
+				{
+					"abc": 1,
+					"xyz": 2,
+				},
+				{
+					"abc": 1,
+					"xyz": 2,
+				},
+			},
+			want: 3,
+		},
+		{
+			name:   "one tenant",
+			shards: []string{"john_doe", "jane_doe"},
+			nodes: []map[string]int{
+				{
+					"john_doe": 1,
+					"jane_doe": 2,
+				},
+				{
+					"john_doe": 1,
+					"jane_doe": 2,
+				},
+			},
+			tenant: "john_doe",
+			want:   1,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
-			var replicas []types.Replica
-			for i, count := range tt.counts {
-				server := startServer(t, count)
-				replicas = append(replicas, types.Replica{
-					NodeName:  fmt.Sprintf("node-%d", i),
-					HostAddr:  server.URL[7:],
-					ShardName: "abc",
-				})
-			}
-			readSet := types.ReadReplicaSet{
-				Replicas: replicas,
+			if tt.shards == nil {
+				tt.shards = append(tt.shards, "abc")
 			}
 
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-			mockSchemaReader.On("Shards", "Abc").Return([]string{"abc"}, nil)
+			var replicas []types.Replica
+			for i, totalCount := range tt.counts {
+				replicas = append(replicas, addReplicas(t, i, map[string]int{"abc": totalCount})...)
+			}
+			for i, shards := range tt.nodes {
+				replicas = append(replicas, addReplicas(t, i, shards)...)
+			}
+			slices.SortFunc(replicas, func(r1, r2 types.Replica) int {
+				return strings.Compare(r1.ShardName, r2.ShardName)
+			})
 
 			index := Index{
 				router: &fakeRouter{
 					readPlan: types.ReadRoutingPlan{
-						LocalHostname:       "localhost",
-						Shard:               "abc",
-						IntConsistencyLevel: 3,
+						IntConsistencyLevel: len(tt.counts) + len(tt.nodes),
 						ConsistencyLevel:    types.ConsistencyLevelAll,
-						ReplicaSet:          readSet,
+						ReplicaSet: types.ReadReplicaSet{
+							Replicas: replicas,
+						},
 					},
-					readSet: readSet,
 				},
 				shardCreateLocks: esync.NewKeyRWLocker(),
 				Config:           IndexConfig{ClassName: schema.ClassName("Abc")},
-				schemaReader:     mockSchemaReader,
 				replicaClient:    clients.NewReplicationClient(&http.Client{}),
 				metrics:          metrics,
 				replicaMetrics:   replicaMetrics,
@@ -122,7 +170,8 @@ func TestIndex_aggregateCount(t *testing.T) {
 			// Act
 			res, err := index.aggregate(t.Context(), nil, aggregation.Params{
 				IncludeMetaCount: true,
-			}, nil, "")
+				Tenant:           tt.tenant,
+			}, nil, tt.tenant)
 
 			// Assert
 			require.NoError(t, err, "aggregate")
@@ -148,7 +197,18 @@ func (f *fakeRouter) AllHostnames() []string {
 
 var _ types.Router = (*fakeRouter)(nil)
 
-func (f *fakeRouter) BuildReadRoutingPlan(types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+	f.readPlan.Shard = opt.Shard
+	f.readPlan.Tenant = opt.Tenant
+	if opt.Tenant != "" {
+		var filtered []types.Replica
+		for _, r := range f.readPlan.ReplicaSet.Replicas {
+			if r.ShardName == opt.Tenant {
+				filtered = append(filtered, r)
+			}
+		}
+		f.readPlan.ReplicaSet.Replicas = filtered
+	}
 	return f.readPlan, nil
 }
 

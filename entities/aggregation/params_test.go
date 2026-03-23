@@ -78,6 +78,14 @@ func TestIsCountStar(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "count(*) with tenant",
+			params: Params{
+				IncludeMetaCount: true,
+				Tenant:           "john_doe",
+			},
+			want: true,
+		},
+		{
 			name: "filtered",
 			params: Params{
 				IncludeMetaCount: true,
