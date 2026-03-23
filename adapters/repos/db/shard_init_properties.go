@@ -218,45 +218,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
-// createNestedPropertyBuckets creates the value and metadata buckets for a
-// nested (object/object[]) property. Both use StrategyRoaringSet with keys
-// prefixed by hash8(path) to multiplex all sub-properties into shared buckets.
-func (s *Shard) createNestedPropertyBuckets(ctx context.Context, prop *models.Property,
-	makeBucketOptions lsmkv.MakeBucketOptions,
-) error {
-	if err := s.isReadOnly(); err != nil {
-		return err
-	}
-
-	if inverted.HasNestedFilterableIndex(prop) {
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketNestedFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-		); err != nil {
-			return fmt.Errorf("init nested prop %q: value bucket: %w", prop.Name, err)
-		}
-	}
-
-	if inverted.HasNestedSearchableIndex(prop) {
-		// TODO: create nested searchable bucket (Phase 2)
-	}
-
-	if inverted.HasNestedRangeableIndex(prop) {
-		// TODO: create nested rangeable bucket (Phase 3)
-	}
-
-	if inverted.HasAnyNestedInvertedIndex(prop) {
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketNestedMetaFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSet)...,
-		); err != nil {
-			return fmt.Errorf("init nested prop %q: meta bucket: %w", prop.Name, err)
-		}
-	}
-
-	return nil
-}
-
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
