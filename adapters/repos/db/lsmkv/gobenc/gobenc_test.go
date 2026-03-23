@@ -22,18 +22,22 @@ import (
 )
 
 func TestPreambleStability(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	require.NoError(t, enc.Encode(map[uint64]uint32{}))
 
 	// The first 14 bytes are the type-definition preamble
-	require.True(t, len(buf.Bytes()) >= len(GobMapPreamble),
+	require.True(t, len(buf.Bytes()) >= len(gobMapPreamble),
 		"gob output shorter than expected preamble")
-	assert.Equal(t, GobMapPreamble, buf.Bytes()[:len(GobMapPreamble)],
+	assert.Equal(t, gobMapPreamble, buf.Bytes()[:len(gobMapPreamble)],
 		"hardcoded preamble must match what encoding/gob produces")
 }
 
+// This tests that the gob-"magic bytes" we use to detect that it is a map[uint64]uint32 are in fact unique for that
+// type
 func TestPreambleUniqueness(t *testing.T) {
+	t.Parallel()
 	otherTypes := []struct {
 		name string
 		val  any
@@ -61,20 +65,20 @@ func TestPreambleUniqueness(t *testing.T) {
 
 	for _, tc := range otherTypes {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var buf bytes.Buffer
 			enc := gob.NewEncoder(&buf)
 			require.NoError(t, enc.Encode(tc.val))
 
-			data := buf.Bytes()
-			if len(data) >= len(GobMapPreamble) {
-				assert.NotEqual(t, GobMapPreamble, data[:len(GobMapPreamble)],
-					"preamble for %s must differ from map[uint64]uint32", tc.name)
-			}
+			assert.False(t, isGobMap(buf.Bytes()),
+				"preamble for %s must differ from map[uint64]uint32", tc.name)
 		})
 	}
 }
 
 func TestRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		m    map[uint64]uint32
@@ -98,6 +102,8 @@ func TestRoundTrip(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			encoded := Encode(tc.m)
 			decoded, err := Decode(encoded)
 			require.NoError(t, err)
@@ -107,6 +113,8 @@ func TestRoundTrip(t *testing.T) {
 }
 
 func TestCrossCompatGobToCustom(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		m    map[uint64]uint32
@@ -120,6 +128,8 @@ func TestCrossCompatGobToCustom(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			// Encode with stdlib gob
 			var buf bytes.Buffer
 			enc := gob.NewEncoder(&buf)
@@ -134,6 +144,8 @@ func TestCrossCompatGobToCustom(t *testing.T) {
 }
 
 func TestCrossCompatCustomToGob(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		m    map[uint64]uint32
@@ -147,6 +159,8 @@ func TestCrossCompatCustomToGob(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			// Encode with our encoder
 			encoded := Encode(tc.m)
 
@@ -159,45 +173,159 @@ func TestCrossCompatCustomToGob(t *testing.T) {
 	}
 }
 
-func TestIsGobMap(t *testing.T) {
-	assert.True(t, IsGobMap(Encode(map[uint64]uint32{})))
-	assert.True(t, IsGobMap(Encode(map[uint64]uint32{1: 2})))
+func Test_isGobMap(t *testing.T) {
+	t.Parallel()
 
-	assert.False(t, IsGobMap(nil))
-	assert.False(t, IsGobMap([]byte{}))
-	assert.False(t, IsGobMap([]byte{0, 1, 2}))
-	assert.False(t, IsGobMap([]byte("hello world, this is not gob data")))
+	assert.True(t, isGobMap(Encode(map[uint64]uint32{})))
+	assert.True(t, isGobMap(Encode(map[uint64]uint32{1: 2})))
+
+	assert.False(t, isGobMap(nil))
+	assert.False(t, isGobMap([]byte{}))
+	assert.False(t, isGobMap([]byte{0, 1, 2}))
+	assert.False(t, isGobMap([]byte("hello world, this is not gob data")))
 
 	// Other gob types should not match
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	require.NoError(t, enc.Encode([]uint64{1, 2, 3}))
-	assert.False(t, IsGobMap(buf.Bytes()))
+	assert.False(t, isGobMap(buf.Bytes()))
 }
 
 func TestDecodeErrors(t *testing.T) {
-	t.Run("nil", func(t *testing.T) {
-		_, err := Decode(nil)
-		assert.Error(t, err)
-	})
+	t.Parallel()
 
-	t.Run("too_short", func(t *testing.T) {
-		_, err := Decode([]byte{1, 2, 3})
-		assert.Error(t, err)
-	})
+	encoded3 := Encode(map[uint64]uint32{1: 2, 100: 200, 1000: 2000})
 
-	t.Run("bad_preamble", func(t *testing.T) {
-		bad := make([]byte, 20)
-		_, err := Decode(bad)
-		assert.Error(t, err)
-	})
+	tests := []struct {
+		name   string
+		data   func() []byte
+		errMsg string
+	}{
+		{
+			name:   "nil",
+			data:   func() []byte { return nil },
+			errMsg: "too short",
+		},
+		{
+			name:   "too_short",
+			data:   func() []byte { return []byte{1, 2, 3} },
+			errMsg: "too short",
+		},
+		{
+			name:   "bad_preamble",
+			data:   func() []byte { return make([]byte, 20) },
+			errMsg: "preamble mismatch",
+		},
+		{
+			name: "truncated_at_message_length",
+			data: func() []byte {
+				return encoded3[:len(gobMapPreamble)+1]
+			},
+			errMsg: "exceeds data",
+		},
+		{
+			name: "corrupted_data_prefix",
+			data: func() []byte {
+				d := make([]byte, len(encoded3))
+				copy(d, encoded3)
+				// The data prefix starts right after preamble + message length.
+				// Corrupt the first byte of the data prefix.
+				prefixOffset := len(gobMapPreamble) + gobUintSize(uint64(len(encoded3)-len(gobMapPreamble)-1))
+				d[prefixOffset] ^= 0xFF
+				return d
+			},
+			errMsg: "data prefix mismatch",
+		},
+		{
+			name: "truncated_after_first_key",
+			data: func() []byte {
+				// Encode a 3-entry map, then shorten the message body so it
+				// cuts off mid-stream (after the first key-value pair).
+				full := Encode(map[uint64]uint32{1: 2, 100: 200, 1000: 2000})
+				// Find where the data body starts (after preamble + msg length)
+				pos := len(gobMapPreamble)
+				_, n, _ := readGobUint(full, pos) // msg length
+				pos += n
+				// pos is now at the data body start; skip prefix + count + one KV pair
+				pos += len(dataPrefix)
+				_, n, _ = readGobUint(full, pos) // count
+				pos += n
+				_, n, _ = readGobUint(full, pos) // key 0
+				pos += n
+				_, n, _ = readGobUint(full, pos) // val 0
+				pos += n
+				// Truncate right after first entry
+				return full[:pos]
+			},
+			errMsg: "exceeds data",
+		},
+		{
+			name: "truncated_mid_entry_after_key",
+			data: func() []byte {
+				full := Encode(map[uint64]uint32{1: 2, 100: 200, 1000: 2000})
+				pos := len(gobMapPreamble)
+				_, n, _ := readGobUint(full, pos) // msg length
+				pos += n
+				pos += len(dataPrefix)
+				_, n, _ = readGobUint(full, pos) // count
+				pos += n
+				_, n, _ = readGobUint(full, pos) // key 0
+				pos += n
+				_, n, _ = readGobUint(full, pos) // val 0
+				pos += n
+				_, n, _ = readGobUint(full, pos) // key 1
+				pos += n
+				// Truncate after second key, before its value
+				return full[:pos]
+			},
+			errMsg: "exceeds data",
+		},
+		{
+			name: "count_exceeds_remaining_data",
+			data: func() []byte {
+				// Encode an empty map, then overwrite the count to a huge value.
+				d := Encode(map[uint64]uint32{})
+				pos := len(gobMapPreamble)
+				_, n, _ := readGobUint(d, pos) // msg length
+				pos += n
+				pos += len(dataPrefix)
+				// pos is now at the count byte; the empty map has count=0.
+				// Replace with a large count that exceeds remaining bytes.
+				d[pos] = 127 // 127 entries, but 0 bytes of data left
+				return d
+			},
+			errMsg: "too large",
+		},
+		{
+			name: "trailing_bytes_after_valid_entries",
+			data: func() []byte {
+				d := Encode(map[uint64]uint32{1: 2})
+				// Append extra bytes within the message by extending the slice
+				// and patching the message length.
+				extra := append(d, 0xFF, 0xFF)
+				// Patch message length: it's right after the preamble
+				pos := len(gobMapPreamble)
+				origLen, n, _ := readGobUint(extra, pos)
+				// Rebuild with larger message length
+				buf := make([]byte, 0, len(extra)+2)
+				buf = append(buf, gobMapPreamble...)
+				buf = appendGobUint(buf, origLen+2)
+				buf = append(buf, extra[pos+n:]...)
+				return buf
+			},
+			errMsg: "trailing bytes",
+		},
+	}
 
-	t.Run("truncated_message", func(t *testing.T) {
-		encoded := Encode(map[uint64]uint32{1: 2})
-		// Truncate data message
-		_, err := Decode(encoded[:len(GobMapPreamble)+2])
-		assert.Error(t, err)
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := decodeFast(tc.data())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errMsg)
+		})
+	}
 }
 
 func BenchmarkEncode(b *testing.B) {

@@ -24,9 +24,9 @@ import (
 	"fmt"
 )
 
-// GobMapPreamble is the fixed gob type-definition message for map[uint64]uint32.
+// gobMapPreamble is the fixed gob type-definition message for map[uint64]uint32.
 // Every fresh gob.Encoder emits these 14 bytes before the first data message.
-var GobMapPreamble = []byte{13, 127, 4, 1, 2, 255, 128, 0, 1, 6, 1, 6, 0, 0}
+var gobMapPreamble = []byte{13, 127, 4, 1, 2, 255, 128, 0, 1, 6, 1, 6, 0, 0}
 
 // dataPrefix is the fixed 3-byte sequence at the start of every data message
 // body: type id 64 encoded as gob int (0xFF 0x80) + singleton delta (0x00).
@@ -43,11 +43,11 @@ func Encode(m map[uint64]uint32) []byte {
 	}
 
 	// Total: preamble + msg length + body
-	totalSize := len(GobMapPreamble) + gobUintSize(uint64(bodySize)) + bodySize
+	totalSize := len(gobMapPreamble) + gobUintSize(uint64(bodySize)) + bodySize
 	buf := make([]byte, 0, totalSize)
 
 	// Write preamble
-	buf = append(buf, GobMapPreamble...)
+	buf = append(buf, gobMapPreamble...)
 
 	// Write message length
 	buf = appendGobUint(buf, uint64(bodySize))
@@ -87,15 +87,15 @@ func Decode(data []byte) (map[uint64]uint32, error) {
 }
 
 func decodeFast(data []byte) (map[uint64]uint32, error) {
-	if len(data) < len(GobMapPreamble)+1 {
+	if len(data) < len(gobMapPreamble)+1 {
 		return nil, fmt.Errorf("data too short (%d bytes)", len(data))
 	}
 
-	if !IsGobMap(data) {
+	if !isGobMap(data) {
 		return nil, fmt.Errorf("preamble mismatch")
 	}
 
-	pos := len(GobMapPreamble)
+	pos := len(gobMapPreamble)
 
 	// Read message length
 	msgLen, n, err := readGobUint(data, pos)
@@ -104,14 +104,17 @@ func decodeFast(data []byte) (map[uint64]uint32, error) {
 	}
 	pos += n
 
-	msgEnd := pos + int(msgLen)
-	if msgEnd > len(data) {
+	if msgLen > uint64(len(data)-pos) {
 		return nil, fmt.Errorf("message length %d exceeds data (%d bytes remaining)", msgLen, len(data)-pos)
 	}
+	msgEnd := pos + int(msgLen)
 
-	// Skip data prefix (type id + singleton delta)
+	// Verify and skip data prefix (type id + singleton delta)
 	if pos+len(dataPrefix) > msgEnd {
 		return nil, fmt.Errorf("data prefix truncated")
+	}
+	if data[pos] != dataPrefix[0] || data[pos+1] != dataPrefix[1] || data[pos+2] != dataPrefix[2] {
+		return nil, fmt.Errorf("data prefix mismatch")
 	}
 	pos += len(dataPrefix)
 
@@ -121,6 +124,11 @@ func decodeFast(data []byte) (map[uint64]uint32, error) {
 		return nil, fmt.Errorf("read map count: %w", err)
 	}
 	pos += n
+
+	// Each entry is at least 2 bytes (1 byte key + 1 byte value).
+	if count > uint64(msgEnd-pos)/2 {
+		return nil, fmt.Errorf("count %d too large for remaining %d bytes", count, msgEnd-pos)
+	}
 
 	m := make(map[uint64]uint32, count)
 
@@ -140,15 +148,19 @@ func decodeFast(data []byte) (map[uint64]uint32, error) {
 		m[key] = uint32(val)
 	}
 
+	if pos != msgEnd {
+		return nil, fmt.Errorf("trailing bytes: decoded to offset %d, expected %d", pos, msgEnd)
+	}
+
 	return m, nil
 }
 
-// IsGobMap reports whether data begins with the gob preamble for map[uint64]uint32.
-func IsGobMap(data []byte) bool {
-	if len(data) < len(GobMapPreamble) {
+// isGobMap reports whether data begins with the gob preamble for map[uint64]uint32.
+func isGobMap(data []byte) bool {
+	if len(data) < len(gobMapPreamble) {
 		return false
 	}
-	for i, b := range GobMapPreamble {
+	for i, b := range gobMapPreamble {
 		if data[i] != b {
 			return false
 		}
