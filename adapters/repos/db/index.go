@@ -2625,7 +2625,10 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 }
 
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
+	// mux protects counts for concurrent access in coordinator.Pull
+	var mux sync.Mutex
 	counts := make(map[string]int)
+
 	for _, shard := range shards {
 		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
 		// That interface has a dozen methods and half of them belong to replica.RClient.
@@ -2645,7 +2648,9 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				if err != nil {
 					return nil, err
 				}
+				mux.Lock()
 				counts[host] += count
+				mux.Unlock()
 				return nil, nil
 			}, "", time.Minute)
 		if err != nil {
@@ -2671,6 +2676,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var median int
 	medianIdx := len(counts) / 2
 
+	// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
 		if h := hits[count]; h > modeHits {
