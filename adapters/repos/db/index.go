@@ -2582,9 +2582,9 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
-	params aggregation.Params, modules *modules.Provider, tenant string,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, tenant)
+	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -2603,7 +2603,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		var release func()
 		// anonymous func is here to ensure release is executed after each loop iteration
 		func() {
-			shard, release, err = i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
+			shard, release, err = i.getShardForDirectLocalOperation(ctx, params.Tenant, shardName, localShardOperationRead, 0)
 			defer release()
 			if err == nil {
 				if shard != nil {

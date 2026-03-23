@@ -171,7 +171,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 			res, err := index.aggregate(t.Context(), nil, aggregation.Params{
 				IncludeMetaCount: true,
 				Tenant:           tt.tenant,
-			}, nil, tt.tenant)
+			}, nil)
 
 			// Assert
 			require.NoError(t, err, "aggregate")
