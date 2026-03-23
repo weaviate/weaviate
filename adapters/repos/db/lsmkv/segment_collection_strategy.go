@@ -75,24 +75,34 @@ func (s *segment) getCollectionBytes(key []byte) ([][]byte, error) {
 		return nil, err
 	}
 
-	// We need to copy the data we read from the segment exactly once in this
-	// place. This means that future processing can share this memory as much as
-	// it wants to, as it can now be considered immutable. If we didn't copy in
-	// this place it would only be safe to hold this data while still under the
-	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
-	// no compaction is started during an ongoing read. However, as we could show
-	// as part of https://github.com/weaviate/weaviate/issues/1837
-	// further processing, such as map-decoding and eventually map-merging would
-	// happen inside the bucket.MapList() method. This scope has its own lock,
-	// but that lock can only protecting against flushing (i.e. changing the
-	// active/flushing memtable), not against removing the disk segment. If a
-	// compaction completes and the old segment is removed, we would be accessing
-	// invalid memory without the copy, thus leading to a SEGFAULT.
-	contentsCopy := make([]byte, node.End-node.Start)
-	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+	// We need to copy the data we read from the segment exactly once. Without
+	// this copy it would only be safe to hold this data while under the
+	// protection of the segmentGroup.maintenanceLock. That lock prevents
+	// compaction from starting during a read, but further processing
+	// (map-decoding, map-merging inside bucket.MapList) uses its own narrower
+	// lock that cannot guard against segment removal. A completed compaction
+	// that removes the old segment would then cause a SEGFAULT.
+	// See https://github.com/weaviate/weaviate/issues/1837
+	//
+	// The copy buffer is borrowed from a pool and returned immediately after
+	// parsing. collectionStratParseDataBytes copies each individual value out
+	// of the buffer, so callers do not retain any sub-slices of contentsCopy
+	// and it is safe to pool.
+	size := int(node.End - node.Start)
+	handle := collectionCopyPool.Get().(*[]byte)
+	if cap(*handle) < size {
+		*handle = make([]byte, size)
+	} else {
+		*handle = (*handle)[:size]
+	}
+	err = s.copyNode(*handle, nodeOffset{node.Start, node.End})
+	if err != nil {
+		collectionCopyPool.Put(handle)
 		return nil, err
 	}
-	return s.collectionStratParseDataBytes(contentsCopy)
+	result, err := s.collectionStratParseDataBytes(*handle)
+	collectionCopyPool.Put(handle)
+	return result, err
 }
 
 func (s *segment) collectionStratParseDataBytes(in []byte) ([][]byte, error) {
@@ -120,7 +130,13 @@ func (s *segment) collectionStratParseDataBytes(in []byte) ([][]byte, error) {
 		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
 		offset += 8
 
-		values[valueIndex] = in[offset : offset+int(valueLen)]
+		// Copy the value out of the input buffer rather than sub-slicing it.
+		// This allows the caller to return the input buffer to a pool
+		// immediately after parsing, regardless of how long the returned
+		// values are retained.
+		v := make([]byte, valueLen)
+		copy(v, in[offset:offset+int(valueLen)])
+		values[valueIndex] = v
 		offset += int(valueLen)
 
 		valueIndex++

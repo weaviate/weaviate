@@ -724,14 +724,22 @@ func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, 
 }
 
 var (
-	bufReaderPool *sync.Pool
-	readObserver  *readObserverCache
+	bufReaderPool      *sync.Pool
+	collectionCopyPool *sync.Pool
+	readObserver       *readObserverCache
 )
 
 func init() {
 	bufReaderPool = &sync.Pool{
 		New: func() interface{} {
 			return bufio.NewReader(nil)
+		},
+	}
+
+	collectionCopyPool = &sync.Pool{
+		New: func() any {
+			b := make([]byte, 0, 4096)
+			return &b
 		},
 	}
 
