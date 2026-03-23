@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
 	"maps"
 	"os"
 	"path"
@@ -2629,6 +2630,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var mux sync.Mutex
 	counts := make(map[string]int)
 
+	log.Printf("aggregate count(*) on shards=%v", shards)
 	for _, shard := range shards {
 		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
 		// That interface has a dozen methods and half of them belong to replica.RClient.
@@ -2646,7 +2648,8 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 			func(ctx context.Context, host string, _ bool) (any, error) {
 				count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
 				if err != nil {
-					return nil, err
+					// Survive single-node failures, we're doing this best-effort style
+					return nil, nil
 				}
 				mux.Lock()
 				counts[host] += count
@@ -2676,6 +2679,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var median int
 	medianIdx := len(counts) / 2
 
+	log.Printf("collected per-node counts=%v", counts)
 	// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
