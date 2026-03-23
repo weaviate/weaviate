@@ -93,6 +93,10 @@ func IsSnapshotDir(dir string) bool {
 //
 // On error, the snapshot directory is cleaned up and compaction is resumed.
 func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string) (string, error) {
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name {
+		return "", fmt.Errorf("invalid snapshot name %q: must be a non-empty single path element", name)
+	}
+
 	snapshotDir := filepath.Join(snapshotsRoot, SnapshotDirPrefix+name)
 
 	if err := b.pauseCompaction(ctx); err != nil {
@@ -185,11 +189,17 @@ func NewSnapshotBucket(
 			SnapshotDirPrefix, filepath.Base(snapshotDir))
 	}
 
+	if _, err := os.Stat(snapshotDir); err != nil {
+		return nil, fmt.Errorf("NewSnapshotBucket: snapshot directory does not exist: %w", err)
+	}
+
 	noopCB := cyclemanager.NewCallbackGroupNoop()
-	allOpts := append([]BucketOption{
+	// Append snapshot-enforced options AFTER caller opts so they cannot be
+	// overridden — snapshot buckets must always be read-only and non-compacting.
+	allOpts := append(opts,
 		WithDisableCompaction(true),
 		WithReadOnly(true),
-	}, opts...)
+	)
 	return NewBucketCreator().NewBucket(ctx, snapshotDir, snapshotDir,
 		logger, nil, noopCB, noopCB, allOpts...)
 }

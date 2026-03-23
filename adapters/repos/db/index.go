@@ -428,7 +428,11 @@ func NewIndex(
 	// by operations that were interrupted (e.g. server crash). This runs once
 	// at index creation time — not on every shard load — so it won't interfere
 	// with a snapshot that may be in use after a tenant re-activation.
-	os.RemoveAll(index.snapshotsPath())
+	if err := os.RemoveAll(index.snapshotsPath()); err != nil {
+		logger.WithField("action", "remove_orphaned_snapshots").
+			WithField("path", index.snapshotsPath()).
+			Error(err)
+	}
 
 	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
 		return nil, err
