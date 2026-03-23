@@ -544,7 +544,7 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 
 func (d *Compose) WithMCP() *Compose {
 	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
-	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_DISABLED", "false")
+	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_ENABLED", "true")
 	d.withWeaviateExposeMCPPort = true
 	return d
 }

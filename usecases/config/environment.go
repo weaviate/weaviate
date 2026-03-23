@@ -925,10 +925,10 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
-	// Default is true (write access disabled), set to false when explicitly set to "false"
-	config.MCP.WriteAccessDisabled = DefaultMCPWriteAccessDisabled
-	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_DISABLED"); v != "" {
-		config.MCP.WriteAccessDisabled = entcfg.Enabled(v)
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
 	}
 	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
 		config.MCP.ConfigPath = v
@@ -1537,7 +1537,7 @@ const (
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultMCPPort                             = 9000
 	DefaultMCPEnabled                          = false
-	DefaultMCPWriteAccessDisabled              = true
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultAsyncReplicationClusterMaxWorkers   = 15

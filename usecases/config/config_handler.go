@@ -417,10 +417,10 @@ type GRPC struct {
 }
 
 type MCP struct {
-	Enabled             bool   `json:"enabled" yaml:"enabled"`
-	Port                int    `json:"port" yaml:"port"`
-	WriteAccessDisabled bool   `json:"writeAccessDisabled" yaml:"writeAccessDisabled"`
-	ConfigPath          string `json:"configPath" yaml:"configPath"`
+	Enabled            bool   `json:"enabled" yaml:"enabled"`
+	Port               int    `json:"port" yaml:"port"`
+	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string `json:"configPath" yaml:"configPath"`
 }
 
 type Profiling struct {
