@@ -373,11 +373,16 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	const headerSize = 5
 	var currentScheme, newScheme Scheme
 	var currentCount uint32
+	// pHandle tracks the pool handle when p was allocated by this function in the
+	// empty-buffer path. When p came from an external caller there is no handle,
+	// and we fall back to PutBytes (which pays one extra pointer allocation).
+	var pHandle *[]byte
 
 	if len(p) == 0 {
 		currentScheme = schemeFor(vectorID)
 		newScheme = currentScheme
-		p = bufferPool.Get(headerSize, headerSize+currentScheme.BytesPerValue()+1)
+		pHandle = bufferPool.Get(headerSize, headerSize+currentScheme.BytesPerValue()+1)
+		p = *pHandle
 		p[0] = byte(currentScheme)
 	} else {
 		currentScheme = Scheme(p[0])
@@ -393,10 +398,15 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 		currentBytesPerValue := currentScheme.BytesPerValue()
 		newSize := headerSize + int(newCount)*(currentBytesPerValue+1)
 		if cap(p) < newSize {
-			newP := bufferPool.Get(len(p), newSize)
-			copy(newP, p)
-			bufferPool.Put(p)
-			p = newP
+			newHandle := bufferPool.Get(len(p), newSize)
+			copy(*newHandle, p)
+			if pHandle != nil {
+				bufferPool.Put(pHandle)
+			} else {
+				bufferPool.PutBytes(p)
+			}
+			pHandle = newHandle
+			p = *pHandle
 		}
 
 		for i := range currentBytesPerValue {
@@ -415,7 +425,8 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	versionsSize := int(newCount) // 1 byte per version
 	newSize := headerSize + idsSize + versionsSize
 
-	newData := bufferPool.Get(newSize, newSize)
+	newHandle := bufferPool.Get(newSize, newSize)
+	newData := *newHandle
 	// write new header
 	newData[0] = byte(newScheme)
 	// write count
@@ -442,7 +453,11 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	// write the new version
 	newData[offset] = byte(version)
 
-	bufferPool.Put(p)
+	if pHandle != nil {
+		bufferPool.Put(pHandle)
+	} else {
+		bufferPool.PutBytes(p)
+	}
 
 	return newData
 }
@@ -473,9 +488,9 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 func (p *PostingMapStore) Set(ctx context.Context, postingID uint64, metadata PackedPostingMetadata) error {
 	key := p.key(postingID)
 	// copy metadata to a new array
-	metadataCopy := bufferPool.Get(len(metadata), len(metadata))
-	copy(metadataCopy, metadata)
-	return p.bucket.Put(key[:], metadataCopy)
+	handle := bufferPool.Get(len(metadata), len(metadata))
+	copy(*handle, metadata)
+	return p.bucket.Put(key[:], *handle)
 }
 
 func (p *PostingMapStore) Delete(ctx context.Context, postingID uint64) error {
@@ -499,9 +514,9 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 		}
 
 		postingID := binary.LittleEndian.Uint64(k[len(p.keyPrefix):])
-		metadata := bufferPool.Get(len(v), len(v))
-		copy(metadata, v)
-		err := fn(postingID, metadata)
+		handle := bufferPool.Get(len(v), len(v))
+		copy(*handle, v)
+		err := fn(postingID, PackedPostingMetadata(*handle))
 		if err != nil {
 			return err
 		}
