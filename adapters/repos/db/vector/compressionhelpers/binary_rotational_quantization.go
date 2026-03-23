@@ -178,7 +178,10 @@ func (c RQOneBitCode) String() string {
 }
 
 func (rq *BinaryRotationalQuantizer) Encode(x []float32) []uint64 {
-	rx := rq.rotation.Rotate(x)
+	rxHandle := getRotationBuf(int(rq.rotation.OutputDim))
+	rq.rotation.RotateInto(*rxHandle, x)
+	rx := *rxHandle
+	defer putRotationBuf(rxHandle)
 	d := len(rx)
 	code := NewRQOneBitCode(d)
 	blocks := d / 64
@@ -278,7 +281,10 @@ func maxAbs(rx []float32) float32 {
 
 // TODO: Handle corner cases as we do for 8-bit RQ.
 func (rq *BinaryRotationalQuantizer) encodeQuery(x []float32) RQMultiBitCode {
-	rx := rq.rotation.Rotate(x)
+	rxHandle := getRotationBuf(int(rq.rotation.OutputDim))
+	rq.rotation.RotateInto(*rxHandle, x)
+	rx := *rxHandle
+	defer putRotationBuf(rxHandle)
 	abs := maxAbs(rx)
 	if abs == 0 {
 		// The input vector is the zero vector.

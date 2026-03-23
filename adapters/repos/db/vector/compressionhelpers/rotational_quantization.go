@@ -191,7 +191,10 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 		x = x[:outDim]
 	}
 
-	rx := rq.rotation.Rotate(x)
+	rxHandle := getRotationBuf(outDim)
+	rq.rotation.RotateInto(*rxHandle, x)
+	rx := *rxHandle
+	defer putRotationBuf(rxHandle)
 	var maxCode uint8 = (1 << bits) - 1
 	lower := slices.Min(rx)
 	step := (slices.Max(rx) - lower) / float32(maxCode)

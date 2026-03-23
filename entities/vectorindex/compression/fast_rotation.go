@@ -102,25 +102,33 @@ func RestoreFastRotation(outputDim int, rounds int, swaps [][]Swap, signs [][]fl
 
 func (r *FastRotation) Rotate(x []float32) []float32 {
 	rx := make([]float32, r.OutputDim)
-	copy(rx, x)
+	r.RotateInto(rx, x)
+	return rx
+}
+
+// RotateInto applies the rotation to src and writes the result into dst.
+// dst must have length == r.OutputDim. src is not modified.
+// Use this with a pooled dst to avoid allocating on every Encode call.
+func (r *FastRotation) RotateInto(dst, src []float32) {
+	n := copy(dst, src)
+	clear(dst[n:]) // zero-fill if src is shorter than OutputDim
 	for i := range r.Rounds {
 		// Apply random swaps and signs.
 		for _, s := range r.Swaps[i] {
-			rx[s.I], rx[s.J] = r.Signs[i][s.I]*rx[s.J], r.Signs[i][s.J]*rx[s.I]
+			dst[s.I], dst[s.J] = r.Signs[i][s.I]*dst[s.J], r.Signs[i][s.J]*dst[s.I]
 		}
 		// Transform in blocks (of length 256 if possible, otherwise length 64).
 		pos := 0
-		for pos < len(rx) {
-			if len(rx)-pos >= 256 {
-				FastWalshHadamardTransform256(rx[pos:(pos + 256)])
+		for pos < len(dst) {
+			if len(dst)-pos >= 256 {
+				FastWalshHadamardTransform256(dst[pos:(pos + 256)])
 				pos += 256
 				continue
 			}
-			FastWalshHadamardTransform64(rx[pos:(pos + 64)])
+			FastWalshHadamardTransform64(dst[pos:(pos + 64)])
 			pos += 64
 		}
 	}
-	return rx
 }
 
 func (r *FastRotation) UnRotate(rx []float32) []float32 {
