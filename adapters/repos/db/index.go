@@ -2591,9 +2591,9 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 
 	shards := readPlan.Shards()
-	if aggregation.IsCountStar(&params) {
-		return i.aggregateCount(ctx, shards)
-	}
+	// if aggregation.IsCountStar(&params) {
+	// 	return i.aggregateCount(ctx, shards)
+	// }
 
 	results := make([]*aggregation.Result, len(shards))
 	for j, shardName := range shards {
