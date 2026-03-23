@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/weaviate/weaviate/entities/additional"
 )
@@ -137,20 +138,36 @@ func (h *Highlighter) findMatches(text string, queryTerms []string) []match {
 }
 
 // isWordBoundary checks if the match at [start, end) falls on word boundaries.
+// start and end are byte offsets. We use utf8.DecodeLastRuneInString /
+// utf8.DecodeRuneInString so that multi-byte characters (CJK, emoji, etc.)
+// are decoded correctly instead of being treated as individual bytes.
+//
+// CJK ideographs (Han, Hiragana, Katakana, Hangul) are always treated as
+// word boundaries because these scripts do not use spaces between words.
 func (h *Highlighter) isWordBoundary(lowerText string, start, end int) bool {
 	if start > 0 {
-		r := rune(lowerText[start-1])
-		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+		r, _ := utf8.DecodeLastRuneInString(lowerText[:start])
+		if r != utf8.RuneError && !isCJK(r) && (unicode.IsLetter(r) || unicode.IsNumber(r)) {
 			return false
 		}
 	}
 	if end < len(lowerText) {
-		r := rune(lowerText[end])
-		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+		r, _ := utf8.DecodeRuneInString(lowerText[end:])
+		if r != utf8.RuneError && !isCJK(r) && (unicode.IsLetter(r) || unicode.IsNumber(r)) {
 			return false
 		}
 	}
 	return true
+}
+
+// isCJK returns true if the rune is a CJK ideograph or a character from a
+// script that does not use spaces between words (Han, Hiragana, Katakana,
+// Hangul). These characters always form word boundaries.
+func isCJK(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r)
 }
 
 // selectFragments chooses the best fragments from the text based on match density.
@@ -271,9 +288,11 @@ func (h *Highlighter) fragmentsOverlap(a, b fragment) bool {
 	return float64(overlap)/float64(minSize) > 0.5
 }
 
-// snapToWordBoundary adjusts an offset to not break in the middle of a word.
+// snapToWordBoundary adjusts a byte offset to not break in the middle of a word.
 // If forward is true, it snaps forward (for fragment start).
 // If forward is false, it snaps forward to the next word boundary (for fragment end).
+// Uses utf8.DecodeRuneInString / DecodeLastRuneInString so multi-byte
+// characters are handled correctly.
 func (h *Highlighter) snapToWordBoundary(text string, offset int, forward bool) int {
 	if offset <= 0 {
 		return 0
@@ -282,22 +301,62 @@ func (h *Highlighter) snapToWordBoundary(text string, offset int, forward bool) 
 		return len(text)
 	}
 
+	// If offset landed in the middle of a multi-byte UTF-8 sequence,
+	// advance to the next valid rune start so we never split a character.
+	for offset < len(text) && !utf8.RuneStart(text[offset]) {
+		offset++
+	}
+	if offset >= len(text) {
+		return len(text)
+	}
+
+	// Decode the rune at the current offset and the one just before it.
+	decodeAt := func(pos int) (rune, int) {
+		if pos >= len(text) {
+			return utf8.RuneError, 0
+		}
+		return utf8.DecodeRuneInString(text[pos:])
+	}
+	decodeBefore := func(pos int) rune {
+		if pos <= 0 {
+			return utf8.RuneError
+		}
+		r, _ := utf8.DecodeLastRuneInString(text[:pos])
+		return r
+	}
+
 	if forward {
 		// For start: move forward to find start of next word if we're mid-word
-		if offset > 0 && isAlphaNum(rune(text[offset])) && isAlphaNum(rune(text[offset-1])) {
-			for offset < len(text) && isAlphaNum(rune(text[offset])) {
-				offset++
+		curR, _ := decodeAt(offset)
+		prevR := decodeBefore(offset)
+		if isAlphaNum(curR) && isAlphaNum(prevR) {
+			// Skip the rest of the current word
+			for offset < len(text) {
+				r, sz := decodeAt(offset)
+				if !isAlphaNum(r) {
+					break
+				}
+				offset += sz
 			}
 			// Skip whitespace after the word
-			for offset < len(text) && unicode.IsSpace(rune(text[offset])) {
-				offset++
+			for offset < len(text) {
+				r, sz := decodeAt(offset)
+				if !unicode.IsSpace(r) {
+					break
+				}
+				offset += sz
 			}
 		}
 	} else {
 		// For end: move forward to include the rest of the current word
-		if offset < len(text) && isAlphaNum(rune(text[offset])) {
-			for offset < len(text) && isAlphaNum(rune(text[offset])) {
-				offset++
+		curR, _ := decodeAt(offset)
+		if isAlphaNum(curR) {
+			for offset < len(text) {
+				r, sz := decodeAt(offset)
+				if !isAlphaNum(r) {
+					break
+				}
+				offset += sz
 			}
 		}
 	}

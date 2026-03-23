@@ -14,6 +14,7 @@ package highlight
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -301,4 +302,161 @@ func TestHighlighter_Highlight_Ellipsis(t *testing.T) {
 	// Should have leading and trailing ellipsis since match is in the middle
 	assert.True(t, strings.HasPrefix(fragments[0], "..."), "should start with ellipsis: %s", fragments[0])
 	assert.True(t, strings.HasSuffix(fragments[0], "..."), "should end with ellipsis: %s", fragments[0])
+}
+
+func TestHighlighter_Highlight_ChineseCharacters(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 3,
+		FragmentSize:      200,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	// Chinese text: "Weaviate is a vector database, supporting semantic search and hybrid search."
+	text := "Weaviate 是一个向量数据库，支持语义搜索和混合搜索。"
+	terms := []string{"weaviate"}
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find match in Chinese text")
+	assert.Contains(t, fragments[0], "<em>Weaviate</em>")
+	// The surrounding Chinese characters should be preserved intact
+	assert.Contains(t, fragments[0], "是一个向量数据库")
+}
+
+func TestHighlighter_Highlight_ChineseTermMatch(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 3,
+		FragmentSize:      200,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	// Search for a Chinese term within Chinese text
+	text := "这是关于向量数据库的介绍文章。向量搜索技术正在快速发展。"
+	terms := []string{"向量数据库"}
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find Chinese term match")
+	assert.Contains(t, fragments[0], "<em>向量数据库</em>")
+}
+
+func TestHighlighter_Highlight_EmojiContent(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 3,
+		FragmentSize:      200,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	text := "I love using Weaviate for search! 🔍 It handles vectors really well 🚀"
+	terms := TokenizeQuery("weaviate search")
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find matches in text with emoji")
+	assert.Contains(t, fragments[0], "<em>Weaviate</em>")
+	assert.Contains(t, fragments[0], "<em>search</em>")
+	// Emoji should be preserved intact
+	assert.Contains(t, fragments[0], "\U0001f50d") // 🔍
+}
+
+func TestHighlighter_Highlight_MixedScripts(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 3,
+		FragmentSize:      200,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	// Mix of Latin, CJK, and emoji
+	text := "The product名前 is Weaviate🚀 — a vector DB"
+	terms := TokenizeQuery("weaviate")
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find match in mixed-script text")
+	assert.Contains(t, fragments[0], "<em>Weaviate</em>")
+}
+
+func TestHighlighter_Highlight_JapaneseText(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 3,
+		FragmentSize:      200,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	// Japanese: "Weaviate is used for vector search."
+	text := "Weaviateはベクトル検索に使われています。"
+	terms := []string{"weaviate"}
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find match in Japanese text")
+	assert.Contains(t, fragments[0], "<em>Weaviate</em>")
+	assert.Contains(t, fragments[0], "はベクトル検索")
+}
+
+func TestHighlighter_WordBoundary_MultiByte(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 3,
+		FragmentSize:      200,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	// The word "test" appears after multi-byte characters.
+	// The character before "test" is "。" (U+3002, 3 bytes in UTF-8).
+	// Old code: rune(text[i]) on the last byte of "。" would give a garbage
+	// rune (0x82) instead of the actual character, causing wrong boundary
+	// detection.
+	text := "这是一段测试文本。test results are here."
+	terms := []string{"test"}
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find 'test' after CJK punctuation")
+	assert.Contains(t, fragments[0], "<em>test</em>")
+}
+
+func TestHighlighter_SnapToWordBoundary_MultiByte(t *testing.T) {
+	h := New(additional.HighlightConfig{
+		NumberOfFragments: 1,
+		FragmentSize:      30,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	})
+
+	// Long text with multi-byte characters where fragment boundary snapping
+	// must not split a multi-byte character in the middle.
+	text := "这是第一段很长的中文文本内容。target word is here. 这是第二段很长的中文文本内容结尾。"
+	terms := []string{"target"}
+	fragments := h.Highlight(text, terms)
+
+	require.NotEmpty(t, fragments, "should find match in text with CJK context")
+	assert.Contains(t, fragments[0], "<em>target</em>")
+	// Verify the fragment is valid UTF-8
+	for _, frag := range fragments {
+		for i := 0; i < len(frag); {
+			r, sz := rune(frag[i]), 1
+			if r >= 0x80 {
+				// Verify proper multi-byte encoding by checking that
+				// the string can be iterated rune-by-rune without error
+				var decoded rune
+				decoded, sz = utf8.DecodeRuneInString(frag[i:])
+				assert.NotEqual(t, rune(0xFFFD), decoded,
+					"fragment should be valid UTF-8, found replacement char at byte %d in: %s", i, frag)
+			}
+			i += sz
+		}
+	}
+}
+
+func TestTokenizeQuery_CJK(t *testing.T) {
+	// CJK characters are letters, so FieldsFunc should keep them as tokens
+	terms := TokenizeQuery("向量数据库 search")
+	assert.Contains(t, terms, "向量数据库")
+	assert.Contains(t, terms, "search")
+}
+
+func TestTokenizeQuery_Emoji(t *testing.T) {
+	// Emoji are not letters/numbers, so they act as separators
+	terms := TokenizeQuery("hello 🔍 world")
+	assert.Equal(t, []string{"hello", "world"}, terms)
 }
