@@ -2647,13 +2647,11 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 		results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
 			func(ctx context.Context, host string, _ bool) (any, error) {
 				count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
-				if err != nil {
-					// Survive single-node failures, we're doing this best-effort style
-					return nil, nil
+				if err == nil {
+					mux.Lock()
+					counts[host] += count
+					mux.Unlock()
 				}
-				mux.Lock()
-				counts[host] += count
-				mux.Unlock()
 				return nil, nil
 			}, "", time.Minute)
 		if err != nil {
