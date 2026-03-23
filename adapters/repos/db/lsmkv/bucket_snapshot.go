@@ -9,8 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Bucket snapshots provide a frozen, read-only view of an LSM bucket's data
-// at a specific point in time.
+// Bucket snapshots provide a frozen, read-only view of an LSM bucket's
+// on-disk data at the moment the internal flush completes.
 //
 // How it works:
 //
@@ -20,7 +20,13 @@
 //     resumed on return. Pausing the flush cycle ensures no concurrent
 //     FlushAndSwitch can produce new segment files during the hard-link
 //     window, and Deactivate waits for any in-progress flush to complete
-//     before returning — guaranteeing a true point-in-time snapshot.
+//     before returning.
+//
+//     Note: the snapshot captures all data that was on disk after the flush.
+//     Concurrent writers may insert new keys into the active memtable between
+//     the flush and the hard-link step; those writes will NOT be included in
+//     the snapshot. The effective cut-off point is the moment FlushMemtable
+//     returns, not the moment CreateSnapshot is called or returns.
 //
 //  2. NewSnapshotBucket opens a read-only Bucket on the snapshot directory.
 //     Because segment files are immutable (compaction produces new files rather
@@ -82,6 +88,12 @@ func IsSnapshotDir(dir string) bool {
 // and resumes both cycles on return. Pausing the flush cycle (via Deactivate)
 // waits for any in-progress flush to complete — ensuring no new segment files
 // appear during the hard-link window.
+//
+// The snapshot captures all data that was flushed to disk. Concurrent writers
+// are NOT blocked: they may continue inserting into the active memtable while
+// the hard-link step runs. Those writes land after the flush and are therefore
+// excluded from the snapshot. The effective cut-off is the moment the internal
+// FlushMemtable call returns.
 //
 // The snapshot is placed at <snapshotsRoot>/<SnapshotDirPrefix><name>. The
 // caller provides snapshotsRoot (typically <indexPath>/.snapshots) and a name
