@@ -36,9 +36,12 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	})
 	log.Debug("executing hybrid query")
 
-	// Authorize the request
+	// Authorize the request: first check MCP-level permission, then collection-level data permission
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.AuthorizeCollectionData(ctx, principal, authorization.READ, args.CollectionName, args.TenantName); err != nil {
 		return nil, err
 	}
 
