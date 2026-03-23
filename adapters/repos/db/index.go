@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"path"
@@ -2591,9 +2590,9 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 
 	shards := readPlan.Shards()
-	// if aggregation.IsCountStar(&params) {
-	// 	return i.aggregateCount(ctx, shards)
-	// }
+	if aggregation.IsCountStar(&params) {
+		return i.aggregateCount(ctx, shards)
+	}
 
 	results := make([]*aggregation.Result, len(shards))
 	for j, shardName := range shards {
@@ -2630,7 +2629,9 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var mux sync.Mutex
 	counts := make(map[string]int)
 
-	log.Printf("aggregate count(*) on shards=%v", shards)
+	fmt.Println("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+	fmt.Printf("aggregate count(*) on shards=%v\n", shards)
+	fmt.Println("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	for _, shard := range shards {
 		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
 		// That interface has a dozen methods and half of them belong to replica.RClient.
@@ -2677,7 +2678,9 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var median int
 	medianIdx := len(counts) / 2
 
-	log.Printf("collected per-node counts=%v", counts)
+	fmt.Println("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+	fmt.Printf("collected per-node counts=%v\n", counts)
+	fmt.Println("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
