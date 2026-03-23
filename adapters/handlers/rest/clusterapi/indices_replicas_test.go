@@ -58,6 +58,7 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 		{"GET", "/objects"},
 		{"POST", "/objects"},
 		{"DELETE", "/objects"},
+		{"GET", "/objects/_count"},
 		{"PUT", "/replication-factor:increase"},
 		{"POST", ":commit"},
 		{"POST", ":abort"},
