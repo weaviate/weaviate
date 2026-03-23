@@ -884,6 +884,8 @@ type IndexConfig struct {
 	HFreshEnabled bool
 
 	AutoTenantActivation bool
+
+	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 
 func indexID(class schema.ClassName) string {

@@ -25,13 +25,14 @@ import (
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -43,9 +44,11 @@ type gcsClient struct {
 	logger    logrus.FieldLogger
 }
 
-func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
-	options := []option.ClientOption{}
+func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
+	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
+
 	if useAuth {
 		scopes := []string{
 			"https://www.googleapis.com/auth/devstorage.read_write",
@@ -54,10 +57,22 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		if err != nil {
 			return nil, errors.Wrap(err, "find default credentials")
 		}
-		options = append(options, option.WithCredentials(creds))
+		opts = append(opts, option.WithCredentials(creds))
+	} else if backupGCSAuthProxyEndpoint != "" {
+		opts = append(
+			opts,
+			option.WithTokenSource(
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(backupGCSAuthProxyEndpoint)),
+			),
+		)
 	} else {
-		options = append(options, option.WithoutAuthentication())
+		opts = append(opts, option.WithoutAuthentication())
 	}
+
+	return opts, nil
+}
+
+func projectID() string {
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if len(projectID) == 0 {
 		projectID = os.Getenv("GCLOUD_PROJECT")
@@ -65,7 +80,17 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 			projectID = os.Getenv("GCP_PROJECT")
 		}
 	}
-	client, err := storage.NewClient(ctx, options...)
+
+	return projectID
+}
+
+func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
+	opts, err := storageOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := storage.NewClient(ctx, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
@@ -76,30 +101,9 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		Multiplier: 3,
 	}),
 		storage.WithPolicy(storage.RetryAlways),
-		storage.WithErrorFunc(func(err error) bool {
-			if err == nil {
-				return false
-			}
-
-			if storage.ShouldRetry(err) {
-				return true
-			}
-
-			// Retry on http2 connection lost error which is not covered by ShouldRetry
-			if strings.Contains(err.Error(), "http2: client connection lost") {
-				return true
-			}
-
-			var gerr *googleapi.Error
-			if errors.As(err, &gerr) {
-				// retry on 401 on top of the default retryable errors
-				return gerr.Code == 401
-			}
-
-			return false
-		}),
+		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
-	return &gcsClient{client, *config, projectID, dataPath, logger}, nil
+	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath, logger: logger}, nil
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,

@@ -210,6 +210,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this shard count instead of the cluster node count.
+	// A value of 0 means use the cluster node count (default behavior).
+	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
+
 	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
 	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
 
@@ -239,6 +243,9 @@ type Config struct {
 	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
+	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
 type MapToBlockamaxConfig struct {
