@@ -168,8 +168,6 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 					val64[i] = float64(v[i])
 				}
 				val = val64
-			default:
-				return filters.Clause{}, fmt.Errorf("expected a number value, but received %T", val)
 			}
 		}
 		if dataType == schema.DataTypeInt {
@@ -195,8 +193,6 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 					valInt[i] = int(v[i])
 				}
 				val = valInt
-			default:
-				return filters.Clause{}, fmt.Errorf("expected an integer value, but received %T", val)
 			}
 		}
 
