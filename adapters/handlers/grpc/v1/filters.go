@@ -13,6 +13,7 @@ package v1
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -145,16 +146,35 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
 
-		// correct the type of value when filtering on a float/int property but sending an int/float. This is easy to
-		// get wrong
-		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
-			val = float64(number)
-		}
-		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
-			val = int(number)
-			if float64(int(number)) != number {
-				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
+		// correct the type of value when filtering on a float/int property but sending an int/float/string. This is easy to
+		// get wrong for humans and agents alike (e.g. sending "2.3" as a filter on a number property)
+		if dataType == schema.DataTypeNumber {
+			var fVal float64
+			switch v := val.(type) {
+			case int:
+				fVal = float64(v)
+			case string:
+				var err error
+				fVal, err = strconv.ParseFloat(v, 64)
+				if err != nil {
+					return filters.Clause{}, fmt.Errorf("expected a number value, but could not parse string '%v' as float: %w", v, err)
+				}
 			}
+			val = fVal
+		}
+		if dataType == schema.DataTypeInt {
+			var fVal float64
+			switch v := val.(type) {
+			case float64:
+				fVal = v
+			case string:
+				var err error
+				fVal, err = strconv.ParseFloat(v, 64)
+				if err != nil {
+					return filters.Clause{}, fmt.Errorf("expected an integer value, but could not parse string '%v' as int: %w", v, err)
+				}
+			}
+			val = int(fVal)
 		}
 
 		// correct type for containsXXX in case users send int/float for a float/int array

@@ -69,7 +69,8 @@ var (
 					Class: classname,
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
-						{Name: "number", DataType: schema.DataTypeInt.PropString()},
+						{Name: "int", DataType: schema.DataTypeInt.PropString()},
+						{Name: "number", DataType: schema.DataTypeNumber.PropString()},
 						{Name: "floats", DataType: schema.DataTypeNumberArray.PropString()},
 						{Name: "uuid", DataType: schema.DataTypeUUID.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
@@ -267,7 +268,7 @@ var (
 func TestGRPCSearchRequest(t *testing.T) {
 	one := float64(1.0)
 
-	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
+	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "int", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
 	defaultNamedVecProps := search.SelectProperties{{Name: "first", IsPrimitive: true}}
 
 	defaultPagination := &filters.Pagination{Limit: 10}
@@ -752,19 +753,15 @@ func TestGRPCSearchRequest(t *testing.T) {
 				}},
 			}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
-					{Name: "name", IsPrimitive: true},
-					{Name: "number", IsPrimitive: true},
-					{Name: "floats", IsPrimitive: true},
-					{Name: "uuid", IsPrimitive: true},
-					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+				ClassName: classname, Pagination: defaultPagination, Properties: append(defaultTestClassProps,
+					search.SelectProperty{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
 						{
 							ClassName:            refClass1,
 							RefProperties:        search.SelectProperties{{Name: "something", IsPrimitive: true}},
 							AdditionalProperties: additional.Properties{Vector: true},
 						},
 					}},
-				},
+				),
 			},
 			error: false,
 		},
@@ -780,12 +777,8 @@ func TestGRPCSearchRequest(t *testing.T) {
 				}},
 			}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
-					{Name: "name", IsPrimitive: true},
-					{Name: "number", IsPrimitive: true},
-					{Name: "floats", IsPrimitive: true},
-					{Name: "uuid", IsPrimitive: true},
-					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+				ClassName: classname, Pagination: defaultPagination, Properties: append(defaultTestClassProps,
+					search.SelectProperty{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
 						{
 							ClassName: refClass1,
 							RefProperties: search.SelectProperties{
@@ -795,7 +788,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 							AdditionalProperties: additional.Properties{Vector: true},
 						},
 					}},
-				},
+				),
 			},
 			error: false,
 		},
@@ -1565,6 +1558,136 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "filter on integer property with uncoercable text value",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "fish"},
+					On:        []string{"int"},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "filter on integer property with coercable text (int) value",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "1"},
+					On:        []string{"int"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "int",
+						},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: 1, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter on integer property with coercable text (float) value",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "1.2"},
+					On:        []string{"int"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "int",
+						},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: 1, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter on number property with uncoercable text value",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "fish"},
+					On:        []string{"number"},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "filter on number property with coercable text (int) value",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "1"},
+					On:        []string{"number"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "number",
+						},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: 1.0, Type: schema.DataTypeNumber},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter on number property with coercable text (float) value",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "1.2"},
+					On:        []string{"number"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "number",
+						},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: 1.2, Type: schema.DataTypeNumber},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "near text search",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -1768,7 +1891,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 					Vector:  true,
 					NoProps: false,
 					ModuleParams: map[string]interface{}{
-						"generate": &generate.Params{Task: &someString2, PropertiesToExtract: []string{"name", "number", "floats", "uuid"}},
+						"generate": &generate.Params{Task: &someString2, PropertiesToExtract: []string{"name", "int", "number", "floats", "uuid"}},
 					},
 				},
 			},
