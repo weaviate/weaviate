@@ -23,6 +23,11 @@ import (
 // if one of the selected postings is equal to `reassignedFromID`.
 func (h *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet, bool, error) {
 	replicas := NewResultSet(int(h.replicas))
+	// replicaCentroids caches decoded centroid vectors for already-selected replicas.
+	// Without this, the inner loop re-decodes each replica centroid for every outer
+	// candidate iteration — O(N_candidates × N_replicas) decodes instead of O(N_candidates + N_replicas).
+	replicaCentroids := make([]*Centroid, 0, h.replicas)
+
 	candidates, err := h.Centroids.Search(query, h.config.InternalPostingCandidates, nil)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "failed to search for nearest neighbors")
@@ -35,14 +40,10 @@ func (h *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet
 		}
 
 		tooClose := false
-		for _, r := range replicas.data {
-			rCenter, err := h.Centroids.Get(r.ID)
+		for i := range replicas.data {
+			centerDist, err := h.distancer.DistanceBetweenVectors(cCenter.Uncompressed, replicaCentroids[i].Uncompressed)
 			if err != nil {
-				return nil, false, errors.Wrap(err, "failed to get replica centroid")
-			}
-			centerDist, err := h.distancer.DistanceBetweenVectors(cCenter.Uncompressed, rCenter.Uncompressed)
-			if err != nil {
-				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, r.ID)
+				return nil, false, errors.Wrapf(err, "failed to compute distance for edge %d -> %d", cID, replicas.data[i].ID)
 			}
 
 			if centerDist <= (1.0/h.rngFactor)*cDistance {
@@ -60,6 +61,7 @@ func (h *HFresh) RNGSelect(query []float32, reassignedFromID uint64) (*ResultSet
 		}
 
 		replicas.data = append(replicas.data, Result{ID: cID, Distance: cDistance})
+		replicaCentroids = append(replicaCentroids, cCenter)
 		if replicas.Len() >= int(h.replicas) {
 			break
 		}
