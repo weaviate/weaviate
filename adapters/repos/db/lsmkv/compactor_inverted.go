@@ -274,7 +274,10 @@ func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
-	encoded := gobenc.Encode(propLengths)
+	encoded, err := gobenc.Encode(propLengths)
+	if err != nil {
+		return 0, err
+	}
 
 	count, average := c.combinePropertyLengths()
 

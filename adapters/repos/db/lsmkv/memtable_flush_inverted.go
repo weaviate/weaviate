@@ -206,7 +206,10 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	}
 	totalWritten += 8
 
-	encoded := gobenc.Encode(docIdsLengths)
+	encoded, err := gobenc.Encode(docIdsLengths)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
 	if _, err := bw.Write(buf); err != nil {
