@@ -48,9 +48,12 @@ func (index *Index) initCycleCallbacks() {
 		vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
 	}
 
-	id := func(elems ...string) string {
-		elems = append([]string{"index", index.ID()}, elems...)
+	cm := func(elems ...string) string {
+		elems = append([]string{index.ID()}, elems...)
 		return strings.Join(elems, "/")
+	}
+	id := func(elems ...string) string {
+		return "index/" + cm(elems...)
 	}
 
 	var compactionCycle cyclemanager.CycleManager
@@ -61,26 +64,27 @@ func (index *Index) initCycleCallbacks() {
 	if !index.Config.SeparateObjectsCompactions {
 		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction"), index.logger, routinesN)
 		compactionCycle = cyclemanager.NewManager(
+			cm("compaction"),
 			cyclemanager.CompactionCycleTicker(),
 			compactionCallbacks.CycleCallback, index.logger)
 		compactionAuxCycle = cyclemanager.NewManagerNoop()
 	} else {
-		routinesNDiv2 := routinesN / 2
-		if routinesNDiv2 < 1 {
-			routinesNDiv2 = 1
-		}
+		routinesNDiv2 := max(routinesN/2, 1)
 		compactionCallbacks = cyclemanager.NewCallbackGroup(id("compaction-non-objects"), index.logger, routinesNDiv2)
 		compactionCycle = cyclemanager.NewManager(
+			cm("compaction-non-objects"),
 			cyclemanager.CompactionCycleTicker(),
 			compactionCallbacks.CycleCallback, index.logger)
 		compactionAuxCallbacks = cyclemanager.NewCallbackGroup(id("compaction-objects"), index.logger, routinesNDiv2)
 		compactionAuxCycle = cyclemanager.NewManager(
+			cm("compaction-objects"),
 			cyclemanager.CompactionCycleTicker(),
 			compactionAuxCallbacks.CycleCallback, index.logger)
 	}
 
 	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, routinesN)
 	flushCycle := cyclemanager.NewManager(
+		cm("flush"),
 		cyclemanager.MemtableFlushCycleTicker(),
 		flushCallbacks.CycleCallback, index.logger)
 
@@ -102,21 +106,25 @@ func (index *Index) initCycleCallbacks() {
 	// update: switched to dynamic intervals with values between 500ms and 10s
 	// introduced to address https://github.com/weaviate/weaviate/issues/2783
 	vectorCommitLoggerCycle := cyclemanager.NewManager(
+		cm("vector", "commit_logger"),
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		vectorCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, routinesN)
 	vectorTombstoneCleanupCycle := cyclemanager.NewManager(
+		cm("vector", "tombstone_cleanup"),
 		cyclemanager.NewFixedTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
 		vectorTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, routinesN)
 	geoPropsCommitLoggerCycle := cyclemanager.NewManager(
+		cm("geo_props", "commit_logger"),
 		cyclemanager.GeoCommitLoggerCycleTicker(),
 		geoPropsCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "tombstone_cleanup"), index.logger, routinesN)
 	geoPropsTombstoneCleanupCycle := cyclemanager.NewManager(
+		cm("geo_props", "tombstone_cleanup"),
 		cyclemanager.NewFixedTicker(hnsw.DefaultCleanupIntervalSeconds*time.Second),
 		geoPropsTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
