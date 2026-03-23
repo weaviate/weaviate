@@ -16,12 +16,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+var NUMCPU = runtime.GOMAXPROCS(0)
 
 // FetchBackupDescriptors fetches and unmarshals backup descriptors concurrently.
 // keys are the object names/paths to fetch; only keys ending with GlobalBackupFile
@@ -43,7 +46,7 @@ func FetchBackupDescriptors(
 	}
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
-	eg.SetLimit(100) // limit concurrency to 100 fetches at a time
+	eg.SetLimit(NUMCPU * 4)
 	metaCh := make(chan *backup.DistributedBackupDescriptor, len(filteredKeys))
 
 	for _, key := range filteredKeys {
