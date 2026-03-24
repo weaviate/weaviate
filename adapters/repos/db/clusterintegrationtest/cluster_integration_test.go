@@ -73,7 +73,8 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		overallShardState := multiShardState(numberOfNodes)
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
-				name: fmt.Sprintf("node-%d", i),
+				name:        fmt.Sprintf("node-%d", i),
+				objectCount: numberOfObjects,
 			}
 
 			nodes = append(nodes, node)

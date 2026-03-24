@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +57,7 @@ type node struct {
 	scheduler     *ubak.Scheduler
 	migrator      *db.Migrator
 	hostname      string
+	objectCount   int
 }
 
 func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State, asyncIndexEnabled bool) {
@@ -180,6 +182,9 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
+	mux.HandleFunc("/replicas/indices/{collection}/shards/{shard}/objects/_count", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strconv.Itoa(n.objectCount))
+	})
 
 	srv := httptest.NewServer(mux)
 	u, err := url.Parse(srv.URL)
