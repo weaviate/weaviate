@@ -264,27 +264,12 @@ func (h *HFresh) stopTaskQueues(ctx context.Context) error {
 		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
-		err := queue.Pause(ctx)
+		err := queue.PrepareForBackup(ctx)
 		if err != nil {
 			return fmt.Errorf("pause queue: %w", err)
 		}
-		err = queue.Flush()
-		if err != nil {
-			return fmt.Errorf("flush queue: %w", err)
-		}
 	}
 	return nil
-}
-
-func (h *HFresh) resumeTaskQueues() {
-	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
-		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue,
-		h.taskQueue.mergeQueue,
-	} {
-		queue.Resume()
-	}
 }
 
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
@@ -292,11 +277,32 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return h.stopTaskQueues(ctx)
+
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		err := queue.PrepareForBackup(ctx)
+		if err != nil {
+			return fmt.Errorf("pause queue: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
-	h.resumeTaskQueues()
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.DisableMaintenanceMode()
+	}
+
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
