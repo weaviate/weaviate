@@ -27,7 +27,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -832,7 +832,7 @@ func TestReplicationOverwriteObjectsCompression(t *testing.T) {
 			raw, err := io.ReadAll(dec)
 			require.NoError(t, err)
 
-			got, err := clusterapi.IndicesPayloads.VersionedObjectList.UnmarshalV2(raw)
+			got, err := shared.IndicesPayloads.VersionedObjectList.UnmarshalV2(raw)
 			require.NoError(t, err)
 			require.Len(t, got, 1)
 			assert.Equal(t, input[0].LatestObject.ID, got[0].LatestObject.ID)
