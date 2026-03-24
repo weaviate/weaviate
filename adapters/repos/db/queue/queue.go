@@ -294,6 +294,10 @@ func (q *DiskQueue) Flush() error {
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	if q.w == nil {
+		return nil
+	}
+
 	return q.w.Flush()
 }
 
