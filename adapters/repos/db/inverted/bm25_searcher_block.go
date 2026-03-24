@@ -261,6 +261,11 @@ func (b *BM25Searcher) wandBlock(
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
 
+	if additional.Highlight {
+		allTerms := collectUniqueTerms(termCounts)
+		applyHighlighting(objects, allTerms, params.Properties)
+	}
+
 	return objects, scores, false, nil
 }
 

@@ -360,6 +360,11 @@ func (b *BM25Searcher) wand(
 	fetchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
+
+	if err == nil && additional.Highlight {
+		applyHighlighting(objects, allQueryTerms, params.Properties)
+	}
+
 	return objects, scores, err
 }
 

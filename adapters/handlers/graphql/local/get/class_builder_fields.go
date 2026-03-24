@@ -590,7 +590,7 @@ func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
-			name == "group" {
+			name == "group" || name == "highlight" {
 			return true
 		}
 		if ac.isModuleAdditional(name) {
@@ -703,6 +703,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "isConsistent" {
 							additionalProps.IsConsistent = true
+							continue
+						}
+						if additionalProperty == "highlight" {
+							additionalProps.Highlight = true
 							continue
 						}
 						if additionalProperty == "group" {
