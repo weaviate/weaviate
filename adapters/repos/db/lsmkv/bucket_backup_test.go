@@ -54,7 +54,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 
 		err = b.FlushMemtable()
 		require.NotNil(t, err)
-		assert.ErrorIs(t, err, ErrReadOnly)
+		assert.ErrorIs(t, err, storagestate.ErrStatusReadOnly)
 
 		err = b.Shutdown(context.Background())
 		require.Nil(t, err)

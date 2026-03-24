@@ -104,9 +104,9 @@ func TestSnapshotBucketReadOnly(t *testing.T) {
 
 	require.Equal(t, 1, cursorCount(t, snapBucket))
 
-	assert.ErrorIs(t, snapBucket.Put([]byte("k"), []byte("v")), ErrReadOnly)
-	assert.ErrorIs(t, snapBucket.Delete([]byte("k")), ErrReadOnly)
-	assert.ErrorIs(t, snapBucket.FlushAndSwitch(), ErrReadOnly)
+	assert.ErrorIs(t, snapBucket.Put([]byte("k"), []byte("v")), ErrImmutable)
+	assert.ErrorIs(t, snapBucket.Delete([]byte("k")), ErrImmutable)
+	assert.ErrorIs(t, snapBucket.FlushAndSwitch(), ErrImmutable)
 }
 
 func TestSnapshotDirValidation(t *testing.T) {

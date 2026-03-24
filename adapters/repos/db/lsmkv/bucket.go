@@ -64,9 +64,11 @@ const (
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
-// ErrReadOnly is returned by write operations on a read-only bucket (e.g. a
-// snapshot bucket opened via NewSnapshotBucket).
-var ErrReadOnly = errors.New("bucket is read-only")
+// ErrImmutable is returned by write operations on a structurally immutable
+// bucket (e.g. a snapshot bucket opened via NewSnapshotBucket). This is
+// distinct from storagestate.ErrStatusReadOnly which indicates a transient
+// operational state set by the parent shard.
+var ErrImmutable = errors.New("bucket is immutable")
 
 // memtableNames is used for error messages and metrics when iterating memtables
 var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
@@ -977,8 +979,8 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
 func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
-	if b.isReadOnly() {
-		return nil, nil, ErrReadOnly
+	if err := b.readOnlyErr(); err != nil {
+		return nil, nil, err
 	}
 
 	b.flushLock.RLock()
@@ -1672,6 +1674,23 @@ func (b *Bucket) isReadOnly() bool {
 	return b.status == storagestate.StatusReadOnly
 }
 
+// readOnlyErr returns the appropriate error when the bucket is read-only, or
+// nil if the bucket is writable. This preserves the distinction between
+// structurally immutable buckets (snapshots → ErrImmutable) and operationally
+// read-only buckets (shard status → storagestate.ErrStatusReadOnly).
+func (b *Bucket) readOnlyErr() error {
+	if b.immutable {
+		return ErrImmutable
+	}
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	if b.status == storagestate.StatusReadOnly {
+		return storagestate.ErrStatusReadOnly
+	}
+	return nil
+}
+
 // FlushAndSwitch is the main way to flush a memtable, replace it with a new
 // one, and make sure that the flushed segment gets added to the segment group.
 //
@@ -1720,8 +1739,8 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
-	if b.isReadOnly() {
-		return ErrReadOnly
+	if err := b.readOnlyErr(); err != nil {
+		return err
 	}
 
 	before := time.Now()

@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
@@ -31,6 +32,10 @@ import (
 // Method should be run only if flushCycle is not running
 // (was not started, is stopped, or noop impl is provided)
 func (b *Bucket) FlushMemtable() error {
+	if b.isReadOnly() {
+		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
+	}
+
 	return b.FlushAndSwitch()
 }
 

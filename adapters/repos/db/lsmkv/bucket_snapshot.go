@@ -51,7 +51,7 @@
 //     accidental regular opens.
 //
 //   - Snapshot buckets are opened with WithImmutable(true). All write operations
-//     (Put, Delete, SetAdd, MapSet, FlushAndSwitch, etc.) return ErrReadOnly.
+//     (Put, Delete, SetAdd, MapSet, FlushAndSwitch, etc.) return ErrImmutable.
 package lsmkv
 
 import (
@@ -210,7 +210,7 @@ func SnapshotBucketFromDisk(srcDir, snapshotsRoot, snapshotName string) (string,
 // An empty memtable and WAL are created in snapshotDir but never written to.
 //
 // The directory base name must start with SnapshotDirPrefix. The bucket is
-// opened in read-only mode — all write operations will return ErrReadOnly.
+// opened in immutable mode — all write operations will return ErrImmutable.
 //
 // The caller must call Shutdown on the returned bucket when done, followed by
 // os.RemoveAll on the snapshot directory to clean up hard-links.
