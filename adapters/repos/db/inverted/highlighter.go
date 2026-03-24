@@ -41,6 +41,20 @@ func collectUniqueTerms(termsByProp [][]string) []string {
 	return result
 }
 
+// stripBoostSuffixes removes optional boost annotations (e.g. "title^2" → "title")
+// from BM25 property names.
+func stripBoostSuffixes(properties []string) []string {
+	result := make([]string, len(properties))
+	for i, p := range properties {
+		if idx := strings.Index(p, "^"); idx != -1 {
+			result[i] = p[:idx]
+		} else {
+			result[i] = p
+		}
+	}
+	return result
+}
+
 // applyHighlighting adds highlight data to each object's additional properties.
 // For each searched property, it finds query term matches and builds text fragments
 // with matched terms wrapped in <em> tags, stored as _additional.highlight.

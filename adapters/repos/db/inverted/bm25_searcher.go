@@ -362,7 +362,7 @@ func (b *BM25Searcher) wand(
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_6_res_count", len(objects))
 
 	if err == nil && additional.Highlight {
-		applyHighlighting(objects, allQueryTerms, params.Properties)
+		applyHighlighting(objects, allQueryTerms, stripBoostSuffixes(params.Properties))
 	}
 
 	return objects, scores, err

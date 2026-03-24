@@ -263,7 +263,7 @@ func (b *BM25Searcher) wandBlock(
 
 	if additional.Highlight {
 		allTerms := collectUniqueTerms(termCounts)
-		applyHighlighting(objects, allTerms, params.Properties)
+		applyHighlighting(objects, allTerms, stripBoostSuffixes(params.Properties))
 	}
 
 	return objects, scores, false, nil
