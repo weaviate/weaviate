@@ -52,7 +52,8 @@ McpPostOK describes a response with status code 200, with default header values.
 
 JSON-RPC response or SSE stream
 */
-type McpPostOK struct{}
+type McpPostOK struct {
+}
 
 // IsSuccess returns true when this mcp post o k response has a 2xx status code
 func (o *McpPostOK) IsSuccess() bool {
@@ -93,5 +94,6 @@ func (o *McpPostOK) String() string {
 }
 
 func (o *McpPostOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

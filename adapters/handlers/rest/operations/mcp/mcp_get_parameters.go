@@ -27,6 +27,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewMcpGetParams() McpGetParams {
+
 	return McpGetParams{}
 }
 
@@ -35,6 +36,7 @@ func NewMcpGetParams() McpGetParams {
 //
 // swagger:parameters mcp.get
 type McpGetParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

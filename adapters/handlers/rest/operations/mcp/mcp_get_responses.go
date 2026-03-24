@@ -30,16 +30,19 @@ McpGetOK SSE event stream
 
 swagger:response mcpGetOK
 */
-type McpGetOK struct{}
+type McpGetOK struct {
+}
 
 // NewMcpGetOK creates McpGetOK with default headers values
 func NewMcpGetOK() *McpGetOK {
+
 	return &McpGetOK{}
 }
 
 // WriteResponse to the client
 func (o *McpGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }

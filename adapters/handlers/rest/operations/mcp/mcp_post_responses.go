@@ -30,16 +30,19 @@ McpPostOK JSON-RPC response or SSE stream
 
 swagger:response mcpPostOK
 */
-type McpPostOK struct{}
+type McpPostOK struct {
+}
 
 // NewMcpPostOK creates McpPostOK with default headers values
 func NewMcpPostOK() *McpPostOK {
+
 	return &McpPostOK{}
 }
 
 // WriteResponse to the client
 func (o *McpPostOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }

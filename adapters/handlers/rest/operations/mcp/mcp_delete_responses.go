@@ -30,16 +30,19 @@ McpDeleteOK Session terminated
 
 swagger:response mcpDeleteOK
 */
-type McpDeleteOK struct{}
+type McpDeleteOK struct {
+}
 
 // NewMcpDeleteOK creates McpDeleteOK with default headers values
 func NewMcpDeleteOK() *McpDeleteOK {
+
 	return &McpDeleteOK{}
 }
 
 // WriteResponse to the client
 func (o *McpDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }

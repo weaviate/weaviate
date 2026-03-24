@@ -27,6 +27,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewMcpPostParams() McpPostParams {
+
 	return McpPostParams{}
 }
 
@@ -35,6 +36,7 @@ func NewMcpPostParams() McpPostParams {
 //
 // swagger:parameters mcp.post
 type McpPostParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

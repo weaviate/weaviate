@@ -27,6 +27,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewMcpDeleteParams() McpDeleteParams {
+
 	return McpDeleteParams{}
 }
 
@@ -35,6 +36,7 @@ func NewMcpDeleteParams() McpDeleteParams {
 //
 // swagger:parameters mcp.delete
 type McpDeleteParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

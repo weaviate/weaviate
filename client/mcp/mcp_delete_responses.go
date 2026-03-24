@@ -52,7 +52,8 @@ McpDeleteOK describes a response with status code 200, with default header value
 
 Session terminated
 */
-type McpDeleteOK struct{}
+type McpDeleteOK struct {
+}
 
 // IsSuccess returns true when this mcp delete o k response has a 2xx status code
 func (o *McpDeleteOK) IsSuccess() bool {
@@ -93,5 +94,6 @@ func (o *McpDeleteOK) String() string {
 }
 
 func (o *McpDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

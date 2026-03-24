@@ -52,7 +52,8 @@ McpGetOK describes a response with status code 200, with default header values.
 
 SSE event stream
 */
-type McpGetOK struct{}
+type McpGetOK struct {
+}
 
 // IsSuccess returns true when this mcp get o k response has a 2xx status code
 func (o *McpGetOK) IsSuccess() bool {
@@ -93,5 +94,6 @@ func (o *McpGetOK) String() string {
 }
 
 func (o *McpGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

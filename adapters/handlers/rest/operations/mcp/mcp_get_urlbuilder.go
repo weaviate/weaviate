@@ -46,7 +46,7 @@ func (o *McpGetURL) SetBasePath(bp string) {
 func (o *McpGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/mcp"
+	var _path = "/mcp"
 
 	_basePath := o._basePath
 	if _basePath == "" {
