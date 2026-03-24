@@ -198,18 +198,11 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	}
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		// set the queue to maintenance mode, so that listed files are not deleted
-		// after they are processed, while the backup is still ongoing.
-		queue.EnableMaintenanceMode()
-
 		filesVq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
 		files = append(files, filesVq...)
-
-		// tasks can now safely be dequeued
-		queue.Resume()
 		return nil
 	})
 	if err != nil {
@@ -261,7 +254,9 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	g.Go(func() error {
 		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-			q.Resume()
+			if err := q.DisableMaintenanceMode(); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
 			return nil
 		})
 	})
