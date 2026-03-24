@@ -221,9 +221,9 @@ func TestWriteDirectly(t *testing.T) {
 		require.NoError(t, err)
 
 		idxB := &Indexes{
-			Keys:                keys,
-			SecondaryIndexCount: 2,
-			SizesPrecomputed:    true,
+			Keys:                        keys,
+			SecondaryIndexCount:         2,
+			SizesPrecomputed:            true,
 			PrecomputedPrimaryIndexSize: computePrimaryIndexSize(keys),
 			PrecomputedSecondaryIndexSizes: []int64{
 				computeSecondaryIndexSize(keys, 0),
