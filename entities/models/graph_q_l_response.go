@@ -35,6 +35,11 @@ type GraphQLResponse struct {
 
 	// Array with errors.
 	Errors []*GraphQLError `json:"errors,omitempty"`
+
+	// Extensions contains additional metadata, such as the query vector used
+	// during a vector search (returned as extensions.queryVector).
+	// NOTE: manually added per GraphQL spec: https://spec.graphql.org/October2021/#sec-Response-Format
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }
 
 // Validate validates this graph q l response

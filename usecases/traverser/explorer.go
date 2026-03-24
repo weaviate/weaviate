@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/querycontext"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
@@ -233,6 +234,9 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	}
 
 	if len(searchVectors) > 0 {
+		if store, ok := querycontext.FromContext(ctx); ok {
+			store.Set(searchVectors[0])
+		}
 		return res, searchVectors[0], nil
 	}
 	return res, []float32{}, nil

@@ -21,6 +21,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/weaviate/weaviate/entities/querycontext"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -69,8 +70,10 @@ func Build(schema *schema.SchemaWithAliases, traverser Traverser,
 }
 
 // Resolve at query time
-func (g *graphQL) Resolve(context context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result {
-	return graphql.Do(graphql.Params{
+func (g *graphQL) Resolve(ctx context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result {
+	ctx = querycontext.NewContext(ctx)
+
+	result := graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
 			"Resolver": g.traverser,
@@ -79,8 +82,19 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 		RequestString:  query,
 		OperationName:  operationName,
 		VariableValues: variables,
-		Context:        context,
+		Context:        ctx,
 	})
+
+	if store, ok := querycontext.FromContext(ctx); ok {
+		if v := store.Get(); v != nil {
+			if result.Extensions == nil {
+				result.Extensions = map[string]interface{}{}
+			}
+			result.Extensions["queryVector"] = v
+		}
+	}
+
+	return result
 }
 
 func buildGraphqlSchema(dbSchema *schema.SchemaWithAliases, logger logrus.FieldLogger,

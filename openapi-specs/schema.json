@@ -852,6 +852,12 @@
           },
           "x-omitempty": true,
           "type": "array"
+        },
+        "extensions": {
+          "description": "GraphQL extensions with additional metadata, e.g. the query vector used in a vector search.",
+          "type": "object",
+          "x-omitempty": true,
+          "additionalProperties": {}
         }
       }
     },
