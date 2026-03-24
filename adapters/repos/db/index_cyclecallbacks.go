@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -44,8 +45,11 @@ func (index *Index) initCycleCallbacks() {
 	routinesN := concurrency.TimesNUMCPU(index.Config.CycleManagerRoutinesFactor)
 
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
-	if hnswUserConfig, ok := index.GetVectorIndexConfig("").(hnsw.UserConfig); ok {
-		vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
+	switch cfg := index.GetVectorIndexConfig("").(type) {
+	case hnsw.UserConfig:
+		vectorTombstoneCleanupIntervalSeconds = cfg.CleanupIntervalSeconds
+	case dynamicent.UserConfig:
+		vectorTombstoneCleanupIntervalSeconds = cfg.HnswUC.CleanupIntervalSeconds
 	}
 
 	id := func(elems ...string) string {
