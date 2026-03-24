@@ -12,18 +12,20 @@
 package inverted
 
 import (
+	"html"
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 const (
-	highlightPrefix      = "<em>"
-	highlightSuffix      = "</em>"
-	highlightFragSize    = 200
-	highlightMaxFrags    = 3
+	highlightPrefix   = "<em>"
+	highlightSuffix   = "</em>"
+	highlightFragSize = 200
+	highlightMaxFrags = 3
 )
 
 // collectUniqueTerms flattens a per-property term list into a deduplicated slice.
@@ -63,12 +65,19 @@ func applyHighlighting(objs []*storobj.Object, queryTerms []string, searchedProp
 		return
 	}
 
+	// Lowercase and deduplicate terms in a single pass.
+	seen := make(map[string]struct{}, len(queryTerms))
 	lowerTerms := make([]string, 0, len(queryTerms))
 	for _, t := range queryTerms {
 		lt := strings.ToLower(t)
-		if lt != "" {
-			lowerTerms = append(lowerTerms, lt)
+		if lt == "" {
+			continue
 		}
+		if _, ok := seen[lt]; ok {
+			continue
+		}
+		seen[lt] = struct{}{}
+		lowerTerms = append(lowerTerms, lt)
 	}
 	if len(lowerTerms) == 0 {
 		return
@@ -118,24 +127,29 @@ func applyHighlighting(objs []*storobj.Object, queryTerms []string, searchedProp
 	}
 }
 
-// buildHighlightFragments extracts text snippets around query term matches,
-// with matched terms wrapped in prefix/suffix tags.
+// buildHighlightFragments extracts text snippets around query term matches.
+// The text is HTML-escaped before <em> tags are injected, preventing XSS.
 func buildHighlightFragments(text string, lowerTerms []string, maxFragments, fragSize int) []string {
-	lowerText := strings.ToLower(text)
+	// HTML-escape the text so existing < > & in user content is safe,
+	// then layer <em>…</em> markers on top.
+	escaped := html.EscapeString(text)
+	lowerEscaped := strings.ToLower(escaped)
 
-	type matchPos struct{ start, end int }
+	type matchPos struct{ start, end int } // byte offsets into escaped
 	var matches []matchPos
 
 	for _, term := range lowerTerms {
+		// Escape the term too so the substring search is consistent with the escaped text.
+		escapedTerm := html.EscapeString(term)
 		start := 0
-		for start < len(lowerText) {
-			idx := strings.Index(lowerText[start:], term)
+		for start < len(lowerEscaped) {
+			idx := strings.Index(lowerEscaped[start:], escapedTerm)
 			if idx == -1 {
 				break
 			}
 			absIdx := start + idx
-			if isWordBoundaryMatch(lowerText, absIdx, len(term)) {
-				matches = append(matches, matchPos{absIdx, absIdx + len(term)})
+			if isWordBoundaryMatch(lowerEscaped, absIdx, len(escapedTerm)) {
+				matches = append(matches, matchPos{absIdx, absIdx + len(escapedTerm)})
 			}
 			start = absIdx + 1
 		}
@@ -163,23 +177,26 @@ func buildHighlightFragments(text string, lowerTerms []string, maxFragments, fra
 			fragStart = 0
 		}
 		fragEnd := m.end + half
-		if fragEnd > len(text) {
-			fragEnd = len(text)
+		if fragEnd > len(escaped) {
+			fragEnd = len(escaped)
 		}
 
-		// Skip if this match is covered by a previous fragment
+		// Skip if this match is already covered by a previous fragment.
 		if fragStart < lastFragEnd {
 			continue
 		}
 		lastFragEnd = fragEnd
 
-		fragment := applyHighlightTags(text[fragStart:fragEnd], lowerTerms)
-		prefix := ""
-		suffix := ""
+		// Snap boundaries to valid UTF-8 rune starts so we never split a rune.
+		fragStart = snapToRuneStart(escaped, fragStart)
+		fragEnd = snapToRuneEnd(escaped, fragEnd)
+
+		fragment := applyHighlightTags(escaped[fragStart:fragEnd], lowerTerms)
+		prefix, suffix := "", ""
 		if fragStart > 0 {
 			prefix = "..."
 		}
-		if fragEnd < len(text) {
+		if fragEnd < len(escaped) {
 			suffix = "..."
 		}
 		fragments = append(fragments, prefix+fragment+suffix)
@@ -188,18 +205,34 @@ func buildHighlightFragments(text string, lowerTerms []string, maxFragments, fra
 	return fragments
 }
 
-// isWordBoundaryMatch checks that the match at idx of length termLen
-// is not in the middle of a word.
+// snapToRuneStart moves idx left until it points to the start of a UTF-8 rune.
+func snapToRuneStart(s string, idx int) int {
+	for idx > 0 && !utf8.RuneStart(s[idx]) {
+		idx--
+	}
+	return idx
+}
+
+// snapToRuneEnd moves idx right until it points to a rune boundary.
+func snapToRuneEnd(s string, idx int) int {
+	for idx < len(s) && !utf8.RuneStart(s[idx]) {
+		idx++
+	}
+	return idx
+}
+
+// isWordBoundaryMatch checks that the match at byte offset idx of byte-length
+// termLen is not in the middle of a word. Uses proper UTF-8 rune decoding.
 func isWordBoundaryMatch(text string, idx, termLen int) bool {
 	if idx > 0 {
-		r := rune(text[idx-1])
+		r, _ := utf8.DecodeLastRuneInString(text[:idx])
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			return false
 		}
 	}
 	end := idx + termLen
 	if end < len(text) {
-		r := rune(text[end])
+		r, _ := utf8.DecodeRuneInString(text[end:])
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			return false
 		}
@@ -207,7 +240,8 @@ func isWordBoundaryMatch(text string, idx, termLen int) bool {
 	return true
 }
 
-// applyHighlightTags wraps all query term matches in a text with <em>...</em> tags.
+// applyHighlightTags wraps all query term matches in text with <em>…</em> tags.
+// text is expected to already be HTML-escaped.
 func applyHighlightTags(text string, lowerTerms []string) string {
 	lowerText := strings.ToLower(text)
 
@@ -215,15 +249,16 @@ func applyHighlightTags(text string, lowerTerms []string) string {
 	var spans []span
 
 	for _, term := range lowerTerms {
+		escapedTerm := html.EscapeString(term)
 		start := 0
 		for start < len(lowerText) {
-			idx := strings.Index(lowerText[start:], term)
+			idx := strings.Index(lowerText[start:], escapedTerm)
 			if idx == -1 {
 				break
 			}
 			absIdx := start + idx
-			if isWordBoundaryMatch(lowerText, absIdx, len(term)) {
-				spans = append(spans, span{absIdx, absIdx + len(term)})
+			if isWordBoundaryMatch(lowerText, absIdx, len(escapedTerm)) {
+				spans = append(spans, span{absIdx, absIdx + len(escapedTerm)})
 			}
 			start = absIdx + 1
 		}
