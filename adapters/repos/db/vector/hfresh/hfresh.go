@@ -190,6 +190,10 @@ func (h *HFresh) Delete(ids ...uint64) error {
 	return nil
 }
 
+func (h *HFresh) DeleteMulti(ids ...uint64) error {
+	panic("DeleteMulti not implemented for HFresh")
+}
+
 func (h *HFresh) Type() common.IndexType {
 	return common.IndexTypeHFresh
 }
