@@ -198,22 +198,9 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 	for idx, shardName := range shardNames {
 		results[idx].ShardName = shardName
 
-		// For MT classes, check whether this tenant should be skipped.
-		// This is a cheap RAFT status lookup — no need to parallelise.
-		if isMT {
-			skipReason, err := i.shouldSkipTenant(class, shardName)
-			if err != nil {
-				return results, err
-			}
-			if skipReason != "" {
-				results[idx].SkipReason = skipReason
-				continue
-			}
-		}
-
 		eg.Go(func() error {
 			snapshotName := fmt.Sprintf("export-%s-%s-%s", exportID, i.Config.ClassName, shardName)
-			snapResult, skipReason, err := i.snapshotLocalShard(egCtx, shardName, snapshotsRoot, snapshotName)
+			snapResult, skipReason, err := i.snapshotLocalShard(egCtx, class, isMT, shardName, snapshotsRoot, snapshotName)
 			if err != nil {
 				return fmt.Errorf("snapshot shard %s/%s: %w", i.Config.ClassName, shardName, err)
 			}
@@ -273,12 +260,15 @@ func (i *Index) shouldSkipTenant(class *models.Class, shardName string) (string,
 // shardCreateLocks.RLock for the entire operation to prevent races with
 // concurrent shard loading/unloading.
 //
+// For MT classes the tenant status check (shouldSkipTenant) runs under the
+// same lock so that the status cannot change between the check and the
+// snapshot.
+//
 // The local state determines *how* to snapshot: if the shard is loaded
 // (including unloaded lazy shards) it is snapshotted from the live bucket;
-// if not, it is snapshotted directly from disk. Whether to snapshot at all
-// is decided by the caller (see shouldSkipTenant for MT classes).
+// if not, it is snapshotted directly from disk.
 func (i *Index) snapshotLocalShard(
-	ctx context.Context, shardName string,
+	ctx context.Context, class *models.Class, isMT bool, shardName string,
 	snapshotsRoot, snapshotName string,
 ) (*export.ShardSnapshotResult, string, error) {
 	i.closeLock.RLock()
@@ -291,6 +281,18 @@ func (i *Index) snapshotLocalShard(
 	// load/unload can change the local shard state during the snapshot.
 	i.shardCreateLocks.RLock(shardName)
 	defer i.shardCreateLocks.RUnlock(shardName)
+
+	if isMT {
+		// this is using the RAFT state and not the local state, so there might be a race between these two. We accept
+		// this here as any action concurrent with the export might or might not be reflected in the export.
+		skipReason, err := i.shouldSkipTenant(class, shardName)
+		if err != nil {
+			return nil, "", err
+		}
+		if skipReason != "" {
+			return nil, skipReason, nil
+		}
+	}
 
 	if shard := i.shards.Load(shardName); shard != nil {
 		return i.snapshotShard(ctx, shard, shardName, snapshotsRoot, snapshotName)
