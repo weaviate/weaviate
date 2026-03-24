@@ -61,7 +61,7 @@ func BenchmarkIndexesWriteTo(b *testing.B) {
 
 				w := bufio.NewWriter(f)
 
-				_, err = index.WriteTo(w, size)
+				_, err = index.WriteTo(w)
 				require.NoError(b, err)
 
 				require.NoError(b, w.Flush())
