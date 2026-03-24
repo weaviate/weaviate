@@ -717,6 +717,94 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	verifyParquetMetadata(t, exportID, className, true)
 }
 
+// TestExport_MultiTenant_AllCold verifies that an export succeeds and
+// produces correct parquet files when every tenant is COLD. Cold tenants
+// are snapshotted directly from disk without loading the shard.
+//
+// It also includes an empty tenant (tenantEmpty) that was created but never
+// had objects inserted. This tenant should be SKIPPED with no parquet output.
+func TestExport_MultiTenant_AllCold(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{
+		{Name: "tenantA"},
+		{Name: "tenantB"},
+		{Name: "tenantEmpty"}, // created but never populated
+	}
+	helper.CreateTenants(t, className, tenants)
+
+	// Only populate tenantA and tenantB.
+	var allObjects []*models.Object
+	for _, name := range []string{"tenantA", "tenantB"} {
+		objects := makeObjects(className, name, 10)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
+		allObjects = append(allObjects, objects...)
+	}
+
+	// Set all tenants to COLD.
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantEmpty", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	// tenantA + tenantB = 20 objects exported from disk snapshots.
+	verifyParquetExport(t, exportID, className, allObjects)
+
+	require.NotNil(t, resp.Payload.ShardStatus)
+	shardStatus := resp.Payload.ShardStatus[className]
+	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
+
+	// Populated cold tenants should report SUCCESS.
+	for _, name := range []string{"tenantA", "tenantB"} {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SUCCESS", progress.Status, "cold tenant %s should be SUCCESS", name)
+		assert.Equal(t, int64(10), progress.ObjectsExported,
+			"cold tenant %s should have 10 objects exported", name)
+	}
+
+	// Empty cold tenant should be SKIPPED with no parquet files.
+	progressEmpty, ok := shardStatus["tenantEmpty"]
+	require.True(t, ok, "expected shard status for tenantEmpty")
+	assert.Equal(t, "SKIPPED", progressEmpty.Status, "empty cold tenant should be SKIPPED")
+	assert.Equal(t, int64(0), progressEmpty.ObjectsExported)
+
+	// All tenants must remain COLD — the export must not activate them.
+	tenantsResp, err := helper.GetTenants(t, className)
+	require.NoError(t, err)
+	for _, tenant := range tenantsResp.Payload {
+		require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
+			"tenant %s should still be COLD after export", tenant.Name)
+	}
+
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
 // verifyParquetMetadata checks that all parquet files for a class contain
 // the "collection" metadata key, and optionally "tenant" for MT classes.
 func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenant bool) {
