@@ -627,12 +627,20 @@ func backupWithSizes(
 ) backupChunkResult {
 	t.Helper()
 
+	// Use staging dir (hard-linked snapshot) if available, matching production
+	// behavior in usecases/backup/backend.go. The live data path may have files
+	// rotated (e.g. HNSW commitlog) between descriptor creation and backup writing.
+	effectivePath := sourceDataPath
+	if classDescs[0].StagingDir != "" {
+		effectivePath = classDescs[0].StagingDir
+	}
+
 	var result backupChunkResult
 
 	for _, sd := range classDescs[0].Shards {
 		fileSizes := make(map[string]int64, len(sd.Files))
 		for _, relPath := range sd.Files {
-			info, err := os.Stat(filepath.Join(sourceDataPath, relPath))
+			info, err := os.Stat(filepath.Join(effectivePath, relPath))
 			if err == nil && info.Mode().IsRegular() {
 				fileSizes[relPath] = info.Size()
 				result.fileSizes = append(result.fileSizes, info.Size())
@@ -645,7 +653,7 @@ func backupWithSizes(
 
 		for {
 			var buf bytes.Buffer
-			z, rc, err := backupUC.NewZip(sourceDataPath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
+			z, rc, err := backupUC.NewZip(effectivePath, int(backupUC.NoCompression), chunkSize, 0, splitFileSize)
 			require.NoError(t, err)
 
 			type writeResult struct {
@@ -694,6 +702,12 @@ func restoreAndVerify(
 ) {
 	t.Helper()
 
+	// Use staging dir when available (hard-linked snapshot), same as backupWithSizes.
+	effectivePath := sourceDataPath
+	if classDescs[0].StagingDir != "" {
+		effectivePath = classDescs[0].StagingDir
+	}
+
 	restoreDir := t.TempDir()
 
 	var wg sync.WaitGroup
@@ -718,7 +732,7 @@ func restoreAndVerify(
 
 	for _, sd := range classDescs[0].Shards {
 		for _, relPath := range sd.Files {
-			originalPath := filepath.Join(sourceDataPath, relPath)
+			originalPath := filepath.Join(effectivePath, relPath)
 			restoredPath := filepath.Join(restoreDir, relPath)
 
 			original, err := os.ReadFile(originalPath)
