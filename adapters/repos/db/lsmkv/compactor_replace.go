@@ -229,7 +229,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 	return kis, nil
 }
 
-// 36 is the overhead of storing a key in the index:
+// 36 + len(key) is the overhead of storing a key in the index:
 //   - 4 bytes for the length of the key
 //   - len(key) bytes for the key itself
 //   - 8 bytes for the node start pos (points to matching file offset in the Strategy specific data structure)
