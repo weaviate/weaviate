@@ -199,9 +199,11 @@ type Bucket struct {
 
 	skipSecondaryKeyCheck bool
 
-	// readOnly prevents all write operations. Set via WithReadOnly, used by
-	// snapshot buckets to guarantee they never modify data.
-	readOnly bool
+	// immutable prevents all write operations. Set via WithImmutable, used by
+	// snapshot buckets to guarantee they never modify data. This is distinct
+	// from the shard-level read-only status (storagestate.StatusReadOnly)
+	// checked by isReadOnly().
+	immutable bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -252,7 +254,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
-	if !b.readOnly && IsSnapshotDir(dir) {
+	if !b.immutable && IsSnapshotDir(dir) {
 		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
 
@@ -975,7 +977,7 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
 func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
-	if b.readOnly {
+	if b.isReadOnly() {
 		return nil, nil, ErrReadOnly
 	}
 
@@ -1661,6 +1663,9 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 }
 
 func (b *Bucket) isReadOnly() bool {
+	if b.immutable {
+		return true
+	}
 	b.statusLock.Lock()
 	defer b.statusLock.Unlock()
 
@@ -1715,7 +1720,7 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
-	if b.readOnly {
+	if b.isReadOnly() {
 		return ErrReadOnly
 	}
 

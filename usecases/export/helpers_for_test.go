@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -54,19 +55,29 @@ type blockingSelector struct {
 	once      sync.Once
 }
 
+func newBlockingSelector() *blockingSelector {
+	return &blockingSelector{
+		blockCh:  make(chan struct{}),
+		calledCh: make(chan struct{}),
+	}
+}
+
 func (s *blockingSelector) initCalledCh() {
 	s.once.Do(func() {
-		s.calledCh = make(chan struct{})
+		if s.calledCh == nil {
+			s.calledCh = make(chan struct{})
+		}
 	})
 }
 
+// waitForCall blocks until SnapshotShards has been called or the timeout
+// expires.
 func (s *blockingSelector) waitForCall(t *testing.T) {
 	t.Helper()
-	s.initCalledCh()
 	select {
 	case <-s.calledCh:
 	case <-time.After(5 * time.Second):
-		t.Fatal("SnapshotShards was not called")
+		t.Fatal("SnapshotShards was not called within timeout")
 	}
 }
 
@@ -312,5 +323,63 @@ func newTestNodeStatus(nodeName string) *NodeStatus {
 		NodeName:      nodeName,
 		Status:        export.Transferring,
 		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+}
+
+// writeBlockingBackend wraps a fakeBackend and blocks parquet writes until
+// either blockParquet is closed or the write's context is canceled. Status
+// writes (keys ending in "_status.json") pass through immediately. The
+// parquetReady channel is closed when the first parquet write has been fully
+// read from the pipe and is about to block.
+type writeBlockingBackend struct {
+	*fakeBackend
+	blockParquet chan struct{} // close to unblock parquet writes
+	parquetReady chan struct{} // closed when first parquet write is attempted
+	readyOnce    sync.Once
+}
+
+func newWriteBlockingBackend() *writeBlockingBackend {
+	return &writeBlockingBackend{
+		fakeBackend:  &fakeBackend{},
+		blockParquet: make(chan struct{}),
+		parquetReady: make(chan struct{}),
+	}
+}
+
+func (b *writeBlockingBackend) Write(ctx context.Context, id, key, bucket, path string, r backup.ReadCloserWithError) (int64, error) {
+	if !strings.HasSuffix(key, ".parquet") {
+		return b.fakeBackend.Write(ctx, id, key, bucket, path, r)
+	}
+
+	// Read all data from the pipe so the scan job can progress to
+	// pipeline.Shutdown, where it will block waiting for uploadDone.
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return 0, err
+	}
+
+	b.readyOnce.Do(func() { close(b.parquetReady) })
+
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-b.blockParquet:
+	}
+
+	b.mu.Lock()
+	if b.written == nil {
+		b.written = make(map[string][]byte)
+	}
+	b.written[key] = data
+	b.mu.Unlock()
+	return int64(len(data)), nil
+}
+
+func (b *writeBlockingBackend) waitForParquetWrite(t *testing.T) {
+	t.Helper()
+	select {
+	case <-b.parquetReady:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no parquet write attempted within timeout")
 	}
 }

@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/export"
@@ -186,58 +188,84 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
 	snapshotsRoot := i.snapshotsPath()
 
-	results := make([]export.ShardSnapshotResult, 0, len(shardNames))
-	for _, shardName := range shardNames {
-		if err := ctx.Err(); err != nil {
-			return results, err
-		}
+	// Pre-allocate one result per shard. Each goroutine writes to its own
+	// index so no synchronisation is needed on the slice elements.
+	results := make([]export.ShardSnapshotResult, len(shardNames))
 
-		result := export.ShardSnapshotResult{ShardName: shardName}
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
+
+	for idx, shardName := range shardNames {
+		results[idx].ShardName = shardName
 
 		// For MT classes, check whether this tenant should be skipped.
+		// This is a cheap RAFT status lookup — no need to parallelise.
 		if isMT {
-			if skipReason := i.shouldSkipTenant(class, shardName); skipReason != "" {
-				result.SkipReason = skipReason
-				results = append(results, result)
+			skipReason, err := i.shouldSkipTenant(class, shardName)
+			if err != nil {
+				return results, err
+			}
+			if skipReason != "" {
+				results[idx].SkipReason = skipReason
 				continue
 			}
 		}
 
-		snapshotName := fmt.Sprintf("export-%s-%s-%s", exportID, i.Config.ClassName, shardName)
-		snapResult, skipReason, err := i.snapshotLocalShard(ctx, shardName, snapshotsRoot, snapshotName)
-		if err != nil {
-			return results, fmt.Errorf("snapshot shard %s/%s: %w", i.Config.ClassName, shardName, err)
+		eg.Go(func() error {
+			snapshotName := fmt.Sprintf("export-%s-%s-%s", exportID, i.Config.ClassName, shardName)
+			snapResult, skipReason, err := i.snapshotLocalShard(egCtx, shardName, snapshotsRoot, snapshotName)
+			if err != nil {
+				return fmt.Errorf("snapshot shard %s/%s: %w", i.Config.ClassName, shardName, err)
+			}
+			if snapResult == nil {
+				results[idx].SkipReason = skipReason
+			} else {
+				results[idx].SnapshotDir = snapResult.SnapshotDir
+				results[idx].Strategy = snapResult.Strategy
+			}
+			return nil
+		}, shardName)
+	}
+
+	if err := eg.Wait(); err != nil {
+		// Clean up snapshots created by goroutines that succeeded before
+		// the error. The caller also defers cleanup, but we do it here
+		// eagerly so disk space is freed as soon as possible.
+		for j := range results {
+			if results[j].SnapshotDir != "" {
+				os.RemoveAll(results[j].SnapshotDir)
+				results[j].SnapshotDir = ""
+			}
 		}
-		if snapResult == nil {
-			result.SkipReason = skipReason
-		} else {
-			result.SnapshotDir = snapResult.SnapshotDir
-			result.Strategy = snapResult.Strategy
-		}
-		results = append(results, result)
+		return results, err
 	}
 
 	return results, nil
 }
 
 // shouldSkipTenant checks the RAFT-based tenant status and returns a skip
-// reason if the tenant should not be exported. Returns "" if the tenant is
-// exportable. Active and cold/inactive tenants are always exportable (cold
-// tenants are snapshotted from disk without loading). Only offloaded, frozen,
-// and transitional states are skipped.
-func (i *Index) shouldSkipTenant(class *models.Class, shardName string) string {
+// reason if the tenant should not be exported. Returns ("", nil) if the
+// tenant is exportable. Active and cold/inactive tenants are always
+// exportable (cold tenants are snapshotted from disk without loading).
+// Only offloaded, frozen, and transitional states are skipped.
+//
+// Errors from the status lookup are returned as errors (not skip reasons)
+// so that the caller can fail the export rather than silently skipping
+// the tenant — a transient RAFT failure should not produce an incomplete
+// export.
+func (i *Index) shouldSkipTenant(class *models.Class, shardName string) (string, error) {
 	statuses, err := i.tenantsManager.TenantsStatus(class.Class, shardName)
 	if err != nil {
-		return fmt.Sprintf("failed to get tenant status: %v", err)
+		return "", fmt.Errorf("get tenant status for %s/%s: %w", class.Class, shardName, err)
 	}
 	status := statuses[shardName]
 
 	switch status {
 	case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE,
 		models.TenantActivityStatusCOLD, models.TenantActivityStatusINACTIVE:
-		return ""
+		return "", nil
 	default:
-		return fmt.Sprintf("tenant status is %s", status)
+		return fmt.Sprintf("tenant status is %s", status), nil
 	}
 }
 
@@ -335,9 +363,8 @@ func (i *Index) snapshotFromDisk(
 		return nil, "", fmt.Errorf("stat objects bucket dir for shard %s: %w", shardName, err)
 	}
 
-	snapshotDir := filepath.Join(snapshotsRoot, lsmkv.SnapshotDirPrefix+snapshotName)
-	if err := lsmkv.HardlinkBucketFiles(objectsBucketDir, snapshotDir, true); err != nil {
-		os.RemoveAll(snapshotDir)
+	snapshotDir, err := lsmkv.SnapshotBucketFromDisk(objectsBucketDir, snapshotsRoot, snapshotName)
+	if err != nil {
 		return nil, "", fmt.Errorf("hardlink unloaded shard %s: %w", shardName, err)
 	}
 

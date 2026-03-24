@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
 func TestParticipant_PrepareValidation(t *testing.T) {
@@ -391,11 +392,17 @@ func TestParticipant_CommitErrors(t *testing.T) {
 
 func TestParticipant_AbortRunningExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+	backend := newWriteBlockingBackend()
 
-	// blockingSelector blocks forever until context is canceled
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+	// Use a real store so snapshots complete during Prepare and Commit
+	// proceeds to the scan phase, which blocks on the parquet write.
+	store, _ := createTestStore(t, 100)
+	defer store.Shutdown(context.Background())
+	selector := &fakeSelector{
+		shards: map[string]map[string]*testShard{
+			"TestClass": {"shard0": {store: store, name: "shard0"}},
+		},
+		snapshotsRoot: t.TempDir(),
 	}
 
 	p := NewParticipant(
@@ -416,8 +423,8 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	require.NoError(t, p.Prepare(context.Background(), req))
 	require.NoError(t, p.Commit(context.Background(), "export-1"))
 
-	// Wait for the export goroutine to actually start
-	selector.waitForCall(t)
+	// Wait for the scan phase to reach the backend write
+	backend.waitForParquetWrite(t)
 
 	// Abort the running export
 	p.Abort("export-1")
@@ -466,7 +473,6 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
-			backend := &fakeBackend{}
 
 			var abortMu sync.Mutex
 			var abortedHosts []string
@@ -479,11 +485,26 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 				},
 			}
 
+			var backend modulecapabilities.BackupBackend
+			var blockingBE *writeBlockingBackend
 			var sel Selector
 			if tc.failExport {
-				sel = &blockingSelector{blockCh: make(chan struct{})}
+				// Use a real store so snapshots complete during Prepare
+				// and Commit proceeds to the scan phase, which blocks on
+				// the parquet write. StartShutdown then cancels the export.
+				store, _ := createTestStore(t, 100)
+				t.Cleanup(func() { store.Shutdown(context.Background()) })
+				sel = &fakeSelector{
+					shards: map[string]map[string]*testShard{
+						"TestClass": {"shard0": {store: store, name: "shard0"}},
+					},
+					snapshotsRoot: t.TempDir(),
+				}
+				blockingBE = newWriteBlockingBackend()
+				backend = blockingBE
 			} else {
 				sel = &fakeSelector{classList: []string{"TestClass"}}
+				backend = &fakeBackend{}
 			}
 
 			p := NewParticipant(sel, &fakeBackendProvider{backend: backend}, logger,
@@ -507,7 +528,7 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 			require.NoError(t, p.Commit(context.Background(), "test-export"))
 
 			if tc.failExport {
-				sel.(*blockingSelector).waitForCall(t)
+				blockingBE.waitForParquetWrite(t)
 				p.StartShutdown()
 			}
 
@@ -538,14 +559,24 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 
 func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+	backend := newWriteBlockingBackend()
 
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+	// Use a real store so snapshots complete during Prepare and Commit
+	// proceeds to the scan phase, where the sibling check can fire.
+	store, _ := createTestStore(t, 100)
+	defer store.Shutdown(context.Background())
+	selector := &fakeSelector{
+		shards: map[string]map[string]*testShard{
+			"TestClass": {"shard0": {store: store, name: "shard0"}},
+		},
+		snapshotsRoot: t.TempDir(),
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	p := &Participant{
-		shutdownCtx:          context.Background(),
+		shutdownCtx:          ctx,
+		shutdownCancel:       cancel,
 		selector:             selector,
 		backends:             &fakeBackendProvider{backend: backend},
 		logger:               logger,
@@ -577,8 +608,8 @@ func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 	require.NoError(t, p.Prepare(context.Background(), req))
 	require.NoError(t, p.Commit(context.Background(), "test-export"))
 
-	// Wait for the export goroutine to start
-	selector.waitForCall(t)
+	// Wait for the scan phase to reach the backend write
+	backend.waitForParquetWrite(t)
 
 	// The status writer goroutine should detect the sibling failure and
 	// auto-cancel the export without an explicit Abort call.
@@ -587,8 +618,7 @@ func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")
 
 	// Verify the persisted node status has BOTH Status=Failed AND the
-	// sibling error message. Before the fix, Status would remain
-	// Transferring while Error was set — an inconsistent state.
+	// sibling error message.
 	written := backend.getWritten("node_node1_status.json")
 	require.NotNil(t, written, "expected node status to be written")
 

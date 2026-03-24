@@ -231,8 +231,8 @@ func TestSnapshotsRootCleanup(t *testing.T) {
 	require.True(t, os.IsNotExist(err))
 }
 
-// TestSnapshotWALOnlyData verifies that HardlinkBucketFiles with
-// includeWAL=true correctly captures data that lives only in the WAL (no
+// TestSnapshotWALOnlyData verifies that SnapshotBucketFromDisk
+// correctly captures data that lives only in the WAL (no
 // segment files). This happens for small tenants where the bucket's Shutdown
 // persists the memtable as a WAL rather than flushing to a segment (the
 // shouldReuseWAL optimisation).
@@ -269,8 +269,8 @@ func TestSnapshotWALOnlyData(t *testing.T) {
 	require.False(t, hasDB, "expected no .db files — data should be WAL-only")
 
 	// Snapshot from disk with includeWAL=true.
-	snapshotDir := filepath.Join(t.TempDir(), SnapshotDirPrefix+"wal-only")
-	require.NoError(t, HardlinkBucketFiles(bucketDir, snapshotDir, true))
+	snapshotDir, err := SnapshotBucketFromDisk(bucketDir, t.TempDir(), "wal-only")
+	require.NoError(t, err)
 
 	snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(),
 		WithStrategy(StrategyReplace))

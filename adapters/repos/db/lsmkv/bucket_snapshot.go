@@ -50,7 +50,7 @@
 //     it, and NewBucket rejects directories with the prefix to prevent
 //     accidental regular opens.
 //
-//   - Snapshot buckets are opened with WithReadOnly(true). All write operations
+//   - Snapshot buckets are opened with WithImmutable(true). All write operations
 //     (Put, Delete, SetAdd, MapSet, FlushAndSwitch, etc.) return ErrReadOnly.
 package lsmkv
 
@@ -128,7 +128,7 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 		return "", fmt.Errorf("flush memtable: %w", err)
 	}
 
-	if err := HardlinkBucketFiles(b.disk.dir, snapshotDir, false); err != nil {
+	if err := hardlinkBucketFiles(b.disk.dir, snapshotDir, false); err != nil {
 		os.RemoveAll(snapshotDir)
 		return "", fmt.Errorf("hardlink snapshot: %w", err)
 	}
@@ -136,8 +136,12 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 	return snapshotDir, nil
 }
 
-// HardlinkBucketFiles hard-links bucket files from srcDir into dstDir.
+// hardlinkBucketFiles hard-links bucket files from srcDir into dstDir.
 // The dstDir is created if it doesn't exist.
+//
+// The caller must ensure no concurrent compaction or flush is modifying
+// srcDir — for loaded buckets this means pausing both cycles first; for
+// unloaded buckets this is inherently safe because no cycles are running.
 //
 // When includeWAL is false, .wal files are skipped. This is appropriate when
 // snapshotting a loaded bucket that has just been flushed (the WAL belongs to
@@ -150,7 +154,7 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 //
 // On error, dstDir may contain a partial set of hard-links. The caller is
 // responsible for removing dstDir on failure.
-func HardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
+func hardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("create snapshot dir: %w", err)
 	}
@@ -183,6 +187,24 @@ func HardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 	return nil
 }
 
+// SnapshotBucketFromDisk hard-links bucket files from an unloaded bucket's
+// on-disk directory into a new snapshot directory. This is the counterpart to
+// CreateSnapshot for shards that are not loaded into memory (e.g. cold
+// tenants). The WAL is included because it may contain data that was not
+// flushed to a segment on shutdown.
+//
+// The caller must ensure no concurrent process is modifying srcDir (e.g. by
+// holding a shard lock that prevents loading). On error the snapshot directory
+// is cleaned up.
+func SnapshotBucketFromDisk(srcDir, snapshotsRoot, snapshotName string) (string, error) {
+	snapshotDir := filepath.Join(snapshotsRoot, SnapshotDirPrefix+snapshotName)
+	if err := hardlinkBucketFiles(srcDir, snapshotDir, true); err != nil {
+		os.RemoveAll(snapshotDir)
+		return "", err
+	}
+	return snapshotDir, nil
+}
+
 // NewSnapshotBucket opens a read-only bucket backed by hard-linked segment
 // files (created by CreateSnapshot). It has no compaction and no flush cycle.
 // An empty memtable and WAL are created in snapshotDir but never written to.
@@ -211,7 +233,7 @@ func NewSnapshotBucket(
 	// Copy into a new slice to avoid mutating the caller's underlying array.
 	allOpts := make([]BucketOption, len(opts), len(opts)+2)
 	copy(allOpts, opts)
-	allOpts = append(allOpts, WithDisableCompaction(true), WithReadOnly(true))
+	allOpts = append(allOpts, WithDisableCompaction(true), WithImmutable(true))
 	return NewBucketCreator().NewBucket(ctx, snapshotDir, snapshotDir,
 		logger, nil, noopCB, noopCB, allOpts...)
 }

@@ -294,12 +294,16 @@ func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 	}
 }
 
-// WithReadOnly marks the bucket as read-only. All write operations (Put,
+// WithImmutable marks the bucket as immutable. All write operations (Put,
 // Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrReadOnly.
 // Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
-func WithReadOnly(readOnly bool) BucketOption {
+//
+// This is distinct from the shard-level read-only status
+// (storagestate.StatusReadOnly) which temporarily halts flushes during
+// backup/compaction operations.
+func WithImmutable(immutable bool) BucketOption {
 	return func(b *Bucket) error {
-		b.readOnly = readOnly
+		b.immutable = immutable
 		return nil
 	}
 }

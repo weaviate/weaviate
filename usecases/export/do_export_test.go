@@ -133,7 +133,10 @@ func TestDoExport(t *testing.T) {
 				NodeName: "node1",
 			}
 
-			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
+			snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+			require.NoError(t, snapErr)
+
+			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 			require.NoError(t, err)
 
 			for _, ef := range tc.expected {
@@ -188,7 +191,10 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
+	snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+	require.NoError(t, snapErr)
+
+	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 	require.NoError(t, err)
 
 	// Exported shard should have data.
@@ -226,9 +232,6 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately.
-
 	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -240,18 +243,24 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(ctx, backend, req, newTestNodeStatus(req.NodeName))
+	// Create snapshots with a valid context, then cancel before doExport.
+	snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+	require.NoError(t, snapErr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	err := p.doExport(ctx, backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// TestDoExport_SnapshotError verifies that errors from SnapshotShards
+// TestSnapshotAllShards_Error verifies that errors from SnapshotShards
 // propagate correctly and that snapshots created before the error are
-// cleaned up.
-func TestDoExport_SnapshotError(t *testing.T) {
+// cleaned up by the caller.
+func TestSnapshotAllShards_Error(t *testing.T) {
 	t.Parallel()
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
 
 	store0, _ := createTestStore(t, 100)
 	defer store0.Shutdown(context.Background())
@@ -279,12 +288,14 @@ func TestDoExport_SnapshotError(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
+	snapshots, _, err := p.snapshotAllShards(context.Background(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
 
-	// The snapshots root should have no leftover snapshot directories
-	// because the defer cleanupSnapshots runs on error.
+	// Clean up snapshots returned alongside the error (caller responsibility).
+	p.cleanupSnapshots(snapshots)
+
+	// The snapshots root should have no leftover snapshot directories.
 	entries, readErr := os.ReadDir(selector.snapshotsRoot)
 	require.NoError(t, readErr)
 	for _, e := range entries {

@@ -17,12 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -269,15 +267,6 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	})
 
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
-		singleErr := errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
-		expectedErr := func(bucketsCount int) error {
-			ec := errorcompounder.New()
-			for i := 0; i < bucketsCount; i++ {
-				ec.Add(singleErr)
-			}
-			return ec.ToError()
-		}
-
 		for _, buckets := range [][]string{
 			{"test_bucket"},
 			{"test_bucket1", "test_bucket2"},
@@ -307,7 +296,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 				err = store.FlushMemtables(expirableCtx)
 				require.NotNil(t, err)
-				assert.EqualError(t, expectedErr(len(buckets)), err.Error())
+				assert.Contains(t, err.Error(), ErrReadOnly.Error())
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)

@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,8 +54,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 
 		err = b.FlushMemtable()
 		require.NotNil(t, err)
-		expectedErr := errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
-		assert.EqualError(t, expectedErr, err.Error())
+		assert.ErrorIs(t, err, ErrReadOnly)
 
 		err = b.Shutdown(context.Background())
 		require.Nil(t, err)

@@ -30,11 +30,18 @@ import (
 
 func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+	backend := newWriteBlockingBackend()
 
-	// blockingSelector blocks in SnapshotShards until released
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+	// Use a real store so snapshots complete during Prepare and Commit
+	// proceeds to the scan phase, which blocks on the parquet write.
+	// StartShutdown then cancels the export context.
+	store, _ := createTestStore(t, 100)
+	defer store.Shutdown(context.Background())
+	selector := &fakeSelector{
+		shards: map[string]map[string]*testShard{
+			"TestClass": {"shard0": {store: store, name: "shard0"}},
+		},
+		snapshotsRoot: t.TempDir(),
 	}
 
 	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
@@ -51,14 +58,11 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	require.NoError(t, participant.Prepare(context.Background(), req))
 	require.NoError(t, participant.Commit(context.Background(), "test-export"))
 
-	// Wait for SnapshotShards to be called
-	selector.waitForCall(t)
+	// Wait for the scan phase to reach the backend write
+	backend.waitForParquetWrite(t)
 
 	// Simulate shutdown
 	participant.StartShutdown()
-
-	// Unblock the selector so it can return the context error
-	close(selector.blockCh)
 
 	// Wait for the export goroutine to finish by polling for the status file
 	require.Eventually(t, func() bool {
@@ -70,6 +74,87 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
 	assert.Equal(t, export.Failed, nodeStatus.Status)
 	assert.Contains(t, nodeStatus.Error, "context canceled")
+}
+
+// TestParticipant_CancelDuringSnapshot verifies that an in-flight snapshot
+// goroutine (started during Prepare) is canceled and cleaned up when:
+//   - Abort is called while snapshots are still running
+//   - Commit's context is canceled while waiting for snapshots
+func TestParticipant_CancelDuringSnapshot(t *testing.T) {
+	tests := []struct {
+		name       string
+		cancelFunc func(t *testing.T, p *Participant, exportID string)
+	}{
+		{
+			name: "abort",
+			cancelFunc: func(t *testing.T, p *Participant, exportID string) {
+				p.Abort(exportID)
+			},
+		},
+		{
+			name: "commit ctx canceled",
+			cancelFunc: func(t *testing.T, p *Participant, exportID string) {
+				commitCtx, commitCancel := context.WithCancel(context.Background())
+				commitCancel()
+
+				err := p.Commit(commitCtx, exportID)
+				require.Error(t, err)
+				assert.ErrorIs(t, err, context.Canceled)
+
+				// Abort to release the slot (Commit ctx cancel doesn't
+				// release it — the abort timer would, but we speed it up).
+				p.Abort(exportID)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			// blockingSelector blocks in SnapshotShards until its context
+			// is canceled or blockCh is closed. This simulates a
+			// long-running snapshot phase.
+			selector := newBlockingSelector()
+
+			participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+
+			exportID := "test-cancel-snap-" + tc.name
+			req := &ExportRequest{
+				ID:       exportID,
+				Backend:  "s3",
+				Classes:  []string{"TestClass"},
+				Shards:   map[string][]string{"TestClass": {"shard0"}},
+				NodeName: "node1",
+			}
+
+			// Prepare starts the snapshot goroutine in the background.
+			require.NoError(t, participant.Prepare(context.Background(), req))
+
+			// Wait for SnapshotShards to be called so we know the
+			// goroutine is running and blocked.
+			selector.waitForCall(t)
+
+			// Cancel via the test-specific path.
+			tc.cancelFunc(t, participant, exportID)
+
+			// The slot must be released so a new export can start.
+			assert.False(t, participant.IsRunning(exportID))
+
+			// Prove the slot is truly free by starting a new Prepare.
+			req2 := &ExportRequest{
+				ID:       exportID + "-followup",
+				Backend:  "s3",
+				Classes:  []string{"TestClass"},
+				Shards:   map[string][]string{"TestClass": {"shard0"}},
+				NodeName: "node1",
+			}
+			require.NoError(t, participant.Prepare(context.Background(), req2))
+			participant.Abort(req2.ID)
+		})
+	}
 }
 
 func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
