@@ -41,7 +41,7 @@ type compactorReplace struct {
 	cleanupTombstones   bool
 	secondaryIndexCount uint16
 
-	w                io.WriteSeeker
+	w    io.WriteSeeker
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
@@ -199,7 +199,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				ki, err := c.writeIndividualNode(f, offset, res1.primaryKey, res1.value,
 					res1.secondaryKeys, errors.Is(err1, lsmkv.Deleted))
 				if err != nil {
-					return nil, fmt.Errorf("write individual node (res1.primaryKey smaller)")
+					return nil, fmt.Errorf("write individual node (res1.primaryKey smaller): %w", err)
 				}
 
 				offset = ki.ValueEnd
@@ -272,7 +272,7 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 	keys []segmentindex.Key,
 ) error {
 	indexes := &segmentindex.Indexes{
-		Keys:                keys,
+		Keys:                           keys,
 		SecondaryIndexCount:            c.secondaryIndexCount,
 		AllocChecker:                   c.allocChecker,
 		SizesPrecomputed:               true,
