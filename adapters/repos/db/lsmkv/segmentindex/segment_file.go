@@ -128,6 +128,10 @@ func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 // into each segment node's `WriteTo` instead.
 //
 // This method uses the written data to further calculate the checksum.
+// BodyWriter returns the writer for segment body data. The returned writer
+// must copy bytes synchronously on Write (as bufio.Writer does). Callers
+// (e.g. compactorReplace) pass aliased value buffers that are reused after
+// Write returns, so an async or zero-copy writer would silently corrupt data.
 func (f *SegmentFile) BodyWriter() io.Writer {
 	f.writtenTo = true
 

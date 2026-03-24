@@ -60,6 +60,9 @@ func (s *segmentReplaceNode) keyIndexAndWriteToWithBuf(w io.Writer, buf []byte) 
 
 	written += 9
 
+	// IMPORTANT: w must copy s.value bytes synchronously (e.g. bufio.Writer).
+	// The compactor passes aliased value buffers that are reused on the next
+	// cursor iteration, so a deferred or zero-copy writer would corrupt data.
 	n, err := w.Write(s.value)
 	if err != nil {
 		return out, errors.Wrapf(err, "write node value")

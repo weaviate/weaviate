@@ -257,6 +257,11 @@ func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 		}
 	}
 
+	// value is NOT arena-copied because it is written synchronously to the
+	// buffered writer by KeyIndexAndWriteToWithBuf. The bufio.Writer.Write
+	// call copies value bytes into its internal buffer before returning,
+	// so the reusable cursor's buffer can safely be reused on the next
+	// iteration.
 	segNode := segmentReplaceNode{
 		offset:              offset,
 		tombstone:           tombstone,
