@@ -441,12 +441,6 @@ func (s *BackupTestSuite) VerifyObjectsExist(t *testing.T) {
 		// For multi-tenant, check count per tenant
 		tenants := s.dataGen.GenerateTenants()
 
-		toActivate := make([]*models.Tenant, 0, len(tenants))
-		for _, tenant := range tenants {
-			toActivate = append(toActivate, &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusACTIVE})
-		}
-		helper.UpdateTenants(t, s.config.ClassName, toActivate)
-
 		expectedPerTenant := int64(s.config.ObjectsPerTenant)
 		for _, tenant := range tenants {
 			count := moduleshelper.GetClassCount(t, s.config.ClassName, tenant)

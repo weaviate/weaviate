@@ -116,7 +116,8 @@ func (g *TestDataGenerator) GenerateClass() *models.Class {
 
 	if g.config.MultiTenant {
 		class.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled: true,
+			Enabled:              true,
+			AutoTenantActivation: true,
 		}
 	}
 
