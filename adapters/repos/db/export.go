@@ -220,15 +220,6 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 	}
 
 	if err := eg.Wait(); err != nil {
-		// Clean up snapshots created by goroutines that succeeded before
-		// the error. The caller also defers cleanup, but we do it here
-		// eagerly so disk space is freed as soon as possible.
-		for j := range results {
-			if results[j].SnapshotDir != "" {
-				os.RemoveAll(results[j].SnapshotDir)
-				results[j].SnapshotDir = ""
-			}
-		}
 		return results, err
 	}
 

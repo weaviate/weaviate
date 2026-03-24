@@ -288,14 +288,12 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	snapshots, _, err := p.snapshotAllShards(context.Background(), req)
+	_, _, err := p.snapshotAllShards(context.Background(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
 
-	// Clean up snapshots returned alongside the error (caller responsibility).
-	p.cleanupSnapshots(snapshots)
-
-	// The snapshots root should have no leftover snapshot directories.
+	// snapshotAllShards cleans up all snapshots on error via its defer.
+	// Verify no leftovers remain.
 	entries, readErr := os.ReadDir(selector.snapshotsRoot)
 	require.NoError(t, readErr)
 	for _, e := range entries {

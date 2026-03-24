@@ -327,7 +327,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 		p.preparedReq = nil
 		p.abortTimer = nil
-		p.pending = nil // ownership transferred to executeExport
+		p.pending = nil // snapshot done; nil so clearAndRelease won't re-cancel it
 
 		exportCtx2, cancel := context.WithCancel(p.shutdownCtx)
 		p.cancelExport = cancel
@@ -615,6 +615,12 @@ type pendingSnapshot struct {
 // goroutines shut down snapshot buckets and remove snapshot directories
 // once scanning completes.
 func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, nodeStatus *NodeStatus, snapshots []shardSnapshot, skipped []skippedShard) error {
+	// Ensure all snapshot directories are removed even if the scan phase
+	// fails or panics. Snapshots that are successfully processed by cleanup
+	// goroutines will already have their directories removed; RemoveAll on
+	// a non-existent path is a no-op.
+	defer p.cleanupSnapshots(snapshots)
+
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
@@ -622,12 +628,6 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	for _, s := range skipped {
 		nodeStatus.SetShardProgress(s.className, s.shardName, export.ShardSkipped, "", s.skipReason)
 	}
-
-	// Ensure all snapshot directories are removed even if the scan phase
-	// fails or panics. Snapshots that are successfully processed by cleanup
-	// goroutines will already have their directories removed; RemoveAll on
-	// a non-existent path is a no-op.
-	defer p.cleanupSnapshots(snapshots)
 
 	// Scan all snapshots in parallel using an N-worker pool.
 	parallelism := runtime.GOMAXPROCS(0) * 2
@@ -698,9 +698,16 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 func (p *Participant) snapshotAllShards(
 	ctx context.Context,
 	req *ExportRequest,
-) ([]shardSnapshot, []skippedShard, error) {
-	var snapshots []shardSnapshot
-	var skipped []skippedShard
+) (snapshots []shardSnapshot, skipped []skippedShard, retErr error) {
+	// On error, clean up all snapshots created so far. Individual
+	// SnapshotShards calls don't need to clean up their own partial
+	// results — this single defer handles everything.
+	defer func() {
+		if retErr != nil {
+			p.cleanupSnapshots(snapshots)
+			snapshots = nil
+		}
+	}()
 
 	for _, className := range req.Classes {
 		shardNames, ok := req.Shards[className]
@@ -710,17 +717,10 @@ func (p *Participant) snapshotAllShards(
 
 		isMT := p.selector.IsMultiTenant(ctx, className)
 
-		results, err := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
-		if err != nil {
-			// Clean up any snapshots created before the error in this batch.
-			for _, r := range results {
-				if r.SnapshotDir != "" {
-					os.RemoveAll(r.SnapshotDir)
-				}
-			}
-			return snapshots, skipped, fmt.Errorf("snapshot class %s: %w", className, err)
-		}
+		results, snapshotErr := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
 
+		// Process results into snapshots before checking the error so the
+		// defer cleanup covers any dirs created before the failure.
 		for _, r := range results {
 			if r.SkipReason != "" {
 				skipped = append(skipped, skippedShard{
@@ -745,6 +745,10 @@ func (p *Participant) snapshotAllShards(
 				dir:       r.SnapshotDir,
 				strategy:  r.Strategy,
 			})
+		}
+
+		if snapshotErr != nil {
+			return snapshots, skipped, fmt.Errorf("snapshot class %s: %w", className, snapshotErr)
 		}
 	}
 
