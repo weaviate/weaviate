@@ -180,6 +180,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				vectorIndexUserConfig)
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
