@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,12 +26,15 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
@@ -484,15 +488,7 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
-			Digests: digests,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(resBytes)
+		writeDigestsInRangeResponse(w, r, digests)
 	})
 }
 
@@ -537,14 +533,73 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 			return
 		}
 
+		writeHashTreeLevelResponse(w, r, results)
+	})
+}
+
+// writeDigestsInRangeResponse writes the digests as a fixed-size binary stream
+// when the client signals support via X-Accept-Response-Encoding: binary,
+// falling back to JSON for older nodes. Each binary record is
+// replica.DigestObjectsInRangeRecordLength bytes: 16 bytes UUID (RFC-4122
+// binary form) followed by 8 bytes UpdateTime (int64 big-endian). The Err and
+// Deleted fields are intentionally omitted — ObjectDigestsInRange never
+// populates them.
+func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results []types.RepairResponse) {
+	if r.Header.Get("X-Accept-Response-Encoding") != "binary" {
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{Digests: results})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(resBytes) //nolint:errcheck
+		return
+	}
+
+	// Encode all records before writing any headers so that errors don't
+	// produce an http.Error response with a stale Content-Length already set.
+	body := make([]byte, 0, len(results)*replica.DigestObjectsInRangeRecordLength)
+	var buf [replica.DigestObjectsInRangeRecordLength]byte
+	for _, d := range results {
+		uuidParsed, err := uuid.Parse(d.ID)
+		if err != nil {
+			// Should never happen — IDs come directly from the LSM store.
+			http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		copy(buf[:16], uuidParsed[:])
+		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
+		body = append(body, buf[:]...)
+	}
+
+	w.Header().Set("X-Response-Encoding", "binary")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Write(body) //nolint:errcheck
+}
+
+// writeHashTreeLevelResponse writes digests as binary when the client signals
+// support via X-Accept-Response-Encoding: binary, falling back to the legacy
+// JSON encoding for older nodes.
+func writeHashTreeLevelResponse(w http.ResponseWriter, r *http.Request, results []hashtree.Digest) {
+	if r.Header.Get("X-Accept-Response-Encoding") != "binary" {
 		resBytes, err := json.Marshal(results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		w.Write(resBytes)
-	})
+		return
+	}
+
+	w.Header().Set("X-Response-Encoding", "binary")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(results))*int64(hashtree.DigestLength), 10))
+	var buf [hashtree.DigestLength]byte
+	for _, d := range results {
+		binary.BigEndian.PutUint64(buf[:8], d[0])
+		binary.BigEndian.PutUint64(buf[8:], d[1])
+		w.Write(buf[:]) //nolint:errcheck
+	}
 }
 
 func readRequestBodyWithOptionalCompression(
@@ -585,15 +640,23 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := readRequestBodyWithOptionalCompression(
+			r.Body,
+			r.Header.Get("X-Request-Compression"),
+		)
 		if err != nil {
-			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "read request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		var vobjs []*objects.VObject
+		if r.Header.Get("X-Request-Encoding") == "binary" {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalV2(reqPayload)
+		} else {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		}
 		if err != nil {
-			http.Error(w, "unmarshal overwrite objects params from json: "+err.Error(),
+			http.Error(w, "unmarshal overwrite objects: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}

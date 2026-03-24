@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -284,6 +285,11 @@ func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (f *fakeSchemaManager) LocalActiveShardsCount(class string) (int, error) {
+	args := f.Called(class)
+	return args.Get(0).(int), args.Error(1)
+}
+
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
@@ -326,7 +332,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil, nil),
 	}
 }
 
