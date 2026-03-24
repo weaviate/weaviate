@@ -2625,9 +2625,8 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 }
 
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
-	// mux protects counts for concurrent access in coordinator.Pull
-	var mux sync.Mutex
-	counts := make(map[string]int)
+	var mux sync.Mutex                                     // synchronizes access in coordinator.Pull.
+	counts := make(map[string]map[string]int, len(shards)) // structured as map[shard]map[node]count.
 
 	i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	i.logger.Infof("aggregate count(*) on shards=%v\n", shards)
@@ -2644,13 +2643,14 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 			i.logger,
 		)
 
+		counts[shard] = make(map[string]int)
 		// NOTE(dyma): Why do we need to pass both the context and the timeout?
 		results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
 			func(ctx context.Context, host string, _ bool) (any, error) {
 				count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
 				if err == nil {
 					mux.Lock()
-					counts[host] += count
+					counts[shard][host] += count
 					mux.Unlock()
 				}
 				if err != nil {
@@ -2667,8 +2667,20 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				return nil, r.Err
 			}
 		}
+
+		i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+		i.logger.Infof("collected per-node counts=%v\n", counts)
+		i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	}
 
+	var total int
+	for shard := range counts {
+		total += reconcile(counts[shard])
+	}
+	return &aggregation.Result{Groups: []aggregation.Group{{Count: total}}}, nil
+}
+
+func reconcile(counts map[string]int) int {
 	var mode int
 	var modeHits int
 	hits := make(map[int]int)
@@ -2681,9 +2693,6 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var median int
 	medianIdx := len(counts) / 2
 
-	i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-	i.logger.Infof("collected per-node counts=%v\n", counts)
-	i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
@@ -2697,13 +2706,10 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 		}
 	}
 
-	var final int
 	if modeHits > 1 {
-		final = mode
-	} else {
-		final = median
+		return mode
 	}
-	return &aggregation.Result{Groups: []aggregation.Group{{Count: final}}}, nil
+	return median
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,

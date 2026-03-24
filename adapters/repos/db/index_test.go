@@ -165,6 +165,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 				replicaClient:    clients.NewReplicationClient(&http.Client{}),
 				metrics:          metrics,
 				replicaMetrics:   replicaMetrics,
+				logger:           logger,
 			}
 
 			// Act
