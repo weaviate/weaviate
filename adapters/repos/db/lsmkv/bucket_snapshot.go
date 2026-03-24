@@ -57,6 +57,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,7 +129,7 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 		return "", fmt.Errorf("flush memtable: %w", err)
 	}
 
-	if err := hardlinkBucketFiles(b.disk.dir, snapshotDir, false); err != nil {
+	if err := snapshotBucketFiles(b.disk.dir, snapshotDir, false); err != nil {
 		os.RemoveAll(snapshotDir)
 		return "", fmt.Errorf("hardlink snapshot: %w", err)
 	}
@@ -136,8 +137,11 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 	return snapshotDir, nil
 }
 
-// hardlinkBucketFiles hard-links bucket files from srcDir into dstDir.
-// The dstDir is created if it doesn't exist.
+// snapshotBucketFiles copies bucket files from srcDir into dstDir.
+// Immutable files (segments, bloom filters, count-net-additions) are
+// hard-linked for efficiency. WAL files are copied because they are
+// mutable — if the shard loads after the snapshot is taken, the original
+// WAL could be modified, which would corrupt the hard-linked snapshot.
 //
 // The caller must ensure no concurrent compaction or flush is modifying
 // srcDir — for loaded buckets this means pausing both cycles first; for
@@ -145,16 +149,16 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 //
 // When includeWAL is false, .wal files are skipped. This is appropriate when
 // snapshotting a loaded bucket that has just been flushed (the WAL belongs to
-// the new empty memtable). When includeWAL is true, .wal files are included.
+// the new empty memtable). When includeWAL is true, .wal files are copied.
 // This is necessary when snapshotting an unloaded bucket from disk, where the
 // WAL may contain data that was not flushed to a segment (e.g. small tenants
 // whose memtable was persisted as a WAL on shutdown).
 //
 // Temporary (.tmp) files are always skipped.
 //
-// On error, dstDir may contain a partial set of hard-links. The caller is
+// On error, dstDir may contain a partial set of files. The caller is
 // responsible for removing dstDir on failure.
-func hardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
+func snapshotBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return fmt.Errorf("create snapshot dir: %w", err)
 	}
@@ -179,12 +183,49 @@ func hardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 
 		src := filepath.Join(srcDir, entry.Name())
 		dst := filepath.Join(dstDir, entry.Name())
-		if err := os.Link(src, dst); err != nil {
-			return fmt.Errorf("hardlink %s: %w", entry.Name(), err)
+
+		if ext == ".wal" {
+			// WAL files are mutable — copy instead of hard-link.
+			if err := snapshotCopyFile(src, dst); err != nil {
+				return fmt.Errorf("copy %s: %w", entry.Name(), err)
+			}
+		} else {
+			// Segment files are immutable — hard-link is safe and fast.
+			if err := os.Link(src, dst); err != nil {
+				return fmt.Errorf("hardlink %s: %w", entry.Name(), err)
+			}
 		}
 	}
 
 	return nil
+}
+
+// snapshotCopyFile copies src to dst. The destination is written atomically via a
+// temporary file + rename so a crash never leaves a partial WAL.
+func snapshotCopyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp := dst + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+
+	return os.Rename(tmp, dst)
 }
 
 // SnapshotBucketFromDisk hard-links bucket files from an unloaded bucket's
@@ -198,7 +239,7 @@ func hardlinkBucketFiles(srcDir, dstDir string, includeWAL bool) error {
 // is cleaned up.
 func SnapshotBucketFromDisk(srcDir, snapshotsRoot, snapshotName string) (string, error) {
 	snapshotDir := filepath.Join(snapshotsRoot, SnapshotDirPrefix+snapshotName)
-	if err := hardlinkBucketFiles(srcDir, snapshotDir, true); err != nil {
+	if err := snapshotBucketFiles(srcDir, snapshotDir, true); err != nil {
 		os.RemoveAll(snapshotDir)
 		return "", err
 	}

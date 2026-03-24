@@ -437,6 +437,68 @@ func TestSnapshotNoFlushRaceDuringHardlink(t *testing.T) {
 		"all baseline keys must be present in the snapshot")
 }
 
+// TestSnapshotFromDisk_WALIsolation verifies that a snapshot taken from an
+// unloaded bucket's disk directory is isolated from subsequent writes to the
+// original WAL.
+//
+// The WAL must be copied (not hard-linked) during snapshotting. If it were
+// hard-linked, reopening the original bucket and writing new data would
+// mutate the snapshot's WAL — breaking point-in-time isolation.
+func TestSnapshotFromDisk_WALIsolation(t *testing.T) {
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+	bucketDir := t.TempDir()
+
+	// Phase 1: create a bucket, write data, shut down.
+	// Small data → the bucket uses WAL reuse on shutdown (no segment flush).
+	bucket, err := NewBucketCreator().NewBucket(ctx, bucketDir, bucketDir,
+		testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+
+	for i := range 5 {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		require.NoError(t, bucket.Put(key, []byte("original")))
+	}
+	require.NoError(t, bucket.Shutdown(ctx))
+
+	// Phase 2: snapshot from disk (WAL is copied).
+	snapshotDir, err := SnapshotBucketFromDisk(bucketDir, t.TempDir(), "wal-isolation")
+	require.NoError(t, err)
+
+	// Phase 3: reopen the original bucket and write more data.
+	// This modifies the original WAL file on disk.
+	bucket2, err := NewBucketCreator().NewBucket(ctx, bucketDir, bucketDir,
+		testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+
+	for i := 100; i < 110; i++ {
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(i))
+		require.NoError(t, bucket2.Put(key, []byte("post-snapshot")))
+	}
+	require.NoError(t, bucket2.Shutdown(ctx))
+
+	// Phase 4: open the snapshot and verify isolation.
+	snapBucket, err := NewSnapshotBucket(ctx, snapshotDir, testLogger(),
+		WithStrategy(StrategyReplace))
+	require.NoError(t, err)
+	defer snapBucket.Shutdown(ctx)
+
+	count := cursorCount(t, snapBucket)
+	require.Equal(t, 5, count, "snapshot must contain only the original 5 objects")
+
+	c := snapBucket.Cursor()
+	defer c.Close()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		id := binary.BigEndian.Uint64(k)
+		require.Less(t, id, uint64(100), "snapshot must not contain post-snapshot keys")
+		require.Equal(t, []byte("original"), v, "snapshot values must be the originals")
+	}
+}
+
 func cursorCount(t *testing.T, b *Bucket) int {
 	t.Helper()
 	c := b.Cursor()

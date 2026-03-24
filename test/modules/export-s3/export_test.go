@@ -805,6 +805,83 @@ func TestExport_MultiTenant_AllCold(t *testing.T) {
 	verifyParquetMetadata(t, exportID, className, true)
 }
 
+// TestExport_ColdTenantReactivatedDuringExport verifies that a cold tenant's
+// snapshot is isolated from writes that happen after the tenant is reactivated.
+// The WAL is copied (not hard-linked) during snapshotting, so reactivating
+// the tenant and writing new data must not affect the exported snapshot.
+func TestExport_ColdTenantReactivatedDuringExport(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{{Name: "tenantA"}}
+	helper.CreateTenants(t, className, tenants)
+
+	// Insert initial data and deactivate the tenant. The WAL on disk may
+	// contain unflushed data (small tenants use WAL reuse on shutdown).
+	preObjects := makeObjects(className, "tenantA", 50)
+	helper.CreateObjectsBatchCL(t, preObjects, types.ConsistencyLevelAll)
+
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	// Start the export. The snapshot copies the WAL from disk.
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+
+	// Immediately reactivate the tenant and write more data. This modifies
+	// the original WAL file on disk. If the snapshot had hard-linked the
+	// WAL instead of copying it, these writes would corrupt the snapshot.
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusHOT},
+	})
+	postObjects := makeObjects(className, "tenantA", 50)
+	helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+
+	requireExportCreated(t, exportCh)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	// The export must contain exactly the pre-export objects. Post-export
+	// writes must not leak into the snapshot.
+	allRows := fetchParquetRows(t, exportID, className)
+	exportedIDs := make(map[string]struct{}, len(allRows))
+	for _, row := range allRows {
+		exportedIDs[row.ID] = struct{}{}
+	}
+
+	// All pre-export objects must be present.
+	for _, obj := range preObjects {
+		assert.Contains(t, exportedIDs, string(obj.ID),
+			"pre-export object %s must be in export", obj.ID)
+	}
+
+	// Post-export objects must NOT be present.
+	for _, obj := range postObjects {
+		assert.NotContains(t, exportedIDs, string(obj.ID),
+			"post-reactivation object %s must NOT be in export", obj.ID)
+	}
+
+	assert.Equal(t, len(preObjects), len(allRows),
+		"export must contain exactly the pre-export objects")
+}
+
 // verifyParquetMetadata checks that all parquet files for a class contain
 // the "collection" metadata key, and optionally "tenant" for MT classes.
 func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenant bool) {
