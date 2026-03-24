@@ -163,6 +163,11 @@ func (db *DB) SnapshotShards(ctx context.Context, className string, shardNames [
 	}
 	defer idx.dropIndex.RUnlock()
 
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		return nil, errAlreadyShutdown
+	}
 	return idx.snapshotShardsForExport(ctx, shardNames, exportID)
 }
 
@@ -256,9 +261,9 @@ func (i *Index) shouldSkipTenant(class *models.Class, shardName string) (string,
 	}
 }
 
-// snapshotLocalShard snapshots a shard based on its local state. It holds
-// shardCreateLocks.RLock for the entire operation to prevent races with
-// concurrent shard loading/unloading.
+// snapshotLocalShard snapshots a shard based on its local state. This method holds
+// shardCreateLocks.RLock for the entire operation to prevent races with concurrent
+// shard loading/unloading.
 //
 // For MT classes the tenant status check (shouldSkipTenant) runs under the
 // same lock so that the status cannot change between the check and the
@@ -271,12 +276,6 @@ func (i *Index) snapshotLocalShard(
 	ctx context.Context, class *models.Class, isMT bool, shardName string,
 	snapshotsRoot, snapshotName string,
 ) (*export.ShardSnapshotResult, string, error) {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-	if i.closed {
-		return nil, "", errAlreadyShutdown
-	}
-
 	// Hold the shard lock for the entire operation so that no concurrent
 	// load/unload can change the local shard state during the snapshot.
 	i.shardCreateLocks.RLock(shardName)
