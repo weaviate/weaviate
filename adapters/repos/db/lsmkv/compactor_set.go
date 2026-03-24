@@ -47,8 +47,6 @@ type compactorSet struct {
 	maxNewFileSize int64
 	allocChecker   memwatch.AllocChecker
 
-	scratchSpacePath string
-
 	enableChecksumValidation bool
 
 	// reusable buffers to reduce allocations during compaction
@@ -61,7 +59,7 @@ type compactorSet struct {
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool,
+	cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorSet {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -83,7 +81,6 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,

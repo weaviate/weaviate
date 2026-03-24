@@ -19,14 +19,12 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
@@ -243,14 +241,9 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: m.secondaryIndices,
-		ScratchSpacePath:    m.path + ".scratch.d",
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  m.strategy,
-			"operation": "writeIndices",
-		}),
 	}
 
-	if _, err := f.WriteIndexes(indexes, int64(m.size)); err != nil {
+	if _, err := f.WriteIndexes(indexes); err != nil {
 		return nil, nil, err
 	}
 
