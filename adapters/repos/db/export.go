@@ -357,6 +357,9 @@ func (i *Index) snapshotFromLoadedShard(
 func (i *Index) snapshotFromDisk(
 	shardName, snapshotsRoot, snapshotName string,
 ) (*export.ShardSnapshotResult, string, error) {
+	// Path convention: <indexPath>/<shardName>/lsm/<bucketName>. This is the
+	// same convention used by shard init (shard_init_lsm.go) via shardPathLSM
+	// + helpers.ObjectsBucketLSM, so it stays in sync with loaded shards.
 	objectsBucketDir := filepath.Join(shardPathLSM(i.path(), shardName), helpers.ObjectsBucketLSM)
 	if _, err := os.Stat(objectsBucketDir); err != nil {
 		if os.IsNotExist(err) {

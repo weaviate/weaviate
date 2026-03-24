@@ -155,10 +155,19 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 
 		p.preparedReq = req
 
-		// Start snapshotting all shards in the background so that the
-		// point-in-time is anchored to the Prepare phase rather than
-		// the later Commit/doExport phase. Commit will wait on ps.done
-		// before proceeding to the scan phase.
+		// Start snapshotting in the background so the point-in-time is
+		// anchored to the Prepare phase. Commit blocks on ps.done before
+		// proceeding.
+		//
+		// NOTE: Prepare returns success before the snapshot completes.
+		// This is intentional — it allows the coordinator to Prepare all
+		// nodes concurrently and overlap their snapshot work with the
+		// metadata write. The tradeoff is that a snapshot failure is only
+		// discovered at Commit time, after other nodes may have already
+		// committed. Those nodes are then aborted. Making Prepare
+		// synchronous would be simpler but would serialize snapshotting
+		// across the 2PC phases, increasing the chance of hitting the
+		// reservation timeout on large deployments.
 		snapshotCtx, snapshotCancel := context.WithCancel(p.shutdownCtx)
 		ps := &pendingSnapshot{
 			done:   make(chan struct{}),
@@ -794,6 +803,10 @@ func (p *Participant) submitShardJobs(
 	nodeStatus *NodeStatus,
 	parallelism int,
 ) error {
+	// CalcCountNetAdditions is cheap here: the hard-linked .cna files from
+	// the source bucket already contain the precomputed counts, so each
+	// segment just reads 12 bytes from disk. The count is needed by
+	// computeRanges to split the key space for parallel scanning.
 	snapshotBucket, err := lsmkv.NewSnapshotBucket(ctx, snap.dir,
 		p.logger, lsmkv.WithStrategy(snap.strategy),
 		lsmkv.WithCalcCountNetAdditions(true))
@@ -1065,6 +1078,12 @@ func (p *Participant) startNodeStatusWriter(
 	}
 
 	// Goroutine 1: periodic status flush.
+	//
+	// This intentionally does NOT select on exportCtx.Done(). On cancellation
+	// the goroutine must stay alive until stopWriter() closes quit, so it can
+	// perform the final flush with the terminal status (Failed/Canceled).
+	// The cost is at most a few unnecessary intermediate flushes between
+	// context cancellation and stopWriter() — negligible (small JSON PUTs).
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
