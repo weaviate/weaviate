@@ -425,7 +425,6 @@ type GRPC struct {
 
 type MCP struct {
 	Enabled            bool   `json:"enabled" yaml:"enabled"`
-	Port               int    `json:"port" yaml:"port"`
 	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
 	ConfigPath         string `json:"configPath" yaml:"configPath"`
 }

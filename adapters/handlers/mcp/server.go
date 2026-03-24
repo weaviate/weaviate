@@ -12,7 +12,7 @@
 package mcp
 
 import (
-	"fmt"
+	"net/http"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/sirupsen/logrus"
@@ -55,13 +55,8 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServe
 	return s
 }
 
-func (s *MCPServer) Serve() {
-	httpServer := server.NewStreamableHTTPServer(s.server)
-	addr := fmt.Sprintf("0.0.0.0:%d", s.state.ServerConfig.Config.MCP.Port)
-	s.logger.WithField("addr", addr).Info("starting MCP server")
-	if err := httpServer.Start(addr); err != nil {
-		s.logger.WithError(err).Error("MCP server stopped")
-	}
+func (s *MCPServer) Handler() http.Handler {
+	return server.NewStreamableHTTPServer(s.server)
 }
 
 func (s *MCPServer) registerTools() {

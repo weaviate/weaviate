@@ -934,13 +934,6 @@ func FromEnv(config *Config) error {
 
 	// MCP Server Configuration
 	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
-	if err := parsePositiveInt(
-		"MCP_SERVER_PORT",
-		func(val int) { config.MCP.Port = val },
-		DefaultMCPPort,
-	); err != nil {
-		return err
-	}
 	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
 	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
 	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
@@ -1558,7 +1551,6 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
-	DefaultMCPPort                             = 9000
 	DefaultMCPEnabled                          = false
 	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute

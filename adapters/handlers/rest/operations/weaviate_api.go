@@ -18,6 +18,7 @@ package operations
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -39,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
@@ -71,6 +73,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		YamlConsumer: yamlpc.YAMLConsumer(),
 
 		JSONProducer: runtime.JSONProducer(),
+		TextEventStreamProducer: runtime.ProducerFunc(func(w io.Writer, data interface{}) error {
+			return errors.NotImplemented("textEventStream producer has not yet been implemented")
+		}),
 
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
@@ -236,6 +241,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ReplicationListReplicationHandler: replication.ListReplicationHandlerFunc(func(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ListReplication has not yet been implemented")
+		}),
+		McpMcpDeleteHandler: mcp.McpDeleteHandlerFunc(func(params mcp.McpDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation mcp.McpDelete has not yet been implemented")
+		}),
+		McpMcpGetHandler: mcp.McpGetHandlerFunc(func(params mcp.McpGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation mcp.McpGet has not yet been implemented")
+		}),
+		McpMcpPostHandler: mcp.McpPostHandlerFunc(func(params mcp.McpPostParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation mcp.McpPost has not yet been implemented")
 		}),
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
@@ -419,6 +433,9 @@ type WeaviateAPI struct {
 	// JSONProducer registers a producer for the following mime types:
 	//   - application/json
 	JSONProducer runtime.Producer
+	// TextEventStreamProducer registers a producer for the following mime types:
+	//   - text/event-stream
+	TextEventStreamProducer runtime.Producer
 
 	// OidcAuth registers a function that takes an access token and a collection of required scopes and returns a principal
 	// it performs authentication based on an oauth2 bearer token provided in the request
@@ -537,6 +554,12 @@ type WeaviateAPI struct {
 	UsersListAllUsersHandler users.ListAllUsersHandler
 	// ReplicationListReplicationHandler sets the operation handler for the list replication operation
 	ReplicationListReplicationHandler replication.ListReplicationHandler
+	// McpMcpDeleteHandler sets the operation handler for the mcp delete operation
+	McpMcpDeleteHandler mcp.McpDeleteHandler
+	// McpMcpGetHandler sets the operation handler for the mcp get operation
+	McpMcpGetHandler mcp.McpGetHandler
+	// McpMcpPostHandler sets the operation handler for the mcp post operation
+	McpMcpPostHandler mcp.McpPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
 	// NodesNodesGetHandler sets the operation handler for the nodes get operation
@@ -708,6 +731,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.JSONProducer == nil {
 		unregistered = append(unregistered, "JSONProducer")
 	}
+	if o.TextEventStreamProducer == nil {
+		unregistered = append(unregistered, "TextEventStreamProducer")
+	}
 
 	if o.OidcAuth == nil {
 		unregistered = append(unregistered, "OidcAuth")
@@ -878,6 +904,15 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ReplicationListReplicationHandler == nil {
 		unregistered = append(unregistered, "replication.ListReplicationHandler")
 	}
+	if o.McpMcpDeleteHandler == nil {
+		unregistered = append(unregistered, "mcp.McpDeleteHandler")
+	}
+	if o.McpMcpGetHandler == nil {
+		unregistered = append(unregistered, "mcp.McpGetHandler")
+	}
+	if o.McpMcpPostHandler == nil {
+		unregistered = append(unregistered, "mcp.McpPostHandler")
+	}
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
 	}
@@ -1038,7 +1073,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -1076,6 +1110,8 @@ func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Produ
 		switch mt {
 		case "application/json":
 			result["application/json"] = o.JSONProducer
+		case "text/event-stream":
+			result["text/event-stream"] = o.TextEventStreamProducer
 		}
 
 		if p, ok := o.customProducers[mt]; ok {
@@ -1336,6 +1372,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/replication/replicate/list"] = replication.NewListReplication(o.context, o.ReplicationListReplicationHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/mcp"] = mcp.NewMcpDelete(o.context, o.McpMcpDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/mcp"] = mcp.NewMcpGet(o.context, o.McpMcpGetHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/mcp"] = mcp.NewMcpPost(o.context, o.McpMcpPostHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

@@ -133,11 +133,6 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
-	mcpPort := nat.Port("9000/tcp")
-	if exposeMCPPort {
-		exposedPorts = append(exposedPorts, "9000/tcp")
-		waitStrategies = append(waitStrategies, wait.ForListeningPort(mcpPort))
-	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -213,12 +208,7 @@ func startWeaviate(ctx context.Context,
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
 	if exposeMCPPort {
-		mcpUri, err := c.PortEndpoint(ctx, mcpPort, "")
-		mcpUri = fmt.Sprintf("%s/mcp", mcpUri)
-		if err != nil {
-			return nil, err
-		}
-		endpoints[MCP] = endpoint{mcpPort, mcpUri}
+		endpoints[MCP] = endpoint{httpPort, fmt.Sprintf("%s/v1/mcp", httpUri)}
 	}
 	return &DockerContainer{
 		name:        containerName,
