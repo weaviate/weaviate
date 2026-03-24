@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"math/bits"
+	"slices"
 	"sort"
 
 	"github.com/pkg/errors"
@@ -532,9 +533,8 @@ func marshalSortedSecondaryFromKeys(w io.Writer, keys []Key, pos int) (int64, er
 	}
 
 	// Sort by secondary key value.
-	sort.Slice(sortedIndices, func(i, j int) bool {
-		return bytes.Compare(keys[sortedIndices[i]].SecondaryKeys[pos],
-			keys[sortedIndices[j]].SecondaryKeys[pos]) < 0
+	slices.SortFunc(sortedIndices, func(a, b int32) int {
+		return bytes.Compare(keys[a].SecondaryKeys[pos], keys[b].SecondaryKeys[pos])
 	})
 
 	capacity := balancedTreeCapacity(n)
