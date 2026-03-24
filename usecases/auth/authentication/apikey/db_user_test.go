@@ -314,6 +314,18 @@ func TestLastUsedTime(t *testing.T) {
 	require.Equal(t, user[userId].LastUsedAt, updateTime)
 }
 
+func TestUpdateLastUsedTimestamp_NonExistentUser(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	// Should not panic when updating timestamp for a user that doesn't exist
+	require.NotPanics(t, func() {
+		dynUsers.UpdateLastUsedTimestamp(map[string]time.Time{
+			"non-existent-user": time.Now(),
+		})
+	})
+}
+
 func TestImportingAndSuspendingStaticKeys(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)

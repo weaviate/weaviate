@@ -992,6 +992,13 @@ func FromEnv(config *Config) error {
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
 
+	disableDimensionMetrics := false
+	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
+		disableDimensionMetrics = entcfg.Enabled(v)
+	}
+
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
 	return nil
 }
 
@@ -1385,7 +1392,7 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 30
+	DefaultAsyncReplicationClusterMaxWorkers   = 15
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 

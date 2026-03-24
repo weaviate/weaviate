@@ -1129,15 +1129,7 @@ func (i *indices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
-			Digests: digests,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(resBytes)
+		writeDigestsInRangeResponse(w, r, digests)
 	})
 }
 
