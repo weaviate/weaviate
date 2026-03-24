@@ -94,6 +94,10 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 		return nil
 	}
 
+	if _, ok := schema.AsNested(prop.DataType); ok {
+		return validateNestedProp(prop, propName, isPropLengthFilter, cw)
+	}
+
 	if isPropLengthFilter {
 		if !cw.isType(schema.DataTypeInt) {
 			return errors.Errorf("Filtering for property length requires IntValue, got %q instead",
