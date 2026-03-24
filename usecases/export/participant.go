@@ -218,12 +218,17 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		return fmt.Errorf("export ID cannot be empty")
 	}
 
-	// Peek at the prepared request and pending snapshot under a short lock
-	// to get what we need for the blocking operations below. We don't
-	// consume the request yet — that happens in the critical section.
+	// Peek at the prepared request and pending snapshot under a short lock.
+	// Fail early if no matching export is prepared — no point doing backend
+	// I/O or waiting for snapshots.
 	p.mu.Lock()
 	req := p.preparedReq
 	pending := p.pending
+	if req == nil || req.ID != exportID || pending == nil {
+		p.clearAndRelease()
+		p.mu.Unlock()
+		return fmt.Errorf("no matching export prepared for ID %q", exportID)
+	}
 	p.mu.Unlock()
 
 	// Initialize the backend outside the lock — this may involve network
@@ -233,45 +238,36 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	// proper slot cleanup via clearAndRelease.
 	var backendStore modulecapabilities.BackupBackend
 	var backendErr error
-	if req != nil && req.ID == exportID {
-		backendStore, backendErr = p.backends.BackupBackend(req.Backend)
-		if backendErr == nil {
-			if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
-				backendStore = nil
-			}
+	backendStore, backendErr = p.backends.BackupBackend(req.Backend)
+	if backendErr == nil {
+		if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
+			backendStore = nil
 		}
 	}
 
-	// Wait for snapshots started during Prepare. Only wait if the IDs
-	// match — mismatched commits should fail fast in the critical section
-	// rather than blocking on an unrelated snapshot goroutine.
+	// Wait for the snapshot goroutine started during Prepare. The mutex
+	// is NOT held here so that Abort can cancel the snapshot if needed.
 	var snapshots []shardSnapshot
 	var skipped []skippedShard
-	if pending != nil && req != nil && req.ID == exportID {
-		select {
-		case <-pending.done:
-			snapshots = pending.snapshots
-			skipped = pending.skipped
-			if pending.err != nil {
-				p.cleanupSnapshots(snapshots)
-				func() {
-					p.mu.Lock()
-					defer p.mu.Unlock()
-					p.clearAndRelease()
-				}()
-				return fmt.Errorf("snapshot phase failed: %w", pending.err)
-			}
-		case <-ctx.Done():
-			// Release the slot immediately so a new export can start
-			// without waiting for the abort timer. clearAndRelease
-			// cancels the snapshot goroutine and handles cleanup.
-			func() {
-				p.mu.Lock()
-				defer p.mu.Unlock()
-				p.clearAndRelease()
-			}()
-			return ctx.Err()
+	var snapshotErr error
+	select {
+	case <-pending.done:
+		snapshots = pending.snapshots
+		skipped = pending.skipped
+		if pending.err != nil {
+			snapshotErr = fmt.Errorf("snapshot phase failed: %w", pending.err)
 		}
+	case <-ctx.Done():
+		snapshotErr = ctx.Err()
+	}
+	if snapshotErr != nil {
+		p.cleanupSnapshots(snapshots)
+		func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			p.clearAndRelease()
+		}()
+		return snapshotErr
 	}
 
 	var exportCtx context.Context

@@ -347,13 +347,13 @@ func TestParticipant_CommitErrors(t *testing.T) {
 		{
 			name:         "without prepare",
 			commitID:     "nonexistent",
-			wantContains: "No export prepared",
+			wantContains: "no matching export prepared",
 		},
 		{
 			name:         "wrong ID",
 			prepareID:    "export-1",
 			commitID:     "wrong-id",
-			wantContains: "mismatch",
+			wantContains: "no matching export prepared",
 			slotReleased: true,
 		},
 	}
