@@ -82,15 +82,15 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 
 func mapUnits(task *distributedtask.Task) []*models.DistributedTaskUnit {
 	units := make([]*models.DistributedTaskUnit, 0, len(task.Units))
-	for _, su := range task.Units {
+	for _, u := range task.Units {
 		units = append(units, &models.DistributedTaskUnit{
-			ID:         su.ID,
-			NodeID:     su.NodeID,
-			Status:     string(su.Status),
-			Progress:   su.Progress,
-			Error:      su.Error,
-			UpdatedAt:  strfmt.DateTime(su.UpdatedAt),
-			FinishedAt: strfmt.DateTime(su.FinishedAt),
+			ID:         u.ID,
+			NodeID:     u.NodeID,
+			Status:     string(u.Status),
+			Progress:   u.Progress,
+			Error:      u.Error,
+			UpdatedAt:  strfmt.DateTime(u.UpdatedAt),
+			FinishedAt: strfmt.DateTime(u.FinishedAt),
 		})
 	}
 	sort.Slice(units, func(i, j int) bool {
