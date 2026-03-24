@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -883,6 +884,59 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.Zero(t, q.Size())
 	}, 300*time.Second, 1*time.Second)
+}
+
+func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
+	ctx := context.Background()
+	className := "TombstoneClass"
+
+	tests := []struct {
+		name          string
+		config        schemaConfig.VectorIndexConfig
+		expectRunning bool
+	}{
+		{
+			name:          "dynamic starts tombstone cleanup cycle",
+			config:        dynamic.NewDefaultUserConfig(),
+			expectRunning: true,
+		},
+		{
+			name:          "hnsw starts tombstone cleanup cycle",
+			config:        hnsw.NewDefaultUserConfig(),
+			expectRunning: true,
+		},
+		{
+			name:          "flat does not start tombstone cleanup cycle",
+			config:        flat.NewDefaultUserConfig(),
+			expectRunning: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var tombstoneCycle cyclemanager.CycleManager
+
+			asyncIndexingEnabled := true
+			opts := []func(*Index){
+				func(i *Index) {
+					i.vectorIndexUserConfig = tt.config
+					i.Config.DisableLazyLoadShards = true
+					tombstoneCycle = i.cycleCallbacks.vectorTombstoneCleanupCycle
+				},
+			}
+			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, true, asyncIndexingEnabled, opts...)
+
+			defer func(path string) {
+				err := os.RemoveAll(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(shd.Index().Config.RootPath)
+
+			require.Equal(t, tt.expectRunning, tombstoneCycle.Running(),
+				"vectorTombstoneCleanupCycle.Running()")
+		})
+	}
 }
 
 func TestShard_RequantizeIndex(t *testing.T) {
