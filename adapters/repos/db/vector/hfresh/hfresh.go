@@ -257,21 +257,6 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) stopTaskQueues(ctx context.Context) error {
-	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
-		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue,
-		h.taskQueue.mergeQueue,
-	} {
-		err := queue.PrepareForBackup(ctx)
-		if err != nil {
-			return fmt.Errorf("pause queue: %w", err)
-		}
-	}
-	return nil
-}
-
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	err := h.Centroids.hnsw.PrepareForBackup(ctx)
 	if err != nil {
