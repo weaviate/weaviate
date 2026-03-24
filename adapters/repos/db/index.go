@@ -2628,9 +2628,6 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	var mux sync.Mutex                                     // synchronizes access in coordinator.Pull.
 	counts := make(map[string]map[string]int, len(shards)) // structured as map[shard]map[node]count.
 
-	i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-	i.logger.Infof("aggregate count(*) on shards=%v\n", shards)
-	i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	for _, shard := range shards {
 		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
 		// That interface has a dozen methods and half of them belong to replica.RClient.
@@ -2667,10 +2664,6 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				return nil, r.Err
 			}
 		}
-
-		i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-		i.logger.Infof("collected per-node counts=%v\n", counts)
-		i.logger.Info("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
 	}
 
 	var total int
