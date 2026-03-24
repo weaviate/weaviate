@@ -56,6 +56,8 @@ package lsmkv
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -82,6 +84,35 @@ const (
 // SnapshotDirPrefix.
 func IsSnapshotDir(dir string) bool {
 	return strings.HasPrefix(filepath.Base(dir), SnapshotDirPrefix)
+}
+
+// snapshotNameMaxLabel is the maximum length of the human-readable label
+// in a snapshot directory name. The full name is:
+//
+//	SnapshotDirPrefix + label + "-" + hash (12 hex chars)
+//
+// With SnapshotDirPrefix=".snapshot-" (10 chars), a 20-char label, and
+// a 13-char suffix ("-" + 12 hex), the total is 43 chars — well within
+// the 255-byte filesystem path component limit.
+const snapshotNameMaxLabel = 20
+
+// SafeSnapshotName builds a snapshot directory name that is guaranteed to
+// fit within filesystem path component limits (255 bytes). It truncates
+// the human-readable label and appends a hash of the full input for
+// uniqueness. The parts are joined with "-" before hashing.
+//
+// Example: SafeSnapshotName("export-abc", "MyClass", "tenant-xyz")
+// → "export-abc-MyClass-t-a1b2c3d4e5f6"
+func SafeSnapshotName(parts ...string) string {
+	full := strings.Join(parts, "-")
+	h := sha256.Sum256([]byte(full))
+	hashSuffix := hex.EncodeToString(h[:6]) // 12 hex chars
+
+	label := full
+	if len(label) > snapshotNameMaxLabel {
+		label = label[:snapshotNameMaxLabel]
+	}
+	return label + "-" + hashSuffix
 }
 
 // CreateSnapshot pauses compaction and the flush cycle, flushes the memtable

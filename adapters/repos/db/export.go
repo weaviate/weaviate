@@ -204,7 +204,7 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 		results[idx].ShardName = shardName
 
 		eg.Go(func() error {
-			snapshotName := fmt.Sprintf("export-%s-%s-%s", exportID, i.Config.ClassName, shardName)
+			snapshotName := lsmkv.SafeSnapshotName(exportID, string(i.Config.ClassName), shardName)
 			snapResult, skipReason, err := i.snapshotLocalShard(egCtx, class, isMT, shardName, snapshotsRoot, snapshotName)
 			if err != nil {
 				return fmt.Errorf("snapshot shard %s/%s: %w", i.Config.ClassName, shardName, err)
