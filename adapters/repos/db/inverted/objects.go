@@ -216,7 +216,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		if err != nil {
 			return nil, err
 		}
-		items = a.TextArray(prop.Tokenization, in)
+		items = a.TextArray(prop.Tokenization, in, isAccentInsensitive(prop))
 	case schema.DataTypeIntArray:
 		in := make([]int64, len(values))
 		for i, value := range values {
@@ -358,7 +358,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		items = a.Text(prop.Tokenization, asString)
+		items = a.Text(prop.Tokenization, asString, isAccentInsensitive(prop))
 		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		if asFloat, ok := value.(float64); ok {
@@ -570,6 +570,10 @@ func convertToUntyped[T comparable](in []T) []any {
 		out[i] = in[i]
 	}
 	return out
+}
+
+func isAccentInsensitive(prop *models.Property) bool {
+	return prop.Processing != nil && prop.Processing.AccentInsensitive
 }
 
 // Indicates whether property should be indexed

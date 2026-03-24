@@ -1757,6 +1757,19 @@
           "type": "boolean",
           "x-nullable": true,
           "default": true
+        },
+        "processing": {
+          "$ref": "#/definitions/PropertyProcessing"
+        }
+      },
+      "type": "object"
+    },
+    "PropertyProcessing": {
+      "description": "Text processing options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
+      "properties": {
+        "accentInsensitive": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -1825,6 +1838,9 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "processing": {
+          "$ref": "#/definitions/PropertyProcessing"
         }
       },
       "type": "object"

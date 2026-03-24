@@ -118,7 +118,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.Text(tc.tokenization, tc.input)
+				countable := a.Text(tc.tokenization, tc.input, false)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -206,7 +206,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.TextArray(tc.tokenization, tc.input)
+				countable := a.TextArray(tc.tokenization, tc.input, false)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -465,7 +465,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.Text(tc.tokenization, tc.input)
+			countable := a.Text(tc.tokenization, tc.input, false)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -524,7 +524,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.TextArray(tc.tokenization, tc.input)
+			countable := a.TextArray(tc.tokenization, tc.input, false)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -595,4 +595,47 @@ func TestDedupItems(t *testing.T) {
 
 	dedupProps := DedupItems(props)
 	assert.Equal(t, expectedProps, dedupProps)
+}
+
+func TestAnalyzerAccentInsensitive(t *testing.T) {
+	a := NewAnalyzer(nil, "")
+
+	t.Run("Text with accent folding", func(t *testing.T) {
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", true)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		assert.Contains(t, terms, "l")
+		assert.Contains(t, terms, "ecole")
+		assert.Contains(t, terms, "est")
+		assert.Contains(t, terms, "fermee")
+		assert.NotContains(t, terms, "école")
+		assert.NotContains(t, terms, "fermée")
+	})
+
+	t.Run("Text without accent folding preserves diacritics", func(t *testing.T) {
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", false)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		assert.Contains(t, terms, "école")
+		assert.Contains(t, terms, "fermée")
+		assert.NotContains(t, terms, "ecole")
+	})
+
+	t.Run("TextArray with accent folding merges duplicates", func(t *testing.T) {
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, true)
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		assert.Contains(t, terms, "cafe")
+		assert.NotContains(t, terms, "café")
+		assert.Equal(t, float32(2), terms["cafe"])
+	})
 }

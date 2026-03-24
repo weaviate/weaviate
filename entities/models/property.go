@@ -62,6 +62,9 @@ type Property struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
+	// processing
+	Processing *PropertyProcessing `json:"processing,omitempty"`
+
 	// Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.
 	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
 	Tokenization string `json:"tokenization,omitempty"`
@@ -72,6 +75,10 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateNestedProperties(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateProcessing(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -106,6 +113,25 @@ func (m *Property) validateNestedProperties(formats strfmt.Registry) error {
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *Property) validateProcessing(formats strfmt.Registry) error {
+	if swag.IsZero(m.Processing) { // not required
+		return nil
+	}
+
+	if m.Processing != nil {
+		if err := m.Processing.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("processing")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("processing")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -182,6 +208,10 @@ func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry)
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateProcessing(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -203,6 +233,22 @@ func (m *Property) contextValidateNestedProperties(ctx context.Context, formats 
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *Property) contextValidateProcessing(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Processing != nil {
+		if err := m.Processing.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("processing")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("processing")
+			}
+			return err
+		}
 	}
 
 	return nil

@@ -105,6 +105,12 @@ type ShardingConfig struct {
 	Function            string `json:"function"`
 }
 
+// PropertyProcessing contains text processing options for a property.
+// These settings are immutable after creation.
+type PropertyProcessing struct {
+	AccentInsensitive bool `json:"accentInsensitive,omitempty"`
+}
+
 type Property struct {
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
@@ -134,6 +140,9 @@ type Property struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []NestedProperty `json:"nestedProperties,omitempty"`
 
+	// Text processing options for this property. Immutable after creation.
+	Processing PropertyProcessing `json:"processing,omitempty"`
+
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
 	// Enum: [word lowercase whitespace field]
 	Tokenization string `json:"tokenization,omitempty"`
@@ -158,6 +167,9 @@ type NestedProperty struct {
 
 	// nested properties
 	NestedProperties []NestedProperty `json:"nested_properties,omitempty"`
+
+	// text processing options
+	Processing PropertyProcessing `json:"processing,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field]
@@ -186,6 +198,11 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 		n.IndexRangeFilters = false
 	}
 	n.Name = m.Name
+	if m.Processing != nil {
+		n.Processing = PropertyProcessing{
+			AccentInsensitive: m.Processing.AccentInsensitive,
+		}
+	}
 	n.Tokenization = m.Tokenization
 	if len(m.NestedProperties) > 0 {
 		n.NestedProperties = make([]NestedProperty, 0, len(m.NestedProperties))
@@ -213,6 +230,9 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	indexRangeFilters := n.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
+	m.Processing = &models.PropertyProcessing{
+		AccentInsensitive: n.Processing.AccentInsensitive,
+	}
 	m.Tokenization = n.Tokenization
 	if len(n.NestedProperties) > 0 {
 		m.NestedProperties = make([]*models.NestedProperty, 0, len(n.NestedProperties))
@@ -256,6 +276,11 @@ func PropertyFromModel(m models.Property) Property {
 		p.ModuleConfig = v
 	}
 	p.Tokenization = m.Tokenization
+	if m.Processing != nil {
+		p.Processing = PropertyProcessing{
+			AccentInsensitive: m.Processing.AccentInsensitive,
+		}
+	}
 	if len(m.NestedProperties) > 0 {
 		p.NestedProperties = make([]NestedProperty, 0, len(m.NestedProperties))
 		for _, npm := range m.NestedProperties {
@@ -285,6 +310,9 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
+	m.Processing = &models.PropertyProcessing{
+		AccentInsensitive: p.Processing.AccentInsensitive,
+	}
 	m.Tokenization = p.Tokenization
 	if len(p.NestedProperties) > 0 {
 		m.NestedProperties = make([]*models.NestedProperty, 0, len(p.NestedProperties))

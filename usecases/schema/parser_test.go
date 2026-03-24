@@ -141,6 +141,100 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func TestPropertyProcessingImmutability(t *testing.T) {
+	vTrue := true
+	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	baseProp := func(proc *models.PropertyProcessing) *models.Property {
+		return &models.Property{
+			Name:            "title",
+			DataType:        []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			Processing:      proc,
+		}
+	}
+
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	vic := enthnsw.NewDefaultUserConfig()
+
+	tests := []struct {
+		name        string
+		existing    *models.PropertyProcessing
+		updated     *models.PropertyProcessing
+		expectError bool
+	}{
+		{
+			name:        "no change - both nil",
+			existing:    nil,
+			updated:     nil,
+			expectError: false,
+		},
+		{
+			name:        "no change - both accentInsensitive true",
+			existing:    &models.PropertyProcessing{AccentInsensitive: true},
+			updated:     &models.PropertyProcessing{AccentInsensitive: true},
+			expectError: false,
+		},
+		{
+			name:        "no change - both accentInsensitive false",
+			existing:    &models.PropertyProcessing{AccentInsensitive: false},
+			updated:     &models.PropertyProcessing{AccentInsensitive: false},
+			expectError: false,
+		},
+		{
+			name:        "change accentInsensitive false to true",
+			existing:    &models.PropertyProcessing{AccentInsensitive: false},
+			updated:     &models.PropertyProcessing{AccentInsensitive: true},
+			expectError: true,
+		},
+		{
+			name:        "change accentInsensitive true to false",
+			existing:    &models.PropertyProcessing{AccentInsensitive: true},
+			updated:     &models.PropertyProcessing{AccentInsensitive: false},
+			expectError: true,
+		},
+		{
+			name:        "add processing where none existed",
+			existing:    nil,
+			updated:     &models.PropertyProcessing{AccentInsensitive: true},
+			expectError: true,
+		},
+		{
+			name:        "remove processing",
+			existing:    &models.PropertyProcessing{AccentInsensitive: true},
+			updated:     nil,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := &models.Class{
+				Class:             "Test",
+				VectorIndexType:   hnswT,
+				VectorIndexConfig: vic,
+				ShardingConfig:    sc,
+				Properties:        []*models.Property{baseProp(tt.existing)},
+			}
+			update := &models.Class{
+				Class:             "Test",
+				VectorIndexType:   hnswT,
+				VectorIndexConfig: vic,
+				Properties:        []*models.Property{baseProp(tt.updated)},
+			}
+			_, err := p.ParseClassUpdate(old, update)
+			if tt.expectError {
+				require.Error(t, err, "expected error for: %s", tt.name)
+				require.ErrorIs(t, err, errPropertiesUpdatedInClassUpdate)
+			} else {
+				require.NoError(t, err, "unexpected error for: %s", tt.name)
+			}
+		})
+	}
+}
+
 func Test_asMap(t *testing.T) {
 	t.Run("not nil", func(t *testing.T) {
 		m, err := propertyAsMap(&models.Property{

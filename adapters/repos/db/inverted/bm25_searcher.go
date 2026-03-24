@@ -150,7 +150,9 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// There are currently cases, for different tokenization:
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
-	// results at the end are combined using WAND
+	// results at the end are combined using WAND.
+	// Properties with accentInsensitive processing get their own tokenization key
+	// (suffixed with ":accent") so that accent-folded query terms are used.
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
@@ -170,6 +172,17 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		propNamesByTokenization[tokenization] = make([]string, 0)
+
+		// Also prepare accent-folded variants for each tokenization
+		accentKey := accentTokenizationKey(tokenization)
+		accentTerms := make([]string, len(queryTermsByTokenization[tokenization]))
+		copy(accentTerms, queryTermsByTokenization[tokenization])
+		accentTerms = tokenizer.FoldAccentsSlice(accentTerms)
+		// Re-deduplicate after folding since folding may merge distinct terms
+		accentTerms, accentBoosts := deduplicateTerms(accentTerms)
+		queryTermsByTokenization[accentKey] = accentTerms
+		duplicateBoostsByTokenization[accentKey] = accentBoosts
+		propNamesByTokenization[accentKey] = make([]string, 0)
 	}
 
 	averagePropLength := 0.
@@ -214,11 +227,15 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
+			tokKey := prop.Tokenization
+			if prop.Processing != nil && prop.Processing.AccentInsensitive {
+				tokKey = accentTokenizationKey(prop.Tokenization)
+			}
+			if _, exists := propNamesByTokenization[tokKey]; !exists {
 				return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 					prop.Tokenization, prop.Name)
 			}
-			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
+			propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], property)
 		default:
 			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
@@ -236,6 +253,35 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
+// allTokenizationKeys returns the base tokenization keys plus accent variants.
+func allTokenizationKeys() []string {
+	keys := make([]string, 0, len(tokenizer.Tokenizations)*2)
+	for _, t := range tokenizer.Tokenizations {
+		keys = append(keys, t, accentTokenizationKey(t))
+	}
+	return keys
+}
+
+// accentTokenizationKey returns the composite key used for accent-insensitive properties.
+func accentTokenizationKey(tokenization string) string {
+	return tokenization + ":accent"
+}
+
+// deduplicateTerms re-deduplicates terms and returns counts (for use after accent folding).
+func deduplicateTerms(terms []string) ([]string, []int) {
+	counts := map[string]int{}
+	for _, t := range terms {
+		counts[t]++
+	}
+	unique := make([]string, 0, len(counts))
+	boosts := make([]int, 0, len(counts))
+	for t, c := range counts {
+		unique = append(unique, t)
+		boosts = append(boosts, c)
+	}
+	return unique, boosts
+}
+
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
@@ -250,7 +296,7 @@ func (b *BM25Searcher) wand(
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
 
-	for _, tokenization := range tokenizer.Tokenizations {
+	for _, tokenization := range allTokenizationKeys() {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]

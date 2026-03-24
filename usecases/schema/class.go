@@ -719,6 +719,10 @@ func (h *Handler) validateProperty(
 			return err
 		}
 
+		if err := validatePropertyProcessing(property, propertyDataType); err != nil {
+			return err
+		}
+
 		if err := h.validatePropertyIndexing(property); err != nil {
 			return err
 		}
@@ -911,6 +915,27 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 					"For other data types set false or leave empty")
 			}
 		}
+	}
+
+	return nil
+}
+
+func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
+	if prop.Processing == nil {
+		return nil
+	}
+
+	// processing only makes sense for text/text[] with searchable index
+	if !propertyDataType.IsPrimitive() {
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types", prop.Name)
+	}
+
+	dt := propertyDataType.AsPrimitive()
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// allowed
+	default:
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", prop.Name, dt)
 	}
 
 	return nil
