@@ -289,6 +289,10 @@ func FromEnv(config *Config) error {
 			skipTLSVerify = true
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
+			issuer = v
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
 			clientID = v
 		}
