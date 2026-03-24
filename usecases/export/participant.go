@@ -254,20 +254,22 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 			skipped = pending.skipped
 			if pending.err != nil {
 				p.cleanupSnapshots(snapshots)
-				p.mu.Lock()
-				p.clearAndRelease()
-				p.mu.Unlock()
+				func() {
+					p.mu.Lock()
+					defer p.mu.Unlock()
+					p.clearAndRelease()
+				}()
 				return fmt.Errorf("snapshot phase failed: %w", pending.err)
 			}
 		case <-ctx.Done():
-			// Cancel the snapshot goroutine and clean up in the
-			// background so we don't leave snapshots on disk until
-			// the abort timer fires.
-			pending.cancel()
-			enterrors.GoWrapper(func() {
-				<-pending.done
-				p.cleanupSnapshots(pending.snapshots)
-			}, p.logger)
+			// Release the slot immediately so a new export can start
+			// without waiting for the abort timer. clearAndRelease
+			// cancels the snapshot goroutine and handles cleanup.
+			func() {
+				p.mu.Lock()
+				defer p.mu.Unlock()
+				p.clearAndRelease()
+			}()
 			return ctx.Err()
 		}
 	}
@@ -417,6 +419,10 @@ func (p *Participant) clearAndRelease() {
 	if ps := p.pending; ps != nil {
 		p.pending = nil
 		ps.cancel()
+		// This goroutine is intentionally not tracked by exportWg. If the
+		// process shuts down before it finishes, the snapshot directories
+		// will be cleaned up on the next startup by the index-level
+		// os.RemoveAll(snapshotsPath) in NewIndex.
 		enterrors.GoWrapper(func() {
 			<-ps.done // wait for goroutine to finish
 			p.cleanupSnapshots(ps.snapshots)
