@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -687,14 +688,20 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}
-	n, err := s.newNodeReader(offset, "copyNode")
+	if s.contentFile == nil {
+		return fmt.Errorf("nil contentFile for segment at %s", s.path)
+	}
+
+	start := time.Now()
+	_, err := s.contentFile.ReadAt(b, int64(offset.start))
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
-	defer n.Release()
-
-	_, err = io.ReadFull(n, b)
-	return err
+	took := time.Since(start).Nanoseconds()
+	if cb := readObserver.GetOrCreate("ReadFromSegmentcopyNode", s.metrics); cb != nil {
+		cb(int64(len(b)), took)
+	}
+	return nil
 }
 
 func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
@@ -709,8 +716,7 @@ func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, 
 		return nil, nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(readObserver.GetOrCreate(operation, s.metrics)))
-	r := io.NewSectionReader(meteredF, int64(offset), s.size)
+	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
 
 	bufioR := bufReaderPool.Get().(*bufio.Reader)
 	bufioR.Reset(r)
