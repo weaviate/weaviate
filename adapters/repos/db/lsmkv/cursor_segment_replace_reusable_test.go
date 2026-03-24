@@ -15,6 +15,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -173,9 +174,9 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 						oldEntries = append(oldEntries, cursorEntry{
 							key:       copySlice(k),
 							value:     copySlice(v),
-							tombstone: err == lsmkv.Deleted,
+							tombstone: errors.Is(err, lsmkv.Deleted),
 						})
-						if err != nil && err != lsmkv.Deleted {
+						if err != nil && !errors.Is(err, lsmkv.Deleted) {
 							break
 						}
 						k, v, err = oldCursor.next()
@@ -189,9 +190,9 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 						newEntries = append(newEntries, cursorEntry{
 							key:       copySlice(node.primaryKey),
 							value:     copySlice(node.value),
-							tombstone: err == lsmkv.Deleted,
+							tombstone: errors.Is(err, lsmkv.Deleted),
 						})
-						if err != nil && err != lsmkv.Deleted {
+						if err != nil && !errors.Is(err, lsmkv.Deleted) {
 							break
 						}
 						node, err = reusable.next()
@@ -291,7 +292,7 @@ func TestSegmentCursorReplaceReusable_FullIteration(t *testing.T) {
 	for k != nil {
 		oldKeys = append(oldKeys, string(k))
 		oldVals = append(oldVals, string(v))
-		if err != nil && err != lsmkv.Deleted {
+		if err != nil && !errors.Is(err, lsmkv.Deleted) {
 			break
 		}
 		k, v, err = oldCur.next()
@@ -305,7 +306,7 @@ func TestSegmentCursorReplaceReusable_FullIteration(t *testing.T) {
 	for node != nil {
 		newKeys = append(newKeys, string(copySlice(node.primaryKey)))
 		newVals = append(newVals, string(copySlice(node.value)))
-		if err != nil && err != lsmkv.Deleted {
+		if err != nil && !errors.Is(err, lsmkv.Deleted) {
 			break
 		}
 		node, err = reusable.next()
@@ -443,7 +444,7 @@ func TestSegmentCursorReplaceReusable_MixedTombstonesAndValues(t *testing.T) {
 	var oldLiveKeys []string
 	k, _, err := oldCur.first()
 	for k != nil {
-		if err == lsmkv.Deleted {
+		if errors.Is(err, lsmkv.Deleted) {
 			oldTombstoneKeys = append(oldTombstoneKeys, string(k))
 		} else {
 			oldLiveKeys = append(oldLiveKeys, string(k))
@@ -457,7 +458,7 @@ func TestSegmentCursorReplaceReusable_MixedTombstonesAndValues(t *testing.T) {
 	var newLiveKeys []string
 	node, err := reusable.first()
 	for node != nil {
-		if err == lsmkv.Deleted {
+		if errors.Is(err, lsmkv.Deleted) {
 			newTombstoneKeys = append(newTombstoneKeys, string(node.primaryKey))
 		} else {
 			newLiveKeys = append(newLiveKeys, string(node.primaryKey))
