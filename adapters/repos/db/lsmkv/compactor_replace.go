@@ -227,7 +227,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 	return kis, nil
 }
 
-// 36 + len(key) is the overhead of storing a key in the index:
+// TREE_KEY_STORE_OVERHEAD + len(key) is the overhead of storing a key in the index:
 //   - 4 bytes for the length of the key
 //   - len(key) bytes for the key itself
 //   - 8 bytes for the node start pos (points to matching file offset in the Strategy specific data structure)
@@ -235,9 +235,9 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 //   - 8 bytes for the left offset (offset of the left node)
 //   - 8 bytes for the right offset (offset of the right node)
 func (c *compactorReplace) accumulateIndexSizes(ki segmentindex.Key) {
-	c.primaryIndexSize += int64(36 + len(ki.Key))
+	c.primaryIndexSize += int64(segmentindex.TREE_KEY_STORE_OVERHEAD + len(ki.Key))
 	for pos, sk := range ki.SecondaryKeys {
-		c.secIndexSizes[pos] += int64(36 + len(sk))
+		c.secIndexSizes[pos] += int64(segmentindex.TREE_KEY_STORE_OVERHEAD + len(sk))
 	}
 }
 

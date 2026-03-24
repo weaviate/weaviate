@@ -258,7 +258,7 @@ func (t *Tree) MarshalBinaryInto(w io.Writer) (int64, error) {
 	// create buf just once and reuse for each iteration, each iteration
 	// overwrites every single byte of the buffer, so no initializing or
 	// resetting after a round is required.
-	buf := make([]byte, 36) // 1x uint32 + 4x uint64
+	buf := make([]byte, TREE_KEY_STORE_OVERHEAD) // 1x uint32 + 4x uint64
 
 	for i, node := range t.nodes {
 		if node == nil {
@@ -368,13 +368,13 @@ func MarshalSortedKeys(w io.Writer, keys []KeyRedux) (int64, error) {
 		diskOffsets[i] = currentOffset
 		if si := bfsToSorted[i]; si >= 0 {
 			// node size: keyLen(4) + key + start(8) + end(8) + left(8) + right(8)
-			currentOffset += int64(36 + len(keys[si].Key))
+			currentOffset += int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
 		}
 	}
 	totalSize := currentOffset
 
 	// Write nodes in BFS order (matching MarshalBinaryInto output).
-	buf := make([]byte, 36)
+	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 
 	for i := 0; i < capacity; i++ {
 		si := bfsToSorted[i]
@@ -447,12 +447,12 @@ func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
 	for i := 0; i < capacity; i++ {
 		diskOffsets[i] = currentOffset
 		if si := bfsToSorted[i]; si >= 0 {
-			currentOffset += int64(36 + len(keys[si].Key))
+			currentOffset += int64(TREE_KEY_STORE_OVERHEAD + len(keys[si].Key))
 		}
 	}
 	totalSize := currentOffset
 
-	buf := make([]byte, 36)
+	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 
 	for i := 0; i < capacity; i++ {
 		si := bfsToSorted[i]
@@ -493,11 +493,11 @@ func MarshalSortedKeysFromKeys(w io.Writer, keys []Key) (int64, error) {
 
 // computePrimaryIndexSize returns the serialized BST size for the primary index
 // without allocating any tree structures. Every key occupies exactly one BST
-// node of size 36 + len(key.Key).
+// node of size TREE_KEY_STORE_OVERHEAD + len(key.Key).
 func computePrimaryIndexSize(keys []Key) int64 {
 	var size int64
 	for _, key := range keys {
-		size += int64(36 + len(key.Key))
+		size += int64(TREE_KEY_STORE_OVERHEAD + len(key.Key))
 	}
 	return size
 }
@@ -510,7 +510,7 @@ func computeSecondaryIndexSize(keys []Key, pos int) int64 {
 		if pos >= len(key.SecondaryKeys) {
 			continue
 		}
-		size += int64(36 + len(key.SecondaryKeys[pos]))
+		size += int64(TREE_KEY_STORE_OVERHEAD + len(key.SecondaryKeys[pos]))
 	}
 	return size
 }
@@ -553,13 +553,13 @@ func marshalSortedSecondaryFromKeys(w io.Writer, keys []Key, pos int) (int64, er
 		diskOffsets[i] = currentOffset
 		if si := bfsToIdx[i]; si >= 0 {
 			ki := sortedIndices[si]
-			currentOffset += int64(36 + len(keys[ki].SecondaryKeys[pos]))
+			currentOffset += int64(TREE_KEY_STORE_OVERHEAD + len(keys[ki].SecondaryKeys[pos]))
 		}
 	}
 	totalSize := currentOffset
 
 	// Write nodes in BFS order (matching MarshalBinaryInto output).
-	buf := make([]byte, 36)
+	buf := make([]byte, TREE_KEY_STORE_OVERHEAD)
 	for i := 0; i < capacity; i++ {
 		si := bfsToIdx[i]
 		if si < 0 {
