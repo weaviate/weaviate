@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 func (s *Shard) extendNestedInvertedIndicesLSM(nestedProps []inverted.NestedProperty, docID uint64) error {
@@ -43,15 +44,18 @@ func (s *Shard) extendNestedFilterableIndex(np inverted.NestedProperty, docID ui
 		return fmt.Errorf("nested prop %q: no filterable value bucket found", np.Name)
 	}
 
+	entries := make([]lsmkv.RoaringSetBatchEntry, 0, len(np.Values))
 	for _, v := range np.Values {
 		if !v.HasFilterableIndex {
 			continue
 		}
-		key := nested.ValueKey(v.Path, v.Data)
-		positions := nested.OrDocID(v.Positions, docID)
-		if err := bucket.RoaringSetAddList(key, positions); err != nil {
-			return fmt.Errorf("nested prop %q path %q: add filterable value: %w", np.Name, v.Path, err)
-		}
+		entries = append(entries, lsmkv.RoaringSetBatchEntry{
+			Key:    nested.ValueKey(v.Path, v.Data),
+			Values: nested.OrDocID(v.Positions, docID),
+		})
+	}
+	if err := bucket.RoaringSetAddBatch(entries); err != nil {
+		return fmt.Errorf("nested prop %q: add filterable values: %w", np.Name, err)
 	}
 	return nil
 }
@@ -66,20 +70,21 @@ func (s *Shard) extendNestedMetaIndex(np inverted.NestedProperty, docID uint64) 
 		return fmt.Errorf("nested prop %q: no meta bucket found", np.Name)
 	}
 
+	entries := make([]lsmkv.RoaringSetBatchEntry, 0, len(np.Idx)+len(np.Exists))
 	for _, idx := range np.Idx {
-		key := nested.IdxKey(idx.Path, idx.Index)
-		positions := nested.OrDocID(idx.Positions, docID)
-		if err := bucket.RoaringSetAddList(key, positions); err != nil {
-			return fmt.Errorf("nested prop %q: add _idx %q[%d]: %w", np.Name, idx.Path, idx.Index, err)
-		}
+		entries = append(entries, lsmkv.RoaringSetBatchEntry{
+			Key:    nested.IdxKey(idx.Path, idx.Index),
+			Values: nested.OrDocID(idx.Positions, docID),
+		})
 	}
-
 	for _, exists := range np.Exists {
-		key := nested.ExistsKey(exists.Path)
-		positions := nested.OrDocID(exists.Positions, docID)
-		if err := bucket.RoaringSetAddList(key, positions); err != nil {
-			return fmt.Errorf("nested prop %q: add _exists %q: %w", np.Name, exists.Path, err)
-		}
+		entries = append(entries, lsmkv.RoaringSetBatchEntry{
+			Key:    nested.ExistsKey(exists.Path),
+			Values: nested.OrDocID(exists.Positions, docID),
+		})
+	}
+	if err := bucket.RoaringSetAddBatch(entries); err != nil {
+		return fmt.Errorf("nested prop %q: add meta entries: %w", np.Name, err)
 	}
 	return nil
 }
