@@ -920,7 +920,6 @@ func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
 			opts := []func(*Index){
 				func(i *Index) {
 					i.vectorIndexUserConfig = tt.config
-					i.Config.DisableLazyLoadShards = true
 					tombstoneCycle = i.cycleCallbacks.vectorTombstoneCleanupCycle
 				},
 			}
