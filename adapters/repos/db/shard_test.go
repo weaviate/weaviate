@@ -856,8 +856,6 @@ func TestShard_UpgradeIndex(t *testing.T) {
 }
 
 func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
-	t.Setenv("ASYNC_INDEXING", "true")
-
 	ctx := context.Background()
 	className := "TombstoneClass"
 
@@ -887,6 +885,7 @@ func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var tombstoneCycle cyclemanager.CycleManager
 
+			asyncIndexingEnabled := true
 			opts := []func(*Index){
 				func(i *Index) {
 					i.vectorIndexUserConfig = tt.config
@@ -894,8 +893,7 @@ func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
 					tombstoneCycle = i.cycleCallbacks.vectorTombstoneCleanupCycle
 				},
 			}
-
-			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, true, false, opts...)
+			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, true, asyncIndexingEnabled, opts...)
 
 			defer func(path string) {
 				err := os.RemoveAll(path)
