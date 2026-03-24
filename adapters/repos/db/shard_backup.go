@@ -75,19 +75,12 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 
-	// pause indexing
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Pause()
+	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
+	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
+		if err = q.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
+		}
 		return nil
-	})
-	// wait for ongoing indexing to finish
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Wait()
-		return nil
-	})
-	// flush all the queue
-	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		return q.Flush()
 	})
 	if err != nil {
 		return fmt.Errorf("flush vector index queues: %w", err)
@@ -205,11 +198,18 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	}
 
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		// set the queue to maintenance mode, so that listed files are not deleted
+		// after they are processed, while the backup is still ongoing.
+		queue.EnableMaintenanceMode()
+
 		filesVq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
 		files = append(files, filesVq...)
+
+		// tasks can now safely be dequeued
+		queue.Resume()
 		return nil
 	})
 	if err != nil {
