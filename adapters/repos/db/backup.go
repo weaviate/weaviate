@@ -448,7 +448,7 @@ func (i *Index) marshalSchema() ([]byte, error) {
 // local data directories that were not already captured by ForEachShard (which only
 // visits ACTIVE shards). For each such shard, it builds a ShardDescriptor from the
 // filesystem and appends it to desc.Shards. If stagingRoot is non-empty, files are
-// hardlinked into the staging directory (hardlink backup path).
+// hard-linked into the staging directory (hardlink backup path).
 func (i *Index) appendInactiveShardDescriptors(ctx context.Context, desc *backup.ClassDescriptor,
 	classBaseDescrs []*backup.ClassDescriptor, activeShards map[string]struct{}, stagingRoot string,
 ) error {
