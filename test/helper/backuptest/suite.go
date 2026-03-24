@@ -360,6 +360,58 @@ func (s *BackupTestSuite) CreateTestTenants(t *testing.T) {
 	helper.CreateTenants(t, s.config.ClassName, tenants)
 }
 
+// GetInactiveTenants returns the list of tenants that should be deactivated for testing.
+func (s *BackupTestSuite) GetInactiveTenants(t *testing.T) []string {
+	t.Helper()
+	if !s.config.MultiTenant {
+		return nil
+	}
+	tenants := s.dataGen.GenerateTenants()
+	return tenants[:10] // Return first 10 tenants as inactive
+}
+
+// GetActiveTenants returns the list of active tenants (those not deactivated) for multi-tenant tests.
+func (s *BackupTestSuite) GetActiveTenants(t *testing.T) []string {
+	t.Helper()
+	if !s.config.MultiTenant {
+		return nil
+	}
+	tenants := s.dataGen.GenerateTenants()
+	return tenants[10:] // Return tenants after the first 10 as active
+}
+
+// DeactivateTestTenants deactivates tenants to test backup/restore with inactive tenants.
+func (s *BackupTestSuite) DeactivateTestTenants(t *testing.T) {
+	t.Helper()
+	if !s.config.MultiTenant {
+		return
+	}
+	inactive := s.GetInactiveTenants(t)
+	toDeactivate := make([]*models.Tenant, 0, len(inactive))
+	for _, tenant := range inactive {
+		toDeactivate = append(toDeactivate, &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusINACTIVE})
+	}
+	helper.UpdateTenants(t, s.config.ClassName, toDeactivate)
+}
+
+// VerifyTenantActivitiesRestored checks that tenant activity statuses are correctly restored after backup/restore.
+func (s *BackupTestSuite) VerifyTenantActivitiesRestored(t *testing.T) {
+	for _, tenant := range s.GetActiveTenants(t) {
+		res, err := helper.GetOneTenant(t, s.config.ClassName, tenant)
+		require.NoError(t, err, "should get tenant %s without error", tenant)
+		// API still returns HOT for BC
+		require.Equal(t, models.TenantActivityStatusHOT, res.GetPayload().ActivityStatus,
+			"tenant %s should be HOT after restore, got %s", tenant, res.GetPayload().ActivityStatus)
+	}
+	for _, tenant := range s.GetInactiveTenants(t) {
+		res, err := helper.GetOneTenant(t, s.config.ClassName, tenant)
+		require.NoError(t, err, "should get tenant %s without error", tenant)
+		// API still returns COLD for BC
+		require.Equal(t, models.TenantActivityStatusCOLD, res.GetPayload().ActivityStatus,
+			"tenant %s should be COLD after restore, got %s", tenant, res.GetPayload().ActivityStatus)
+	}
+}
+
 // CreateTestObjects creates test objects and stores their IDs.
 func (s *BackupTestSuite) CreateTestObjects(t *testing.T) {
 	t.Helper()
@@ -388,12 +440,21 @@ func (s *BackupTestSuite) VerifyObjectsExist(t *testing.T) {
 	if s.config.MultiTenant {
 		// For multi-tenant, check count per tenant
 		tenants := s.dataGen.GenerateTenants()
+
+		toActivate := make([]*models.Tenant, 0, len(tenants))
+		for _, tenant := range tenants {
+			toActivate = append(toActivate, &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusACTIVE})
+		}
+		helper.UpdateTenants(t, s.config.ClassName, toActivate)
+
 		expectedPerTenant := int64(s.config.ObjectsPerTenant)
 		for _, tenant := range tenants {
 			count := moduleshelper.GetClassCount(t, s.config.ClassName, tenant)
 			require.Equal(t, expectedPerTenant, count,
 				"tenant %s should have %d objects, got %d", tenant, expectedPerTenant, count)
 		}
+
+		s.DeactivateTestTenants(t)
 	} else {
 		// For single-tenant, check total count
 		count := moduleshelper.GetClassCount(t, s.config.ClassName, "")
@@ -715,6 +776,12 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	t.Run("restore backup", func(t *testing.T) {
 		s.RestoreBackup(t, backupID)
 	})
+
+	if s.config.MultiTenant {
+		t.Run("verify tenant activities restored", func(t *testing.T) {
+			s.VerifyTenantActivitiesRestored(t)
+		})
+	}
 
 	t.Run("verify objects restored", func(t *testing.T) {
 		s.VerifyObjectsExist(t)

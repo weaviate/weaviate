@@ -241,7 +241,9 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	desc.StagingDir = stagingRoot
 
+	activeShards := make(map[string]struct{})
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
+		activeShards[name] = struct{}{}
 		shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 		i.backupLock.Lock(name)
@@ -263,6 +265,10 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		return err
 	}
 
+	if err = i.appendInactiveShardDescriptors(ctx, desc, classBaseDescrs, activeShards, stagingRoot); err != nil {
+		return fmt.Errorf("backup inactive shards: %w", err)
+	}
+
 	return i.marshalBackupMetadata(desc)
 }
 
@@ -276,7 +282,9 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}()
 
+	activeShards := make(map[string]struct{})
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
+		activeShards[name] = struct{}{}
 		shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 		i.backupLock.Lock(name)
@@ -300,6 +308,10 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		return nil
 	}); err != nil {
 		return err
+	}
+
+	if err = i.appendInactiveShardDescriptors(ctx, desc, classBaseDescrs, activeShards, ""); err != nil {
+		return fmt.Errorf("backup inactive shards: %w", err)
 	}
 
 	return i.marshalBackupMetadata(desc)
@@ -430,6 +442,238 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	}
 
 	return b, err
+}
+
+// appendInactiveShardDescriptors iterates the sharding state to find INACTIVE tenants with
+// local data directories that were not already captured by ForEachShard (which only
+// visits ACTIVE shards). For each such shard, it builds a ShardDescriptor from the
+// filesystem and appends it to desc.Shards. If stagingRoot is non-empty, files are
+// hardlinked into the staging directory (hardlink backup path).
+func (i *Index) appendInactiveShardDescriptors(ctx context.Context, desc *backup.ClassDescriptor,
+	classBaseDescrs []*backup.ClassDescriptor, activeShards map[string]struct{}, stagingRoot string,
+) error {
+	nodeName := i.getSchema.NodeName()
+
+	return i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return nil
+		}
+		for shardName, phys := range state.Physical {
+			if _, ok := activeShards[shardName]; ok {
+				continue // already captured as ACTIVE
+			}
+			if !phys.IsLocalShard(nodeName) {
+				continue
+			}
+			if phys.Status != models.TenantActivityStatusCOLD &&
+				phys.Status != models.TenantActivityStatusINACTIVE {
+				continue // only back up COLD/INACTIVE tenants with local data
+			}
+
+			shardDir := shardPath(i.path(), shardName)
+			if _, err := os.Stat(shardDir); err != nil {
+				if os.IsNotExist(err) {
+					continue // no directory on disk, nothing to back up
+				}
+				return fmt.Errorf("stat shard dir: %w", err)
+			}
+
+			var sd backup.ShardDescriptor
+			var files []string
+			if err := func() error {
+				i.backupLock.Lock(shardName)
+				defer i.backupLock.Unlock(shardName)
+
+				var err error
+				files, err = i.listInactiveShardFiles(shardName, &sd)
+				if err != nil {
+					return fmt.Errorf("list inactive shard %s files: %w", shardName, err)
+				}
+
+				if stagingRoot != "" {
+					for _, relPath := range files {
+						src := filepath.Join(i.Config.RootPath, relPath)
+						dst := filepath.Join(stagingRoot, relPath)
+						if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+							return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", shardName, relPath, err)
+						}
+						if err := os.Link(src, dst); err != nil {
+							return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", shardName, relPath, err)
+						}
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+
+			shardBaseDescr := i.collectShardBaseDescrs(shardName, classBaseDescrs)
+			basePath := i.Config.RootPath
+			if stagingRoot != "" {
+				basePath = stagingRoot
+			}
+			if err := sd.FillFileInfo(files, shardBaseDescr, basePath); err != nil {
+				return fmt.Errorf("gather inactive shard %s file info: %w", shardName, err)
+			}
+
+			desc.Shards = append(desc.Shards, &sd)
+		}
+		return nil
+	})
+}
+
+// listInactiveShardFiles reads an INACTIVE (unloaded) shard's data directly from the
+// filesystem and populates sd with metadata. Returns file paths relative to
+// i.Config.RootPath. INACTIVE shards are fully quiesced (Shutdown flushes and
+// closes the LSM store), so files are stable and safe to read without locking
+// the store.
+func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescriptor) ([]string, error) {
+	shardDir := shardPath(i.path(), shardName)
+	rootPath := i.Config.RootPath
+
+	sd.Name = shardName
+	sd.Node = i.getSchema.NodeName()
+
+	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
+	counterPath := filepath.Join(shardDir, "indexcount")
+	data, err := os.ReadFile(counterPath)
+	if err != nil {
+		return nil, fmt.Errorf("read counter: %w", err)
+	}
+	sd.DocIDCounter = data
+	if sd.DocIDCounterPath, err = filepath.Rel(rootPath, counterPath); err != nil {
+		return nil, fmt.Errorf("counter rel path: %w", err)
+	}
+
+	plPath := filepath.Join(shardDir, "proplengths")
+	data, err = os.ReadFile(plPath)
+	if err != nil {
+		return nil, fmt.Errorf("read proplengths: %w", err)
+	}
+	sd.PropLengthTracker = data
+	if sd.PropLengthTrackerPath, err = filepath.Rel(rootPath, plPath); err != nil {
+		return nil, fmt.Errorf("proplengths rel path: %w", err)
+	}
+
+	versionPath := filepath.Join(shardDir, "version")
+	data, err = os.ReadFile(versionPath)
+	if err != nil {
+		return nil, fmt.Errorf("read version: %w", err)
+	}
+	sd.Version = data
+	if sd.ShardVersionPath, err = filepath.Rel(rootPath, versionPath); err != nil {
+		return nil, fmt.Errorf("version rel path: %w", err)
+	}
+
+	var files []string
+
+	// List LSM store files. Unlike the ACTIVE path (Bucket.listFiles), we include
+	// .wal files because Bucket.Shutdown may use flushWAL() instead of flush()
+	// for small memtables (shouldReuseWAL), making the WAL the only data copy.
+	lsmDir := filepath.Join(shardDir, "lsm")
+	lsmFiles, err := listInactiveLSMFiles(lsmDir, rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("list lsm files: %w", err)
+	}
+	files = append(files, lsmFiles...)
+
+	// List vector index files (all non-lsm subdirectories of the shard).
+	entries, err := os.ReadDir(shardDir)
+	if err != nil {
+		return nil, fmt.Errorf("read shard dir: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == "lsm" {
+			continue
+		}
+		vectorDir := filepath.Join(shardDir, entry.Name())
+		if err := filepath.WalkDir(vectorDir, func(fpath string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if filepath.Ext(d.Name()) == ".tmp" {
+				return nil
+			}
+			relPath, relErr := filepath.Rel(rootPath, fpath)
+			if relErr != nil {
+				return relErr
+			}
+			files = append(files, relPath)
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("list vector index %s files: %w", entry.Name(), err)
+		}
+	}
+
+	return files, nil
+}
+
+// listInactiveLSMFiles walks the LSM directory of an INACTIVE shard, collecting all
+// stable files. Unlike the ACTIVE path, .wal files are included because an INACTIVE
+// shard's Bucket.Shutdown may have used flushWAL rather than flush, leaving
+// data only in the WAL.
+func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
+	entries, err := os.ReadDir(lsmDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var files []string
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(lsmDir, entry.Name())
+
+		if entry.Name() == ".migrations" {
+			// Walk migrations recursively, same as Store.listMigrationFiles.
+			if err := filepath.WalkDir(entryPath, func(fpath string, d os.DirEntry, err error) error {
+				if err != nil || d == nil || d.IsDir() {
+					return nil
+				}
+				relPath, relErr := filepath.Rel(rootPath, fpath)
+				if relErr != nil {
+					return relErr
+				}
+				files = append(files, relPath)
+				return nil
+			}); err != nil {
+				return nil, fmt.Errorf("list migration files: %w", err)
+			}
+			continue
+		}
+
+		if !entry.IsDir() {
+			continue
+		}
+
+		// Bucket directory: list root-level files, skip subdirectories (scratch spaces).
+		bucketEntries, err := os.ReadDir(entryPath)
+		if err != nil {
+			return nil, fmt.Errorf("read bucket dir %s: %w", entry.Name(), err)
+		}
+
+		basePath, err := filepath.Rel(rootPath, entryPath)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, be := range bucketEntries {
+			if be.IsDir() {
+				continue
+			}
+			if filepath.Ext(be.Name()) == ".tmp" {
+				continue
+			}
+			files = append(files, filepath.Join(basePath, be.Name()))
+		}
+	}
+
+	return files, nil
 }
 
 func (i *Index) marshalAliases() ([]byte, error) {
