@@ -64,8 +64,17 @@ func applyHighlighting(objs []*storobj.Object, queryTerms []string, searchedProp
 	if len(queryTerms) == 0 || len(searchedProperties) == 0 {
 		return
 	}
+	lowerTerms := normalizeLowerTerms(queryTerms)
+	if len(lowerTerms) == 0 {
+		return
+	}
+	for _, obj := range objs {
+		highlightObject(obj, lowerTerms, searchedProperties)
+	}
+}
 
-	// Lowercase and deduplicate terms in a single pass.
+// normalizeLowerTerms lowercases and deduplicates query terms in a single pass.
+func normalizeLowerTerms(queryTerms []string) []string {
 	seen := make(map[string]struct{}, len(queryTerms))
 	lowerTerms := make([]string, 0, len(queryTerms))
 	for _, t := range queryTerms {
@@ -79,52 +88,45 @@ func applyHighlighting(objs []*storobj.Object, queryTerms []string, searchedProp
 		seen[lt] = struct{}{}
 		lowerTerms = append(lowerTerms, lt)
 	}
-	if len(lowerTerms) == 0 {
+	return lowerTerms
+}
+
+// highlightObject computes highlights for a single object and attaches them to its additional properties.
+func highlightObject(obj *storobj.Object, lowerTerms []string, searchedProperties []string) {
+	if obj == nil {
 		return
 	}
+	propsMap, ok := obj.Properties().(map[string]interface{})
+	if !ok {
+		return
+	}
+	highlights := buildPropertyHighlights(propsMap, lowerTerms, searchedProperties)
+	if len(highlights) == 0 {
+		return
+	}
+	if obj.Object.Additional == nil {
+		obj.Object.Additional = make(map[string]interface{})
+	}
+	obj.Object.Additional["highlight"] = highlights
+}
 
-	for _, obj := range objs {
-		if obj == nil {
-			continue
-		}
-
-		props := obj.Properties()
-		if props == nil {
-			continue
-		}
-		propsMap, ok := props.(map[string]interface{})
+// buildPropertyHighlights returns highlight entries for each searched property that has matches.
+func buildPropertyHighlights(propsMap map[string]interface{}, lowerTerms []string, searchedProperties []string) []interface{} {
+	highlights := make([]interface{}, 0, len(searchedProperties))
+	for _, propName := range searchedProperties {
+		text, ok := propsMap[propName].(string)
 		if !ok {
 			continue
 		}
-
-		highlights := make([]interface{}, 0, len(searchedProperties))
-		for _, propName := range searchedProperties {
-			val, exists := propsMap[propName]
-			if !exists {
-				continue
-			}
-
-			text, ok := val.(string)
-			if !ok {
-				continue
-			}
-
-			fragments := buildHighlightFragments(text, lowerTerms, highlightMaxFrags, highlightFragSize)
-			if len(fragments) > 0 {
-				highlights = append(highlights, map[string]interface{}{
-					"property":  propName,
-					"fragments": fragments,
-				})
-			}
-		}
-
-		if len(highlights) > 0 {
-			if obj.Object.Additional == nil {
-				obj.Object.Additional = make(map[string]interface{})
-			}
-			obj.Object.Additional["highlight"] = highlights
+		fragments := buildHighlightFragments(text, lowerTerms, highlightMaxFrags, highlightFragSize)
+		if len(fragments) > 0 {
+			highlights = append(highlights, map[string]interface{}{
+				"property":  propName,
+				"fragments": fragments,
+			})
 		}
 	}
+	return highlights
 }
 
 // buildHighlightFragments extracts text snippets around query term matches.
