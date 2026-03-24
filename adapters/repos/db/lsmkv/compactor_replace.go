@@ -286,6 +286,6 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 		PrecomputedPrimaryIndexSize:    c.primaryIndexSize,
 		PrecomputedSecondaryIndexSizes: c.secIndexSizes,
 	}
-	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }

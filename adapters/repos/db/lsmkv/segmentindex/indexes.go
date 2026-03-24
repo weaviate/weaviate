@@ -35,7 +35,7 @@ type Indexes struct {
 	PrecomputedSecondaryIndexSizes []int64
 }
 
-func (s *Indexes) WriteTo(w io.Writer, expectedSize uint64) (int64, error) {
+func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if s.SecondaryIndexCount == 0 {
 		// No secondary indices: write the primary index directly.
 		return s.buildAndMarshalPrimary(w, s.Keys)

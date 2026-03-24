@@ -250,7 +250,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		}),
 	}
 
-	if _, err := f.WriteIndexes(indexes, int64(m.size)); err != nil {
+	if _, err := f.WriteIndexes(indexes); err != nil {
 		return nil, nil, err
 	}
 

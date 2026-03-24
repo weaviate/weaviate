@@ -420,7 +420,7 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 		AllocChecker: c.allocChecker,
 	}
 
-	_, err := indices.WriteTo(c.segmentFile.BodyWriter(), uint64(c.maxNewFileSize))
+	_, err := indices.WriteTo(c.segmentFile.BodyWriter())
 	return err
 }
 

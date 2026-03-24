@@ -164,7 +164,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 			AllocChecker: m.allocChecker,
 		}
 
-		if _, err := segmentFile.WriteIndexes(indexes, int64(m.size)); err != nil {
+		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
 			return "", err
 		}
 	}

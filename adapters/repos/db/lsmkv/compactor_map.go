@@ -282,7 +282,7 @@ func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
 		}),
 		AllocChecker: c.allocChecker,
 	}
-	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }
 
