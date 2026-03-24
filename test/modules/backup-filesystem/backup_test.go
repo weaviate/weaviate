@@ -52,6 +52,20 @@ func TestFilesystemBackup_MultiTenant(t *testing.T) {
 	backuptest.RunFilesystemBackupTests(t, compose, backuptest.MultiTenantTestCase())
 }
 
+// TestFilesystemBackup_MultiTenant_WithMidBackupActivations tests filesystem backup/restore with multi-tenant class and tenant activations during backup.
+func TestFilesystemBackup_MultiTenant_WithMidBackupActivations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunFilesystemBackupTests(t, compose, backuptest.MultiTenantTestCaseWithMidBackupActivations())
+}
+
 // =============================================================================
 // PQ (Product Quantization) Compression Tests
 // =============================================================================

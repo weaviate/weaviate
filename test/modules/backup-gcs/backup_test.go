@@ -51,6 +51,20 @@ func TestGCSBackup_MultiTenant(t *testing.T) {
 	backuptest.RunGCSBackupTests(t, compose, backuptest.MultiTenantTestCase())
 }
 
+// TestGCSBackup_MultiTenant_WithMidBackupActivations tests GCS backup/restore with multi-tenant class and tenant activations during backup.
+func TestGCSBackup_MultiTenant_WithMidBackupActivations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunGCSBackupTests(t, compose, backuptest.MultiTenantTestCaseWithMidBackupActivations())
+}
+
 // =============================================================================
 // PQ (Product Quantization) Compression Tests
 // =============================================================================

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -51,6 +52,13 @@ const (
 	CompressionRQ CompressionType = "rq"
 )
 
+type BackupTestSuiteMultiTenancyConfig struct {
+	Enabled                  bool
+	NumTenants               int
+	ObjectsPerTenant         int
+	WithMidBackupActivations bool
+}
+
 // BackupTestSuiteConfig configures the backup test suite.
 type BackupTestSuiteConfig struct {
 	// BackendType is the backup backend type: "s3", "gcs", "azure", or "filesystem"
@@ -68,14 +76,8 @@ type BackupTestSuiteConfig struct {
 	// BackupID is the base backup ID
 	BackupID string
 
-	// MultiTenant enables multi-tenant testing
-	MultiTenant bool
-
-	// NumTenants is the number of tenants for multi-tenant tests
-	NumTenants int
-
-	// ObjectsPerTenant is the number of objects to create per tenant (or total if not multi-tenant)
-	ObjectsPerTenant int
+	// MultiTenant configures multi-tenant testing
+	MultiTenant BackupTestSuiteMultiTenancyConfig
 
 	// ClusterSize is the number of Weaviate nodes (1 for single-node, 3 for cluster)
 	ClusterSize int
@@ -113,19 +115,22 @@ type BackupTestSuiteConfig struct {
 // By default, WithVectorizer is enabled to use text2vec-contextionary for consistency.
 func DefaultSuiteConfig() *BackupTestSuiteConfig {
 	return &BackupTestSuiteConfig{
-		BackendType:      "s3",
-		BucketName:       "backups",
-		Region:           "us-east-1",
-		ClassName:        "BackupTestClass",
-		BackupID:         "backup-test",
-		MultiTenant:      false,
-		NumTenants:       3,
-		ObjectsPerTenant: 10,
-		ClusterSize:      1,
-		WithVectorizer:   true, // Always use text2vec-contextionary for consistency
-		TestTimeout:      5 * time.Minute,
-		BackupTimeout:    2 * time.Minute,
-		RestoreTimeout:   2 * time.Minute,
+		BackendType: "s3",
+		BucketName:  "backups",
+		Region:      "us-east-1",
+		ClassName:   "BackupTestClass",
+		BackupID:    "backup-test",
+		MultiTenant: BackupTestSuiteMultiTenancyConfig{
+			Enabled:                  false,
+			NumTenants:               3,
+			ObjectsPerTenant:         10,
+			WithMidBackupActivations: false,
+		},
+		ClusterSize:    1,
+		WithVectorizer: true, // Always use text2vec-contextionary for consistency
+		TestTimeout:    5 * time.Minute,
+		BackupTimeout:  2 * time.Minute,
+		RestoreTimeout: 2 * time.Minute,
 	}
 }
 
@@ -162,11 +167,11 @@ func NewBackupTestSuite(config *BackupTestSuiteConfig) *BackupTestSuite {
 		if config.BackupID == "" {
 			config.BackupID = defaults.BackupID
 		}
-		if config.NumTenants == 0 {
-			config.NumTenants = defaults.NumTenants
+		if config.MultiTenant.NumTenants == 0 {
+			config.MultiTenant.NumTenants = defaults.MultiTenant.NumTenants
 		}
-		if config.ObjectsPerTenant == 0 {
-			config.ObjectsPerTenant = defaults.ObjectsPerTenant
+		if config.MultiTenant.ObjectsPerTenant == 0 {
+			config.MultiTenant.ObjectsPerTenant = defaults.MultiTenant.ObjectsPerTenant
 		}
 		if config.ClusterSize == 0 {
 			config.ClusterSize = defaults.ClusterSize
@@ -190,9 +195,9 @@ func NewBackupTestSuite(config *BackupTestSuiteConfig) *BackupTestSuite {
 
 	dataGen := NewTestDataGenerator(&TestDataConfig{
 		ClassName:        config.ClassName,
-		MultiTenant:      config.MultiTenant,
-		NumTenants:       config.NumTenants,
-		ObjectsPerTenant: config.ObjectsPerTenant,
+		MultiTenant:      config.MultiTenant.Enabled,
+		NumTenants:       config.MultiTenant.NumTenants,
+		ObjectsPerTenant: config.MultiTenant.ObjectsPerTenant,
 		UseVectorizer:    vectorizer,
 	})
 
@@ -352,7 +357,7 @@ func (s *BackupTestSuite) DeleteTestClass(t *testing.T) {
 // CreateTestTenants creates tenants for multi-tenant tests.
 func (s *BackupTestSuite) CreateTestTenants(t *testing.T) {
 	t.Helper()
-	if !s.config.MultiTenant {
+	if !s.config.MultiTenant.Enabled {
 		return
 	}
 
@@ -363,7 +368,7 @@ func (s *BackupTestSuite) CreateTestTenants(t *testing.T) {
 // GetInactiveTenants returns the list of tenants that should be deactivated for testing.
 func (s *BackupTestSuite) GetInactiveTenants(t *testing.T) []string {
 	t.Helper()
-	if !s.config.MultiTenant {
+	if !s.config.MultiTenant.Enabled {
 		return nil
 	}
 	tenants := s.dataGen.GenerateTenants()
@@ -373,7 +378,7 @@ func (s *BackupTestSuite) GetInactiveTenants(t *testing.T) []string {
 // GetActiveTenants returns the list of active tenants (those not deactivated) for multi-tenant tests.
 func (s *BackupTestSuite) GetActiveTenants(t *testing.T) []string {
 	t.Helper()
-	if !s.config.MultiTenant {
+	if !s.config.MultiTenant.Enabled {
 		return nil
 	}
 	tenants := s.dataGen.GenerateTenants()
@@ -383,7 +388,7 @@ func (s *BackupTestSuite) GetActiveTenants(t *testing.T) []string {
 // DeactivateTestTenants deactivates tenants to test backup/restore with inactive tenants.
 func (s *BackupTestSuite) DeactivateTestTenants(t *testing.T) {
 	t.Helper()
-	if !s.config.MultiTenant {
+	if !s.config.MultiTenant.Enabled {
 		return
 	}
 	inactive := s.GetInactiveTenants(t)
@@ -392,6 +397,40 @@ func (s *BackupTestSuite) DeactivateTestTenants(t *testing.T) {
 		toDeactivate = append(toDeactivate, &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusINACTIVE})
 	}
 	helper.UpdateTenants(t, s.config.ClassName, toDeactivate)
+}
+
+// DeactivateSomeTestTenants deactivates random tenants in the middle of backup to test activity status handling.
+func (s *BackupTestSuite) DeactivateSomeTestTenants(t *testing.T) {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return
+	}
+	tenants := s.GetActiveTenants(t)
+	rand.Shuffle(len(tenants), func(i, j int) { tenants[i], tenants[j] = tenants[j], tenants[i] })
+	// Randomly select half of the active tenants to deactivate
+	numToDeactivate := len(tenants) / 2
+	toDeactivate := make([]*models.Tenant, 0, numToDeactivate)
+	for i := 0; i < numToDeactivate; i++ {
+		toDeactivate = append(toDeactivate, &models.Tenant{Name: tenants[i], ActivityStatus: models.TenantActivityStatusINACTIVE})
+	}
+	helper.UpdateTenants(t, s.config.ClassName, toDeactivate)
+}
+
+// ActivateSomeTestTenants activates random tenants in the middle of backup to test activity status handling.
+func (s *BackupTestSuite) ActivateSomeTestTenants(t *testing.T) {
+	t.Helper()
+	if !s.config.MultiTenant.Enabled {
+		return
+	}
+	tenants := s.GetInactiveTenants(t)
+	rand.Shuffle(len(tenants), func(i, j int) { tenants[i], tenants[j] = tenants[j], tenants[i] })
+	// Randomly select half of the inactive tenants to activate
+	numToActivate := len(tenants) / 2
+	toActivate := make([]*models.Tenant, 0, numToActivate)
+	for i := 0; i < numToActivate; i++ {
+		toActivate = append(toActivate, &models.Tenant{Name: tenants[i], ActivityStatus: models.TenantActivityStatusACTIVE})
+	}
+	helper.UpdateTenants(t, s.config.ClassName, toActivate)
 }
 
 // VerifyTenantActivitiesRestored checks that tenant activity statuses are correctly restored after backup/restore.
@@ -437,18 +476,16 @@ func (s *BackupTestSuite) VerifyObjectsExist(t *testing.T) {
 
 	expectedCount := int64(len(s.objectIDs))
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled {
 		// For multi-tenant, check count per tenant
 		tenants := s.dataGen.GenerateTenants()
 
-		expectedPerTenant := int64(s.config.ObjectsPerTenant)
+		expectedPerTenant := int64(s.config.MultiTenant.ObjectsPerTenant)
 		for _, tenant := range tenants {
 			count := moduleshelper.GetClassCount(t, s.config.ClassName, tenant)
 			require.Equal(t, expectedPerTenant, count,
 				"tenant %s should have %d objects, got %d", tenant, expectedPerTenant, count)
 		}
-
-		s.DeactivateTestTenants(t)
 	} else {
 		// For single-tenant, check total count
 		count := moduleshelper.GetClassCount(t, s.config.ClassName, "")
@@ -541,6 +578,12 @@ func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID stri
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
 	assert.Equal(t, backupID, resp.Payload.ID)
+
+	if s.config.MultiTenant.Enabled && s.config.MultiTenant.WithMidBackupActivations {
+		// Activate/deactivate tenants in the middle of backup to test activity status handling
+		s.DeactivateSomeTestTenants(t)
+		s.ActivateSomeTestTenants(t)
+	}
 
 	// Wait for backup to complete
 	helper.ExpectBackupEventuallyCreated(t, backupID, s.config.BackendType, nil,
@@ -725,7 +768,7 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.CreateTestClass(t)
 	})
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled {
 		t.Run("create tenants", func(t *testing.T) {
 			s.CreateTestTenants(t)
 		})
@@ -754,6 +797,12 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.VerifyObjectsExist(t)
 	})
 
+	if s.config.MultiTenant.Enabled {
+		t.Run("deactivate some tenants", func(t *testing.T) {
+			s.DeactivateTestTenants(t)
+		})
+	}
+
 	t.Run("create backup", func(t *testing.T) {
 		s.CreateBackup(t, backupID, "")
 	})
@@ -771,7 +820,7 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 		s.RestoreBackup(t, backupID)
 	})
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled && !s.config.MultiTenant.WithMidBackupActivations {
 		t.Run("verify tenant activities restored", func(t *testing.T) {
 			s.VerifyTenantActivitiesRestored(t)
 		})
@@ -801,7 +850,7 @@ func (s *BackupTestSuite) RunCancellationTest(t *testing.T) {
 		s.CreateTestClass(t)
 	})
 
-	if s.config.MultiTenant {
+	if s.config.MultiTenant.Enabled {
 		t.Run("create tenants", func(t *testing.T) {
 			s.CreateTestTenants(t)
 		})
@@ -987,6 +1036,9 @@ type BackupTestCase struct {
 	// ObjectsPerTenant overrides the default objects per tenant (default: 10)
 	ObjectsPerTenant int
 
+	// WithMidBackupActivations specifies whether to activate/deactivate tenants in the middle of backup to test activity status handling
+	WithMidBackupActivations bool
+
 	// WithCompression specifies the compression algorithm to enable (CompressionPQ or CompressionRQ)
 	WithCompression CompressionType
 
@@ -1023,6 +1075,17 @@ func MultiTenantTestCase() BackupTestCase {
 		MultiTenant:      true,
 		NumTenants:       50,
 		ObjectsPerTenant: 10,
+	}
+}
+
+// MultiTenantTestCaseWithMidBackupActivations returns a test case for multi-tenant backup testing with tenant activations/deactivations in the middle of backup.
+func MultiTenantTestCaseWithMidBackupActivations() BackupTestCase {
+	return BackupTestCase{
+		Name:                     "multi_tenant_mid_backup_activations",
+		MultiTenant:              true,
+		NumTenants:               50,
+		ObjectsPerTenant:         10,
+		WithMidBackupActivations: true,
 	}
 }
 
@@ -1133,14 +1196,16 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 	}
 
 	return &BackupTestSuiteConfig{
-		BackendType:      backendType,
-		BucketName:       "backups", // Use the default bucket created by shared cluster
-		Region:           sharedConfig.Region,
-		ClassName:        fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
-		BackupID:         fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
-		MultiTenant:      testCase.MultiTenant,
-		NumTenants:       numTenants,
-		ObjectsPerTenant: objectsPerTenant,
+		BackendType: backendType,
+		BucketName:  "backups", // Use the default bucket created by shared cluster
+		Region:      sharedConfig.Region,
+		ClassName:   fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
+		BackupID:    fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
+		MultiTenant: BackupTestSuiteMultiTenancyConfig{
+			Enabled:          testCase.MultiTenant,
+			NumTenants:       numTenants,
+			ObjectsPerTenant: objectsPerTenant,
+		},
 		ClusterSize:      clusterSize,
 		WithVectorizer:   true,
 		TestTimeout:      5 * time.Minute,

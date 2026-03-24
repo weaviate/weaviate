@@ -51,6 +51,20 @@ func TestAzureBackup_MultiTenant(t *testing.T) {
 	backuptest.RunAzureBackupTests(t, compose, backuptest.MultiTenantTestCase())
 }
 
+// TestAzureBackup_MultiTenant_WithMidBackupActivations tests Azure backup/restore with multi-tenant class and tenant activations during backup.
+func TestAzureBackup_MultiTenant_WithMidBackupActivations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunAzureBackupTests(t, compose, backuptest.MultiTenantTestCaseWithMidBackupActivations())
+}
+
 // =============================================================================
 // PQ (Product Quantization) Compression Tests
 // =============================================================================
