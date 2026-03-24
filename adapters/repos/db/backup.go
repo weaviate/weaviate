@@ -225,6 +225,9 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 
 // descriptorWithHardlinks creates hard-linked snapshots per shard, allowing compaction
 // to resume immediately after the snapshot is taken (~2-5s pause per shard).
+//
+// It iterates the sharding state (single source of truth) to discover all local shards,
+// then uses the shardMap to determine the backup method per shard under backupLock.Lock.
 func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, desc *backup.ClassDescriptor, classBaseDescrs []*backup.ClassDescriptor) (err error) {
 	stagingRoot := backupStagingDir(i.Config.RootPath, backupID, i.Config.ClassName)
 	if err := os.MkdirAll(stagingRoot, 0o755); err != nil {
@@ -241,35 +244,108 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	desc.StagingDir = stagingRoot
 
-	activeShards := make(map[string]struct{})
-	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		activeShards[name] = struct{}{}
-		shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
-
-		i.backupLock.Lock(name)
-		defer i.backupLock.Unlock(name)
-		var sd backup.ShardDescriptor
-
-		files, err := s.CreateBackupSnapshot(ctx, &sd, stagingRoot)
-		if err != nil {
-			return fmt.Errorf("snapshot shard %v: %w", name, err)
-		}
-
-		if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
-			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
-		}
-
-		desc.Shards = append(desc.Shards, &sd)
-		return nil
-	}); err != nil {
-		return err
+	shardNames, err := i.localShardNames()
+	if err != nil {
+		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	if err = i.appendInactiveShardDescriptors(ctx, desc, classBaseDescrs, activeShards, stagingRoot); err != nil {
-		return fmt.Errorf("backup inactive shards: %w", err)
+	if i.closingCtx.Err() != nil {
+		return nil
+	}
+
+	for _, name := range shardNames {
+		sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot)
+		if err != nil {
+			return err
+		}
+		// Can be nil for FROZEN/OFFLOADED shards that have no directory on disk; skip but continue backup.
+		if sd == nil {
+			continue
+		}
+		desc.Shards = append(desc.Shards, sd)
 	}
 
 	return i.marshalBackupMetadata(desc)
+}
+
+// backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
+// it checks the shardMap to determine whether the shard is active (loaded in memory) or
+// inactive (on disk only), and uses the appropriate backup path.
+func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
+	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
+
+	i.backupLock.Lock(name)
+	defer i.backupLock.Unlock(name)
+
+	var sd backup.ShardDescriptor
+
+	shard := i.shards.Load(name)
+
+	if shard == nil {
+		// Not in shardMap => back up from disk if directory exists.
+		return i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot)
+	}
+
+	// For unloaded LazyLoadShards, block concurrent loading so we can safely
+	// read files from disk without the LSM store being opened underneath us.
+	// Read paths don't use backupLock.RLock, so backupLock.Lock alone is not
+	// sufficient to prevent concurrent lazy loading.
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		releaseBlock := lazyShard.blockLoading()
+		if !lazyShard.loaded {
+			// Shard is in the map but not loaded; read from disk.
+			defer releaseBlock()
+			return i.backupInactiveShardWithHardlinks(name, &sd, shardBaseDescr, stagingRoot)
+		}
+		// Shard is already loaded => release immediately and use the active path.
+		releaseBlock()
+	}
+
+	// Active path => shard is loaded in memory.
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
+	}
+
+	if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
+		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
+	}
+
+	return &sd, nil
+}
+
+// backupInactiveShardWithHardlinks backs up an inactive (unloaded) shard by reading
+// its files from disk and hardlinking them into the staging directory.
+func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID, stagingRoot string) (*backup.ShardDescriptor, error) {
+	shardDir := shardPath(i.path(), name)
+	if _, err := os.Stat(shardDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // no directory on disk (e.g. FROZEN/OFFLOADED), skip
+		}
+		return nil, fmt.Errorf("stat shard dir: %w", err)
+	}
+
+	files, err := i.listInactiveShardFiles(name, sd)
+	if err != nil {
+		return nil, fmt.Errorf("list inactive shard %s files: %w", name, err)
+	}
+
+	for _, relPath := range files {
+		src := filepath.Join(i.Config.RootPath, relPath)
+		dst := filepath.Join(stagingRoot, relPath)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
+		}
+		if err := os.Link(src, dst); err != nil {
+			return nil, fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
+		}
+	}
+
+	if err := sd.FillFileInfo(files, shardBaseDescr, stagingRoot); err != nil {
+		return nil, fmt.Errorf("gather inactive shard %s file info: %w", name, err)
+	}
+
+	return sd, nil
 }
 
 // descriptorWithoutHardlinks is the fallback path for filesystems that don't support
@@ -282,39 +358,97 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}()
 
-	activeShards := make(map[string]struct{})
-	if err = i.ForEachShard(func(name string, s ShardLike) error {
-		activeShards[name] = struct{}{}
-		shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
-
-		i.backupLock.Lock(name)
-		defer i.backupLock.Unlock(name)
-		var sd backup.ShardDescriptor
-
-		if err := s.HaltForTransfer(ctx, false, 0); err != nil {
-			return fmt.Errorf("halt shard %v for backup: %w", name, err)
-		}
-
-		files, err := s.ListBackupFiles(ctx, &sd)
-		if err != nil {
-			return fmt.Errorf("list backup files shard %v: %w", name, err)
-		}
-
-		if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
-			return fmt.Errorf("gather shard %v file info: %w", s.Name(), err)
-		}
-
-		desc.Shards = append(desc.Shards, &sd)
-		return nil
-	}); err != nil {
-		return err
+	shardNames, err := i.localShardNames()
+	if err != nil {
+		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	if err = i.appendInactiveShardDescriptors(ctx, desc, classBaseDescrs, activeShards, ""); err != nil {
-		return fmt.Errorf("backup inactive shards: %w", err)
+	if i.closingCtx.Err() != nil {
+		return nil
+	}
+
+	for _, name := range shardNames {
+		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
+		if err != nil {
+			return err
+		}
+		// Can be nil for FROZEN/OFFLOADED shards that have no directory on disk; skip but continue backup.
+		if sd != nil {
+			continue
+		}
+		desc.Shards = append(desc.Shards, sd)
 	}
 
 	return i.marshalBackupMetadata(desc)
+}
+
+// backupShardWithoutHardlinks backs up a single shard without hardlinks. Compaction
+// for active shards is paused and stays paused until ReleaseBackup is called.
+func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor) (*backup.ShardDescriptor, error) {
+	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
+
+	i.backupLock.Lock(name)
+	defer i.backupLock.Unlock(name)
+
+	var sd backup.ShardDescriptor
+
+	shard := i.shards.Load(name)
+
+	if shard == nil {
+		// Not in shardMap => back up from disk if directory exists.
+		return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
+	}
+
+	// For unloaded LazyLoadShards, block concurrent loading so we can safely
+	// read files from disk. See backupShardWithHardlinks for details.
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		releaseBlock := lazyShard.blockLoading()
+		if !lazyShard.loaded {
+			defer releaseBlock()
+			return i.backupInactiveShardWithoutHardlinks(name, &sd, shardBaseDescr)
+		}
+		// Shard is already loaded => release immediately and use the active path.
+		releaseBlock()
+	}
+
+	// Active path => halt compaction (stays paused until ReleaseBackup).
+	if err := shard.HaltForTransfer(ctx, false, 0); err != nil {
+		return nil, fmt.Errorf("halt shard %v for backup: %w", name, err)
+	}
+
+	files, err := shard.ListBackupFiles(ctx, &sd)
+	if err != nil {
+		return nil, fmt.Errorf("list backup files shard %v: %w", name, err)
+	}
+
+	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+		return nil, fmt.Errorf("gather shard %v file info: %w", name, err)
+	}
+
+	return &sd, nil
+}
+
+// backupInactiveShardWithoutHardlinks backs up an inactive (unloaded) shard by reading
+// its files directly from disk.
+func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.ShardDescriptor, shardBaseDescr []backup.ShardAndID) (*backup.ShardDescriptor, error) {
+	shardDir := shardPath(i.path(), name)
+	if _, err := os.Stat(shardDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // no directory on disk (e.g. FROZEN/OFFLOADED), skip
+		}
+		return nil, fmt.Errorf("stat shard dir: %w", err)
+	}
+
+	files, err := i.listInactiveShardFiles(name, sd)
+	if err != nil {
+		return nil, fmt.Errorf("list inactive shard %s files: %w", name, err)
+	}
+
+	if err := sd.FillFileInfo(files, shardBaseDescr, i.Config.RootPath); err != nil {
+		return nil, fmt.Errorf("gather inactive shard %s file info: %w", name, err)
+	}
+
+	return sd, nil
 }
 
 // collectShardBaseDescrs gathers base descriptors for incremental backups of a given shard.
@@ -444,82 +578,25 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	return b, err
 }
 
-// appendInactiveShardDescriptors iterates the sharding state to find INACTIVE tenants with
-// local data directories that were not already captured by ForEachShard (which only
-// visits ACTIVE shards). For each such shard, it builds a ShardDescriptor from the
-// filesystem and appends it to desc.Shards. If stagingRoot is non-empty, files are
-// hard-linked into the staging directory (hardlink backup path).
-func (i *Index) appendInactiveShardDescriptors(ctx context.Context, desc *backup.ClassDescriptor,
-	classBaseDescrs []*backup.ClassDescriptor, activeShards map[string]struct{}, stagingRoot string,
-) error {
+// localShardNames reads the sharding state and returns the names of all shards
+// that belong to this node, regardless of tenant status. This is used as the single
+// source of truth for which shards to back up, avoiding the race condition of
+// iterating two separate data structures.
+func (i *Index) localShardNames() ([]string, error) {
 	nodeName := i.getSchema.NodeName()
-
-	return i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+	var names []string
+	err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return nil
 		}
 		for shardName, phys := range state.Physical {
-			if _, ok := activeShards[shardName]; ok {
-				continue // already captured as ACTIVE
+			if phys.IsLocalShard(nodeName) {
+				names = append(names, shardName)
 			}
-			if !phys.IsLocalShard(nodeName) {
-				continue
-			}
-			if phys.Status != models.TenantActivityStatusCOLD &&
-				phys.Status != models.TenantActivityStatusINACTIVE {
-				continue // only back up COLD/INACTIVE tenants with local data
-			}
-
-			shardDir := shardPath(i.path(), shardName)
-			if _, err := os.Stat(shardDir); err != nil {
-				if os.IsNotExist(err) {
-					continue // no directory on disk, nothing to back up
-				}
-				return fmt.Errorf("stat shard dir: %w", err)
-			}
-
-			var sd backup.ShardDescriptor
-			var files []string
-			if err := func() error {
-				i.backupLock.Lock(shardName)
-				defer i.backupLock.Unlock(shardName)
-
-				var err error
-				files, err = i.listInactiveShardFiles(shardName, &sd)
-				if err != nil {
-					return fmt.Errorf("list inactive shard %s files: %w", shardName, err)
-				}
-
-				if stagingRoot != "" {
-					for _, relPath := range files {
-						src := filepath.Join(i.Config.RootPath, relPath)
-						dst := filepath.Join(stagingRoot, relPath)
-						if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-							return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", shardName, relPath, err)
-						}
-						if err := os.Link(src, dst); err != nil {
-							return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", shardName, relPath, err)
-						}
-					}
-				}
-				return nil
-			}(); err != nil {
-				return err
-			}
-
-			shardBaseDescr := i.collectShardBaseDescrs(shardName, classBaseDescrs)
-			basePath := i.Config.RootPath
-			if stagingRoot != "" {
-				basePath = stagingRoot
-			}
-			if err := sd.FillFileInfo(files, shardBaseDescr, basePath); err != nil {
-				return fmt.Errorf("gather inactive shard %s file info: %w", shardName, err)
-			}
-
-			desc.Shards = append(desc.Shards, &sd)
 		}
 		return nil
 	})
+	return names, err
 }
 
 // listInactiveShardFiles reads an INACTIVE (unloaded) shard's data directly from the
