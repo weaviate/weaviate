@@ -128,7 +128,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 		out.offset += n
 	}
 
-	out.tombstone = tmpBuf[0] == 0x1
+	out.tombstone = tmpBuf[0] != 0
 	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.value = make([]byte, valueLength)
 	if n, err := io.ReadFull(r, out.value); err != nil {
@@ -188,7 +188,7 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 	if _, err := io.ReadFull(r, tmpBuf[:9]); err != nil {
 		return errors.Wrap(err, "read tombstone and value length")
 	}
-	out.tombstone = tmpBuf[0] == 0x1
+	out.tombstone = tmpBuf[0] != 0
 	out.offset += 1
 	valueLength := binary.LittleEndian.Uint64(tmpBuf[1:9])
 	out.offset += 8
