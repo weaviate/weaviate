@@ -36,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/exporttest"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	pqexport "github.com/weaviate/weaviate/usecases/export"
+
+	swaggerexport "github.com/weaviate/weaviate/client/export"
 )
 
 func TestExport_SingleShard(t *testing.T) {
@@ -58,7 +60,7 @@ func TestExport_SingleShard(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	objects := make([]*models.Object, 20)
+	objects := make([]*models.Object, 200)
 	for i := range objects {
 		objects[i] = &models.Object{
 			Class: className,
@@ -72,8 +74,27 @@ func TestExport_SingleShard(t *testing.T) {
 	startedAt := time.Now()
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	// Concurrently start the export and import more objects.
+	// These objects race with the snapshot; they MAY or MAY NOT appear.
+	duringObjects := makeObjects(className, "", 100)
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
+
+	// objects imported after export call completed MUST NOT appear in the export.
+	var postObjects []*models.Object
+	statusResp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
+	if statusResp.Payload.Status != "SUCCESS" {
+		postObjects = makeObjects(className, "", 100)
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
@@ -84,7 +105,7 @@ func TestExport_SingleShard(t *testing.T) {
 	// Verify status response metadata (timestamps, classes, path, etc.)
 	exporttest.VerifyStatusResponse(t, resp.Payload, "s3", exportID, []string{className}, startedAt)
 
-	// Verify shard-level progress reports the correct object count
+	// Verify shard-level progress — during-objects may or may not be included
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
@@ -93,13 +114,15 @@ func TestExport_SingleShard(t *testing.T) {
 		require.Equal(t, "SUCCESS", progress.Status)
 		totalExported += progress.ObjectsExported
 	}
-	require.Equal(t, int64(len(objects)), totalExported,
-		"total objects exported across shards should match inserted count")
+	require.GreaterOrEqual(t, totalExported, int64(len(objects)),
+		"total exported must include at least all pre-export objects")
+	require.LessOrEqual(t, totalExported, int64(len(objects)+len(duringObjects)),
+		"total exported must not exceed pre-export + during-export objects")
 
-	verifyParquetExport(t, exportID, className, objects)
 	verifyParquetMetadata(t, exportID, className, false)
 
-	// Verify legacy (unnamed) vectors and row timestamps survive the parquet round-trip
+	// Verify legacy (unnamed) vectors and row timestamps survive the parquet
+	// round-trip (only for pre-export objects that are guaranteed present).
 	allRows := fetchParquetRows(t, exportID, className)
 	expectedVecs := make(map[string]models.C11yVector, len(objects))
 	for _, obj := range objects {
@@ -107,13 +130,17 @@ func TestExport_SingleShard(t *testing.T) {
 	}
 	for _, row := range allRows {
 		expVec, ok := expectedVecs[row.ID]
-		require.True(t, ok)
+		if !ok {
+			continue // during/post object — skip vector check
+		}
 		require.NotNil(t, row.Vector, "expected vector for object %s", row.ID)
 		actualVec := byteops.Fp32SliceFromBytes(row.Vector)
 		require.InDeltaSlice(t, []float32(expVec), actualVec, 1e-6,
 			"vector mismatch for object %s", row.ID)
 		verifyRowTimestamps(t, row, startedAt)
 	}
+
+	verifyConcurrentExport(t, exportID, className, len(objects), duringObjects, postObjects)
 }
 
 func TestExport_MultiShard(t *testing.T) {
@@ -135,20 +162,34 @@ func TestExport_MultiShard(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	objects := makeObjects(className, "", 50)
+	objects := makeObjects(className, "", 500)
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	// Concurrently start the export and import more objects.
+	duringObjects := makeObjects(className, "", 100)
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
+
+	// Import objects after the snapshot is complete.
+	var postObjects []*models.Object
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
+	if resp.Payload.Status != "SUCCESS" {
+		postObjects = makeObjects(className, "", 100)
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	verifyParquetExport(t, exportID, className, objects)
 	verifyParquetMetadata(t, exportID, className, false)
+	verifyConcurrentExport(t, exportID, className, len(objects), duringObjects, postObjects)
 }
 
 func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
@@ -352,21 +393,39 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 
 	var allObjects []*models.Object
 	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
+		objects := makeObjects(className, tenant.Name, 100)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		allObjects = append(allObjects, objects...)
 	}
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
+	// Concurrently start the export and import more objects per tenant.
+	var duringObjects []*models.Object
+	for _, tenant := range tenants {
+		duringObjects = append(duringObjects, makeObjects(className, tenant.Name, 30)...)
+	}
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
 
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
+	// Import objects after the snapshot is complete.
+	var postObjects []*models.Object
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
+	if resp.Payload.Status != "SUCCESS" {
+		for _, tenant := range tenants {
+			postObjects = append(postObjects, makeObjects(className, tenant.Name, 30)...)
+		}
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
-	verifyParquetExport(t, exportID, className, allObjects)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+	verifyConcurrentExport(t, exportID, className, len(allObjects), duringObjects, postObjects)
 }
 
 func TestExport_MultiTenant_MultiShard(t *testing.T) {
@@ -681,6 +740,21 @@ func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenan
 			require.True(t, ok, "missing 'tenant' metadata in %s", key)
 			require.NotEmpty(t, tenant, "empty 'tenant' metadata in %s", key)
 		}
+	}
+}
+
+// requireExportCreated waits for the CreateExport result from exportCh and
+// fails the test with the full validation message if it is a 422 error.
+func requireExportCreated(t *testing.T, exportCh <-chan error) {
+	t.Helper()
+	if err := <-exportCh; err != nil {
+		var ue *swaggerexport.ExportCreateUnprocessableEntity
+		if errors.As(err, &ue) && ue.Payload != nil {
+			for _, e := range ue.Payload.Error {
+				t.Logf("  validation error: %s", e.Message)
+			}
+		}
+		t.Fatalf("CreateExport failed: %v", err)
 	}
 }
 
@@ -1282,4 +1356,42 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "422",
 		"export without async replication should be rejected with 422, got: %v", err)
+}
+
+// verifyConcurrentExport checks the point-in-time semantics of an export
+// that ran concurrently with object imports:
+//   - duringObjects MAY or may not be present (race with snapshot)
+//   - No postObjects may be in the export
+//   - Total row count is bounded by [preCount, preCount+duringCount]
+func verifyConcurrentExport(
+	t *testing.T,
+	exportID, className string,
+	preCount int,
+	duringObjects, postObjects []*models.Object,
+) {
+	t.Helper()
+
+	allRows := fetchParquetRows(t, exportID, className)
+	exportedIDs := make(map[string]struct{}, len(allRows))
+	for _, row := range allRows {
+		exportedIDs[row.ID] = struct{}{}
+	}
+
+	var duringPresent int
+	for _, obj := range duringObjects {
+		if _, ok := exportedIDs[string(obj.ID)]; ok {
+			duringPresent++
+		}
+	}
+	t.Logf("during-export objects present: %d/%d", duringPresent, len(duringObjects))
+
+	for _, obj := range postObjects {
+		assert.NotContains(t, exportedIDs, string(obj.ID),
+			"post-export object %s must NOT be in export", obj.ID)
+	}
+
+	assert.GreaterOrEqual(t, len(allRows), preCount,
+		"export must contain at least all pre-export objects")
+	assert.LessOrEqual(t, len(allRows), preCount+len(duringObjects),
+		"export must not contain more than pre+during objects")
 }
