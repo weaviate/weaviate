@@ -18,22 +18,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-
 	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkIndexesWriteTo(b *testing.B) {
-	path := b.TempDir()
-
 	index := Indexes{
 		SecondaryIndexCount: 10,
-		ScratchSpacePath:    path + "/scratch",
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  "test",
-			"operation": "writeIndices",
-		}),
 	}
 	start := HeaderSize
 	for i := 0; i < 10; i++ {

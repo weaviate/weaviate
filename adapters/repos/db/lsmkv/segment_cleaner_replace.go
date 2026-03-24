@@ -17,11 +17,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type segmentCleanerReplace struct {
@@ -32,13 +30,12 @@ type segmentCleanerReplace struct {
 	version                  uint16
 	level                    uint16
 	secondaryIndexCount      uint16
-	scratchSpacePath         string
 	enableChecksumValidation bool
 }
 
 func newSegmentCleanerReplace(w io.WriteSeeker, cursor innerCursorReplaceAllKeys,
 	keyExistsFn keyExistsOnUpperSegmentsFunc, level, secondaryIndexCount uint16,
-	scratchSpacePath string, enableChecksumValidation bool,
+	enableChecksumValidation bool,
 ) *segmentCleanerReplace {
 	return &segmentCleanerReplace{
 		w:                        w,
@@ -48,7 +45,6 @@ func newSegmentCleanerReplace(w io.WriteSeeker, cursor innerCursorReplaceAllKeys
 		version:                  segmentindex.ChooseHeaderVersion(enableChecksumValidation),
 		level:                    level,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 	}
 }
@@ -152,11 +148,6 @@ func (p *segmentCleanerReplace) writeIndexes(f *segmentindex.SegmentFile,
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: p.secondaryIndexCount,
-		ScratchSpacePath:    p.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyReplace,
-			"operation": "cleanupWriteIndices",
-		}),
 	}
 	_, err := f.WriteIndexes(indexes) // segment cleaner only runs for big files
 	return err

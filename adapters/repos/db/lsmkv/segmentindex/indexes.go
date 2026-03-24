@@ -16,15 +16,12 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Indexes struct {
 	Keys                []Key
 	SecondaryIndexCount uint16
-	ScratchSpacePath    string
-	ObserveWrite        prometheus.Observer
 	AllocChecker        memwatch.AllocChecker
 
 	// SizesPrecomputed indicates that the compactor already iterated over all

@@ -42,9 +42,8 @@ type compactorReplace struct {
 	secondaryIndexCount uint16
 
 	w                io.WriteSeeker
-	bufw             compactor.Writer
-	mw               *compactor.MemoryWriter
-	scratchSpacePath string
+	bufw compactor.Writer
+	mw   *compactor.MemoryWriter
 
 	allocChecker   memwatch.AllocChecker
 	maxNewFileSize int64
@@ -65,7 +64,7 @@ type compactorReplace struct {
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool,
+	cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -92,7 +91,6 @@ func newCompactorReplace(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
@@ -275,12 +273,7 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 ) error {
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
-		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyReplace,
-			"operation": "writeIndices",
-		}),
+		SecondaryIndexCount:            c.secondaryIndexCount,
 		AllocChecker:                   c.allocChecker,
 		SizesPrecomputed:               true,
 		PrecomputedPrimaryIndexSize:    c.primaryIndexSize,

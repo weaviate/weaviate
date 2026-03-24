@@ -51,8 +51,6 @@ type compactorInverted struct {
 	bufw compactor.Writer
 	mw   *compactor.MemoryWriter
 
-	scratchSpacePath string
-
 	offset int
 
 	tombstonesToWrite *sroar.Bitmap
@@ -78,7 +76,7 @@ type compactorInverted struct {
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool,
+	cleanupTombstones bool,
 	k1, b, avgPropLen float64, maxNewFileSize int64,
 	allocChecker memwatch.AllocChecker, enableChecksumValidation bool,
 ) *compactorInverted {
@@ -101,7 +99,6 @@ func newCompactorInverted(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		offset:                   0,
 		k1:                       k1,
 		b:                        b,
@@ -412,12 +409,7 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 	indices := segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyInverted,
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
+		AllocChecker:        c.allocChecker,
 	}
 
 	_, err := indices.WriteTo(c.segmentFile.BodyWriter())
