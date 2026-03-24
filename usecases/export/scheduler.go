@@ -567,13 +567,14 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
-	// No coordinator-level timeout. Each participant has its own abort timer
-	// (reservationTimeout) that fires if Commit doesn't arrive, so the
-	// coordinator doesn't need a redundant deadline. If a Prepare is slow
-	// (e.g. snapshotting thousands of tenants), the coordinator simply waits.
-	// If it's too slow, the participant's own timer aborts the reservation and
-	// the Prepare/Commit call returns an error, causing the coordinator to
-	// abort the rest.
+	// Bound the entire 2PC (Prepare all + metadata write + Commit all) so the
+	// coordinator doesn't hang indefinitely if a participant is unreachable.
+	// The budget is 2× the participant reservation timeout: one window for
+	// Prepare (which now includes snapshotting) and one for Commit. Each
+	// participant still has its own abort timer, so this is a belt-and-
+	// suspenders safeguard for the HTTP request path.
+	ctx, cancel := context.WithTimeout(ctx, 2*reservationTimeout)
+	defer cancel()
 
 	// Build node assignments: node → className → []shardName
 	nodeAssignments := make(map[string]map[string][]string)
