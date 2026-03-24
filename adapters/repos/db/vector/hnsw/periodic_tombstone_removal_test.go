@@ -126,7 +126,7 @@ func TestTombstoneCleanupAbortsOnMemoryPressure_PreCheck(t *testing.T) {
 	logger, logHook := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
-	tombstoneCleanupCycle := cyclemanager.NewManager(
+	tombstoneCleanupCycle := cyclemanager.NewManager("tombstone",
 		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
 		tombstoneCallbacks.CycleCallback, logger)
 
