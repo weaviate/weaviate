@@ -71,6 +71,20 @@ func (b *Bucket) RoaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 	return active.roaringSetAddBatch(entries)
 }
 
+// RoaringSetRemoveBatch removes multiple key-values pairs from the bucket under
+// a single flushLock acquisition and a single memtable lock acquisition,
+// reducing lock overhead compared to calling RoaringSetRemoveOne in a loop.
+func (b *Bucket) RoaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return err
+	}
+
+	active, release := b.getActiveMemtableForWrite()
+	defer release()
+
+	return active.roaringSetRemoveBatch(entries)
+}
+
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
