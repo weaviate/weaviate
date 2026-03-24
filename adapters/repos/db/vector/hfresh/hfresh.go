@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"encoding/binary"
 	stderrors "errors"
 	"fmt"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 )
@@ -36,8 +38,9 @@ const (
 )
 
 var (
-	ErrPostingNotFound = errors.New("posting not found")
-	ErrVectorNotFound  = errors.New("vector not found")
+	ErrPostingNotFound  = errors.New("posting not found")
+	ErrVectorNotFound   = errors.New("vector not found")
+	ErrMuveraNotEnabled = errors.New("hfresh only supports muvera for multi-vector operations")
 )
 
 var _ common.VectorIndex = (*HFresh)(nil)
@@ -68,6 +71,11 @@ type HFresh struct {
 	dims               uint32 // Number of dimensions of expected vectors
 	distancer          *Distancer
 	quantizer          *compressionhelpers.BinaryRotationalQuantizer
+
+	// muvera is used for multi-vector encoding
+	muvera          atomic.Bool
+	muveraEncoder   *multivector.MuveraEncoder
+	trackMuveraOnce sync.Once
 
 	// Internal components
 	Centroids     *HNSWIndex          // Provides access to the centroids.
@@ -137,6 +145,18 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		rootPath:         cfg.RootPath,
 	}
 
+	h.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
+	if uc.Multivector.MuveraConfig.Enabled {
+		h.muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
+		if err = store.CreateOrLoadBucket(
+			context.Background(),
+			cfg.ID+"_muvera_vectors",
+			cfg.Store.MakeBucketOptions(lsmkv.StrategyReplace)...,
+		); err != nil {
+			return nil, errors.Wrap(err, "create or load muvera bucket")
+		}
+	}
+
 	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
 	if err != nil {
 		return nil, err
@@ -179,7 +199,21 @@ func (h *HFresh) Delete(ids ...uint64) error {
 }
 
 func (h *HFresh) DeleteMulti(ids ...uint64) error {
-	panic("DeleteMulti not implemented for HFresh")
+	if !h.muvera.Load() {
+		h.logger.Error(ErrMuveraNotEnabled)
+		return ErrMuveraNotEnabled
+	}
+	for _, id := range ids {
+		idBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(idBytes, id)
+		if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes); err != nil {
+			h.logger.WithFields(logrus.Fields{
+				"action": "muvera_delete",
+				"id":     id,
+			}).Warnf("cannot delete vector from muvera bucket")
+		}
+	}
+	return h.Delete(ids...)
 }
 
 func (h *HFresh) Type() common.IndexType {
@@ -351,7 +385,7 @@ func (h *HFresh) Compressed() bool {
 }
 
 func (h *HFresh) Multivector() bool {
-	return false
+	return h.muvera.Load()
 }
 
 func (h *HFresh) ContainsDoc(id uint64) bool {

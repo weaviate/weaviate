@@ -118,6 +118,10 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "replicas",
 			accessor: func(c ent.UserConfig) interface{} { return c.Replicas },
 		},
+		{
+			name:     "multivector.muvera.enabled",
+			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
+		},
 	}
 
 	for _, u := range immutableFields {
