@@ -74,7 +74,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		for i := 0; i < numberOfNodes; i++ {
 			node := &node{
 				name:        fmt.Sprintf("node-%d", i),
-				objectCount: numberOfObjects,
+				objectCount: numberOfObjects / overallShardState.CountPhysicalShards(),
 			}
 
 			nodes = append(nodes, node)

@@ -2680,16 +2680,20 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	return &aggregation.Result{Groups: []aggregation.Group{{Count: total}}}, nil
 }
 
+// reconcile aggregates map's values with the appropriate statistic, such that
+// the returned values is always contained within the input set. If possible,
+// we try to calculate the mode.
+//
+// If we can't calculate the mode, we fallback to median. We can only calculate
+// the true median for an odd-numbered set. If a set has even number of elemets
+// of which none is a mode, then the median would be calculated as an average,
+// which is not contained in the set. In that case we pick the lower value of
+// the two "candidate" values.
 func reconcile(counts map[string]int) int {
 	var mode int
 	var modeHits int
 	hits := make(map[int]int)
 
-	// If we can't calculate the mode, we fallback to median.
-	// However, we can only calculate the median correctly for
-	// an odd-numbered set. If a set has even number of elemets
-	// of which none is a mode, then the median would be calculated
-	// as an average. For such cases, we fallback to the lower value.
 	var median int
 	medianIdx := len(counts) / 2
 
