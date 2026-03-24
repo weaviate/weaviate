@@ -131,6 +131,40 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	return nil
 }
 
+// roaringSetRemoveBatch removes multiple key-values pairs under a single
+// memtable lock acquisition. Commit log nodes are pre-allocated outside the
+// lock to keep the critical section as short as possible.
+func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
+		return err
+	}
+
+	// Pre-allocate all commit log nodes outside the lock.
+	nodes := make([]*roaringset.SegmentNodeList, len(entries))
+	totalValues := 0
+	for i, e := range entries {
+		node, err := roaringset.NewSegmentNodeList(e.Key, []uint64{}, e.Values)
+		if err != nil {
+			return fmt.Errorf("create node for commit log: %w", err)
+		}
+		nodes[i] = node
+		totalValues += len(e.Values)
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	for i, node := range nodes {
+		if err := m.roaringSetAddCommitLog(node); err != nil {
+			return err
+		}
+		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Deletions: entries[i].Values})
+	}
+
+	m.roaringSetAdjustMeta(totalValues)
+	return nil
+}
+
 func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err

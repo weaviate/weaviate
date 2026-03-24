@@ -83,6 +83,7 @@ type memtable interface {
 	roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error
 	roaringSetRemoveOne(key []byte, value uint64) error
 	roaringSetRemoveList(key []byte, values []uint64) error
+	roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error
 	roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
