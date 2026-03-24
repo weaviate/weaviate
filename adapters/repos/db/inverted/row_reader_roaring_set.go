@@ -29,6 +29,10 @@ type RowReaderRoaringSet struct {
 	newCursor  func() lsmkv.CursorRoaringSet
 	getter     func(key []byte) (*sroar.Bitmap, func(), error)
 	isDenyList bool
+	// keyPrefix, when non-nil, restricts cursor-based reads to keys that start
+	// with this prefix. Used for nested property buckets where multiple
+	// sub-properties share a single bucket, keyed by hash8(path)+encodedValue.
+	keyPrefix []byte
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
@@ -48,6 +52,51 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 		operator:  operator,
 		newCursor: newCursor,
 		getter:    getter,
+	}
+}
+
+// NewRowReaderRoaringSetWithPrefix creates a RowReaderRoaringSet that restricts
+// cursor-based reads to keys beginning with keyPrefix. value must already
+// include keyPrefix as a leading byte sequence. Used for nested property
+// buckets where the key format is keyPrefix+encodedValue.
+func NewRowReaderRoaringSetWithPrefix(bucket *lsmkv.Bucket, value []byte,
+	operator filters.Operator, keyOnly bool, keyPrefix []byte,
+) *RowReaderRoaringSet {
+	rr := NewRowReaderRoaringSet(bucket, value, operator, keyOnly)
+	rr.keyPrefix = keyPrefix
+	return rr
+}
+
+// inPrefix reports whether k starts with rr.keyPrefix. Always true when no
+// prefix is set (standard flat-property behaviour).
+func (rr *RowReaderRoaringSet) inPrefix(k []byte) bool {
+	return len(rr.keyPrefix) == 0 || bytes.HasPrefix(k, rr.keyPrefix)
+}
+
+// fullKey returns keyPrefix+value. When no prefix is set it returns value
+// directly to avoid an allocation on the common flat-property path.
+func (rr *RowReaderRoaringSet) fullKey() []byte {
+	if len(rr.keyPrefix) == 0 {
+		return rr.value
+	}
+	return append(rr.keyPrefix, rr.value...)
+}
+
+// bareKey strips keyPrefix from k, returning just the value portion.
+// For flat properties (no prefix) this is a no-op.
+func (rr *RowReaderRoaringSet) bareKey(k []byte) []byte {
+	return k[len(rr.keyPrefix):]
+}
+
+// ctxExpired reports whether ctx has been cancelled or timed out. It uses a
+// non-blocking channel receive, which avoids the mutex acquisition that
+// ctx.Err() performs on every call — important for tight cursor loops.
+func ctxExpired(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
 	}
 }
 
@@ -95,12 +144,16 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	v, eqRelease, err := rr.equalHelper(ctx)
+	if err := ctxExpired(ctx); err != nil {
+		return err
+	}
+
+	v, release, err := rr.getter(rr.fullKey())
 	if err != nil {
 		return err
 	}
 
-	_, err = readFn(rr.value, v, eqRelease)
+	_, err = readFn(rr.value, v, release)
 	return err
 }
 
@@ -119,16 +172,17 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
+	fk := rr.fullKey()
+	for k, v := c.Seek(fk); k != nil && rr.inPrefix(k); k, v = c.Next() {
+		if err := ctxExpired(ctx); err != nil {
 			return err
 		}
 
-		if bytes.Equal(k, rr.value) && !allowEqual {
+		if bytes.Equal(k, fk) && !allowEqual {
 			continue
 		}
 
-		if continueReading, err := readFn(k, v, noopRelease); err != nil {
+		if continueReading, err := readFn(rr.bareKey(k), v, noopRelease); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -138,25 +192,39 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	return nil
 }
 
-// lessThan reads from the very begging to the specified  value. The last
-// matching row is only included if allowEqual==true, otherwise it ends one
-// prior to that.
+// lessThan reads from the very beginning (or from the keyPrefix boundary if
+// set) to the specified value. The last matching row is only included if
+// allowEqual==true, otherwise it ends one prior to that.
 func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	readFn ReadFn, allowEqual bool,
 ) error {
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) < 1; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
+	// When a prefix is set, start at the prefix boundary rather than the very
+	// first key in the bucket, so we don't read unrelated sub-properties.
+	var initialK []byte
+	var initialV *sroar.Bitmap
+	if len(rr.keyPrefix) > 0 {
+		initialK, initialV = c.Seek(rr.keyPrefix)
+	} else {
+		initialK, initialV = c.First()
+	}
+
+	fk := rr.fullKey()
+	cmpLimit := 0 // lessThan: k < fk → Compare(k,fk) < 0
+	if allowEqual {
+		cmpLimit = 1 // lessThanEqual: k <= fk → Compare(k,fk) < 1
+	}
+	// inPrefix is not needed here: Seek(keyPrefix) guarantees no lower-prefix
+	// keys appear, and bytes.Compare(k, fk) >= cmpLimit stops the loop before
+	// any higher-prefix key, since those sort after fk = keyPrefix+value.
+	for k, v := initialK, initialV; k != nil && bytes.Compare(k, fk) < cmpLimit; k, v = c.Next() {
+		if err := ctxExpired(ctx); err != nil {
 			return err
 		}
 
-		if bytes.Equal(k, rr.value) && !allowEqual {
-			continue
-		}
-
-		if continueReading, err := readFn(k, v, noopRelease); err != nil {
+		if continueReading, err := readFn(rr.bareKey(k), v, noopRelease); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -169,6 +237,9 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	readFn ReadFn,
 ) error {
+	// rr.value is always the LIKE pattern string (e.g. "Ber*"), never the full
+	// prefixed key. For prefix-bounded reads the cursor is positioned at
+	// keyPrefix+like.min and matched against k[len(keyPrefix):].
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
 		return fmt.Errorf("parse like value: %w", err)
@@ -180,38 +251,41 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	var (
 		initialK   []byte
 		initialV   *sroar.Bitmap
-		likeMinLen int
+		seekMin    []byte // full seek key used for the optimizable early-abort check
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)
-		likeMinLen = len(like.min)
+		// Seek to prefix+like.min so we start at the right position in the bucket.
+		seekMin = append(rr.keyPrefix, like.min...)
+		initialK, initialV = c.Seek(seekMin)
+	} else if len(rr.keyPrefix) > 0 {
+		initialK, initialV = c.Seek(rr.keyPrefix)
 	} else {
 		initialK, initialV = c.First()
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
+	for k, v := initialK, initialV; k != nil && rr.inPrefix(k); k, v = c.Next() {
+		if err := ctxExpired(ctx); err != nil {
 			return err
 		}
 
 		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
-			if len(k) < likeMinLen {
+			// Abort once we've moved past the fixed characters of the LIKE pattern.
+			if len(k) < len(seekMin) {
 				break
 			}
-			if bytes.Compare(like.min, k[:likeMinLen]) == -1 {
+			if bytes.Compare(seekMin, k[:len(seekMin)]) == -1 {
 				break
 			}
 		}
 
-		if !like.regexp.Match(k) {
+		// Match the regex against the value portion of the key only (strip prefix).
+		keyValue := k[len(rr.keyPrefix):]
+		if !like.regexp.Match(keyValue) {
 			continue
 		}
 
-		if continueReading, err := readFn(k, v, noopRelease); err != nil {
+		if continueReading, err := readFn(rr.bareKey(k), v, noopRelease); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -221,11 +295,3 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	return nil
 }
 
-// equalHelper exists, because the Equal and NotEqual operators share this functionality
-func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context) (*sroar.Bitmap, func(), error) {
-	if err := ctx.Err(); err != nil {
-		return nil, noopRelease, err
-	}
-
-	return rr.getter(rr.value)
-}

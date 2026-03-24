@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -190,7 +191,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			result := []readResult{}
-			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
+			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, nil, data)
 			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap, release func()) (bool, error) {
 				result = append(result, readResult{k, v, release})
 				return true, nil
@@ -214,7 +215,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			}
 
 			result := []readResult{}
-			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
+			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, nil, data)
 			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap, release func()) (bool, error) {
 				result = append(result, readResult{k, v, release})
 				if len(result) >= limit {
@@ -281,18 +282,220 @@ func (c *dummyCursorRoaringSet) Close() {
 	c.closed = true
 }
 
-func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []kvData) *RowReaderRoaringSet {
+// createRowReaderRoaringSet is the single base constructor for all row reader
+// tests. keyPrefix may be nil for flat-property (no prefix) tests.
+func createRowReaderRoaringSet(value []byte, operator filters.Operator,
+	keyPrefix []byte, data []kvData,
+) *RowReaderRoaringSet {
 	return &RowReaderRoaringSet{
 		value:     value,
 		operator:  operator,
+		keyPrefix: keyPrefix,
 		newCursor: func() lsmkv.CursorRoaringSet { return &dummyCursorRoaringSet{data: data} },
 		getter: func(key []byte) (*sroar.Bitmap, func(), error) {
-			for i := 0; i < len(data); i++ {
+			for i := range data {
 				if bytes.Equal([]byte(data[i].k), key) {
 					return roaringset.NewBitmap(data[i].v...), noopRelease, nil
 				}
 			}
 			return nil, noopRelease, entlsmkv.NotFound
 		},
+	}
+}
+
+
+// TestRowReaderRoaringSetWithPrefix verifies that cursor-based reads stay
+// within the bounds of the supplied key prefix and do not bleed into entries
+// belonging to other prefixes stored in the same bucket.
+//
+// The bucket contains three groups of entries (sorted by full key):
+//
+//	prefix0 (0x00): "aaa", "bbb"                  ← sorts BEFORE prefixA
+//	prefixA (0x01): "aaa", "bbb", "ccc", "ddd"    ← middle prefix
+//	prefixB (0x02): "aaa", "bbb"                  ← sorts AFTER prefixA
+//
+// All three prefixes are tested to cover edge cases at the start, middle,
+// and end of the bucket. Both returned keys and docIDs are validated.
+func TestRowReaderRoaringSetWithPrefix(t *testing.T) {
+	prefix0 := []byte{0x00}
+	prefixA := []byte{0x01}
+	prefixB := []byte{0x02}
+
+	pk := func(prefix []byte, val string) string {
+		return string(append(append([]byte{}, prefix...), val...))
+	}
+
+	// Bucket data — must be in ascending key order for the dummy cursor.
+	data := []kvData{
+		{pk(prefix0, "aaa"), []uint64{901, 902}},
+		{pk(prefix0, "bbb"), []uint64{903, 904}},
+		{pk(prefixA, "aaa"), []uint64{1, 2, 3}},
+		{pk(prefixA, "bbb"), []uint64{11, 22, 33}},
+		{pk(prefixA, "ccc"), []uint64{111, 222, 333}},
+		{pk(prefixA, "ddd"), []uint64{1111, 2222, 3333}},
+		{pk(prefixB, "aaa"), []uint64{801, 802}},
+		{pk(prefixB, "bbb"), []uint64{803, 804}},
+	}
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		prefix        []byte
+		value         []byte
+		operator      filters.Operator
+		expected      []kvData // bare key (no prefix) + expected docIDs
+		wantDenyList  bool
+	}{
+		// prefix0 — first prefix in bucket
+		// greaterThan must not bleed into prefixA; lessThan has nothing before it.
+		{
+			name: "prefix0/equal",
+			prefix: prefix0, value: []byte("aaa"), operator: filters.OperatorEqual,
+			expected: []kvData{{"aaa", []uint64{901, 902}}},
+		},
+		{
+			name: "prefix0/greaterThan no bleed into prefixA",
+			prefix: prefix0, value: []byte("bbb"), operator: filters.OperatorGreaterThan,
+			expected: []kvData{},
+		},
+		{
+			name: "prefix0/greaterThanEqual",
+			prefix: prefix0, value: []byte("bbb"), operator: filters.OperatorGreaterThanEqual,
+			expected: []kvData{{"bbb", []uint64{903, 904}}},
+		},
+		{
+			name: "prefix0/lessThan nothing before first entry",
+			prefix: prefix0, value: []byte("aaa"), operator: filters.OperatorLessThan,
+			expected: []kvData{},
+		},
+		{
+			name: "prefix0/lessThan",
+			prefix: prefix0, value: []byte("bbb"), operator: filters.OperatorLessThan,
+			expected: []kvData{{"aaa", []uint64{901, 902}}},
+		},
+		{
+			name: "prefix0/like full wildcard",
+			prefix: prefix0, value: []byte("*"), operator: filters.OperatorLike,
+			expected: []kvData{{"aaa", []uint64{901, 902}}, {"bbb", []uint64{903, 904}}},
+		},
+		{
+			name: "prefix0/notEqual",
+			prefix: prefix0, value: []byte("aaa"), operator: filters.OperatorNotEqual,
+			expected:     []kvData{{"aaa", []uint64{901, 902}}},
+			wantDenyList: true,
+		},
+
+		// prefixA — middle prefix, bleed possible in both directions
+		{
+			name: "prefixA/equal",
+			prefix: prefixA, value: []byte("bbb"), operator: filters.OperatorEqual,
+			expected: []kvData{{"bbb", []uint64{11, 22, 33}}},
+		},
+		{
+			name: "prefixA/greaterThan stops at upper boundary",
+			prefix: prefixA, value: []byte("bbb"), operator: filters.OperatorGreaterThan,
+			expected: []kvData{{"ccc", []uint64{111, 222, 333}}, {"ddd", []uint64{1111, 2222, 3333}}},
+		},
+		{
+			name: "prefixA/greaterThanEqual",
+			prefix: prefixA, value: []byte("bbb"), operator: filters.OperatorGreaterThanEqual,
+			expected: []kvData{{"bbb", []uint64{11, 22, 33}}, {"ccc", []uint64{111, 222, 333}}, {"ddd", []uint64{1111, 2222, 3333}}},
+		},
+		{
+			name: "prefixA/greaterThan last entry no bleed into prefixB",
+			prefix: prefixA, value: []byte("ddd"), operator: filters.OperatorGreaterThan,
+			expected: []kvData{},
+		},
+		{
+			name: "prefixA/lessThan starts at lower boundary no bleed into prefix0",
+			prefix: prefixA, value: []byte("ccc"), operator: filters.OperatorLessThan,
+			expected: []kvData{{"aaa", []uint64{1, 2, 3}}, {"bbb", []uint64{11, 22, 33}}},
+		},
+		{
+			name: "prefixA/lessThanEqual",
+			prefix: prefixA, value: []byte("ccc"), operator: filters.OperatorLessThanEqual,
+			expected: []kvData{{"aaa", []uint64{1, 2, 3}}, {"bbb", []uint64{11, 22, 33}}, {"ccc", []uint64{111, 222, 333}}},
+		},
+		{
+			name: "prefixA/lessThan first entry no bleed into prefix0",
+			prefix: prefixA, value: []byte("aaa"), operator: filters.OperatorLessThan,
+			expected: []kvData{},
+		},
+		{
+			name: "prefixA/like wildcard-suffix stays within prefix",
+			prefix: prefixA, value: []byte("b*"), operator: filters.OperatorLike,
+			expected: []kvData{{"bbb", []uint64{11, 22, 33}}},
+		},
+		{
+			name: "prefixA/like wildcard-prefix stays within prefix",
+			prefix: prefixA, value: []byte("*b"), operator: filters.OperatorLike,
+			expected: []kvData{{"bbb", []uint64{11, 22, 33}}},
+		},
+		{
+			name: "prefixA/like full wildcard returns only prefixA entries",
+			prefix: prefixA, value: []byte("*"), operator: filters.OperatorLike,
+			expected: []kvData{{"aaa", []uint64{1, 2, 3}}, {"bbb", []uint64{11, 22, 33}}, {"ccc", []uint64{111, 222, 333}}, {"ddd", []uint64{1111, 2222, 3333}}},
+		},
+		{
+			name: "prefixA/notEqual",
+			prefix: prefixA, value: []byte("bbb"), operator: filters.OperatorNotEqual,
+			expected:     []kvData{{"bbb", []uint64{11, 22, 33}}},
+			wantDenyList: true,
+		},
+
+		// prefixB — last prefix in bucket
+		// greaterThan past last entry must return nothing; lessThan must not bleed into prefixA.
+		{
+			name: "prefixB/equal",
+			prefix: prefixB, value: []byte("aaa"), operator: filters.OperatorEqual,
+			expected: []kvData{{"aaa", []uint64{801, 802}}},
+		},
+		{
+			name: "prefixB/greaterThan nothing past last entry",
+			prefix: prefixB, value: []byte("bbb"), operator: filters.OperatorGreaterThan,
+			expected: []kvData{},
+		},
+		{
+			name: "prefixB/greaterThan",
+			prefix: prefixB, value: []byte("aaa"), operator: filters.OperatorGreaterThan,
+			expected: []kvData{{"bbb", []uint64{803, 804}}},
+		},
+		{
+			name: "prefixB/lessThan no bleed into prefixA",
+			prefix: prefixB, value: []byte("aaa"), operator: filters.OperatorLessThan,
+			expected: []kvData{},
+		},
+		{
+			name: "prefixB/lessThanEqual",
+			prefix: prefixB, value: []byte("bbb"), operator: filters.OperatorLessThanEqual,
+			expected: []kvData{{"aaa", []uint64{801, 802}}, {"bbb", []uint64{803, 804}}},
+		},
+		{
+			name: "prefixB/like full wildcard returns only prefixB entries",
+			prefix: prefixB, value: []byte("*"), operator: filters.OperatorLike,
+			expected: []kvData{{"aaa", []uint64{801, 802}}, {"bbb", []uint64{803, 804}}},
+		},
+		{
+			name: "prefixB/notEqual",
+			prefix: prefixB, value: []byte("aaa"), operator: filters.OperatorNotEqual,
+			expected:     []kvData{{"aaa", []uint64{801, 802}}},
+			wantDenyList: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := createRowReaderRoaringSet(tt.value, tt.operator, tt.prefix, data)
+
+			got := []kvData{}
+			err := rr.Read(ctx, func(k []byte, v *sroar.Bitmap, release func()) (bool, error) {
+				got = append(got, kvData{string(k), v.ToArray()})
+				return true, nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, got)
+			assert.Equal(t, tt.wantDenyList, rr.isDenyList)
+		})
 	}
 }
