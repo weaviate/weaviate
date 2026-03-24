@@ -31,7 +31,7 @@ import (
 type compactorReplace struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1, c2 innerCursorReplaceAllKeys
+	c1, c2 *segmentCursorReplaceReusable
 
 	// the level matching those of the cursors
 	currentLevel uint16
@@ -41,20 +41,30 @@ type compactorReplace struct {
 	cleanupTombstones   bool
 	secondaryIndexCount uint16
 
-	w                io.WriteSeeker
-	bufw             compactor.Writer
-	mw               *compactor.MemoryWriter
-	scratchSpacePath string
+	w    io.WriteSeeker
+	bufw compactor.Writer
+	mw   *compactor.MemoryWriter
 
 	allocChecker   memwatch.AllocChecker
 	maxNewFileSize int64
 
 	enableChecksumValidation bool
+
+	// arena holds stable copies of key bytes so that ki.Key / ki.SecondaryKeys
+	// stored in the kis slice remain valid after the reusable cursor advances.
+	arena keyArena
+
+	writeBuf [9]byte // reused by writeIndividualNode to avoid per-key allocation
+
+	// primaryIndexSize and secIndexSizes are accumulated during writeKeys so
+	// that writeDirectly does not need a second O(N) scan over the keys.
+	primaryIndexSize int64
+	secIndexSizes    []int64
 }
 
 func newCompactorReplace(w io.WriteSeeker,
-	c1, c2 innerCursorReplaceAllKeys, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool,
+	c1, c2 *segmentCursorReplaceReusable, level, secondaryIndexCount uint16,
+	cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
@@ -67,6 +77,11 @@ func newCompactorReplace(w io.WriteSeeker,
 	meteredW := diskio.NewMeteredWriter(w, writeCB)
 	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
 
+	var secIndexSizes []int64
+	if secondaryIndexCount > 0 {
+		secIndexSizes = make([]int64, secondaryIndexCount)
+	}
+
 	return &compactorReplace{
 		c1:                       c1,
 		c2:                       c2,
@@ -76,10 +91,10 @@ func newCompactorReplace(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,
+		secIndexSizes:            secIndexSizes,
 	}
 }
 
@@ -140,19 +155,27 @@ func (c *compactorReplace) init() error {
 }
 
 func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	res1, err1 := c.c1.firstWithAllKeys()
-	res2, err2 := c.c2.firstWithAllKeys()
+	res1, err1 := c.c1.first()
+	res2, err2 := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
 
-	var kis []segmentindex.Key
+	kis := make([]segmentindex.Key, 0, c.c1.keyCount()+c.c2.keyCount())
 
 	for {
-		if res1.primaryKey == nil && res2.primaryKey == nil {
+		var key1, key2 []byte
+		if res1 != nil {
+			key1 = res1.primaryKey
+		}
+		if res2 != nil {
+			key2 = res2.primaryKey
+		}
+
+		if key1 == nil && key2 == nil {
 			break
 		}
-		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
+		if bytes.Equal(key1, key2) {
 			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(f, offset, res2.primaryKey, res2.value,
 					res2.secondaryKeys, errors.Is(err2, lsmkv.Deleted))
@@ -161,27 +184,29 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				}
 
 				offset = ki.ValueEnd
+				c.accumulateIndexSizes(ki)
 				kis = append(kis, ki)
 			}
 			// advance both!
-			res1, err1 = c.c1.nextWithAllKeys()
-			res2, err2 = c.c2.nextWithAllKeys()
+			res1, err1 = c.c1.next()
+			res2, err2 = c.c2.next()
 			continue
 		}
 
-		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
+		if (key1 != nil && bytes.Compare(key1, key2) < 0) || key2 == nil {
 			// key 1 is smaller
 			if !(c.cleanupTombstones && errors.Is(err1, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(f, offset, res1.primaryKey, res1.value,
 					res1.secondaryKeys, errors.Is(err1, lsmkv.Deleted))
 				if err != nil {
-					return nil, fmt.Errorf("write individual node (res1.primaryKey smaller)")
+					return nil, fmt.Errorf("write individual node (res1.primaryKey smaller): %w", err)
 				}
 
 				offset = ki.ValueEnd
+				c.accumulateIndexSizes(ki)
 				kis = append(kis, ki)
 			}
-			res1, err1 = c.c1.nextWithAllKeys()
+			res1, err1 = c.c1.next()
 		} else {
 			// key 2 is smaller
 			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
@@ -192,42 +217,73 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 				}
 
 				offset = ki.ValueEnd
+				c.accumulateIndexSizes(ki)
 				kis = append(kis, ki)
 			}
-			res2, err2 = c.c2.nextWithAllKeys()
+			res2, err2 = c.c2.next()
 		}
 	}
 
 	return kis, nil
 }
 
+// TREE_KEY_STORE_OVERHEAD + len(key) is the overhead of storing a key in the index:
+//   - 4 bytes for the length of the key
+//   - len(key) bytes for the key itself
+//   - 8 bytes for the node start pos (points to matching file offset in the Strategy specific data structure)
+//   - 8 bytes for the node end pos (points to matching file offset in the Strategy specific data structure)
+//   - 8 bytes for the left offset (offset of the left node)
+//   - 8 bytes for the right offset (offset of the right node)
+func (c *compactorReplace) accumulateIndexSizes(ki segmentindex.Key) {
+	c.primaryIndexSize += int64(segmentindex.TREE_KEY_STORE_OVERHEAD + len(ki.Key))
+	for pos, sk := range ki.SecondaryKeys {
+		c.secIndexSizes[pos] += int64(segmentindex.TREE_KEY_STORE_OVERHEAD + len(sk))
+	}
+}
+
 func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 	offset int, key, value []byte, secondaryKeys [][]byte, tombstone bool,
 ) (segmentindex.Key, error) {
+	// Copy key bytes into stable arena memory. The reusable cursor reuses its
+	// internal buffers on every next() call, so ki.Key / ki.SecondaryKeys stored
+	// in the kis slice would otherwise be corrupted on the next iteration.
+	keyCopy := c.arena.CopyKey(key)
+
+	var secKeysCopy [][]byte
+	if len(secondaryKeys) > 0 {
+		secKeysCopy = make([][]byte, len(secondaryKeys))
+		for i, sk := range secondaryKeys {
+			secKeysCopy[i] = c.arena.CopyKey(sk)
+		}
+	}
+
+	// value is NOT arena-copied because it is written synchronously to the
+	// buffered writer by KeyIndexAndWriteToWithBuf. The bufio.Writer.Write
+	// call copies value bytes into its internal buffer before returning,
+	// so the reusable cursor's buffer can safely be reused on the next
+	// iteration.
 	segNode := segmentReplaceNode{
 		offset:              offset,
 		tombstone:           tombstone,
 		value:               value,
-		primaryKey:          key,
+		primaryKey:          keyCopy,
 		secondaryIndexCount: c.secondaryIndexCount,
-		secondaryKeys:       secondaryKeys,
+		secondaryKeys:       secKeysCopy,
 	}
-	return segNode.KeyIndexAndWriteTo(f.BodyWriter())
+	return segNode.KeyIndexAndWriteToWithBuf(f.BodyWriter(), c.writeBuf[:])
 }
 
 func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 	keys []segmentindex.Key,
 ) error {
 	indexes := &segmentindex.Indexes{
-		Keys:                keys,
-		SecondaryIndexCount: c.secondaryIndexCount,
-		ScratchSpacePath:    c.scratchSpacePath,
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  StrategyReplace,
-			"operation": "writeIndices",
-		}),
-		AllocChecker: c.allocChecker,
+		Keys:                           keys,
+		SecondaryIndexCount:            c.secondaryIndexCount,
+		AllocChecker:                   c.allocChecker,
+		SizesPrecomputed:               true,
+		PrecomputedPrimaryIndexSize:    c.primaryIndexSize,
+		PrecomputedSecondaryIndexSizes: c.secIndexSizes,
 	}
-	_, err := f.WriteIndexes(indexes, c.maxNewFileSize)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }
