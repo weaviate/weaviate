@@ -233,10 +233,13 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
 	}
 
-	if len(searchVectors) > 0 {
+	if len(searchVectors) == 1 {
 		if store, ok := querycontext.FromContext(ctx); ok {
 			store.Set(searchVectors[0])
 		}
+		return res, searchVectors[0], nil
+	}
+	if len(searchVectors) > 1 {
 		return res, searchVectors[0], nil
 	}
 	return res, []float32{}, nil

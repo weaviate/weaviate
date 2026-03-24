@@ -29,7 +29,7 @@ const queryVectorStoreKey contextKey = iota
 // vector search. It is stored in the request context so that it can be
 // retrieved after query execution and returned in the GraphQL extensions field.
 type QueryVectorStore struct {
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	vector models.Vector
 }
 
@@ -42,8 +42,8 @@ func (s *QueryVectorStore) Set(v models.Vector) {
 
 // Get retrieves the stored search vector, or nil if none was set.
 func (s *QueryVectorStore) Get() models.Vector {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.vector
 }
 
