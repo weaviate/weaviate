@@ -307,6 +307,12 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", p.preparedReq.ID, exportID)
 			return errRet
 		}
+		// Pointer identity check: if an Abort cleared the slot and a new
+		// Prepare set a different *ExportRequest (possibly with the same
+		// export ID) while we were doing backend I/O outside the lock,
+		// the pointer will differ even though the ID matches. This is a
+		// defense-in-depth guard — the coordinator prevents ID reuse via
+		// checkIfExportExists, so this race cannot happen in practice.
 		if p.preparedReq != req {
 			errRet = fmt.Errorf("export request was replaced during backend initialization (abort+re-prepare race)")
 			return errRet

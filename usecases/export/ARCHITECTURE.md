@@ -66,25 +66,13 @@ coordinator crashes between phases.
 
 ## Snapshots
 
-Snapshots use **hard-linked LSM segment files** so the long-running scan never
-holds locks and concurrent writes continue unblocked.
+Snapshots use hard-linked LSM segment files so the long-running scan never
+holds locks and concurrent writes continue unblocked. See the godoc in
+`adapters/repos/db/lsmkv/bucket_snapshot.go` for the full mechanism (flush
+cycle pausing, hard-link safety, snapshot lifecycle, and cleanup).
 
-**Loaded shards:** Pause compaction and flush cycle, flush memtable (= the
-point-in-time cutoff), hard-link `.db`/`.bloom`/`.cna` files into a snapshot
-directory, resume both cycles. Concurrent writers are not blocked -- writes
-landing after the flush are excluded.
-
-_**Unloaded shards** (cold tenants): Hard-link directly from disk including WAL
-(may contain unflushed data). Offloaded/frozen tenants are skipped with a
-`SkipReason`._
-
-**Reading:** `NewSnapshotBucket` opens the hard-linked directory as a read-only
-bucket (`WithImmutable`, compaction disabled). The snapshot directory is removed
-after the scan completes.
-
-**Safety:** Snapshot directories use a `.snapshot-` prefix -- `NewBucket`
-rejects it, `NewSnapshotBucket` requires it. Index startup removes the entire
-`.snapshots/` directory to clean up orphans from crashes.
+Unloaded shards (cold tenants) are hard-linked directly from disk including
+the WAL. Offloaded/frozen tenants are skipped with a `SkipReason`.
 
 ## Parallel Scan and Parquet Writing
 
