@@ -129,6 +129,70 @@ func Test_UnindexedProperty(t *testing.T) {
 		require.Nil(t, err)
 		assert.True(t, len(res.Errors) > 0, "this query should be impossible as the field was not indexed")
 	})
+
+	t.Run("bm25 on searchable property succeeds", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				NoIndexTestClass(
+					bm25: {
+						query: "elephant"
+						properties: ["name"]
+					}
+				){
+					name
+				}
+			}
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		objects := result.Get("Get", className).AsSlice()
+		require.Len(t, objects, 1)
+	})
+
+	t.Run("bm25 on non-searchable property returns error", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				NoIndexTestClass(
+					bm25: {
+						query: "zebra"
+						properties: ["hiddenName"]
+					}
+				){
+					name
+				}
+			}
+		}
+		`
+		res, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
+		require.Nil(t, err)
+		require.True(t, len(res.Errors) > 0,
+			"bm25 search on non-searchable property should return an error")
+		assert.Contains(t, res.Errors[0].Message, "indexSearchable")
+	})
+
+	t.Run("hybrid on non-searchable property returns error", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				NoIndexTestClass(
+					hybrid: {
+						query: "zebra"
+						properties: ["hiddenName"]
+					}
+				){
+					name
+				}
+			}
+		}
+		`
+		res, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", query, nil)
+		require.Nil(t, err)
+		require.True(t, len(res.Errors) > 0,
+			"hybrid search on non-searchable property should return an error")
+		assert.Contains(t, res.Errors[0].Message, "indexSearchable")
+	})
 }
 
 func assertGetObjectEventually(t *testing.T, uuid strfmt.UUID) *models.Object {
