@@ -311,3 +311,15 @@ func (ks *ResultSet) Reset(k int) {
 	}
 	ks.k = k
 }
+
+func (h *HFresh) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	panic("SearchByMultiVector not implemented for HFresh")
+}
+
+func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	panic("SearchByMultiVectorDistance not implemented for HFresh")
+}
+
+func (h *HFresh) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	panic("QueryMultiVectorDistancer not implemented for HFresh")
+}

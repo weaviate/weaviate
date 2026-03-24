@@ -232,6 +232,18 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	return true, nil
 }
 
+func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
+	panic("AddMulti not implemented for HFresh")
+}
+
+func (h *HFresh) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
+	panic("AddMultiBatch not implemented for HFresh")
+}
+
+func (h *HFresh) ValidateMultiBeforeInsert(vector [][]float32) error {
+	panic("ValidateMultiBeforeInsert not implemented for HFresh")
+}
+
 func (h *HFresh) ValidateBeforeInsert(vector []float32) error {
 	dims := atomic.LoadUint32(&h.dims)
 	if dims == 0 {
