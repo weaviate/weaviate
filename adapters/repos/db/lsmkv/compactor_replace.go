@@ -193,7 +193,7 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 			continue
 		}
 
-		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
+		if (key1 != nil && bytes.Compare(key1, key2) < 0) || key2 == nil {
 			// key 1 is smaller
 			if !(c.cleanupTombstones && errors.Is(err1, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(f, offset, res1.primaryKey, res1.value,
