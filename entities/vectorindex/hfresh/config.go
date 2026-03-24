@@ -21,6 +21,12 @@ import (
 )
 
 const (
+	DefaultMuveraKSim         = hnsw.DefaultMultivectorKSim
+	DefaultMuveraDProjections = hnsw.DefaultMultivectorDProjections
+	DefaultMuveraRepetitions  = hnsw.DefaultMultivectorRepetitions
+)
+
+const (
 	DefaultMaxPostingSizeKB     = 48
 	MaxPostingSizeKBFloor       = 8
 	DefaultReplicas             = 4
@@ -33,11 +39,12 @@ const (
 // UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
-	MaxPostingSizeKB uint32        `json:"maxPostingSizeKB"`
-	Replicas         uint32        `json:"replicas"`
-	SearchProbe      uint32        `json:"searchProbe"`
-	Distance         string        `json:"distance"`
-	RQ               hnsw.RQConfig `json:"rq"`
+	MaxPostingSizeKB uint32                 `json:"maxPostingSizeKB"`
+	Replicas         uint32                 `json:"replicas"`
+	SearchProbe      uint32                 `json:"searchProbe"`
+	Distance         string                 `json:"distance"`
+	RQ               hnsw.RQConfig          `json:"rq"`
+	Multivector      hnsw.MultivectorConfig `json:"multivector"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -51,7 +58,7 @@ func (u UserConfig) DistanceName() string {
 }
 
 func (u UserConfig) IsMultiVector() bool {
-	return false
+	return u.Multivector.MuveraConfig.Enabled
 }
 
 // SetDefaults in the user-specifyable part of the config
@@ -63,6 +70,11 @@ func (u *UserConfig) SetDefaults() {
 	u.RQ.Enabled = true
 	u.RQ.Bits = 1
 	u.RQ.RescoreLimit = DefaultHFreshRescoreLimit
+	u.Multivector.Enabled = false
+	u.Multivector.MuveraConfig.Enabled = false
+	u.Multivector.MuveraConfig.KSim = DefaultMuveraKSim
+	u.Multivector.MuveraConfig.DProjections = DefaultMuveraDProjections
+	u.Multivector.MuveraConfig.Repetitions = DefaultMuveraRepetitions
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -103,6 +115,18 @@ func (u *UserConfig) validate() error {
 			u.MaxPostingSizeKB,
 			MaximumAllowedPostingSizeKB,
 		))
+	}
+
+	if u.Multivector.MuveraConfig.Enabled {
+		if u.Multivector.MuveraConfig.KSim <= 0 {
+			errs = append(errs, fmt.Errorf("muvera ksim must be greater than 0"))
+		}
+		if u.Multivector.MuveraConfig.DProjections <= 0 {
+			errs = append(errs, fmt.Errorf("muvera dprojections must be greater than 0"))
+		}
+		if u.Multivector.MuveraConfig.Repetitions <= 0 {
+			errs = append(errs, fmt.Errorf("muvera repetitions must be greater than 0"))
+		}
 	}
 
 	if len(errs) > 0 {
@@ -210,7 +234,70 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 		return uc, err
 	}
 
-	// TODO: add quantization config
+	if err := parseMultivectorConfig(asMap, &uc.Multivector, isMultiVector); err != nil {
+		return uc, err
+	}
 
 	return uc, uc.validate()
+}
+
+func parseMultivectorConfig(in map[string]interface{}, multivector *hnsw.MultivectorConfig, isMultiVector bool) error {
+	multivectorValue, ok := in["multivector"]
+	if !ok {
+		return nil
+	}
+
+	multivectorMap, ok := multivectorValue.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(multivectorMap, "enabled", func(v bool) {
+		if isMultiVector {
+			multivector.Enabled = true
+		} else {
+			multivector.Enabled = v
+		}
+	}); err != nil {
+		return err
+	}
+
+	muveraValue, ok := multivectorMap["muvera"]
+	if !ok {
+		return nil
+	}
+
+	muveraMap, ok := muveraValue.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(muveraMap, "enabled", func(v bool) {
+		multivector.MuveraConfig.Enabled = v
+		if v {
+			multivector.Enabled = true
+		}
+	}); err != nil {
+		return err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(muveraMap, "ksim", func(v int) {
+		multivector.MuveraConfig.KSim = v
+	}); err != nil {
+		return err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(muveraMap, "dprojections", func(v int) {
+		multivector.MuveraConfig.DProjections = v
+	}); err != nil {
+		return err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(muveraMap, "repetitions", func(v int) {
+		multivector.MuveraConfig.Repetitions = v
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
