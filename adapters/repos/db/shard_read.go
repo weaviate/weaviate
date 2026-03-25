@@ -674,8 +674,14 @@ func (s *Shard) applyMMRSelection(ctx context.Context, selector *searchparams.Se
 	}
 
 	// Pre-fetch candidate vectors from the object store
+	var addProps additional.Properties
+	if targetVector == "" {
+		addProps = additional.Properties{Vector: true}
+	} else {
+		addProps = additional.Properties{Vectors: []string{targetVector}}
+	}
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, s.index.logger)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
 	}
