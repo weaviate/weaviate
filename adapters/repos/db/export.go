@@ -220,7 +220,14 @@ func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string
 	}
 
 	if err := eg.Wait(); err != nil {
-		return results, err
+		// Clean up any snapshot dirs created by goroutines that succeeded
+		// before the error group was cancelled.
+		for _, r := range results {
+			if r.SnapshotDir != "" {
+				os.RemoveAll(r.SnapshotDir)
+			}
+		}
+		return nil, err
 	}
 
 	return results, nil

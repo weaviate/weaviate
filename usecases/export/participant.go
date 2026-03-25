@@ -716,9 +716,13 @@ func (p *Participant) snapshotAllShards(
 		isMT := p.selector.IsMultiTenant(ctx, className)
 
 		results, snapshotErr := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
+		if snapshotErr != nil {
+			// SnapshotShards cleans up any partial snapshot dirs on error,
+			// so we only need to return the error here. The defer handles
+			// cleanup of snapshots from previously successful classes.
+			return nil, nil, fmt.Errorf("snapshot class %s: %w", className, snapshotErr)
+		}
 
-		// Process results into snapshots before checking the error so the
-		// defer cleanup covers any dirs created before the failure.
 		for _, r := range results {
 			if r.SkipReason != "" {
 				skipped = append(skipped, skippedShard{
@@ -743,10 +747,6 @@ func (p *Participant) snapshotAllShards(
 				dir:       r.SnapshotDir,
 				strategy:  r.Strategy,
 			})
-		}
-
-		if snapshotErr != nil {
-			return snapshots, skipped, fmt.Errorf("snapshot class %s: %w", className, snapshotErr)
 		}
 	}
 
