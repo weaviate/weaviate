@@ -2650,9 +2650,6 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 					counts[shard][host] += count
 					mux.Unlock()
 				}
-				if err != nil {
-					panic(err)
-				}
 				return nil, nil
 			}, "", time.Minute)
 		if err != nil {
