@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -42,7 +43,15 @@ type propValuePair struct {
 	hasFilterableIndex bool
 	hasSearchableIndex bool
 	hasRangeableIndex  bool
-	Class              *models.Class // The schema
+	// isNested marks a filter on a nested (object/object[]) property. When set:
+	//   - prop is the top-level property name (used for bucket name resolution)
+	//   - value is the bare encoded value (without prefix)
+	//   - nestedKeyPrefix is hash8(dottedPath), used to bound cursor reads and
+	//     to construct the full bucket key: nestedKeyPrefix+value
+	//   - the result bitmap contains positions that are stripped to docIDs
+	isNested        bool
+	nestedKeyPrefix []byte
+	Class           *models.Class // The schema
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -344,10 +353,22 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 	if err != nil {
 		return nil, err
 	}
+	if pv.isNested {
+		// The nested value bucket stores positions (root|leaf|docID) rather than
+		// plain docIDs. Strip position bits to extract the docID-only bitmap.
+		dbm.docIDs = nested.MaskAllPositions(dbm.docIDs)
+	}
 	return &dbm, nil
 }
 
 func (pv *propValuePair) getBucketName() string {
+	if pv.isNested {
+		if pv.hasFilterableIndex {
+			return helpers.BucketNestedFromPropNameLSM(pv.prop)
+		}
+		return ""
+	}
+
 	if pv.hasRangeableIndex {
 		switch pv.operator {
 		// decide whether handle equal/not_equal with rangeable index

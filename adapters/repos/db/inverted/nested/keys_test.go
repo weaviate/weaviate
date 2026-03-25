@@ -20,6 +20,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPathPrefix(t *testing.T) {
+	t.Run("returns 8-byte xxhash of path", func(t *testing.T) {
+		prefix := PathPrefix("addresses.city")
+		require.Len(t, prefix, 8)
+		assert.Equal(t, xxhash.Sum64String("addresses.city"), binary.BigEndian.Uint64(prefix))
+	})
+
+	t.Run("different paths produce different prefixes", func(t *testing.T) {
+		assert.NotEqual(t, PathPrefix("addresses.city"), PathPrefix("addresses.postcode"))
+	})
+
+	t.Run("matches first 8 bytes of ValueKey for same path", func(t *testing.T) {
+		path := "addresses.city"
+		assert.Equal(t, PathPrefix(path), ValueKey(path, []byte("Berlin"))[:8])
+	})
+}
+
 func TestValueKey(t *testing.T) {
 	t.Run("hash prefix followed by value", func(t *testing.T) {
 		value := []byte("Berlin")
