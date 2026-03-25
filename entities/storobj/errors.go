@@ -28,11 +28,3 @@ func NewErrNotFoundf(docID uint64, msg string, args ...interface{}) error {
 func (err ErrNotFound) Error() string {
 	return fmt.Sprintf("no object found for doc id %d: %s", err.DocID, err.OriginalMsg)
 }
-
-type ErrTargetVectorNotFound struct {
-	TargetVector string
-}
-
-func (err ErrTargetVectorNotFound) Error() string {
-	return fmt.Sprintf("target vector %q not found", err.TargetVector)
-}

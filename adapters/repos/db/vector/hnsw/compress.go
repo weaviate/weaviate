@@ -55,10 +55,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					// object deleted or target vector missing on this object, skip
+					// already deleted, ignore
 					continue
+				} else {
+					return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
 				}
-				return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
 			}
 
 			if len(p) == 0 {
