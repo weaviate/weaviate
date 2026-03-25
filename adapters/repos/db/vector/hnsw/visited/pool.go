@@ -20,16 +20,16 @@ type Pool struct {
 func NewPool(listSetSize int) *Pool {
 	p := &Pool{}
 	p.pool.New = func() interface{} {
-		return NewSparseSet(listSetSize, 4096)
+		return NewFastSet(listSetSize)
 	}
 	return p
 }
 
-func (p *Pool) Borrow() *SparseSet {
-	return p.pool.Get().(*SparseSet)
+func (p *Pool) Borrow() *FastSet {
+	return p.pool.Get().(*FastSet)
 }
 
-func (p *Pool) Return(l *SparseSet) {
+func (p *Pool) Return(l *FastSet) {
 	if l == nil {
 		return
 	}
