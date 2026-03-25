@@ -2665,13 +2665,13 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 							mux.Unlock()
 						}
 						return nil, nil
-					}, "", time.Minute)
+					}, "", time.Second)
 				if err != nil {
 					return err
 				}
 
-				// Fan in results from all concurrent Pull request. It is safe to
-				// ignore Result[T].Err, as our func will swallow any error.
+				// Fan in results from all concurrent Pull requests. It is safe
+				// to ignore Result[T].Err, as our func will swallow any errors.
 				for range results {
 				}
 				total.Add(int32(reconcile(counts)))
