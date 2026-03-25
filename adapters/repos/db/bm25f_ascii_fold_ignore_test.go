@@ -307,3 +307,138 @@ func TestBM25FASCIIFoldIgnoreBlock(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	runASCIIFoldIgnoreTests(t, repo, props)
 }
+
+// TestBM25FASCIIFoldIgnoreUpdate verifies that updating the asciiFoldIgnore
+// list does NOT re-index existing documents. Old documents retain their
+// original indexing, while new documents and queries use the updated config.
+func TestBM25FASCIIFoldIgnoreUpdate(t *testing.T) {
+	runASCIIFoldIgnoreUpdateTest(t, false)
+}
+
+func TestBM25FASCIIFoldIgnoreUpdateBlock(t *testing.T) {
+	runASCIIFoldIgnoreUpdateTest(t, true)
+}
+
+func runASCIIFoldIgnoreUpdateTest(t *testing.T, useBlockMaxWAND bool) {
+	repo, schemaGetter, props := setupASCIIFoldIgnoreRepo(t, useBlockMaxWAND)
+	defer repo.Shutdown(context.Background())
+
+	idx := repo.GetIndex("ASCIIFoldIgnoreClass")
+	require.NotNil(t, idx)
+
+	addit := additional.Properties{}
+
+	// --- Phase 1: Verify baseline behavior with ignore=["é"] ---
+
+	t.Run("before update: title école matches", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "école"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 1, "before update: école matches because é is in the index")
+	})
+
+	t.Run("before update: title ecole does NOT match", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "ecole"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 0, "before update: ecole doesn't match because é is preserved in index")
+	})
+
+	// --- Phase 2: Update the schema to remove é from ignore list ---
+
+	vFalse := false
+	vTrue := true
+	updatedClass := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(1.2, 0.75, "none"),
+		Class:               "ASCIIFoldIgnoreClass",
+		Properties: []*models.Property{
+			{
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+				TextAnalyser: &models.TextAnalyserConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{}, // removed é from ignore
+				},
+			},
+			{
+				Name:            "body",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+				TextAnalyser: &models.TextAnalyserConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{},
+				},
+			},
+		},
+	}
+
+	// Update the schema getter so the DB sees the new config
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{updatedClass},
+		},
+	}
+
+	// --- Phase 3: Verify old documents are NOT re-indexed ---
+	// Old title documents have "école" indexed as "école" (é preserved).
+	// After update, queries fold é→e, so searching "ecole" folds to "ecole"
+	// but the index still has "école" — no match.
+	// Searching "école" now folds to "ecole" — also no match for old docs!
+
+	t.Run("after update: title ecole still does NOT match old docs", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "ecole"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 0,
+			"old docs still have 'école' in index (é preserved), query 'ecole' doesn't match")
+	})
+
+	t.Run("after update: title école now does NOT match old docs because query folds é", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "école"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 0,
+			"query 'école' is now folded to 'ecole' (é no longer ignored), but old index has 'école' — mismatch")
+	})
+
+	// --- Phase 4: Insert a new document with the updated config ---
+
+	newID := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", 10)).String())
+	newObj := &models.Object{
+		Class: "ASCIIFoldIgnoreClass",
+		ID:    newID,
+		Properties: map[string]interface{}{
+			"title": "nouvelle école",
+			"body":  "nouvelle école",
+		},
+		CreationTimeUnix:   1565612833955,
+		LastUpdateTimeUnix: 10000020,
+	}
+	err := repo.PutObject(context.Background(), newObj, []float32{1, 3, 5, 0.4}, nil, nil, nil, 0)
+	require.Nil(t, err)
+
+	// New doc is indexed with updated config: é IS folded now
+	// So "école" is indexed as "ecole" in the new doc
+
+	t.Run("after update: title ecole matches NEW doc only", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "ecole"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 1, "new doc indexed with full fold: 'ecole' matches")
+		require.Equal(t, uint64(4), res[0].DocID)
+	})
+
+	t.Run("after update: title école matches NEW doc only", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "école"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 1, "query 'école' folded to 'ecole', matches new doc indexed as 'ecole'")
+		require.Equal(t, uint64(4), res[0].DocID)
+	})
+}

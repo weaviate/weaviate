@@ -404,11 +404,28 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 		}
 	}
 
+	// asciiFoldIgnore is mutable — strip it before comparison so changes
+	// to the ignore list alone do not block the update.
+	stripASCIIFoldIgnore(e)
+	stripASCIIFoldIgnore(n)
+
 	if !reflect.DeepEqual(e, n) {
 		return errPropertiesUpdatedInClassUpdate
 	}
 
 	return nil
+}
+
+// stripASCIIFoldIgnore removes the ASCIIFoldIgnore field from the textAnalyser
+// entry in a property map so that it is excluded from immutability checks.
+func stripASCIIFoldIgnore(m map[string]any) {
+	ta, ok := m["textAnalyser"]
+	if !ok || ta == nil {
+		return
+	}
+	if cfg, ok := ta.(*models.TextAnalyserConfig); ok && cfg != nil {
+		cfg.ASCIIFoldIgnore = nil
+	}
 }
 
 func cutModuleConfig(properties map[string]any) map[string]any {

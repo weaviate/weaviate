@@ -207,6 +207,30 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 			updated:     nil,
 			expectError: true,
 		},
+		{
+			name:        "update asciiFoldIgnore is allowed",
+			existing:    &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
+			expectError: false,
+		},
+		{
+			name:        "add asciiFoldIgnore is allowed",
+			existing:    &models.TextAnalyserConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			expectError: false,
+		},
+		{
+			name:        "remove asciiFoldIgnore is allowed",
+			existing:    &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyserConfig{ASCIIFold: true},
+			expectError: false,
+		},
+		{
+			name:        "change asciiFold while changing ignore is still blocked",
+			existing:    &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyserConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
