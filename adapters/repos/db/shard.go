@@ -229,14 +229,12 @@ type Shard struct {
 	queues        map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux             sync.RWMutex
-	targetNodeOverrides               additional.AsyncReplicationTargetNodeOverrides
-	asyncReplicationConfig            AsyncReplicationConfig
-	hashtree                          hashtree.AggregatedHashTree
-	hashtreeFullyInitialized          bool
-	minimalHashtreeInitializationCh   chan struct{}
-	minimalHashtreeInitializationOnce *sync.Once
-	asyncReplicationCancelFunc        context.CancelFunc
+	asyncReplicationRWMux      sync.RWMutex
+	targetNodeOverrides        additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig     AsyncReplicationConfig
+	hashtree                   hashtree.AggregatedHashTree
+	hashtreeFullyInitialized   bool
+	asyncReplicationCancelFunc context.CancelFunc
 
 	// hashbeatNotifyCh is set by initHashBeater and cleared by mayStopAsyncReplication.
 	// External callers (e.g. flush callbacks) send to this channel to wake the

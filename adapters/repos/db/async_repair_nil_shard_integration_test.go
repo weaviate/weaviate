@@ -328,9 +328,7 @@ func TestAsyncRepairObjectInsertionNilShardRetry(t *testing.T) {
 
 	// Wait for the hashtree init scan to complete so that the source's root
 	// digest reflects all N on-disk objects before the first hashbeat.
-	initCtx, initCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer initCancel()
-	require.NoError(t, s.waitForMinimalHashTreeInitialization(initCtx))
+	awaitHashtreeInitialized(t, s)
 
 	// Give the first hashbeat time to fire and fail (target shard is nil →
 	// HashTreeLevel returns error → backoff ≥ 1 s). 1.5 s is enough.

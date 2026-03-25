@@ -142,6 +142,17 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
+	t.Run("wait for paragraph class to be visible on all nodes", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+			require.Len(ct, body.Payload.Nodes, 3)
+		}, 30*time.Second, 500*time.Millisecond)
+	})
+
 	var uuid strfmt.UUID
 	sourceNode := -1
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {

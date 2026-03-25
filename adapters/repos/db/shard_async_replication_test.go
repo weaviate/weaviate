@@ -159,6 +159,16 @@ func flushShard(t *testing.T, ctx context.Context, shard ShardLike) {
 	require.NoError(t, s.store.FlushMemtables(ctx))
 }
 
+// concreteShard unwraps the *Shard from a ShardLike returned by testShard.
+// testShard passes EnableLazyLoadShards=true which causes initShard to create
+// a real *Shard directly (not a LazyLoadShard wrapper).
+func concreteShard(t *testing.T, sl ShardLike) *Shard {
+	t.Helper()
+	s, ok := sl.(*Shard)
+	require.True(t, ok, "expected *Shard from testShard (EnableLazyLoadShards=true)")
+	return s
+}
+
 // TestShardCompareDigests validates the server-side CompareDigests logic:
 // missing objects are returned with UpdateTime==0, stale objects with the local
 // UpdateTime, and up-to-date objects are not returned at all.
@@ -546,400 +556,160 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 // ─── Async Replication Lifecycle ─────────────────────────────────────────────
 
-// simulateInitInProgress sets the shard's async-replication fields to exactly
-// the state that initAsyncReplication establishes when a fresh hashtree must be
-// built from scratch: hashtree non-nil, not yet fully initialised, channel open,
-// Once fresh.  Direct field assignment gives tests deterministic control over
-// the "init in progress" state without spawning a real init goroutine or relying
-// on any timing.
-//
-// The returned cancel func is stored as s.asyncReplicationCancelFunc so that
-// the disable paths (SetAsyncReplicationState, mayStopAsyncReplication) can
-// call it without panicking.  Callers must invoke it after the test completes.
-func simulateInitInProgress(t *testing.T, s *Shard) context.CancelFunc {
-	t.Helper()
-	ht, err := hashtree.NewHashTree(1)
-	require.NoError(t, err)
-	_, cancel := context.WithCancel(context.Background())
-	s.asyncReplicationRWMux.Lock()
-	s.hashtree = ht
-	s.hashtreeFullyInitialized = false
-	s.minimalHashtreeInitializationCh = make(chan struct{})
-	s.minimalHashtreeInitializationOnce = &sync.Once{}
-	s.asyncReplicationCancelFunc = cancel
-	s.asyncReplicationRWMux.Unlock()
-	return cancel
+// minAsyncReplicationConfig returns a valid AsyncReplicationConfig suitable
+// for unit tests that enable async replication.  All ticker durations are
+// non-zero (time.NewTicker panics on zero) but large enough that background
+// goroutines don't fire during the test lifetime.
+func minAsyncReplicationConfig() AsyncReplicationConfig {
+	return AsyncReplicationConfig{
+		hashtreeHeight:              1,
+		frequency:                   10 * time.Minute,
+		frequencyWhilePropagating:   10 * time.Minute,
+		aliveNodesCheckingFrequency: 10 * time.Minute,
+		diffBatchSize:               100,
+		propagationLimit:            100,
+		propagationConcurrency:      1,
+		propagationBatchSize:        10,
+		diffPerNodeTimeout:          5 * time.Second,
+		prePropagationTimeout:       5 * time.Second,
+		propagationTimeout:          5 * time.Second,
+		initShieldCPUEveryN:         1,
+	}
 }
 
-// TestAsyncReplicationLifecycle validates the correctness of the
-// waitForMinimalHashTreeInitialization / channel-close / sync.Once machinery
-// introduced to fix the deadlock where goroutines holding RLock while blocking
-// on the init channel prevented SetAsyncReplicationState from ever acquiring
-// the write lock needed to close that channel.
-//
-// All subtests are deterministic: they do not sleep or rely on goroutine
-// scheduling order.  The 5-second awaitDone guard only fires on real deadlocks;
-// in normal runs these operations complete in microseconds.
-func TestAsyncReplicationLifecycle(t *testing.T) {
+// awaitHashtreeInitialized polls hashtreeFullyInitialized until it is true or
+// the deadline fires.  Since writes no longer update the hashtree, the init
+// goroutine is the only writer; polling under RLock is safe and race-free.
+func awaitHashtreeInitialized(t *testing.T, s *Shard) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+		return s.hashtreeFullyInitialized
+	}, 10*time.Second, 10*time.Millisecond, "hashtree did not become fully initialized within timeout")
+}
+
+// TestAsyncReplicationEnableDisableCycle verifies the shard can be cycled
+// through enable → disable → re-enable without panicking or deadlocking, and
+// that hashtree state is correctly managed across transitions.
+func TestAsyncReplicationEnableDisableCycle(t *testing.T) {
 	ctx := context.Background()
 	const class = "AsyncReplicationLifecycleTest"
 
-	// concreteShard unwraps the *Shard from testShard (EnableLazyLoadShards=true
-	// causes initShard to create a real *Shard directly, not a LazyLoadShard).
-	concreteShard := func(t *testing.T, sl ShardLike) *Shard {
-		t.Helper()
-		s, ok := sl.(*Shard)
-		require.True(t, ok, "expected *Shard; EnableLazyLoadShards must be true")
-		return s
-	}
+	config := minAsyncReplicationConfig()
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
 
-	// awaitDone waits for done to close, failing the test if the liveness
-	// timeout elapses first. Fatalf is called directly so the goroutine count
-	// in the failure message points at the right test.
-	awaitDone := func(t *testing.T, done <-chan struct{}, msg string) {
-		t.Helper()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("liveness timeout: %s", msg)
-		}
-	}
+	// First enable: spawns init goroutine; hashtree must be allocated.
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
+	s.asyncReplicationRWMux.RLock()
+	assert.NotNil(t, s.hashtree, "hashtree must be allocated after first enable")
+	s.asyncReplicationRWMux.RUnlock()
 
-	// ── Fast-path: hashtree nil ───────────────────────────────────────────────
-	// Test 4: when async replication has never been enabled the hashtree field
-	// is nil; waitForMinimalHashTreeInitialization must return nil immediately
-	// without touching minimalHashtreeInitializationCh (which is also nil).
-	t.Run("FastPathHashtreeNil", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		require.Nil(t, s.hashtree, "pre-condition: hashtree must be nil")
-		require.NoError(t, s.waitForMinimalHashTreeInitialization(ctx))
-	})
+	// Disable: cancels the init goroutine and clears all state.
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, false))
+	s.asyncReplicationRWMux.RLock()
+	assert.Nil(t, s.hashtree, "hashtree must be nil after disable")
+	assert.False(t, s.hashtreeFullyInitialized)
+	s.asyncReplicationRWMux.RUnlock()
 
-	// ── Fast-path: already fully initialised ─────────────────────────────────
-	// When hashtreeFullyInitialized is true the function must return nil
-	// immediately without blocking on the channel.
-	t.Run("FastPathFullyInitialized", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		ht, err := hashtree.NewHashTree(1)
-		require.NoError(t, err)
-		s.asyncReplicationRWMux.Lock()
-		s.hashtree = ht
-		s.hashtreeFullyInitialized = true
-		s.asyncReplicationRWMux.Unlock()
-		require.NoError(t, s.waitForMinimalHashTreeInitialization(ctx))
-	})
+	// Re-enable: must work without panic or deadlock.
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
+	s.asyncReplicationRWMux.RLock()
+	assert.NotNil(t, s.hashtree, "hashtree must be re-allocated after re-enable")
+	s.asyncReplicationRWMux.RUnlock()
 
-	// ── Test 1: unblocked by normal init completion ───────────────────────────
-	// A goroutine blocked in waitForMinimalHashTreeInitialization must be
-	// unblocked when releaseInitialization closes the channel.  Closing before
-	// the goroutine reaches the select is equally valid (receive on a closed
-	// channel returns immediately), so no ordering synchronisation is needed —
-	// the test is correct regardless of scheduling.
-	t.Run("UnblockedByInitCompletion", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		cancel := simulateInitInProgress(t, s)
-		defer cancel()
+	// Wait for the init goroutine on the (empty) shard to finish.
+	awaitHashtreeInitialized(t, s)
 
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
-				t.Errorf("expected nil error, got %v", err)
-			}
-		}()
+	// Idempotent enable: no-op when already enabled.
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
 
-		// Simulate releaseInitialization (called inside initHashtree once the
-		// first scan pass completes).
-		s.minimalHashtreeInitializationOnce.Do(func() {
-			close(s.minimalHashtreeInitializationCh)
-		})
-		awaitDone(t, done, "waitForMinimalHashTreeInitialization did not return after channel close")
-	})
+	// Final cleanup.
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, false))
+}
 
-	// ── Test 6: context cancellation unblocks a waiting goroutine ────────────
-	t.Run("ContextCancellation", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		cancel := simulateInitInProgress(t, s)
-		defer cancel()
+// TestInitScanPopulatesHashtree validates that objects on disk when async
+// replication is enabled are correctly registered in the hashtree by the init
+// scan (ApplyToOnDiskObjectDigests), producing a non-zero root digest.
+func TestInitScanPopulatesHashtree(t *testing.T) {
+	ctx := context.Background()
+	const class = "InitScanHashtreeTest"
 
-		waitCtx, waitCancel := context.WithCancel(ctx)
-		result := make(chan error, 1)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			result <- s.waitForMinimalHashTreeInitialization(waitCtx)
-		}()
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
 
-		waitCancel()
-		awaitDone(t, done, "waitForMinimalHashTreeInitialization did not return after context cancellation")
-		require.ErrorIs(t, <-result, context.Canceled)
-	})
-
-	// ── Multiple waiters all unblocked simultaneously ─────────────────────────
-	// Closing a channel broadcasts to all receivers at once.  All N goroutines
-	// must return nil — not just the first one.
-	t.Run("MultipleWaitersUnblockedAtOnce", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		cancel := simulateInitInProgress(t, s)
-		defer cancel()
-
-		const n = 10
-		results := make(chan error, n)
-		var wg sync.WaitGroup
-		wg.Add(n)
-		for range n {
-			go func() {
-				defer wg.Done()
-				results <- s.waitForMinimalHashTreeInitialization(ctx)
-			}()
-		}
-
-		s.minimalHashtreeInitializationOnce.Do(func() {
-			close(s.minimalHashtreeInitializationCh)
-		})
-
-		done := make(chan struct{})
-		go func() { wg.Wait(); close(done) }()
-		awaitDone(t, done, "not all goroutines unblocked after channel close")
-
-		close(results)
-		for err := range results {
-			assert.NoError(t, err)
-		}
-	})
-
-	// ── Test 2: SetAsyncReplicationState(disabled) unblocks waiters ──────────
-	// This is the exact scenario Fix #9 addresses: goroutines blocked in
-	// waitForMinimalHashTreeInitialization must be unblocked when
-	// SetAsyncReplicationState disables async replication.
-	//
-	// Correctness is independent of scheduling order:
-	//   • If goroutines reach select before disable: channel is closed by disable
-	//     → select returns → goroutines exit.
-	//   • If disable runs first: hashtree is nil by the time goroutines take
-	//     their RLock → fast-path returns nil immediately.
-	// Either way all goroutines return nil — the test is non-flaky.
-	t.Run("DisableUnblocksWaiters", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		cancel := simulateInitInProgress(t, s)
-		defer cancel()
-
-		const n = 5
-		results := make(chan error, n)
-		var wg sync.WaitGroup
-		wg.Add(n)
-		for range n {
-			go func() {
-				defer wg.Done()
-				results <- s.waitForMinimalHashTreeInitialization(ctx)
-			}()
-		}
-
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), AsyncReplicationConfig{}, false))
-
-		done := make(chan struct{})
-		go func() { wg.Wait(); close(done) }()
-		awaitDone(t, done, "goroutines did not unblock after SetAsyncReplicationState(disabled)")
-
-		close(results)
-		for err := range results {
-			assert.NoError(t, err)
-		}
-
-		// Post-condition: all state cleared.
-		s.asyncReplicationRWMux.RLock()
-		assert.Nil(t, s.hashtree)
-		assert.False(t, s.hashtreeFullyInitialized)
-		s.asyncReplicationRWMux.RUnlock()
-	})
-
-	// ── Test 3: mayStopAsyncReplication unblocks waiters ─────────────────────
-	// mayStopAsyncReplication is the shutdown path used during shard close.
-	// It must also close the init channel so goroutines are not leaked.
-	t.Run("StopUnblocksWaiters", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-		cancel := simulateInitInProgress(t, s)
-		defer cancel()
-
-		const n = 5
-		results := make(chan error, n)
-		var wg sync.WaitGroup
-		wg.Add(n)
-		for range n {
-			go func() {
-				defer wg.Done()
-				results <- s.waitForMinimalHashTreeInitialization(ctx)
-			}()
-		}
-
-		s.mayStopAsyncReplication()
-
-		done := make(chan struct{})
-		go func() { wg.Wait(); close(done) }()
-		awaitDone(t, done, "goroutines did not unblock after mayStopAsyncReplication")
-
-		close(results)
-		for err := range results {
-			assert.NoError(t, err)
-		}
-	})
-
-	// ── Double-close protection: releaseInitialization races with disable ─────
-	// Both the init goroutine (releaseInitialization) and the disable path
-	// (SetAsyncReplicationState / mayStopAsyncReplication) can race to close
-	// minimalHashtreeInitializationCh.  sync.Once must guarantee exactly one
-	// close, preventing a panic.  The loop runs the race repeatedly so the
-	// -race detector can observe any data races on the channel or the Once.
-	t.Run("NoPanicOnConcurrentChannelCloseAndDisable", func(t *testing.T) {
-		for range 20 {
-			sl, _ := testShard(t, ctx, class)
-			s := concreteShard(t, sl)
-			cancel := simulateInitInProgress(t, s)
-
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
-				// Simulate releaseInitialization inside initHashtree.
-				s.minimalHashtreeInitializationOnce.Do(func() {
-					close(s.minimalHashtreeInitializationCh)
-				})
-			}()
-			go func() {
-				defer wg.Done()
-				_ = s.SetAsyncReplicationState(context.Background(), AsyncReplicationConfig{}, false)
-			}()
-			wg.Wait() // no panic == pass
-			cancel()
-		}
-	})
-
-	// ── Test 5: enable → disable → re-enable cycle ───────────────────────────
-	// Verifies that the shard can be cycled through enable → disable → re-enable
-	// without panicking or deadlocking.  In particular checks that
-	// initAsyncReplication allocates a fresh channel and a fresh sync.Once on
-	// each call, so the second enable does not reuse a spent Once or a closed
-	// channel.
-	t.Run("EnableDisableReenableCycle", func(t *testing.T) {
-		config := AsyncReplicationConfig{hashtreeHeight: 1}
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-
-		// First enable: spawns init goroutine; hashtree must be allocated.
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
-		s.asyncReplicationRWMux.RLock()
-		assert.NotNil(t, s.hashtree, "hashtree must be allocated after first enable")
-		s.asyncReplicationRWMux.RUnlock()
-
-		// Disable: cancels the init goroutine and clears all state.
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, false))
-		s.asyncReplicationRWMux.RLock()
-		assert.Nil(t, s.hashtree, "hashtree must be nil after disable")
-		s.asyncReplicationRWMux.RUnlock()
-
-		// Re-enable: must allocate a fresh channel and Once; no panic or deadlock.
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
-		s.asyncReplicationRWMux.RLock()
-		assert.NotNil(t, s.hashtree, "hashtree must be re-allocated after re-enable")
-		s.asyncReplicationRWMux.RUnlock()
-
-		// The init goroutine scans the (empty) bucket and completes quickly.
-		// waitForMinimalHashTreeInitialization must unblock without timing out.
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer waitCancel()
-		require.NoError(t, s.waitForMinimalHashTreeInitialization(waitCtx),
-			"waitForMinimalHashTreeInitialization should return nil after re-enable on empty shard")
-
-		// Idempotent enable: calling enable again when already enabled is a no-op.
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, true))
-
-		// Final cleanup so the shard's background goroutine is stopped.
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), config, false))
-	})
-
-	// ── Regression: batchDeleteObject + concurrent disable must not deadlock ──
-	//
-	// Before the fix, batchDeleteObject held asyncReplicationRWMux.RLock() and
-	// then called waitForMinimalHashTreeInitialization, which internally tries a
-	// second RLock on the same mutex. With Go's writer-preference, if
-	// SetAsyncReplicationState was waiting to acquire the write lock, the second
-	// RLock was permanently blocked — and the write lock itself was blocked
-	// waiting for the first RLock to be released. DEADLOCK.
-	//
-	// The fix moves waitForMinimalHashTreeInitialization before the RLock so
-	// there is never a nested lock acquisition.
-	t.Run("BatchDeleteDuringDisable", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
-
-		id := strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	// Objects must be flushed to disk before enabling async replication:
+	// initHashtree only scans on-disk segments (no memtables).
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	require.NoError(t, s.store.FlushMemtables(ctx))
 
-		// Put the shard in "init in progress" state: hashtree allocated, channel
-		// open, fully-initialized flag false.  batchDeleteObject will block in
-		// waitForMinimalHashTreeInitialization until the channel is closed.
-		cancel := simulateInitInProgress(t, s)
-		defer cancel()
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, true))
+	awaitHashtreeInitialized(t, s)
 
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			// Must not deadlock with the concurrent SetAsyncReplicationState below.
-			_ = s.batchDeleteObject(ctx, id, time.Now())
-		}()
+	s.asyncReplicationRWMux.RLock()
+	require.NotNil(t, s.hashtree)
+	root := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
 
-		// Disable async replication: acquires the write lock, closes the channel,
-		// and clears s.hashtree.  With the old lock order this would deadlock
-		// because batchDeleteObject held RLock while waiting for the channel that
-		// SetAsyncReplicationState needs the write lock to close.
-		cfg := AsyncReplicationConfig{hashtreeHeight: 1}
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, false))
+	require.NotEqual(t, hashtree.Digest{}, root,
+		"hashtree root must be non-zero: on-disk objects must have been registered by init scan")
 
-		awaitDone(t, done, "batchDeleteObject deadlocked with concurrent SetAsyncReplicationState(false)")
-	})
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, false))
+}
 
-	// ── Init scan populates the hashtree correctly ────────────────────────────
-	//
-	// Validates that the lock-free init callback (captured ht pointer +
-	// direct AggregateLeafWith, no per-object RLock) correctly registers all
-	// objects that were present in the shard before async replication was
-	// enabled.  A non-zero root digest confirms objects were registered.
-	t.Run("InitScanPopulatesHashtree", func(t *testing.T) {
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
+// TestHashtreeUpdateOnFlush verifies that objects are NOT in the hashtree while
+// they are in the memtable, and ARE registered after the memtable is flushed to
+// disk.  This is the core invariant of the flush-time hashtree update: the
+// hashtree always reflects durable (on-disk) data only.
+//
+// The test does not assume a specific initial root value (the shard may have
+// residual on-disk data from initialization).  Instead it verifies the relative
+// change: inserts do not change the root, but a flush does.
+func TestHashtreeUpdateOnFlush(t *testing.T) {
+	ctx := context.Background()
+	const class = "HashtreeFlushTest"
 
-		// Insert objects before enabling async replication.
-		for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-			require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-		}
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
 
-		cfg := AsyncReplicationConfig{hashtreeHeight: 1, initShieldCPUEveryN: 1}
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, true))
+	// Enable on the shard; init scan of on-disk segments completes quickly.
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, true))
+	awaitHashtreeInitialized(t, s)
 
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer waitCancel()
-		require.NoError(t, s.waitForMinimalHashTreeInitialization(waitCtx))
+	// Record baseline root after init (captures whatever is already on disk).
+	s.asyncReplicationRWMux.RLock()
+	rootAfterInit := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
 
-		s.asyncReplicationRWMux.RLock()
-		require.NotNil(t, s.hashtree)
-		require.True(t, s.hashtreeFullyInitialized)
-		root := s.hashtree.Root()
-		s.asyncReplicationRWMux.RUnlock()
+	// Insert objects — they land in the memtable, not on disk yet.
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
 
-		var zero hashtree.Digest
-		require.NotEqual(t, zero, root,
-			"hashtree root must be non-zero: objects inserted before init must have been registered")
+	// Root must be unchanged: writes do not update the hashtree.
+	s.asyncReplicationRWMux.RLock()
+	rootAfterInsert := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.Equal(t, rootAfterInit, rootAfterInsert,
+		"hashtree root must not change on write: objects are only registered at flush time")
 
-		require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, false))
-	})
+	// Flush to disk — updateHashtreeOnFlush fires synchronously inside FlushAndSwitch.
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	// Root must have changed: the flushed objects are now registered.
+	s.asyncReplicationRWMux.RLock()
+	rootAfterFlush := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.NotEqual(t, rootAfterInsert, rootAfterFlush,
+		"hashtree root must change after flush: updateHashtreeOnFlush must have registered the objects")
+
+	require.NoError(t, s.SetAsyncReplicationState(context.Background(), cfg, false))
 }
 
 // ─── propagateObjects ─────────────────────────────────────────────────────────

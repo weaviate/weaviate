@@ -200,6 +200,14 @@ type Bucket struct {
 	// to avoid delaying the flush cycle. Protected by flushCallbackMu.
 	flushCallback   func()
 	flushCallbackMu sync.Mutex
+
+	// objectFlushCallback is called inside FlushAndSwitch after the flushing
+	// memtable has been written to disk but before the new segment is added to
+	// the segment group. It receives an iterator over the flushed entries and a
+	// function to look up existing on-disk values (pre-new-segment).
+	// Only invoked for StrategyReplace buckets.
+	objectFlushCallback   ObjectFlushCallback
+	objectFlushCallbackMu sync.Mutex
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -458,6 +466,35 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 			if err := f(k, updateTime); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ApplyToOnDiskObjectDigests iterates over objects stored in on-disk segments
+// only (memtables are not scanned) and calls fn for each object. For keys that
+// appear in multiple segments the latest version is returned (segment group
+// deduplication). Tombstoned entries are skipped.
+//
+// This is the disk-only counterpart of ApplyToObjectDigests, intended for
+// initialising state that should reflect durable on-disk data exclusively.
+func (b *Bucket) ApplyToOnDiskObjectDigests(ctx context.Context, fn func(uuidBytes []byte, updateTime int64) error) error {
+	onDiskCursor := b.CursorOnDisk()
+	defer onDiskCursor.Close()
+
+	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+			if err != nil || updateTime < 1 {
+				continue
+			}
+			if err := fn(k, updateTime); err != nil {
+				return err
 			}
 		}
 	}
@@ -1499,10 +1536,10 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
-	if err := b.disk.shutdown(ctx); err != nil {
-		return err
-	}
-
+	// Unregister flush callbacks before anything else: this blocks until any
+	// in-progress auto-flush (flushAndSwitchIfThresholdsMet) completes and
+	// prevents new ones from starting.  b.disk is still fully accessible here,
+	// which is required by fireObjectFlushCallbackForActiveMem below.
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
@@ -1529,7 +1566,17 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 
-	if b.shouldReuseWAL() {
+	reuseWAL := b.shouldReuseWAL()
+	if !reuseWAL {
+		// Fire objectFlushCallback for the active memtable before flushing it to
+		// disk.  b.disk is still accessible at this point (not yet shut down), so
+		// getConsistentViewOfSegments can snapshot the current on-disk segments
+		// and the callback receives the correct pre-flush disk state — matching
+		// the semantics used in FlushAndSwitch.
+		b.fireObjectFlushCallbackForActiveMem()
+	}
+
+	if reuseWAL {
 		if err := b.active.flushWAL(); err != nil {
 			b.flushLock.Unlock()
 			return err
@@ -1541,6 +1588,13 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		}
 	}
 	b.flushLock.Unlock()
+
+	// Shut down disk segments after the active memtable has been flushed and
+	// the objectFlushCallback has been fired, so that any hashtree saved by
+	// mayStopAsyncReplication reflects the fully up-to-date on-disk state.
+	if err := b.disk.shutdown(ctx); err != nil {
+		return err
+	}
 
 	if b.flushing == nil {
 		// active has flushing, no one else was currently flushing, it's safe to
@@ -1639,6 +1693,69 @@ func (b *Bucket) SetFlushCallback(fn func()) {
 	b.flushCallbackMu.Lock()
 	b.flushCallback = fn
 	b.flushCallbackMu.Unlock()
+}
+
+// ObjectFlushCallback is called inside FlushAndSwitch after the flushing
+// memtable has been written to disk but before the new segment is added to the
+// segment group. This allows the caller to observe exactly which objects were
+// durably persisted and update derived state (e.g. a hashtree) accordingly.
+//
+// forEachFlushedObject iterates all entries in the flushed memtable in key
+// order, providing raw key bytes, raw value bytes, and a tombstone flag.
+//
+// lookupOnDisk looks up a key in the existing segment group, which at this
+// point does NOT yet include the newly flushed segment. This lets callers
+// retrieve the previous on-disk value for a key before the flush overwrites it.
+//
+// The callback is invoked synchronously in the flush goroutine and must not
+// perform long-blocking I/O. Only invoked for StrategyReplace buckets.
+type ObjectFlushCallback func(
+	forEachFlushedObject func(fn func(key []byte, value []byte, tombstone bool)),
+	lookupOnDisk func(key []byte) ([]byte, bool),
+)
+
+// SetObjectFlushCallback registers a callback to be called inside FlushAndSwitch
+// after the flushing memtable has been written to disk but before the new segment
+// is added to the segment group. Pass nil to clear a previously set callback.
+func (b *Bucket) SetObjectFlushCallback(fn ObjectFlushCallback) {
+	b.objectFlushCallbackMu.Lock()
+	b.objectFlushCallback = fn
+	b.objectFlushCallbackMu.Unlock()
+}
+
+// fireObjectFlushCallbackForActiveMem fires the objectFlushCallback for the
+// current active memtable using the same semantics as FlushAndSwitch: each key
+// in the active memtable is paired with its pre-flush on-disk value so the
+// callback can correctly XOR-in/XOR-out the digest delta.
+//
+// Must be called while b.flushLock is held by the caller and before
+// b.disk.shutdown so that getConsistentViewOfSegments remains accessible.
+// Has no effect for non-StrategyReplace buckets or when no callback is registered.
+func (b *Bucket) fireObjectFlushCallbackForActiveMem() {
+	b.objectFlushCallbackMu.Lock()
+	objCb := b.objectFlushCallback
+	b.objectFlushCallbackMu.Unlock()
+
+	if objCb == nil || b.strategy != StrategyReplace {
+		return
+	}
+
+	// b.active is safe to access here: the caller holds b.flushLock, and
+	// flushCallbackCtrl has already been unregistered so no concurrent
+	// auto-flush can switch b.active underneath us.
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+	defer releaseDiskSegments()
+
+	forEachFlushed := func(fn func(key []byte, value []byte, tombstone bool)) {
+		if m, ok := b.active.(*Memtable); ok {
+			m.ForEachReplaceEntry(fn)
+		}
+	}
+	lookupOnDisk := func(key []byte) ([]byte, bool) {
+		v, err := b.disk.getWithSegmentList(key, diskSegments)
+		return v, err == nil && len(v) > 0
+	}
+	objCb(forEachFlushed, lookupOnDisk)
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -1759,6 +1876,33 @@ func (b *Bucket) FlushAndSwitch() error {
 	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
+	}
+
+	// Invoke the object-flush callback before adding the new segment to the
+	// segment group. At this point the flushing memtable is still accessible
+	// and b.disk does NOT yet contain the new segment, so lookupOnDisk returns
+	// the pre-flush on-disk value for any key.
+	b.objectFlushCallbackMu.Lock()
+	objCb := b.objectFlushCallback
+	b.objectFlushCallbackMu.Unlock()
+
+	if objCb != nil && b.strategy == StrategyReplace {
+		flushing := b.flushing
+		// Snapshot the current on-disk segments and hold the ref-count for the
+		// duration of the callback so that compaction cannot drop them underneath us.
+		diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+
+		forEachFlushed := func(fn func(key []byte, value []byte, tombstone bool)) {
+			if m, ok := flushing.(*Memtable); ok {
+				m.ForEachReplaceEntry(fn)
+			}
+		}
+		lookupOnDisk := func(key []byte) ([]byte, bool) {
+			v, err := b.disk.getWithSegmentList(key, diskSegments)
+			return v, err == nil && len(v) > 0
+		}
+		objCb(forEachFlushed, lookupOnDisk)
+		releaseDiskSegments()
 	}
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {

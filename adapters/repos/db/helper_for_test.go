@@ -39,6 +39,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -438,6 +439,10 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		router:                 mockRouter,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+	// asyncReplicationWorkersLimiter must be non-nil before the hashbeater
+	// goroutine calls asyncReplicationWorkerAcquire. NewIndex always sets it,
+	// but this helper constructs the Index directly via struct literal.
+	idx.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeighted(func() int64 { return 8 })
 	idx.initCycleCallbacksNoop()
 	for _, opt := range indexOpts {
 		opt(idx)

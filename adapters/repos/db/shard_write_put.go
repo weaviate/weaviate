@@ -240,18 +240,8 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
-	// Wait for hashtree initialization before taking any lock; holding RLock
-	// while blocking on the channel would prevent SetAsyncReplicationState from
-	// acquiring the write lock to close the channel and unblock us.
-	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
-		return objectInsertStatus{}, err
-	}
-
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
 		lock.Lock()
 		defer lock.Unlock()
 
@@ -282,10 +272,6 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
-
-		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-			return errors.Wrap(err, "object creation in hashtree")
-		}
 
 		return nil
 	}(); err != nil {

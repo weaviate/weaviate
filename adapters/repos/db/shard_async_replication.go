@@ -124,10 +124,14 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig) (afterReleas
 
 	s.asyncReplicationConfig = config
 
-	// Trigger a hashbeat immediately after each objects-bucket flush so that
-	// newly flushed objects (visible to CursorOnDisk) are propagated without
-	// waiting for the next periodic tick.
+	// Register flush-time hooks on the objects bucket:
+	//   - objectFlushCallback updates the hashtree with exactly the objects
+	//     that were durably persisted in the flush (before the new segment is
+	//     visible to readers), keeping the hashtree consistent with on-disk data.
+	//   - flushCallback wakes the hashbeater after the segment is added so that
+	//     newly flushed objects are propagated without waiting for the next tick.
 	if bucket != nil {
+		bucket.SetObjectFlushCallback(s.updateHashtreeOnFlush)
 		bucket.SetFlushCallback(s.notifyHashbeat)
 	}
 
@@ -232,8 +236,6 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig) (afterReleas
 	}
 
 	s.hashtreeFullyInitialized = false
-	s.minimalHashtreeInitializationCh = make(chan struct{})
-	s.minimalHashtreeInitializationOnce = &sync.Once{}
 
 	enterrors.GoWrapper(func() {
 		for i := 0; ; i++ {
@@ -263,8 +265,6 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig) (afterReleas
 
 			s.asyncReplicationRWMux.Lock()
 			s.hashtree.Reset()
-			s.minimalHashtreeInitializationCh = make(chan struct{})
-			s.minimalHashtreeInitializationOnce = &sync.Once{}
 			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
@@ -289,43 +289,13 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// Snapshot the Once pointer and channel under a read lock.
-	//
-	// The init goroutine outlives the write lock held by SetAsyncReplicationState
-	// when it spawned us.  A subsequent enable → disable → re-enable cycle can
-	// overwrite s.minimalHashtreeInitializationOnce and s.minimalHashtreeInitializationCh
-	// while we are still running.  By capturing the pointer values here (not
-	// reading the fields again inside the closure) we guarantee that
-	// releaseInitialization always closes the exact channel and fires the exact
-	// Once that were allocated for this init run, with no data race.
-	s.asyncReplicationRWMux.RLock()
-	initOnce := s.minimalHashtreeInitializationOnce
-	initCh := s.minimalHashtreeInitializationCh
-	s.asyncReplicationRWMux.RUnlock()
-
-	// onDiskPhase is set to true by releaseInitialization (the afterInMemCallback
-	// fired by ApplyToObjectDigests once the fast in-memory pass is done).
-	// After that point the callback processes on-disk segments, which can take
-	// minutes on large shards; we yield the scheduler periodically.
-	var onDiskPhase bool
-
-	releaseInitialization := func() {
-		// No lock needed: closing a channel is self-synchronising.
-		// Use Once so that closing is idempotent: the disable path
-		// (mayStopAsyncReplication / SetAsyncReplicationState) may race to close
-		// the same channel, and a double-close panics.
-		initOnce.Do(func() {
-			close(initCh)
-		})
-		// Signal that we have entered the on-disk phase so the callback can
-		// yield to the scheduler every initScanBatchSize objects.
-		onDiskPhase = true
-	}
-
+	// Scan only on-disk segments: the hashtree now reflects durable (flushed)
+	// data exclusively. In-memory objects will be added when their memtables are
+	// flushed via updateHashtreeOnFlush.
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(uuidBytes []byte, updateTime int64) error {
+	err = bucket.ApplyToOnDiskObjectDigests(ctx, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -349,11 +319,9 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 
 		objCount++
 
-		// Yield to the Go scheduler every initScanBatchSize objects during the
-		// on-disk phase. The in-memory phase is fast enough that yielding there
-		// is unnecessary; on-disk scans can run for minutes and starve query
-		// goroutines on the same OS thread without this.
-		if onDiskPhase && config.initShieldCPUEveryN > 0 && objCount%config.initShieldCPUEveryN == 0 {
+		// Yield to the Go scheduler periodically: on-disk scans can run for
+		// minutes on large shards and starve query goroutines on the same thread.
+		if config.initShieldCPUEveryN > 0 && objCount%config.initShieldCPUEveryN == 0 {
 			runtime.Gosched()
 		}
 
@@ -395,24 +363,72 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	return nil
 }
 
-func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
-	// Fast-path: check under RLock without blocking.
-	s.asyncReplicationRWMux.RLock()
-	if s.hashtree == nil || s.hashtreeFullyInitialized {
-		s.asyncReplicationRWMux.RUnlock()
-		return nil
+// updateHashtreeOnFlush is called by the lsmkv objects bucket inside
+// FlushAndSwitch, after the flushing memtable has been durably written to disk
+// but before the new segment is added to the segment group.
+//
+// For each entry in the flushed memtable it computes the XOR delta needed to
+// keep the hashtree consistent with on-disk data:
+//   - XOR out the previous on-disk digest (if the key existed on disk before).
+//   - XOR in the new digest (unless the entry is a tombstone / deletion).
+//
+// Deltas are collected without holding any lock (lookupOnDisk is safe for
+// concurrent reads) and then applied atomically under the write lock to
+// minimise the time writes are stalled.
+func (s *Shard) updateHashtreeOnFlush(
+	forEachFlushedObject func(fn func(key []byte, value []byte, tombstone bool)),
+	lookupOnDisk func(key []byte) ([]byte, bool),
+) {
+	type leafDelta struct {
+		leaf   uint64
+		digest [16 + 8]byte
 	}
-	// Capture the channel while holding the lock, then release BEFORE blocking.
-	// Holding RLock while waiting on the channel would prevent SetAsyncReplicationState
-	// (which needs the write lock) from ever acquiring it to close the channel.
-	ch := s.minimalHashtreeInitializationCh
-	s.asyncReplicationRWMux.RUnlock()
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-ch:
-		return nil
+	var deltas []leafDelta
+
+	forEachFlushedObject(func(key []byte, value []byte, tombstone bool) {
+		if len(key) != 16 {
+			return
+		}
+
+		leaf := s.hashtreeLeafFor(key)
+
+		// XOR out old on-disk value (if any).
+		if oldValue, found := lookupOnDisk(key); found {
+			_, oldUpdateTime, err := storobj.DocIDAndTimeFromBinary(oldValue)
+			if err == nil && oldUpdateTime > 0 {
+				var d [16 + 8]byte
+				copy(d[:16], key)
+				binary.BigEndian.PutUint64(d[16:], uint64(oldUpdateTime))
+				deltas = append(deltas, leafDelta{leaf, d})
+			}
+		}
+
+		// XOR in new value unless this entry is a deletion tombstone.
+		if !tombstone {
+			_, newUpdateTime, err := storobj.DocIDAndTimeFromBinary(value)
+			if err == nil && newUpdateTime > 0 {
+				var d [16 + 8]byte
+				copy(d[:16], key)
+				binary.BigEndian.PutUint64(d[16:], uint64(newUpdateTime))
+				deltas = append(deltas, leafDelta{leaf, d})
+			}
+		}
+	})
+
+	if len(deltas) == 0 {
+		return
+	}
+
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
+	if s.hashtree == nil {
+		return
+	}
+
+	for _, delta := range deltas {
+		s.hashtree.AggregateLeafWith(delta.leaf, delta.digest[:])
 	}
 }
 
@@ -436,13 +452,6 @@ func (s *Shard) mayStopAsyncReplication() {
 				WithField("shard_name", s.name).
 				Errorf("store hashtree failed: %v", err)
 		}
-	} else if s.minimalHashtreeInitializationCh != nil {
-		// Initialization is still in progress: unblock any goroutines that captured
-		// the channel and are blocking in waitForMinimalHashTreeInitialization.
-		// Once ensures we never double-close (releaseInitialization may race us).
-		s.minimalHashtreeInitializationOnce.Do(func() {
-			close(s.minimalHashtreeInitializationCh)
-		})
 	}
 
 	s.hashtree = nil
@@ -450,6 +459,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashbeatNotifyCh = nil
 
 	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
+		bucket.SetObjectFlushCallback(nil)
 		bucket.SetFlushCallback(nil)
 	}
 }
@@ -476,17 +486,11 @@ func (s *Shard) SetAsyncReplicationState(_ context.Context, config AsyncReplicat
 
 		s.asyncReplicationCancelFunc()
 
-		if !s.hashtreeFullyInitialized && s.minimalHashtreeInitializationCh != nil {
-			// Unblock any goroutines blocking in waitForMinimalHashTreeInitialization.
-			s.minimalHashtreeInitializationOnce.Do(func() {
-				close(s.minimalHashtreeInitializationCh)
-			})
-		}
-
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
 		s.hashbeatNotifyCh = nil
 		if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
+			bucket.SetObjectFlushCallback(nil)
 			bucket.SetFlushCallback(nil)
 		}
 		s.asyncReplicationStatsMux.Lock()

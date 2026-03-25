@@ -922,14 +922,6 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	// Wait before taking RLock; see comment in shard_write_put.go::putObjectLSM.
-	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
-		return err
-	}
-
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -955,7 +947,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
+	docID, _, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
@@ -970,10 +962,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	}
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
