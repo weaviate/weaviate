@@ -137,6 +137,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 
 	flushGroup := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	cyclemanager.NewManager(
+		"flush",
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
 		nullLogger()).Start()
@@ -231,6 +232,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 
 	flushGroup := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	cyclemanager.NewManager(
+		"flush",
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
 		logger).Start()
@@ -320,6 +322,7 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 
 	flushGroup := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
 	cyclemanager.NewManager(
+		"flush",
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
 		nullLogger()).Start()

@@ -58,9 +58,9 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", logger, 1)
 	compactionCallbacks := cyclemanager.NewCallbackGroup("compaction", logger, 1)
-	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
-	compactionCycle := cyclemanager.NewManager(cyclemanager.CompactionCycleTicker(), compactionCallbacks.CycleCallback, logger)
+	compactionCycle := cyclemanager.NewManager("compaction", cyclemanager.CompactionCycleTicker(), compactionCallbacks.CycleCallback, logger)
 	compactionCycle.Start()
 
 	logger.Info("loading bucket")
