@@ -42,7 +42,7 @@ func New(
 		if sel.MMR.Balance < 0 || sel.MMR.Balance > 1 {
 			return nil, fmt.Errorf("MMR balance must be between 0 and 1")
 		}
-		return newMMRSelector(distFn, vecForID, sel.MMR.Limit, sel.MMR.Balance), nil
+		return newMMRSelector(distFn, vecForID, int(sel.MMR.Limit), sel.MMR.Balance), nil
 	}
 	return nil, nil
 }
