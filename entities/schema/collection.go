@@ -198,9 +198,9 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 		n.IndexRangeFilters = false
 	}
 	n.Name = m.Name
-	if m.Processing != nil {
+	if m.TextAnalyser != nil {
 		n.Processing = PropertyProcessing{
-			AccentInsensitive: m.Processing.AccentInsensitive,
+			AccentInsensitive: m.TextAnalyser.AccentInsensitive,
 		}
 	}
 	n.Tokenization = m.Tokenization
@@ -230,7 +230,7 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	indexRangeFilters := n.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
-	m.Processing = &models.PropertyProcessing{
+	m.TextAnalyser = &models.TextAnalyserConfig{
 		AccentInsensitive: n.Processing.AccentInsensitive,
 	}
 	m.Tokenization = n.Tokenization
@@ -276,9 +276,9 @@ func PropertyFromModel(m models.Property) Property {
 		p.ModuleConfig = v
 	}
 	p.Tokenization = m.Tokenization
-	if m.Processing != nil {
+	if m.TextAnalyser != nil {
 		p.Processing = PropertyProcessing{
-			AccentInsensitive: m.Processing.AccentInsensitive,
+			AccentInsensitive: m.TextAnalyser.AccentInsensitive,
 		}
 	}
 	if len(m.NestedProperties) > 0 {
@@ -310,7 +310,7 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
-	m.Processing = &models.PropertyProcessing{
+	m.TextAnalyser = &models.TextAnalyserConfig{
 		AccentInsensitive: p.Processing.AccentInsensitive,
 	}
 	m.Tokenization = p.Tokenization

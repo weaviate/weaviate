@@ -1758,14 +1758,14 @@
           "x-nullable": true,
           "default": true
         },
-        "processing": {
-          "$ref": "#/definitions/PropertyProcessing"
+        "textAnalyser": {
+          "$ref": "#/definitions/TextAnalyserConfig"
         }
       },
       "type": "object"
     },
-    "PropertyProcessing": {
-      "description": "Text processing options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
+    "TextAnalyserConfig": {
+      "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
       "properties": {
         "accentInsensitive": {
           "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
@@ -1840,7 +1840,7 @@
           "x-omitempty": true
         },
         "processing": {
-          "$ref": "#/definitions/PropertyProcessing"
+          "$ref": "#/definitions/TextAnalyserConfig"
         }
       },
       "type": "object"

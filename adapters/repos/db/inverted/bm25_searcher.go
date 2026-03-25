@@ -228,7 +228,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			tokKey := prop.Tokenization
-			if prop.Processing != nil && prop.Processing.AccentInsensitive {
+			if prop.TextAnalyser != nil && prop.TextAnalyser.AccentInsensitive {
 				tokKey = accentTokenizationKey(prop.Tokenization)
 			}
 			if _, exists := propNamesByTokenization[tokKey]; !exists {

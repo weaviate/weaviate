@@ -31,7 +31,6 @@ import (
 //
 // swagger:model NestedProperty
 type NestedProperty struct {
-
 	// data type
 	DataType []string `json:"dataType"`
 
@@ -54,7 +53,7 @@ type NestedProperty struct {
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// processing
-	Processing *PropertyProcessing `json:"processing,omitempty"`
+	TextAnalyser *TextAnalyserConfig `json:"processing,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
@@ -110,12 +109,12 @@ func (m *NestedProperty) validateNestedProperties(formats strfmt.Registry) error
 }
 
 func (m *NestedProperty) validateProcessing(formats strfmt.Registry) error {
-	if swag.IsZero(m.Processing) { // not required
+	if swag.IsZero(m.TextAnalyser) { // not required
 		return nil
 	}
 
-	if m.Processing != nil {
-		if err := m.Processing.Validate(formats); err != nil {
+	if m.TextAnalyser != nil {
+		if err := m.TextAnalyser.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("processing")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
@@ -210,9 +209,7 @@ func (m *NestedProperty) ContextValidate(ctx context.Context, formats strfmt.Reg
 }
 
 func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.NestedProperties); i++ {
-
 		if m.NestedProperties[i] != nil {
 			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -223,16 +220,14 @@ func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, fo
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *NestedProperty) contextValidateProcessing(ctx context.Context, formats strfmt.Registry) error {
-
-	if m.Processing != nil {
-		if err := m.Processing.ContextValidate(ctx, formats); err != nil {
+	if m.TextAnalyser != nil {
+		if err := m.TextAnalyser.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("processing")
 			} else if ce, ok := err.(*errors.CompositeError); ok {

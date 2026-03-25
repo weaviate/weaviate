@@ -7880,7 +7880,7 @@ func init() {
           "x-omitempty": true
         },
         "processing": {
-          "$ref": "#/definitions/PropertyProcessing"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "tokenization": {
           "type": "string",
@@ -8597,8 +8597,8 @@ func init() {
           },
           "x-omitempty": true
         },
-        "processing": {
-          "$ref": "#/definitions/PropertyProcessing"
+        "textAnalyser": {
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
@@ -8614,16 +8614,6 @@ func init() {
             "kagome_ja",
             "gse_ch"
           ]
-        }
-      }
-    },
-    "PropertyProcessing": {
-      "description": "Text processing options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
-      "type": "object",
-      "properties": {
-        "accentInsensitive": {
-          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
-          "type": "boolean"
         }
       }
     },
@@ -9586,6 +9576,16 @@ func init() {
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
+        }
+      }
+    },
+    "TextAnalyserConfig": {
+      "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
+      "type": "object",
+      "properties": {
+        "accentInsensitive": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
         }
       }
     },
@@ -18174,7 +18174,7 @@ func init() {
           "x-omitempty": true
         },
         "processing": {
-          "$ref": "#/definitions/PropertyProcessing"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "tokenization": {
           "type": "string",
@@ -19064,8 +19064,8 @@ func init() {
           },
           "x-omitempty": true
         },
-        "processing": {
-          "$ref": "#/definitions/PropertyProcessing"
+        "textAnalyser": {
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
@@ -19081,16 +19081,6 @@ func init() {
             "kagome_ja",
             "gse_ch"
           ]
-        }
-      }
-    },
-    "PropertyProcessing": {
-      "description": "Text processing options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
-      "type": "object",
-      "properties": {
-        "accentInsensitive": {
-          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
-          "type": "boolean"
         }
       }
     },
@@ -20056,6 +20046,16 @@ func init() {
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
+        }
+      }
+    },
+    "TextAnalyserConfig": {
+      "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
+      "type": "object",
+      "properties": {
+        "accentInsensitive": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
         }
       }
     },

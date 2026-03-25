@@ -23,27 +23,27 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// PropertyProcessing Text processing options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.
+// TextAnalyserConfig Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.
 //
-// swagger:model PropertyProcessing
-type PropertyProcessing struct {
+// swagger:model TextAnalyserConfig
+type TextAnalyserConfig struct {
 
 	// If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.
 	AccentInsensitive bool `json:"accentInsensitive,omitempty"`
 }
 
-// Validate validates this property processing
-func (m *PropertyProcessing) Validate(formats strfmt.Registry) error {
+// Validate validates this text analyser config
+func (m *TextAnalyserConfig) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this property processing based on context it is used
-func (m *PropertyProcessing) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this text analyser config based on context it is used
+func (m *TextAnalyserConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *PropertyProcessing) MarshalBinary() ([]byte, error) {
+func (m *TextAnalyserConfig) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -51,8 +51,8 @@ func (m *PropertyProcessing) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *PropertyProcessing) UnmarshalBinary(b []byte) error {
-	var res PropertyProcessing
+func (m *TextAnalyserConfig) UnmarshalBinary(b []byte) error {
+	var res TextAnalyserConfig
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

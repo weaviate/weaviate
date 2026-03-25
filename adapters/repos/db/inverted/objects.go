@@ -573,7 +573,7 @@ func convertToUntyped[T comparable](in []T) []any {
 }
 
 func isAccentInsensitive(prop *models.Property) bool {
-	return prop.Processing != nil && prop.Processing.AccentInsensitive
+	return prop.TextAnalyser != nil && prop.TextAnalyser.AccentInsensitive
 }
 
 // Indicates whether property should be indexed

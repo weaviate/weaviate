@@ -145,14 +145,14 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 	vTrue := true
 	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
 
-	baseProp := func(proc *models.PropertyProcessing) *models.Property {
+	baseProp := func(proc *models.TextAnalyserConfig) *models.Property {
 		return &models.Property{
 			Name:            "title",
 			DataType:        []string{"text"},
 			Tokenization:    "word",
 			IndexFilterable: &vTrue,
 			IndexSearchable: &vTrue,
-			Processing:      proc,
+			TextAnalyser:    proc,
 		}
 	}
 
@@ -161,8 +161,8 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		existing    *models.PropertyProcessing
-		updated     *models.PropertyProcessing
+		existing    *models.TextAnalyserConfig
+		updated     *models.TextAnalyserConfig
 		expectError bool
 	}{
 		{
@@ -173,37 +173,37 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 		},
 		{
 			name:        "no change - both accentInsensitive true",
-			existing:    &models.PropertyProcessing{AccentInsensitive: true},
-			updated:     &models.PropertyProcessing{AccentInsensitive: true},
+			existing:    &models.TextAnalyserConfig{AccentInsensitive: true},
+			updated:     &models.TextAnalyserConfig{AccentInsensitive: true},
 			expectError: false,
 		},
 		{
 			name:        "no change - both accentInsensitive false",
-			existing:    &models.PropertyProcessing{AccentInsensitive: false},
-			updated:     &models.PropertyProcessing{AccentInsensitive: false},
+			existing:    &models.TextAnalyserConfig{AccentInsensitive: false},
+			updated:     &models.TextAnalyserConfig{AccentInsensitive: false},
 			expectError: false,
 		},
 		{
 			name:        "change accentInsensitive false to true",
-			existing:    &models.PropertyProcessing{AccentInsensitive: false},
-			updated:     &models.PropertyProcessing{AccentInsensitive: true},
+			existing:    &models.TextAnalyserConfig{AccentInsensitive: false},
+			updated:     &models.TextAnalyserConfig{AccentInsensitive: true},
 			expectError: true,
 		},
 		{
 			name:        "change accentInsensitive true to false",
-			existing:    &models.PropertyProcessing{AccentInsensitive: true},
-			updated:     &models.PropertyProcessing{AccentInsensitive: false},
+			existing:    &models.TextAnalyserConfig{AccentInsensitive: true},
+			updated:     &models.TextAnalyserConfig{AccentInsensitive: false},
 			expectError: true,
 		},
 		{
 			name:        "add processing where none existed",
 			existing:    nil,
-			updated:     &models.PropertyProcessing{AccentInsensitive: true},
+			updated:     &models.TextAnalyserConfig{AccentInsensitive: true},
 			expectError: true,
 		},
 		{
 			name:        "remove processing",
-			existing:    &models.PropertyProcessing{AccentInsensitive: true},
+			existing:    &models.TextAnalyserConfig{AccentInsensitive: true},
 			updated:     nil,
 			expectError: true,
 		},

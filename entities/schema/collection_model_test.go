@@ -221,7 +221,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 						IndexRangeFilters: &vFalse,
 						Tokenization:      "",
 						ModuleConfig:      emptyModuleConfig,
-						Processing:        &models.PropertyProcessing{},
+						TextAnalyser:      &models.TextAnalyserConfig{},
 						NestedProperties: []*models.NestedProperty{
 							{
 								Name:              "text",
@@ -229,7 +229,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeText.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "texts",
@@ -237,7 +237,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeTextArray.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "number",
@@ -245,7 +245,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeNumber.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "numbers",
@@ -253,7 +253,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeNumberArray.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "int",
@@ -261,7 +261,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeInt.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "ints",
@@ -269,7 +269,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeIntArray.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "date",
@@ -277,7 +277,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeDate.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "dates",
@@ -285,7 +285,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeDateArray.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "bool",
@@ -293,7 +293,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeBoolean.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "bools",
@@ -301,7 +301,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeBooleanArray.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "uuid",
@@ -309,7 +309,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeUUID.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "uuids",
@@ -317,7 +317,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								DataType:          DataTypeUUIDArray.PropString(),
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "nested_int",
@@ -326,7 +326,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vFalse,
 								IndexRangeFilters: &vFalse,
 								Tokenization:      "",
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "nested_number",
@@ -335,7 +335,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vFalse,
 								IndexRangeFilters: &vFalse,
 								Tokenization:      "",
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "nested_text",
@@ -344,7 +344,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vTrue,
 								IndexRangeFilters: &vFalse,
 								Tokenization:      models.PropertyTokenizationWord,
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 							},
 							{
 								Name:              "nested_objects",
@@ -353,7 +353,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vFalse,
 								IndexRangeFilters: &vFalse,
 								Tokenization:      "",
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 								NestedProperties: []*models.NestedProperty{
 									{
 										Name:              "nested_bool_lvl2",
@@ -362,7 +362,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										IndexSearchable:   &vFalse,
 										IndexRangeFilters: &vFalse,
 										Tokenization:      "",
-										Processing:        &models.PropertyProcessing{},
+										TextAnalyser:      &models.TextAnalyserConfig{},
 									},
 									{
 										Name:              "nested_numbers_lvl2",
@@ -371,7 +371,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										IndexSearchable:   &vFalse,
 										IndexRangeFilters: &vFalse,
 										Tokenization:      "",
-										Processing:        &models.PropertyProcessing{},
+										TextAnalyser:      &models.TextAnalyserConfig{},
 									},
 								},
 							},
@@ -382,7 +382,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								IndexSearchable:   &vFalse,
 								IndexRangeFilters: &vFalse,
 								Tokenization:      "",
-								Processing:        &models.PropertyProcessing{},
+								TextAnalyser:      &models.TextAnalyserConfig{},
 								NestedProperties: []*models.NestedProperty{
 									{
 										Name:              "nested_bool_lvl2",
@@ -391,7 +391,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										IndexSearchable:   &vFalse,
 										IndexRangeFilters: &vFalse,
 										Tokenization:      "",
-										Processing:        &models.PropertyProcessing{},
+										TextAnalyser:      &models.TextAnalyserConfig{},
 									},
 									{
 										Name:              "nested_numbers_lvl2",
@@ -400,7 +400,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										IndexSearchable:   &vFalse,
 										IndexRangeFilters: &vFalse,
 										Tokenization:      "",
-										Processing:        &models.PropertyProcessing{},
+										TextAnalyser:      &models.TextAnalyserConfig{},
 									},
 								},
 							},

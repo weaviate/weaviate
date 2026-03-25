@@ -921,7 +921,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
-	if prop.Processing == nil {
+	if prop.TextAnalyser == nil {
 		return nil
 	}
 
