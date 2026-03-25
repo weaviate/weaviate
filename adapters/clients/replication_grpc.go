@@ -21,6 +21,7 @@ import (
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -185,7 +186,7 @@ func (c *grpcReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 		Shard:                 shard,
 		RequestId:             requestID,
 		SchemaVersion:         schemaVersion,
-		Uuids:                 uuidsToStrings(uuids),
+		Uuids:                 shared.UUIDsToStrings(uuids),
 		DeletionTimeUnixMilli: deletionTime.UnixMilli(),
 		DryRun:                dryRun,
 	})
@@ -318,7 +319,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 	resp, err := client.FetchObjects(ctx, &protocol.FetchObjectsRequest{
 		Index: index,
 		Shard: shard,
-		Uuids: uuidsToStrings(ids),
+		Uuids: shared.UUIDsToStrings(ids),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gRPC FetchObjects: %w", err)
@@ -345,7 +346,7 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 	resp, err := client.DigestObjects(ctx, &protocol.DigestObjectsRequest{
 		Index: index,
 		Shard: shard,
-		Ids:   uuidsToStrings(ids),
+		Ids:   shared.UUIDsToStrings(ids),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return nil, fmt.Errorf("gRPC DigestObjects: %w", err)
@@ -435,7 +436,7 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		return nil, fmt.Errorf("gRPC FindUUIDs: %w", err)
 	}
 
-	return stringsToUUIDs(resp.GetUuids()), nil
+	return shared.StringsToUUIDs(resp.GetUuids()), nil
 }
 
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
@@ -499,20 +500,4 @@ func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairRe
 		}
 	}
 	return out
-}
-
-func uuidsToStrings(uuids []strfmt.UUID) []string {
-	ss := make([]string, len(uuids))
-	for i, u := range uuids {
-		ss[i] = u.String()
-	}
-	return ss
-}
-
-func stringsToUUIDs(ss []string) []strfmt.UUID {
-	uuids := make([]strfmt.UUID, len(ss))
-	for i, s := range ss {
-		uuids[i] = strfmt.UUID(s)
-	}
-	return uuids
 }
