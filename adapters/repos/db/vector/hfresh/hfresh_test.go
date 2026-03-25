@@ -192,19 +192,19 @@ func TestHFreshRecall(t *testing.T) {
 	fmt.Println("all background tasks done, took: ", time.Since(before))
 
 	index.searchProbe = 64
-	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths, nil)
+	recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.searchProbe, recall, latency)
 
 	index.searchProbe = 128
-	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths, nil)
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.searchProbe, recall, latency)
 
 	index.searchProbe = 256
-	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths, nil)
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.searchProbe, recall, latency)
 
 	index.searchProbe = 512
-	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths, nil)
+	recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 	fmt.Println(index.searchProbe, recall, latency)
 
 	require.Greater(t, recall, float32(0.7))
@@ -235,7 +235,7 @@ func TestHFreshRecall(t *testing.T) {
 		index = makeHFreshWithConfig(t, store, cfg, ucfg)
 
 		index.searchProbe = 256
-		recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths, nil)
+		recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 		require.Greater(t, recall, float32(0.7))
 	})
 }

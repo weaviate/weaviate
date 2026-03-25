@@ -15,8 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
@@ -25,13 +23,18 @@ import (
 // construction time so that the call site stays uniform regardless of which
 // strategy is active.
 type Selector interface {
-	Select(ctx context.Context, ids []uint64, queryDistances []float32, view common.BucketView) ([]uint64, []float32, error)
+	Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error)
 }
 
-// New returns the Selector described by sel, wired up with the index-level
-// helpers it needs. Returns nil when sel is nil or no known strategy is set,
-// meaning the caller should skip post-processing.
-func New(sel *searchparams.Selection, provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], k int) (Selector, error) {
+// New returns the Selector described by sel, wired up with the provided
+// distance and vector-fetch functions. Returns nil when sel is nil or no
+// known strategy is set, meaning the caller should skip post-processing.
+func New(
+	sel *searchparams.Selection,
+	distFn func(a, b []float32) (float32, error),
+	vecForID func(ctx context.Context, id uint64) ([]float32, error),
+	k int,
+) (Selector, error) {
 	if sel == nil {
 		return nil, nil
 	}
@@ -43,7 +46,7 @@ func New(sel *searchparams.Selection, provider distancer.Provider, vecForID comm
 		if mmrLimit < k {
 			mmrLimit = k
 		}
-		return newMMRSelector(provider, vecForID, mmrLimit, sel.MMR.Balance), nil
+		return newMMRSelector(distFn, vecForID, mmrLimit, sel.MMR.Balance), nil
 	}
 	return nil, nil
 }

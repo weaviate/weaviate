@@ -197,7 +197,7 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 	var maxRecall float32
 	for _, probe := range testCfg.searchProbes {
 		index.searchProbe = probe
-		recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors, nil)
+		recall, latency := testinghelpers.RecallAndLatency(t.Context(), queries, k, index, neighbors)
 		t.Logf("searchProbe=%d, recall=%.4f, latency=%.2f", index.searchProbe, recall, latency)
 		if recall > maxRecall {
 			maxRecall = recall

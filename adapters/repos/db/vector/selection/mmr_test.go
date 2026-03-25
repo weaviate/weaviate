@@ -18,18 +18,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-// stubView implements common.BucketView for testing.
-type stubView struct{}
-
-func (stubView) ReleaseView() {}
-
-// makeVecForID builds a TempVectorForIDWithView backed by an in-memory map.
-func makeVecForID(vecs map[uint64][]float32) common.TempVectorForIDWithView[float32] {
-	return func(_ context.Context, id uint64, _ *common.VectorSlice, _ common.BucketView) ([]float32, error) {
+// makeVecForID builds a simple vecForID backed by an in-memory map.
+func makeVecForID(vecs map[uint64][]float32) func(ctx context.Context, id uint64) ([]float32, error) {
+	return func(_ context.Context, id uint64) ([]float32, error) {
 		v, ok := vecs[id]
 		if !ok {
 			return nil, fmt.Errorf("vector not found for id %d", id)
@@ -38,14 +32,16 @@ func makeVecForID(vecs map[uint64][]float32) common.TempVectorForIDWithView[floa
 	}
 }
 
-func mmrSelect(provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], ids []uint64, queryDistances []float32, k int, lambda float32) ([]uint64, []float32, error) {
-	return newMMRSelector(provider, vecForID, k, lambda).Select(context.Background(), ids, queryDistances, stubView{})
+func mmrSelect(provider distancer.Provider, vecs map[uint64][]float32, ids []uint64, queryDistances []float32, k int, lambda float32) ([]uint64, []float32, error) {
+	distFn := provider.SingleDist
+	vecForID := makeVecForID(vecs)
+	return newMMRSelector(distFn, vecForID, k, lambda).Select(context.Background(), ids, queryDistances)
 }
 
 func TestMMR_EmptyInput(t *testing.T) {
 	provider := distancer.NewL2SquaredProvider()
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(nil), nil, nil, 5, 0.5)
+	ids, dists, err := mmrSelect(provider, nil, nil, nil, 5, 0.5)
 	require.NoError(t, err)
 	assert.Nil(t, ids)
 	assert.Nil(t, dists)
@@ -55,7 +51,7 @@ func TestMMR_ZeroK(t *testing.T) {
 	provider := distancer.NewL2SquaredProvider()
 	vecs := map[uint64][]float32{1: {1, 0}}
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1}, []float32{0.1}, 0, 0.5)
+	ids, dists, err := mmrSelect(provider, vecs, []uint64{1}, []float32{0.1}, 0, 0.5)
 	require.NoError(t, err)
 	assert.Nil(t, ids)
 	assert.Nil(t, dists)
@@ -65,7 +61,7 @@ func TestMMR_SingleCandidate(t *testing.T) {
 	provider := distancer.NewL2SquaredProvider()
 	vecs := map[uint64][]float32{10: {1, 2, 3}}
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(vecs), []uint64{10}, []float32{0.5}, 5, 0.5)
+	ids, dists, err := mmrSelect(provider, vecs, []uint64{10}, []float32{0.5}, 5, 0.5)
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{10}, ids)
 	assert.Equal(t, []float32{0.5}, dists)
@@ -80,7 +76,7 @@ func TestMMR_KEqualsN(t *testing.T) {
 	}
 	queryDists := []float32{0.1, 0.2, 0.3}
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3}, queryDists, 3, 0.5)
+	ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, queryDists, 3, 0.5)
 	require.NoError(t, err)
 	assert.Len(t, ids, 3)
 	assert.Len(t, dists, 3)
@@ -96,7 +92,7 @@ func TestMMR_KGreaterThanN(t *testing.T) {
 		2: {0, 1},
 	}
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2}, []float32{0.1, 0.2}, 10, 0.5)
+	ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2}, []float32{0.1, 0.2}, 10, 0.5)
 	require.NoError(t, err)
 	// Should clamp to n=2.
 	assert.Len(t, ids, 2)
@@ -113,7 +109,7 @@ func TestMMR_PureRelevance(t *testing.T) {
 	}
 	queryDists := []float32{0.1, 0.9, 0.5}
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3}, queryDists, 3, 1.0)
+	ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, queryDists, 3, 1.0)
 	require.NoError(t, err)
 	// Pure relevance: sorted by ascending query distance.
 	assert.Equal(t, []uint64{1, 3, 2}, ids)
@@ -132,7 +128,7 @@ func TestMMR_PureDiversity(t *testing.T) {
 	// All have similar query distances so relevance doesn't matter.
 	queryDists := []float32{0.5, 0.5, 0.5}
 
-	ids, _, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3}, queryDists, 3, 0.0)
+	ids, _, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, queryDists, 3, 0.0)
 	require.NoError(t, err)
 	// First pick: id 1 (or 2, tied by query dist, picks first encountered).
 	assert.Equal(t, uint64(1), ids[0])
@@ -158,7 +154,7 @@ func TestMMR_DiversityChangesOrder(t *testing.T) {
 	// Query distances: cluster A is closer.
 	queryDists := []float32{0.1, 0.15, 0.5, 0.55}
 
-	ids, _, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3, 4}, queryDists, 4, 0.5)
+	ids, _, err := mmrSelect(provider, vecs, []uint64{1, 2, 3, 4}, queryDists, 4, 0.5)
 	require.NoError(t, err)
 	// First: id 1 (most relevant).
 	assert.Equal(t, uint64(1), ids[0])
@@ -169,11 +165,12 @@ func TestMMR_DiversityChangesOrder(t *testing.T) {
 
 func TestMMR_VecLoadError(t *testing.T) {
 	provider := distancer.NewL2SquaredProvider()
-	failVecForID := func(_ context.Context, id uint64, _ *common.VectorSlice, _ common.BucketView) ([]float32, error) {
+	failVecForID := func(_ context.Context, id uint64) ([]float32, error) {
 		return nil, fmt.Errorf("disk read error for id %d", id)
 	}
 
-	_, _, err := mmrSelect(provider, failVecForID, []uint64{1}, []float32{0.1}, 1, 0.5)
+	sel := newMMRSelector(provider.SingleDist, failVecForID, 1, 0.5)
+	_, _, err := sel.Select(context.Background(), []uint64{1}, []float32{0.1})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk read error")
 }
@@ -187,7 +184,7 @@ func TestMMR_ReturnsCorrectDistances(t *testing.T) {
 	}
 	queryDists := []float32{0.2, 0.8, 1.5}
 
-	ids, dists, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3}, queryDists, 3, 0.7)
+	ids, dists, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, queryDists, 3, 0.7)
 	require.NoError(t, err)
 	require.Len(t, ids, 3)
 	// Verify each returned distance matches the query distance for that id.
@@ -209,10 +206,10 @@ func TestMMR_LambdaZeroVsOne(t *testing.T) {
 	}
 	queryDists := []float32{0.01, 0.02, 5.0}
 
-	idsRelevance, _, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3}, queryDists, 3, 1.0)
+	idsRelevance, _, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, queryDists, 3, 1.0)
 	require.NoError(t, err)
 
-	idsDiversity, _, err := mmrSelect(provider, makeVecForID(vecs), []uint64{1, 2, 3}, queryDists, 3, 0.0)
+	idsDiversity, _, err := mmrSelect(provider, vecs, []uint64{1, 2, 3}, queryDists, 3, 0.0)
 	require.NoError(t, err)
 
 	// With pure relevance, order should be 1,2,3 (by query distance).

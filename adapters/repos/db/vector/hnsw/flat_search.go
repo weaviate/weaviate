@@ -22,12 +22,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit int,
-	allowList helpers.AllowList, selector *searchparams.Selection,
+	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if !h.shouldRescore() || h.muvera.Load() {
 		limit = k
@@ -139,7 +138,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 		i--
 	}
 
-	return h.applySelector(ctx, selector, ids, dists, k)
+	return ids, dists, nil
 }
 
 func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, limit int,

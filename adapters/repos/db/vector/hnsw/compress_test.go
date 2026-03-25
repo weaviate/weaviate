@@ -279,9 +279,9 @@ func Test_NoRaceCompressNamedVectorsDoNotCollide(t *testing.T) {
 	index1.PostStartup(context.Background())
 	index2.PostStartup(context.Background())
 
-	_, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
+	_, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)
-	_, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
+	_, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil)
 	assert.Nil(t, err)
 }
 
@@ -331,14 +331,14 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 	err = index2.compress(uc2)
 	assert.Nil(t, err)
 
-	control1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
+	control1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)
-	control2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
+	control2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
 	assert.Nil(t, err)
 
-	sample1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
+	sample1, _, err := index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)
-	sample2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
+	sample2, _, err := index2.SearchByVector(t.Context(), queries2[0], 10, nil)
 	assert.Nil(t, err)
 	assert.ElementsMatch(t, control1, sample1)
 	assert.ElementsMatch(t, control2, sample2)
@@ -354,9 +354,9 @@ func Test_NoRaceCompressNamedVectorsDoNotMessEachOther(t *testing.T) {
 	index1.PostStartup(context.Background())
 	index2.PostStartup(context.Background())
 
-	sample1, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil, nil)
+	sample1, _, err = index1.SearchByVector(t.Context(), queries1[0], 10, nil)
 	assert.Nil(t, err)
-	sample2, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil, nil)
+	sample2, _, err = index2.SearchByVector(t.Context(), queries2[0], 10, nil)
 	assert.Nil(t, err)
 	assert.ElementsMatch(t, control1, sample1)
 	assert.ElementsMatch(t, control2, sample2)

@@ -32,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -40,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
@@ -519,7 +522,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, selector)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -530,7 +533,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					}
 				case [][]float32:
 					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, selector)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -545,7 +548,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			} else {
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
-					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList, selector)
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -557,7 +560,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 						return err
 					}
 				case [][]float32:
-					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList, selector)
+					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVector(ctx, searchVector, limit, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -574,6 +577,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 			if len(ids) == 0 {
 				return nil
+			}
+
+			if selector != nil {
+				ids, dists, err = s.applyMMRSelection(ctx, selector, targetVector, ids, dists, limit)
+				if err != nil {
+					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
+				}
 			}
 
 			idss[i] = ids
@@ -637,6 +647,65 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 	return objs, distCombined, nil
+}
+
+func (s *Shard) applyMMRSelection(ctx context.Context, selector *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+	// Build distancer from the target vector's distance config
+	var distProv distancer.Provider
+	cfg := s.index.GetVectorIndexConfig(targetVector)
+	switch cfg.DistanceName() {
+	case "", vectorIndexCommon.DistanceCosine:
+		distProv = distancer.NewCosineDistanceProvider()
+	case vectorIndexCommon.DistanceDot:
+		distProv = distancer.NewDotProductProvider()
+	case vectorIndexCommon.DistanceL2Squared:
+		distProv = distancer.NewL2SquaredProvider()
+	case vectorIndexCommon.DistanceManhattan:
+		distProv = distancer.NewManhattanProvider()
+	case vectorIndexCommon.DistanceHamming:
+		distProv = distancer.NewHammingProvider()
+	default:
+		distProv = distancer.NewCosineDistanceProvider()
+	}
+
+	distFn := func(a, b []float32) (float32, error) {
+		d, err := distProv.SingleDist(a, b)
+		return d, err
+	}
+
+	// Pre-fetch candidate vectors from the object store
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, s.index.logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
+	}
+
+	vecMap := make(map[uint64][]float32, len(ids))
+	for i, obj := range objs {
+		if obj == nil {
+			continue
+		}
+		var vec []float32
+		if targetVector == "" {
+			vec = obj.Vector
+		} else {
+			vec = obj.Vectors[targetVector]
+		}
+		vecMap[ids[i]] = vec
+	}
+
+	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
+		return vecMap[id], nil
+	}
+
+	sel, err := selection.New(selector, distFn, vecForID, k)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mmr selection: %w", err)
+	}
+	if sel == nil {
+		return ids, dists, nil
+	}
+	return sel.Select(ctx, ids, dists)
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {

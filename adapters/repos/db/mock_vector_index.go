@@ -18,7 +18,6 @@ import (
 	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 
 	config "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/searchparams"
 
 	context "context"
 
@@ -768,7 +767,7 @@ func (_c *MockVectorIndex_ResumeAfterBackup_Call) RunAndReturn(run func(context.
 }
 
 // SearchByVector provides a mock function with given fields: ctx, vector, k, allow
-func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
+func (_m *MockVectorIndex) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	ret := _m.Called(ctx, vector, k, allow)
 
 	if len(ret) == 0 {

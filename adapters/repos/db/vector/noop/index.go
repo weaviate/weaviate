@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -70,19 +69,19 @@ func (i *Index) DeleteMulti(id ...uint64) error {
 	return nil
 }
 
-func (i *Index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
+func (i *Index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
+func (i *Index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
+func (i *Index) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList, selector *searchparams.Selection) ([]uint64, []float32, error) {
+func (i *Index) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot multi-vector-search on a class not vector-indexed")
 }
 

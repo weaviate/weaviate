@@ -14,9 +14,6 @@ package selection
 import (
 	"context"
 	"math"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 // Scoring formula:
@@ -25,17 +22,17 @@ import (
 //
 // lambda=1 pure relevance ranking, lambda=0 pure diversity.
 type MMRSelector struct {
-	provider distancer.Provider
-	vecForID common.TempVectorForIDWithView[float32]
+	distFn   func(a, b []float32) (float32, error)
+	vecForID func(ctx context.Context, id uint64) ([]float32, error)
 	k        int
 	lambda   float32
 }
 
-func newMMRSelector(provider distancer.Provider, vecForID common.TempVectorForIDWithView[float32], k int, lambda float32) *MMRSelector {
-	return &MMRSelector{provider: provider, vecForID: vecForID, k: k, lambda: lambda}
+func newMMRSelector(distFn func(a, b []float32) (float32, error), vecForID func(ctx context.Context, id uint64) ([]float32, error), k int, lambda float32) *MMRSelector {
+	return &MMRSelector{distFn: distFn, vecForID: vecForID, k: k, lambda: lambda}
 }
 
-func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances []float32, view common.BucketView) ([]uint64, []float32, error) {
+func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error) {
 	n := len(ids)
 	k := s.k
 	if n == 0 || k <= 0 {
@@ -45,23 +42,13 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 		k = n
 	}
 
-	container := &common.VectorSlice{Buff8: make([]byte, 8)}
-
-	firstVec, err := s.vecForID(ctx, ids[0], container, view)
-	if err != nil {
-		return nil, nil, err
-	}
-	dim := len(firstVec)
-
-	vectors := make([]float32, n*dim)
-	copy(vectors[:dim], firstVec)
-
-	for i := 1; i < n; i++ {
-		vec, err := s.vecForID(ctx, ids[i], container, view)
+	vectors := make([][]float32, n)
+	for i := 0; i < n; i++ {
+		vec, err := s.vecForID(ctx, ids[i])
 		if err != nil {
 			return nil, nil, err
 		}
-		copy(vectors[i*dim:], vec)
+		vectors[i] = vec
 	}
 
 	bestIdx := 0
@@ -91,7 +78,7 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 		minDist[i] = float32(math.Inf(1))
 	}
 
-	lastSelectedVec := vectors[bestIdx*dim : (bestIdx+1)*dim]
+	lastSelectedVec := vectors[bestIdx]
 
 	// Greedily select k-1 more candidates
 	for round := 1; round < k; round++ {
@@ -103,7 +90,7 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 				continue
 			}
 
-			dist, err := s.provider.SingleDist(lastSelectedVec, vectors[i*dim:(i+1)*dim])
+			dist, err := s.distFn(lastSelectedVec, vectors[i])
 			if err != nil {
 				return nil, nil, err
 			}
@@ -127,7 +114,7 @@ func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances [
 		selected = append(selected, ids[bestIdx])
 		selectedDists = append(selectedDists, queryDistances[bestIdx])
 		removed[bestIdx] = true
-		lastSelectedVec = vectors[bestIdx*dim : (bestIdx+1)*dim]
+		lastSelectedVec = vectors[bestIdx]
 	}
 
 	return selected, selectedDists, nil

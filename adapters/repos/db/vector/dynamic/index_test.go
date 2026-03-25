@@ -106,7 +106,7 @@ func TestDynamic(t *testing.T) {
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, vectors_size, at)
 	assert.False(t, dynamic.Upgraded())
-	recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths, nil)
+	recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall1, latency1)
 	assert.True(t, recall1 > 0.99)
 	wg := sync.WaitGroup{}
@@ -118,7 +118,7 @@ func TestDynamic(t *testing.T) {
 	wg.Wait()
 	shouldUpgrade, _ = dynamic.ShouldUpgrade()
 	assert.False(t, shouldUpgrade)
-	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths, nil)
+	recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	t.Logf("recall: %f, latency %f\n", recall2, latency2)
 	assert.True(t, recall2 > 0.9)
 	assert.True(t, latency1 > latency2)
@@ -257,7 +257,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		assert.True(t, shouldUpgrade)
 		assert.Equal(t, vectors_size, at)
 		assert.False(t, v.Upgraded())
-		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths, nil)
+		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall1, latency1)
 		assert.True(t, recall1 > 0.99)
 		wg := sync.WaitGroup{}
@@ -268,7 +268,7 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		wg.Wait()
 		shouldUpgrade, _ = v.ShouldUpgrade()
 		assert.False(t, shouldUpgrade)
-		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths, nil)
+		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		t.Logf("recall: %f, latency %f\n", recall2, latency2)
 		assert.True(t, recall2 > 0.9)
 		assert.True(t, latency1 > latency2)
@@ -611,7 +611,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 				require.NoError(t, err)
 			})
 
-			recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths, nil)
+			recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 			require.Greater(t, recall, float32(0.55))
 			t.Logf("recall: %f, latency %f\n", recall, latency)
 
@@ -625,7 +625,7 @@ func TestDynamicUpgradeCompression(t *testing.T) {
 			require.NoError(t, err)
 			dynamic.PostStartup(context.Background())
 			require.Equal(t, dynamic.Compressed(), tt.compressed)
-			recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths, nil)
+			recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 			assert.Equal(t, recall, recall2)
 		})
 	}
@@ -852,7 +852,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		assert.True(t, shouldUpgrade)
 		assert.Equal(t, vectors_size, at)
 		assert.False(t, v.Upgraded())
-		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths, nil)
+		recall1, latency1 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall1, latency1)
 		assert.True(t, recall1 > 0.99)
 		wg := sync.WaitGroup{}
@@ -863,7 +863,7 @@ func TestDynamicStoreMigrationBug(t *testing.T) {
 		wg.Wait()
 		shouldUpgrade, _ = v.ShouldUpgrade()
 		assert.False(t, shouldUpgrade)
-		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths, nil)
+		recall2, latency2 := testinghelpers.RecallAndLatency(ctx, queries, k, v, truths)
 		fmt.Println(recall2, latency2)
 		assert.True(t, recall2 > 0.9)
 		assert.True(t, latency1 > latency2)
