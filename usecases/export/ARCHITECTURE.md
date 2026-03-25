@@ -67,12 +67,17 @@ coordinator crashes between phases.
 ## Snapshots
 
 Snapshots use hard-linked LSM segment files so the long-running scan never
-holds locks and concurrent writes continue unblocked. See the godoc in
-`adapters/repos/db/lsmkv/bucket_snapshot.go` for the full mechanism (flush
-cycle pausing, hard-link safety, snapshot lifecycle, and cleanup).
+holds locks and concurrent writes continue unblocked. WAL files are the
+exception: they are **copied** (not hard-linked) because they are mutable —
+if the shard loads after the snapshot is taken, the original WAL could be
+modified, which would corrupt a hard-linked snapshot. The copy is atomic
+(temporary file + rename) so a crash never leaves a partial WAL. See the
+godoc in `adapters/repos/db/lsmkv/bucket_snapshot.go` for the full mechanism
+(flush cycle pausing, hard-link safety, snapshot lifecycle, and cleanup).
 
-Unloaded shards (cold tenants) are hard-linked directly from disk including
-the WAL. Offloaded/frozen tenants are skipped with a `SkipReason`.
+Unloaded shards (cold tenants) are snapshotted directly from disk: immutable
+files (segments, bloom filters, count-net-additions) are hard-linked, and WAL
+files are copied. Offloaded/frozen tenants are skipped with a `SkipReason`.
 
 ## Parallel Scan and Parquet Writing
 
