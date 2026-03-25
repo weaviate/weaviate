@@ -74,6 +74,101 @@ func TestFoldAccents(t *testing.T) {
 			input:    "příliš žluťoučký kůň",
 			expected: "prilis zlutoucky kun",
 		},
+		// Stroked / barred letters
+		{
+			name:     "Polish ł and Ł",
+			input:    "Łódź złoty",
+			expected: "Lodz zloty",
+		},
+		{
+			name:     "Danish/Norwegian ø and Ø",
+			input:    "Ørsted rødgrød",
+			expected: "Orsted rodgrod",
+		},
+		{
+			name:     "Croatian đ",
+			input:    "Đurđevac",
+			expected: "Durdevac",
+		},
+		{
+			name:     "Maltese ħ",
+			input:    "Ħal Balzan",
+			expected: "Hal Balzan",
+		},
+		{
+			name:     "Sami ŧ",
+			input:    "ŧávvet",
+			expected: "tavvet",
+		},
+		{
+			name:     "stroked b, e, j, r, y, a",
+			input:    "ƀɇɉɍɏⱥ",
+			expected: "bejrya",
+		},
+		// Special letters
+		{
+			name:     "Icelandic eth ð",
+			input:    "Norðurland",
+			expected: "Nordurland",
+		},
+		{
+			name:     "Turkish dotless i",
+			input:    "dışarı",
+			expected: "disari",
+		},
+		{
+			name:     "long s",
+			input:    "ſincerely",
+			expected: "sincerely",
+		},
+		// Ligatures
+		{
+			name:     "ae ligature",
+			input:    "Æneas æsthetic",
+			expected: "AEneas aesthetic",
+		},
+		{
+			name:     "oe ligature",
+			input:    "Œuvre cœur",
+			expected: "OEuvre coeur",
+		},
+		{
+			name:     "Dutch ij ligature",
+			input:    "ĳsland Ĳsselmeer",
+			expected: "ijsland IJsselmeer",
+		},
+		{
+			name:     "German sharp s",
+			input:    "Straße groß",
+			expected: "Strasse gross",
+		},
+		{
+			name:     "capital sharp s",
+			input:    "STRAẞE",
+			expected: "STRASSE",
+		},
+		{
+			name:     "Icelandic thorn",
+			input:    "Þór þakka",
+			expected: "THor thakka",
+		},
+		{
+			name:     "typographic ligatures ff fi fl ffi ffl st",
+			input:    "ﬀ ﬁ ﬂ ﬃ ﬄ ﬅ ﬆ",
+			expected: "ff fi fl ffi ffl st st",
+		},
+		// Hooked / tailed letters
+		{
+			name:     "hooked letters",
+			input:    "ɓƈɗƒɠɦƙɱɲƥʠɽʂƭʋⱳƴʐ",
+			expected: "bcdfghkmnpqrstvwyz",
+		},
+		// Combined: NFD marks + table folding in same string
+		{
+			name:     "mixed NFD and table folding",
+			input:    "Ångström straße",
+			expected: "Angstrom strasse",
+		},
 	}
 
 	for _, tt := range tests {
