@@ -7879,7 +7879,7 @@ func init() {
           },
           "x-omitempty": true
         },
-        "processing": {
+        "textAnalyser": {
           "$ref": "#/definitions/TextAnalyserConfig"
         },
         "tokenization": {
@@ -18173,7 +18173,7 @@ func init() {
           },
           "x-omitempty": true
         },
-        "processing": {
+        "textAnalyser": {
           "$ref": "#/definitions/TextAnalyserConfig"
         },
         "tokenization": {
