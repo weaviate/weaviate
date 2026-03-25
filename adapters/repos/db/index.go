@@ -265,6 +265,11 @@ type Index struct {
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
 
+	// backupProtectedShards tracks shard names protected during non-hardlink backup.
+	// Activation and destructive status changes are blocked until ReleaseBackup.
+	// non-hardlink backups only occur on niche filesystems so this is not a hot path
+	backupProtectedShards sync.Map
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -2462,6 +2467,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
+	if _, protected := i.backupProtectedShards.Load(shardName); protected {
+		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+	}
+
 	disableLazyLoad := mustLoad || i.Config.DisableLazyLoadShards
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
@@ -2557,6 +2566,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard == nil {
+			if _, protected := i.backupProtectedShards.Load(shardName); protected {
+				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+			}
 			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 			if err != nil {
 				return nil, func() {}, err

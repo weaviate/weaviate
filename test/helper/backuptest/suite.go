@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	"golang.org/x/sync/errgroup"
 )
 
 // CompressionType specifies the vector compression algorithm to use.
@@ -142,6 +143,8 @@ type BackupTestSuite struct {
 	objectIDs []string
 	// objectTenants maps object ID to tenant name (empty string for non-MT)
 	objectTenants map[string]string
+	// objects retains the original generated objects for data integrity verification after restore.
+	objects []*models.Object
 }
 
 // NewBackupTestSuite creates a new backup test suite with the given configuration.
@@ -456,6 +459,7 @@ func (s *BackupTestSuite) CreateTestObjects(t *testing.T) {
 	t.Helper()
 
 	objects := s.dataGen.GenerateAllObjects()
+	s.objects = objects
 	s.objectIDs = make([]string, len(objects))
 	s.objectTenants = make(map[string]string, len(objects))
 
@@ -492,6 +496,55 @@ func (s *BackupTestSuite) VerifyObjectsExist(t *testing.T) {
 		require.Equal(t, expectedCount, count,
 			"class should have %d objects, got %d", expectedCount, count)
 	}
+}
+
+// VerifyObjectDataIntegrity retrieves every object after restore and compares
+// its properties against the originals stored during creation. This catches
+// corruption from mutable-file issues (WAL append, BoltDB mmap, HNSW commitlog)
+// that a count-only check would miss.
+//
+// Properties are compared via their JSON representation to avoid Go type
+// mismatches (e.g. int vs float64, []string vs []interface{}) that occur
+// between the stored objects and the JSON-decoded API response.
+func (s *BackupTestSuite) VerifyObjectDataIntegrity(t *testing.T) {
+	t.Helper()
+
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(50)
+
+	for _, expected := range s.objects {
+		g.Go(func() error {
+			tenant := expected.Tenant
+			var got *models.Object
+			var err error
+			if tenant != "" {
+				got, err = helper.TenantObject(t, s.config.ClassName, expected.ID, tenant)
+			} else {
+				got, err = helper.GetObject(t, s.config.ClassName, expected.ID)
+			}
+			if err != nil {
+				return fmt.Errorf("get object %s (tenant %q): %w", expected.ID, tenant, err)
+			}
+			if got == nil {
+				return fmt.Errorf("object %s (tenant %q) not found", expected.ID, tenant)
+			}
+
+			expectedJSON, err := json.Marshal(expected.Properties)
+			if err != nil {
+				return fmt.Errorf("object %s: marshal expected props: %w", expected.ID, err)
+			}
+			gotJSON, err := json.Marshal(got.Properties)
+			if err != nil {
+				return fmt.Errorf("object %s: marshal got props: %w", expected.ID, err)
+			}
+			if string(expectedJSON) != string(gotJSON) {
+				return fmt.Errorf("object %s (tenant %q) properties mismatch:\nwant: %s\ngot:  %s",
+					expected.ID, tenant, expectedJSON, gotJSON)
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
 }
 
 // VerifyObjectsDoNotExist checks that objects no longer exist (after class deletion).
@@ -828,6 +881,10 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 
 	t.Run("verify objects restored", func(t *testing.T) {
 		s.VerifyObjectsExist(t)
+	})
+
+	t.Run("verify object data integrity", func(t *testing.T) {
+		s.VerifyObjectDataIntegrity(t)
 	})
 
 	// For compressed backups, verify vectors are restored correctly
