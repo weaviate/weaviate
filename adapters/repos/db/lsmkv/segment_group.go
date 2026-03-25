@@ -163,6 +163,22 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		deleteMarkerCounter:          deleteMarkerCounter,
 	}
 
+	// Clean up stale scratch directories left behind by a prior version that
+	// used scratch files during compaction/flushing. These are no longer
+	// created, but may linger after an upgrade if the process crashed mid-
+	// compaction before the old code could remove them.
+	if entries, err := os.ReadDir(cfg.dir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && strings.HasSuffix(e.Name(), ".scratch.d") {
+				p := filepath.Join(cfg.dir, e.Name())
+				if err := os.RemoveAll(p); err != nil {
+					logger.WithError(err).WithField("path", p).
+						Warn("failed to remove stale scratch directory")
+				}
+			}
+		}
+	}
+
 	segmentIndex := 0
 
 	// Note: it's important to process first the compacted segments

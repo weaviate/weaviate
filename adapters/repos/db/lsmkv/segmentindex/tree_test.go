@@ -12,6 +12,7 @@
 package segmentindex
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -208,5 +209,95 @@ func TestTree(t *testing.T) {
 			require.Nil(t, err)
 			assert.ElementsMatch(t, expected, keys)
 		})
+	})
+}
+
+func TestMarshalSortedKeysFromKeys(t *testing.T) {
+	// Same elements as TestTree, pre-sorted by key.
+	sortedKeys := []Key{
+		{Key: []byte("aaa"), ValueStart: 1, ValueEnd: 2},
+		{Key: []byte("abc"), ValueStart: 4, ValueEnd: 5},
+		{Key: []byte("foobar"), ValueStart: 17, ValueEnd: 18},
+		{Key: []byte("zzz"), ValueStart: 34, ValueEnd: 35},
+		{Key: []byte("zzzz"), ValueStart: 100, ValueEnd: 102},
+	}
+
+	t.Run("empty input returns zero bytes", func(t *testing.T) {
+		var buf bytes.Buffer
+		n, err := MarshalSortedKeysFromKeys(&buf, nil)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), n)
+		assert.Equal(t, 0, buf.Len())
+	})
+
+	t.Run("output matches tree MarshalBinary", func(t *testing.T) {
+		// Build the same balanced tree via NewBalanced and marshal it.
+		// NewBalanced (not Insert) produces a balanced BST matching MarshalSortedKeysFromKeys.
+		nodes := make(Nodes, len(sortedKeys))
+		for i, k := range sortedKeys {
+			nodes[i] = Node{Key: k.Key, Start: uint64(k.ValueStart), End: uint64(k.ValueEnd)}
+		}
+		tree := NewBalanced(nodes)
+		want, err := tree.MarshalBinary()
+		require.NoError(t, err)
+
+		// Marshal directly from sorted keys.
+		var buf bytes.Buffer
+		n, err := MarshalSortedKeysFromKeys(&buf, sortedKeys)
+		require.NoError(t, err)
+		got := buf.Bytes()
+
+		assert.Equal(t, int64(len(want)), n)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("DiskTree can Get every key", func(t *testing.T) {
+		var buf bytes.Buffer
+		_, err := MarshalSortedKeysFromKeys(&buf, sortedKeys)
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(buf.Bytes())
+		for _, k := range sortedKeys {
+			n, err := dTree.Get(k.Key)
+			require.NoError(t, err)
+			assert.Equal(t, k.Key, n.Key)
+			assert.Equal(t, uint64(k.ValueStart), n.Start)
+			assert.Equal(t, uint64(k.ValueEnd), n.End)
+		}
+	})
+
+	t.Run("DiskTree Seek returns first key >= query", func(t *testing.T) {
+		var buf bytes.Buffer
+		_, err := MarshalSortedKeysFromKeys(&buf, sortedKeys)
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(buf.Bytes())
+
+		n, err := dTree.Seek([]byte("f"))
+		require.NoError(t, err)
+		assert.Equal(t, []byte("foobar"), n.Key)
+
+		n, err = dTree.Seek([]byte("zzza"))
+		require.NoError(t, err)
+		assert.Equal(t, []byte("zzzz"), n.Key)
+
+		_, err = dTree.Seek([]byte("zzzzz"))
+		assert.Equal(t, lsmkv.NotFound, err)
+	})
+
+	t.Run("DiskTree AllKeys returns all keys", func(t *testing.T) {
+		var buf bytes.Buffer
+		_, err := MarshalSortedKeysFromKeys(&buf, sortedKeys)
+		require.NoError(t, err)
+
+		dTree := NewDiskTree(buf.Bytes())
+		keys, err := dTree.AllKeys()
+		require.NoError(t, err)
+
+		expected := make([][]byte, len(sortedKeys))
+		for i, k := range sortedKeys {
+			expected[i] = k.Key
+		}
+		assert.ElementsMatch(t, expected, keys)
 	})
 }
