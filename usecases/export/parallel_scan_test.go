@@ -253,7 +253,7 @@ func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, 
 	writer, err := NewParquetWriter(&buf)
 	require.NoError(t, err)
 
-	scanErr := scanRangeToWriter(ctx, bucket, start, end, writer)
+	_, scanErr := scanRangeToWriter(ctx, bucket, start, end, writer)
 	require.NoError(t, writer.Close())
 	if scanErr != nil {
 		return nil, scanErr
@@ -765,7 +765,7 @@ func TestParquetWriter_OnFlush(t *testing.T) {
 			callbacks = append(callbacks, n)
 		}
 
-		err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+		_, err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
 		require.NoError(t, err)
 		require.NoError(t, writer.Close())
 
@@ -801,7 +801,7 @@ func TestParquetWriter_OnFlush(t *testing.T) {
 			callbacks = append(callbacks, n)
 		}
 
-		err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+		_, err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "extract export fields")
 

@@ -899,12 +899,18 @@ rangeloop:
 			return
 		}
 
+		written := nodeStatus.GetShardWritten(snap.className, snap.shardName)
+
 		p.logger.WithField("class", snap.className).
 			WithField("shard", snap.shardName).
-			WithField("objects", nodeStatus.GetShardWritten(snap.className, snap.shardName)).
+			WithField("objects", written).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardSuccess, "", "")
+		if written == 0 {
+			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardSkipped, "", "no data")
+		} else {
+			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardSuccess, "", "")
+		}
 	}, p.logger)
 
 	return submitErr

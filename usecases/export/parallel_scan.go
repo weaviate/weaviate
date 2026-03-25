@@ -52,7 +52,14 @@ func (j *scanJob) execute() {
 		return
 	}
 
-	scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer)
+	n, scanErr := scanRangeToWriter(j.ctx, j.bucket, j.keyRange.start, j.keyRange.end, pipeline.writer)
+
+	if scanErr == nil && n == 0 {
+		// No rows scanned — discard the upload so no empty parquet file
+		// is written to the backend.
+		pipeline.CloseEmpty()
+		return
+	}
 
 	if shutdownErr := pipeline.Shutdown(scanErr); shutdownErr != nil {
 		j.setErr(shutdownErr)
@@ -127,7 +134,7 @@ func scanRangeToWriter(
 	bucket *lsmkv.Bucket,
 	startKey, endKey []byte,
 	writer *ParquetWriter,
-) error {
+) (int, error) {
 	cursor := bucket.Cursor()
 	defer cursor.Close()
 
@@ -138,6 +145,7 @@ func scanRangeToWriter(
 		key, val = cursor.Seek(startKey)
 	}
 
+	var n int
 	for key != nil {
 		if endKey != nil && bytes.Compare(key, endKey) >= 0 {
 			break
@@ -145,13 +153,13 @@ func scanRangeToWriter(
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return n, ctx.Err()
 		default:
 		}
 
 		fields, err := storobj.ExportFieldsFromBinary(val)
 		if err != nil {
-			return fmt.Errorf("extract export fields: %w", err)
+			return n, fmt.Errorf("extract export fields: %w", err)
 		}
 
 		row := ParquetRow{
@@ -165,13 +173,14 @@ func scanRangeToWriter(
 		}
 
 		if err := writer.WriteRow(row); err != nil {
-			return fmt.Errorf("write row to parquet: %w", err)
+			return n, fmt.Errorf("write row to parquet: %w", err)
 		}
 
+		n++
 		key, val = cursor.Next()
 	}
 
-	return nil
+	return n, nil
 }
 
 // rangeWriterConfig holds shared configuration for all range writers of a shard.
@@ -187,9 +196,20 @@ type rangeWriterConfig struct {
 
 // rangePipeline bundles a per-range ParquetWriter, io.Pipe, and upload goroutine.
 type rangePipeline struct {
+	pr         *io.PipeReader
 	pw         *io.PipeWriter
 	writer     *ParquetWriter
 	uploadDone <-chan error
+}
+
+// CloseEmpty tears down the pipeline without completing the upload. Used when
+// the scan produced no rows so that no empty parquet file reaches the backend.
+func (rp *rangePipeline) CloseEmpty() {
+	rp.writer.onFlush = nil
+	_ = rp.writer.Close()
+	rp.pr.Close()
+	rp.pw.Close()
+	<-rp.uploadDone
 }
 
 // Shutdown closes the writer pipeline and waits for the upload to finish.
@@ -254,6 +274,7 @@ func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex in
 	}
 
 	return &rangePipeline{
+		pr:         pr,
 		pw:         pw,
 		writer:     writer,
 		uploadDone: uploadDone,

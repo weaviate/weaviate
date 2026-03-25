@@ -324,8 +324,9 @@ func TestExport_EmptyCollection(t *testing.T) {
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
-	// Should produce a parquet file with zero data rows
-	verifyParquetExport(t, exportID, className, nil)
+	// Empty collection should produce no parquet files.
+	keys := listParquetKeys(t, exportID, className)
+	assert.Empty(t, keys, "empty collection should not produce parquet files")
 }
 
 func TestExport_MultipleClasses(t *testing.T) {

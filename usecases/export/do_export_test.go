@@ -62,9 +62,7 @@ func TestDoExport(t *testing.T) {
 			classes: map[string][]shardSpec{
 				"Article": {{name: "shard0", numObjects: 0}},
 			},
-			expected: []expectedFile{
-				{key: "Article_shard0_0000.parquet", numRows: 0},
-			},
+			expected: nil, // no parquet file for empty shards
 		},
 		{
 			name: "multi-tenant",
