@@ -2659,11 +2659,15 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
 					func(ctx context.Context, host string, _ bool) (any, error) {
 						count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
-						if err == nil {
-							mux.Lock()
-							counts[host] += count
-							mux.Unlock()
+						if err != nil {
+							i.logger.WithFields(logrus.Fields{
+								"shard": shard,
+								"host":  host,
+							}).Errorf("poll object count for count(*) aggregation: %v", err)
 						}
+						mux.Lock()
+						counts[host] += count
+						mux.Unlock()
 						return nil, nil
 					}, "", time.Second)
 				if err != nil {
@@ -2674,6 +2678,11 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				// to ignore Result[T].Err, as our func will swallow any errors.
 				for range results {
 				}
+
+				if len(counts) == 0 {
+					return fmt.Errorf("no nodes reported object count for shard %q", shard)
+				}
+
 				total.Add(int32(reconcile(counts)))
 			}
 			return nil
