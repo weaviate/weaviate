@@ -267,15 +267,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
-// allTokenizationKeys returns the base tokenization keys plus accent variants.
-func allTokenizationKeys() []string {
-	keys := make([]string, 0, len(tokenizer.Tokenizations)*2)
-	for _, t := range tokenizer.Tokenizations {
-		keys = append(keys, t, accentTokenizationKey(t))
-	}
-	return keys
-}
-
 // accentTokenizationKey returns the composite key used for accent-insensitive properties.
 func accentTokenizationKey(tokenization string) string {
 	return tokenization + ":accent"
@@ -310,8 +301,7 @@ func (b *BM25Searcher) wand(
 	allQueryTerms := make([]string, 0, 1000)
 	minimumOrTokensMatch := math.MaxInt64
 
-	for _, tokenization := range allTokenizationKeys() {
-		propNames := propNamesByTokenization[tokenization]
+	for tokenization, propNames := range propNamesByTokenization {
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
 			for queryTermIndex, queryTerm := range queryTerms {

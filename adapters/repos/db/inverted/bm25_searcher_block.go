@@ -93,8 +93,7 @@ func (b *BM25Searcher) wandBlock(
 	tokenizationTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_1_tok_time", tokenizationTime)
 	start = time.Now()
-	for _, tokenization := range allTokenizationKeys() {
-		propNames := propNamesByTokenization[tokenization]
+	for tokenization, propNames := range propNamesByTokenization {
 		if len(propNames) > 0 {
 			lenAllResults := len(allResults)
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
