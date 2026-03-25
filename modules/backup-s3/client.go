@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -108,7 +109,15 @@ func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string
 		remoteBucket = overrideBucket
 	}
 
-	return "s3://" + path.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
+	// Check if the bucket already includes a scheme (e.g. https:// for
+	// S3-compatible providers like DigitalOcean Spaces). If so, preserve
+	// the original scheme instead of prepending s3://.
+	scheme := "s3://"
+	if idx := strings.Index(remoteBucket, "://"); idx != -1 {
+		scheme = remoteBucket[:idx+3]
+		remoteBucket = remoteBucket[idx+3:]
+	}
+	return scheme + path.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
 }
 
 func (s *s3Client) AllBackups(ctx context.Context,
