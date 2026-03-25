@@ -909,7 +909,8 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 		strategy: StrategyReplace,
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 
 	// perform first write in initial state
 	active.put([]byte("key2"), []byte("value2"), nil)
@@ -1084,7 +1085,8 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 		strategy: StrategyRoaringSet,
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 	require.NoError(t, active.roaringSetAddBitmap([]byte("key1"), bitmapFromSlice([]uint64{2})))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1334,7 +1336,8 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 		strategy: StrategyRoaringSetRange,
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1408,7 +1411,8 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1569,8 +1573,9 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 		strategy: StrategySetCollection,
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
-	err := active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	err = active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
 	require.NoError(t, err)
 
 	switchDone := make(chan struct{})
@@ -1861,8 +1866,9 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 		strategy: StrategyMapCollection,
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
-	err := active.appendMapSorted([]byte("key1"), MapPair{
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	err = active.appendMapSorted([]byte("key1"), MapPair{
 		Key: []byte("k2"), Value: []byte("v2"),
 	})
 	require.NoError(t, err)
@@ -2032,8 +2038,9 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 		strategy: StrategyInverted,
 	}
 
-	active, freeRefs, _ := b.getActiveMemtableForWrite()
-	err := active.appendMapSorted([]byte("key1"),
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	err = active.appendMapSorted([]byte("key1"),
 		NewMapPairFromDocIdAndTf(1, 2, 1, false),
 	)
 	require.NoError(t, err)
