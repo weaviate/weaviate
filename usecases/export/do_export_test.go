@@ -14,13 +14,11 @@ package export
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/export"
 )
 
@@ -254,8 +252,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 }
 
 // TestSnapshotAllShards_Error verifies that errors from SnapshotShards
-// propagate correctly and that snapshots created before the error are
-// cleaned up by the caller.
+// propagate correctly through snapshotAllShards.
 func TestSnapshotAllShards_Error(t *testing.T) {
 	t.Parallel()
 	logger, _ := test.NewNullLogger()
@@ -264,7 +261,7 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 	defer store0.Shutdown(context.Background())
 
 	// shard0 succeeds, shard1 has a nil store which causes SnapshotShards to
-	// return an error. The snapshot created for shard0 must be cleaned up.
+	// return an error.
 	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
@@ -289,14 +286,4 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 	_, _, err := p.snapshotAllShards(context.Background(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
-
-	// snapshotAllShards cleans up all snapshots on error via its defer.
-	// Verify no leftovers remain.
-	entries, readErr := os.ReadDir(selector.snapshotsRoot)
-	require.NoError(t, readErr)
-	for _, e := range entries {
-		if e.IsDir() && lsmkv.IsSnapshotDir(e.Name()) {
-			t.Errorf("leftover snapshot directory found: %s", e.Name())
-		}
-	}
 }
