@@ -913,7 +913,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		i--
 	}
 	h.pools.pqResults.Put(res)
-
 	return ids, dists, nil
 }
 
