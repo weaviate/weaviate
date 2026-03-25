@@ -900,7 +900,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			res.Pop()
 		}
 	}
-
 	ids := make([]uint64, res.Len())
 	dists := make([]float32, res.Len())
 
