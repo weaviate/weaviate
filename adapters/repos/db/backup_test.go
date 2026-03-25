@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -23,11 +24,15 @@ import (
 
 	tlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/usecases/sharding"
+
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestBackupMutex(t *testing.T) {
@@ -477,4 +482,270 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 		require.Error(t, err)
 		require.True(t, errors.Is(err, errFrozenShard), "expected errFrozenShard, got %v", err)
 	})
+}
+
+// newDescriptorTestIndex creates a minimal Index wired up for testing Index.descriptor.
+// The returned Index has a mock SchemaReader, a fakeSchemaGetter, and proper locking
+// infrastructure. Callers populate idx.shards and the filesystem as needed.
+func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState *sharding.State) *Index {
+	t.Helper()
+	logger, _ := tlog.NewNullLogger()
+
+	class := &models.Class{Class: className}
+	mockReader := schemaUC.NewMockSchemaReader(t)
+	mockReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
+			return readFunc(class, shardState)
+		}).Maybe()
+
+	return &Index{
+		Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+		getSchema: &fakeSchemaGetter{
+			schema: schema.Schema{
+				Objects: &models.Schema{
+					Classes: []*models.Class{class},
+				},
+			},
+		},
+		schemaReader:     mockReader,
+		logger:           logger,
+		backupLock:       esync.NewKeyRWLocker(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		closingCtx:       context.Background(),
+	}
+}
+
+// createColdShardFiles creates a minimal shard directory on disk simulating
+// a COLD tenant with metadata, an LSM segment, and a WAL file.
+func createColdShardFiles(t *testing.T, rootDir, className, shardName string) {
+	t.Helper()
+	shardDir := filepath.Join(rootDir, indexID(schema.ClassName(className)), shardName)
+
+	require.NoError(t, os.MkdirAll(shardDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), []byte("42"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "proplengths"), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "version"), []byte("2"), 0o644))
+
+	bucketDir := filepath.Join(shardDir, "lsm", "objects")
+	require.NoError(t, os.MkdirAll(bucketDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-0001.db"), []byte("seg-data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), []byte("wal-data"), 0o644))
+}
+
+func TestDescriptorHotColdFrozenTenants(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("hot-tenant", models.TenantActivityStatusHOT).
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		AddTenant("frozen-tenant", models.TenantActivityStatusFROZEN).
+		WithReplicationFactor(3).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	// COLD tenant: real files on disk.
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	// FROZEN tenant: no directory at all.
+
+	// HOT tenant: mock shard in shardMap.
+	hotShard := NewMockShardLike(t)
+	hotShard.EXPECT().CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+			sd.Name = "hot-tenant"
+			sd.Node = "node1"
+			sd.DocIDCounter = []byte("100")
+			sd.DocIDCounterPath = filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "indexcount")
+			sd.PropLengthTracker = []byte("{}")
+			sd.PropLengthTrackerPath = filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "proplengths")
+			sd.Version = []byte("2")
+			sd.ShardVersionPath = filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "version")
+
+			relPath := filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "lsm", "objects", "segment-001.db")
+			dst := filepath.Join(stagingRoot, relPath)
+			require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
+			require.NoError(t, os.WriteFile(dst, []byte("hot-seg-data"), 0o644))
+			return []string{relPath}, nil
+		})
+	idx.shards.Store("hot-tenant", hotShard)
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	require.NoError(t, err)
+
+	// Only HOT and COLD should be in desc.Shards — FROZEN is omitted.
+	require.Len(t, desc.Shards, 2)
+
+	shardsByName := map[string]*backup.ShardDescriptor{}
+	for _, sd := range desc.Shards {
+		shardsByName[sd.Name] = sd
+	}
+
+	// HOT shard descriptor populated by mock.
+	hotDesc := shardsByName["hot-tenant"]
+	require.NotNil(t, hotDesc, "HOT tenant should be in desc.Shards")
+	assert.Equal(t, "node1", hotDesc.Node)
+	assert.Equal(t, []byte("100"), hotDesc.DocIDCounter)
+	assert.NotEmpty(t, hotDesc.Files, "HOT descriptor should have files")
+
+	// COLD shard descriptor populated from disk.
+	coldDesc := shardsByName["cold-tenant"]
+	require.NotNil(t, coldDesc, "COLD tenant should be in desc.Shards")
+	assert.Equal(t, "node1", coldDesc.Node)
+	assert.Equal(t, []byte("42"), coldDesc.DocIDCounter)
+	assert.NotEmpty(t, coldDesc.Files, "COLD descriptor should have files")
+
+	// FROZEN should be absent from desc.Shards.
+	assert.Nil(t, shardsByName["frozen-tenant"], "FROZEN tenant should NOT be in desc.Shards")
+
+	// ShardingState should contain all 3 tenants.
+	require.NotNil(t, desc.ShardingState, "ShardingState should be marshalled")
+	var restoredState sharding.State
+	require.NoError(t, json.Unmarshal(desc.ShardingState, &restoredState))
+	assert.Contains(t, restoredState.Physical, "hot-tenant")
+	assert.Contains(t, restoredState.Physical, "cold-tenant")
+	assert.Contains(t, restoredState.Physical, "frozen-tenant")
+
+	// ShardingState should reflect correct activity statuses.
+	assert.Equal(t, models.TenantActivityStatusHOT, restoredState.Physical["hot-tenant"].Status)
+	assert.Equal(t, models.TenantActivityStatusCOLD, restoredState.Physical["cold-tenant"].Status)
+	assert.Equal(t, models.TenantActivityStatusFROZEN, restoredState.Physical["frozen-tenant"].Status)
+
+	// Schema should be marshalled.
+	assert.NotNil(t, desc.Schema, "Schema should be marshalled")
+}
+
+func TestDescriptorColdShardMutableFilesCopied(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	// Create COLD shard files including HNSW commitlogs.
+	shardDir := filepath.Join(rootDir, indexID(schema.ClassName(className)), "cold-tenant")
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	clDir := filepath.Join(shardDir, "main.hnsw.commitlog.d")
+	require.NoError(t, os.MkdirAll(clDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203456"), []byte("commitlog"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(clDir, "1709203400.condensed"), []byte("condensed"), 0o644))
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	require.NoError(t, err)
+	require.Len(t, desc.Shards, 1)
+
+	stagingDir := desc.StagingDir
+	require.DirExists(t, stagingDir)
+
+	getIno := func(path string) uint64 {
+		t.Helper()
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		return info.Sys().(*syscall.Stat_t).Ino
+	}
+
+	idxID := indexID(schema.ClassName(className))
+	bucketDir := filepath.Join(shardDir, "lsm", "objects")
+
+	// Mutable files: different inodes (copied).
+	walSrc := filepath.Join(bucketDir, "segment-123.wal")
+	walDst := filepath.Join(stagingDir, idxID, "cold-tenant", "lsm", "objects", "segment-123.wal")
+	assert.NotEqual(t, getIno(walSrc), getIno(walDst), "WAL should be copied")
+
+	clSrc := filepath.Join(clDir, "1709203456")
+	clDst := filepath.Join(stagingDir, idxID, "cold-tenant", "main.hnsw.commitlog.d", "1709203456")
+	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied")
+
+	// Immutable files: same inodes (hard-linked).
+	segSrc := filepath.Join(bucketDir, "segment-0001.db")
+	segDst := filepath.Join(stagingDir, idxID, "cold-tenant", "lsm", "objects", "segment-0001.db")
+	assert.Equal(t, getIno(segSrc), getIno(segDst), "segment should be hard-linked")
+
+	condensedSrc := filepath.Join(clDir, "1709203400.condensed")
+	condensedDst := filepath.Join(stagingDir, idxID, "cold-tenant", "main.hnsw.commitlog.d", "1709203400.condensed")
+	assert.Equal(t, getIno(condensedSrc), getIno(condensedDst), "condensed commitlog should be hard-linked")
+}
+
+func TestDescriptorAllFrozenTenants(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("frozen-1", models.TenantActivityStatusFROZEN).
+		AddTenant("frozen-2", models.TenantActivityStatusFROZEN).
+		AddTenant("frozen-3", models.TenantActivityStatusFROZEN).
+		WithReplicationFactor(3).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	// No directories, no shards in map.
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	require.NoError(t, err)
+	assert.Empty(t, desc.Shards, "all-FROZEN collection should have no shard descriptors")
+
+	// ShardingState should still contain all 3.
+	var restoredState sharding.State
+	require.NoError(t, json.Unmarshal(desc.ShardingState, &restoredState))
+	assert.Len(t, restoredState.Physical, 3)
+}
+
+func TestDescriptorConcurrentBackupBlocked(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("tenant-1", models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	// First backup: set state.
+	require.NoError(t, idx.initBackup("backup-1"))
+
+	// Second backup: should fail.
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(context.Background(), "backup-2", &desc, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet released")
+}
+
+func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+	createColdShardFiles(t, rootDir, className, "cold-tenant")
+
+	var desc backup.ClassDescriptor
+	backupID := "test-backup"
+	err := idx.descriptor(ctx, backupID, &desc, nil)
+	require.NoError(t, err)
+
+	stagingDir := desc.StagingDir
+	require.DirExists(t, stagingDir)
+
+	// Release should clean up.
+	require.NoError(t, idx.ReleaseBackup(ctx, backupID))
+	assert.NoDirExists(t, stagingDir, "staging dir should be removed after ReleaseBackup")
+	assert.Nil(t, idx.lastBackup.Load(), "backup state should be reset")
 }
