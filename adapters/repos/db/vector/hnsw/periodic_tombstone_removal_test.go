@@ -59,6 +59,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
 	tombstoneCleanupCycle := cyclemanager.NewManager(
+		"tombstone-cleanup",
 		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
 		tombstoneCallbacks.CycleCallback, logger)
 	tombstoneCleanupCycle.Start()
@@ -125,7 +126,7 @@ func TestTombstoneCleanupAbortsOnMemoryPressure_PreCheck(t *testing.T) {
 	logger, logHook := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
-	tombstoneCleanupCycle := cyclemanager.NewManager(
+	tombstoneCleanupCycle := cyclemanager.NewManager("tombstone",
 		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
 		tombstoneCallbacks.CycleCallback, logger)
 
@@ -298,6 +299,7 @@ func TestTombstoneCleanupBlockedUntilCachePrefilled(t *testing.T) {
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
 	tombstoneCleanupCycle := cyclemanager.NewManager(
+		"tombstone-cleanup",
 		cyclemanager.NewFixedTicker(time.Duration(cleanupIntervalSeconds)*time.Second),
 		tombstoneCallbacks.CycleCallback, logger)
 	tombstoneCleanupCycle.Start()

@@ -35,11 +35,11 @@ func (bag *quantizedDistanceBag[T]) Load(ctx context.Context, id uint64) error {
 
 func (bag *quantizedDistanceBag[T]) Distance(x, y uint64) (float32, error) {
 	v1, found := bag.elements[x]
-	if !found {
+	if !found || len(v1) == 0 {
 		return 0, storobj.NewErrNotFoundf(x, "compressionBag")
 	}
 	v2, found := bag.elements[y]
-	if !found {
+	if !found || len(v2) == 0 {
 		return 0, storobj.NewErrNotFoundf(y, "compressionBag")
 	}
 	return bag.compressor.DistanceBetweenCompressedVectors(v1, v2)
