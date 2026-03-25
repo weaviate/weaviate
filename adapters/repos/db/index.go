@@ -2683,6 +2683,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 					return fmt.Errorf("no nodes reported object count for shard %q", shard)
 				}
 
+				// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
 				total.Add(int32(reconcile(counts)))
 			}
 			return nil
@@ -2713,7 +2714,6 @@ func reconcile(counts map[string]int) int {
 	var median int
 	medianIdx := len(counts) / 2
 
-	// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
 	for i, count := range slices.Sorted(maps.Values(counts)) {
 		hits[count]++
 		if h := hits[count]; h > modeHits {
