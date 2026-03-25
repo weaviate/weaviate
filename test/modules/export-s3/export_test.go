@@ -206,6 +206,32 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			{Name: "boolProp", DataType: []string{"boolean"}},
 			{Name: "dateProp", DataType: []string{"date"}},
 			{Name: "textArrayProp", DataType: []string{"text[]"}},
+			{Name: "intArrayProp", DataType: []string{"int[]"}},
+			{Name: "numberArrayProp", DataType: []string{"number[]"}},
+			{Name: "boolArrayProp", DataType: []string{"boolean[]"}},
+			{Name: "dateArrayProp", DataType: []string{"date[]"}},
+			{Name: "uuidProp", DataType: []string{"uuid"}},
+			{Name: "uuidArrayProp", DataType: []string{"uuid[]"}},
+			{Name: "blobProp", DataType: []string{"blob"}},
+			{Name: "geoProp", DataType: []string{"geoCoordinates"}},
+			{Name: "phoneProp", DataType: []string{"phoneNumber"}},
+			{
+				Name:     "objectProp",
+				DataType: []string{"object"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "street", DataType: []string{"text"}},
+					{Name: "city", DataType: []string{"text"}},
+					{Name: "zip", DataType: []string{"int"}},
+				},
+			},
+			{
+				Name:     "objectArrayProp",
+				DataType: []string{"object[]"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "name", DataType: []string{"text"}},
+					{Name: "score", DataType: []string{"number"}},
+				},
+			},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
 			AsyncEnabled: true,
@@ -217,6 +243,11 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
+	refUUIDs := make([]string, 20)
+	for i := range refUUIDs {
+		refUUIDs[i] = uuid.New().String()
+	}
+
 	startedAt := time.Now()
 	objects := make([]*models.Object, 20)
 	for i := range objects {
@@ -224,12 +255,35 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			Class: className,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"textProp":      fmt.Sprintf("text-%d", i),
-				"intProp":       float64(i * 100),
-				"numberProp":    float64(i) * 1.5,
-				"boolProp":      i%2 == 0,
-				"dateProp":      "2026-01-15T12:00:00Z",
-				"textArrayProp": []string{fmt.Sprintf("a-%d", i), fmt.Sprintf("b-%d", i)},
+				"textProp":        fmt.Sprintf("text-%d", i),
+				"intProp":         float64(i * 100),
+				"numberProp":      float64(i) * 1.5,
+				"boolProp":        i%2 == 0,
+				"dateProp":        "2026-01-15T12:00:00Z",
+				"textArrayProp":   []string{fmt.Sprintf("a-%d", i), fmt.Sprintf("b-%d", i)},
+				"intArrayProp":    []float64{float64(i), float64(i + 1)},
+				"numberArrayProp": []float64{float64(i) * 0.1, float64(i) * 0.2},
+				"boolArrayProp":   []bool{i%2 == 0, i%3 == 0},
+				"dateArrayProp":   []string{"2026-01-15T12:00:00Z", "2026-02-15T12:00:00Z"},
+				"uuidProp":        refUUIDs[i],
+				"uuidArrayProp":   []string{refUUIDs[i], refUUIDs[(i+1)%20]},
+				"blobProp":        "aGVsbG8=", // base64("hello")
+				"geoProp": map[string]interface{}{
+					"latitude":  52.52,
+					"longitude": 13.405,
+				},
+				"phoneProp": map[string]interface{}{
+					"input": fmt.Sprintf("+49 171 %07d", i),
+				},
+				"objectProp": map[string]interface{}{
+					"street": fmt.Sprintf("Street %d", i),
+					"city":   "Berlin",
+					"zip":    float64(10000 + i),
+				},
+				"objectArrayProp": []interface{}{
+					map[string]interface{}{"name": fmt.Sprintf("entry-%d-a", i), "score": float64(i) * 1.1},
+					map[string]interface{}{"name": fmt.Sprintf("entry-%d-b", i), "score": float64(i) * 2.2},
+				},
 			},
 			Vector: models.C11yVector{float32(i) * 0.1, float32(i) * 0.2},
 		}
@@ -243,12 +297,34 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			helper.DeleteObject(t, obj)
 		} else {
 			obj.Properties = map[string]interface{}{
-				"textProp":      fmt.Sprintf("updated-%d", i),
-				"intProp":       float64(i * 999),
-				"numberProp":    float64(i) * 3.14,
-				"boolProp":      i%3 == 0,
-				"dateProp":      "2026-06-01T00:00:00Z",
-				"textArrayProp": []string{fmt.Sprintf("x-%d", i)},
+				"textProp":        fmt.Sprintf("updated-%d", i),
+				"intProp":         float64(i * 999),
+				"numberProp":      float64(i) * 3.14,
+				"boolProp":        i%3 == 0,
+				"dateProp":        "2026-06-01T00:00:00Z",
+				"textArrayProp":   []string{fmt.Sprintf("x-%d", i)},
+				"intArrayProp":    []float64{float64(i * 10)},
+				"numberArrayProp": []float64{float64(i) * 9.9},
+				"boolArrayProp":   []bool{i%3 == 0},
+				"dateArrayProp":   []string{"2026-06-01T00:00:00Z"},
+				"uuidProp":        refUUIDs[(i+5)%20],
+				"uuidArrayProp":   []string{refUUIDs[(i+5)%20]},
+				"blobProp":        "d29ybGQ=", // base64("world")
+				"geoProp": map[string]interface{}{
+					"latitude":  48.8566,
+					"longitude": 2.3522,
+				},
+				"phoneProp": map[string]interface{}{
+					"input": fmt.Sprintf("+33 6 %08d", i),
+				},
+				"objectProp": map[string]interface{}{
+					"street": fmt.Sprintf("Rue %d", i),
+					"city":   "Paris",
+					"zip":    float64(75000 + i),
+				},
+				"objectArrayProp": []interface{}{
+					map[string]interface{}{"name": fmt.Sprintf("updated-%d", i), "score": float64(i) * 5.5},
+				},
 			}
 			require.NoError(t, helper.UpdateObject(t, obj))
 			surviving = append(surviving, obj)
@@ -277,18 +353,69 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 		var props map[string]interface{}
 		require.NoError(t, json.Unmarshal(row.Properties, &props))
 
+		// Scalar types
 		assert.Equal(t, exp["textProp"], props["textProp"], "text mismatch for %s", row.ID)
 		assert.InDelta(t, exp["intProp"], props["intProp"], 0.1, "int mismatch for %s", row.ID)
 		assert.InDelta(t, exp["numberProp"], props["numberProp"], 1e-9, "number mismatch for %s", row.ID)
 		assert.Equal(t, exp["boolProp"], props["boolProp"], "bool mismatch for %s", row.ID)
 		assert.Equal(t, exp["dateProp"], props["dateProp"], "date mismatch for %s", row.ID)
+		assert.Equal(t, exp["uuidProp"], props["uuidProp"], "uuid mismatch for %s", row.ID)
+		assert.Equal(t, exp["blobProp"], props["blobProp"], "blob mismatch for %s", row.ID)
 
-		actualArr, ok := props["textArrayProp"].([]interface{})
-		require.True(t, ok, "textArrayProp should be array for %s", row.ID)
-		expectedArr := exp["textArrayProp"].([]string)
-		require.Len(t, actualArr, len(expectedArr))
-		for j, v := range actualArr {
-			assert.Equal(t, expectedArr[j], v, "textArrayProp[%d] mismatch for %s", j, row.ID)
+		// text[]
+		assertStringArray(t, row.ID, "textArrayProp", exp, props)
+
+		// int[] — JSON numbers
+		assertNumberArray(t, row.ID, "intArrayProp", exp, props, 0.1)
+
+		// number[]
+		assertNumberArray(t, row.ID, "numberArrayProp", exp, props, 1e-9)
+
+		// boolean[]
+		assertBoolArray(t, row.ID, "boolArrayProp", exp, props)
+
+		// date[]
+		assertStringArray(t, row.ID, "dateArrayProp", exp, props)
+
+		// uuid[]
+		assertStringArray(t, row.ID, "uuidArrayProp", exp, props)
+
+		// geoCoordinates
+		if expGeo, ok := exp["geoProp"].(map[string]interface{}); ok {
+			actualGeo, ok := props["geoProp"].(map[string]interface{})
+			require.True(t, ok, "geoProp should be object for %s", row.ID)
+			assert.InDelta(t, expGeo["latitude"], actualGeo["latitude"], 1e-4, "geo latitude mismatch for %s", row.ID)
+			assert.InDelta(t, expGeo["longitude"], actualGeo["longitude"], 1e-4, "geo longitude mismatch for %s", row.ID)
+		}
+
+		// phoneNumber — Weaviate normalizes the input, so just check it's present
+		if _, ok := exp["phoneProp"]; ok {
+			actualPhone, ok := props["phoneProp"].(map[string]interface{})
+			require.True(t, ok, "phoneProp should be object for %s", row.ID)
+			assert.NotEmpty(t, actualPhone["input"], "phone input should not be empty for %s", row.ID)
+		}
+
+		// object
+		if expObj, ok := exp["objectProp"].(map[string]interface{}); ok {
+			actualObj, ok := props["objectProp"].(map[string]interface{})
+			require.True(t, ok, "objectProp should be object for %s", row.ID)
+			assert.Equal(t, expObj["street"], actualObj["street"], "objectProp.street mismatch for %s", row.ID)
+			assert.Equal(t, expObj["city"], actualObj["city"], "objectProp.city mismatch for %s", row.ID)
+			assert.InDelta(t, expObj["zip"], actualObj["zip"], 0.1, "objectProp.zip mismatch for %s", row.ID)
+		}
+
+		// object[]
+		if expArr, ok := exp["objectArrayProp"].([]interface{}); ok {
+			actualArr, ok := props["objectArrayProp"].([]interface{})
+			require.True(t, ok, "objectArrayProp should be array for %s", row.ID)
+			require.Len(t, actualArr, len(expArr), "objectArrayProp length mismatch for %s", row.ID)
+			for j, expElem := range expArr {
+				expMap := expElem.(map[string]interface{})
+				actualMap, ok := actualArr[j].(map[string]interface{})
+				require.True(t, ok, "objectArrayProp[%d] should be object for %s", j, row.ID)
+				assert.Equal(t, expMap["name"], actualMap["name"], "objectArrayProp[%d].name mismatch for %s", j, row.ID)
+				assert.InDelta(t, expMap["score"], actualMap["score"], 1e-6, "objectArrayProp[%d].score mismatch for %s", j, row.ID)
+			}
 		}
 
 		verifyRowTimestamps(t, row, startedAt)
@@ -1544,4 +1671,53 @@ func verifyConcurrentExport(
 		"export must contain at least all pre-export objects")
 	assert.LessOrEqual(t, len(allRows), preCount+len(duringObjects),
 		"export must not contain more than pre+during objects")
+}
+
+// assertStringArray compares string array properties (text[], date[], uuid[]).
+func assertStringArray(t *testing.T, id, propName string, exp, actual map[string]interface{}) {
+	t.Helper()
+	expArr, ok := exp[propName].([]string)
+	if !ok {
+		return
+	}
+	actualArr, ok := actual[propName].([]interface{})
+	require.True(t, ok, "%s should be array for %s", propName, id)
+	require.Len(t, actualArr, len(expArr), "%s length mismatch for %s", propName, id)
+	for j, v := range actualArr {
+		assert.Equal(t, expArr[j], v, "%s[%d] mismatch for %s", propName, j, id)
+	}
+}
+
+// assertNumberArray compares numeric array properties (int[], number[]).
+func assertNumberArray(t *testing.T, id, propName string, exp, actual map[string]interface{}, delta float64) {
+	t.Helper()
+	expArr, ok := exp[propName].([]float64)
+	if !ok {
+		return
+	}
+	actualArr, ok := actual[propName].([]interface{})
+	require.True(t, ok, "%s should be array for %s", propName, id)
+	require.Len(t, actualArr, len(expArr), "%s length mismatch for %s", propName, id)
+	for j, v := range actualArr {
+		actualNum, ok := v.(float64)
+		require.True(t, ok, "%s[%d] should be number for %s", propName, j, id)
+		assert.InDelta(t, expArr[j], actualNum, delta, "%s[%d] mismatch for %s", propName, j, id)
+	}
+}
+
+// assertBoolArray compares boolean array properties.
+func assertBoolArray(t *testing.T, id, propName string, exp, actual map[string]interface{}) {
+	t.Helper()
+	expArr, ok := exp[propName].([]bool)
+	if !ok {
+		return
+	}
+	actualArr, ok := actual[propName].([]interface{})
+	require.True(t, ok, "%s should be array for %s", propName, id)
+	require.Len(t, actualArr, len(expArr), "%s length mismatch for %s", propName, id)
+	for j, v := range actualArr {
+		actualBool, ok := v.(bool)
+		require.True(t, ok, "%s[%d] should be bool for %s", propName, j, id)
+		assert.Equal(t, expArr[j], actualBool, "%s[%d] mismatch for %s", propName, j, id)
+	}
 }
