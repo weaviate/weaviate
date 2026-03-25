@@ -376,7 +376,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 
 	t.Run("certificate string", func(t *testing.T) {
 		client, loggerHook := newClientWithCertificate(testingCertificate)
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 		verifyLogs(t, loggerHook, "environment variable")
@@ -387,7 +387,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		defer certificateServer.Close()
 		source := certificateURL(certificateServer)
 		client, loggerHook := newClientWithCertificate(source)
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 		verifyLogs(t, loggerHook, source)
@@ -395,7 +395,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 
 	t.Run("unparseable string", func(t *testing.T) {
 		client, _ := newClientWithCertificate("unparseable")
-		clientWithCertificate, err := client.useCertificate()
+		clientWithCertificate, err := client.buildHTTPClient()
 		require.Nil(t, clientWithCertificate)
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "failed to decode certificate")

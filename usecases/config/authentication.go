@@ -70,7 +70,7 @@ type OIDC struct {
 	Scopes            *runtime.DynamicValue[[]string] `yaml:"scopes" json:"scopes"`
 	Certificate       *runtime.DynamicValue[string]   `yaml:"certificate" json:"certificate"`
 	JWKSUrl           *runtime.DynamicValue[string]   `yaml:"jwks_url" json:"jwks_url"`
-	SkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"skip_tls_verify" json:"skip_tls_verify"`
+	SkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"insecure_skip_tls_verify" json:"insecure_skip_tls_verify"`
 }
 
 type StaticAPIKey struct {

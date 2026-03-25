@@ -226,6 +226,9 @@ func (c *Client) buildHTTPClient() (*http.Client, error) {
 	}
 
 	if c.Config.SkipTLSVerify.Get() {
+		if c.Config.Certificate.Get() != "" {
+			c.logger.WithField("action", "oidc_init").Warn("both Certificate and SkipTLSVerify are set — RootCAs will be ignored because InsecureSkipVerify=true takes precedence")
+		}
 		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- opt-in via INSECURE_SKIP_OIDC_TLS_VERIFY
 		c.logger.WithField("action", "oidc_init").Warn("TLS verification disabled for OIDC connections — do not use in production")
 	}
@@ -235,14 +238,13 @@ func (c *Client) buildHTTPClient() (*http.Client, error) {
 	}, nil
 }
 
-// useCertificate is kept for backward compatibility. It loads the certificate
-// and returns a configured HTTP client.
-func (c *Client) useCertificate() (*http.Client, error) {
-	return c.buildHTTPClient()
-}
-
 // loadCertPool fetches the certificate from the configured source (HTTP URL,
 // S3 URI, or inline PEM string) and returns a certificate pool containing it.
+// Note: HTTP URL fetches use the default http.Client, so they will fail if the
+// certificate URL is itself behind a self-signed TLS endpoint — even when
+// SkipTLSVerify is set. The insecure client is built using the pool returned by
+// this function, so cert fetching and insecure-client construction cannot share
+// the same client.
 func (c *Client) loadCertPool() (*x509.CertPool, error) {
 	var certificate, certificateSource string
 	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
