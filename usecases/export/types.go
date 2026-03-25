@@ -96,7 +96,7 @@ type ExportMetadata struct {
 	ShardStatus     map[string]map[string]models.ShardProgress `json:"shardStatus,omitempty"`
 }
 
-// exportNodeInfo holds per-node information during 2PC coordination.
+// exportNodeInfo holds per-node information during 2PC-like coordination.
 type exportNodeInfo struct {
 	req  *ExportRequest
 	host string // empty for local node

@@ -4,7 +4,8 @@
 
 The export feature produces point-in-time snapshots of Weaviate collections as
 Parquet files on an external storage backend (S3, GCS, Azure). It uses a
-**two-phase commit (2PC) protocol** across the cluster so that every
+**2PC-like protocol** (Prepare/Commit, but without the atomicity guarantees
+of a true two-phase commit) across the cluster so that every
 participating node anchors its snapshot in the same coordinated window, then
 scans and uploads independently.
 
@@ -37,7 +38,16 @@ scans and uploads independently.
     +-------------------+           +-------------------+
 ```
 
-## Two-Phase Commit Protocol
+## 2PC-like Coordination Protocol
+
+The protocol borrows the Prepare/Commit shape of two-phase commit but
+intentionally does not provide true 2PC atomicity. The goal of the two
+phases is narrower: strongly guarantee that only one export runs at a time
+across the cluster (each node reserves a single-export slot during Prepare
+via CAS, and Commit only proceeds once all nodes have confirmed their
+reservation). Exports are idempotent and produce no side effects on
+failure, so best-effort abort is sufficient: if a node fails after Commit,
+the remaining nodes cancel and the user re-runs the export.
 
 The coordinator (Scheduler, on the node that receives the HTTP request) drives
 the protocol. All persistent state lives on the backend (metadata JSON,
@@ -163,7 +173,7 @@ step and exit; metadata promotion still runs before the goroutine returns.
 
 | File | Role |
 |------|------|
-| `usecases/export/scheduler.go` | 2PC coordinator, metadata I/O, status assembly |
+| `usecases/export/scheduler.go` | 2PC-like coordinator, metadata I/O, status assembly |
 | `usecases/export/participant.go` | Per-node: slot, snapshot, scan orchestration, sibling monitoring |
 | `usecases/export/parallel_scan.go` | Key ranges, scan jobs, range writer pipeline |
 | `usecases/export/parquet_writer.go` | Batched Parquet writing with Zstd |

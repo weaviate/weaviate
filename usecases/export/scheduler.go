@@ -567,7 +567,7 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
-	// Bound the entire 2PC (Prepare all + metadata write + Commit all) so the
+	// Bound the entire 2PC-like flow (Prepare all + metadata write + Commit all) so the
 	// coordinator doesn't hang indefinitely if a participant is unreachable.
 	// The budget is 2× the participant reservation timeout: one window for
 	// Prepare (which now includes snapshotting) and one for Commit. Each

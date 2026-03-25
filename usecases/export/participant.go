@@ -166,7 +166,7 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 		// discovered at Commit time, after other nodes may have already
 		// committed. Those nodes are then aborted. Making Prepare
 		// synchronous would be simpler but would serialize snapshotting
-		// across the 2PC phases, increasing the chance of hitting the
+		// across the 2PC-like phases, increasing the chance of hitting the
 		// reservation timeout on large deployments.
 		snapshotCtx, snapshotCancel := context.WithCancel(p.shutdownCtx)
 		ps := &pendingSnapshot{
