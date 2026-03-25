@@ -238,7 +238,12 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		return fmt.Errorf("create backup staging dir: %w", err)
 	}
 
+	i.dropIndex.RLock()
+	i.closeLock.RLock()
+
 	defer func() {
+		i.closeLock.RUnlock()
+		i.dropIndex.RUnlock()
 		if err != nil {
 			os.RemoveAll(stagingRoot)
 			// closelock is hold by the caller
@@ -300,7 +305,11 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
-	defer i.backupLock.Unlock(name)
+	i.shardCreateLocks.Lock(name)
+	defer func() {
+		i.shardCreateLocks.Unlock(name)
+		i.backupLock.Unlock(name)
+	}()
 
 	var sd backup.ShardDescriptor
 
@@ -332,8 +341,12 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		releaseBlock()
 	}
 
+	s, ok := shard.(*Shard)
+	if !ok {
+		return nil, fmt.Errorf("unexpected shard type for active shard %v", name)
+	}
 	// Active path => shard is loaded in memory.
-	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+	files, err := s.CreateBackupSnapshot(ctx, &sd, stagingRoot)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
 	}
@@ -373,10 +386,10 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 			if err := copyFile(src, dst); err != nil {
 				return fmt.Errorf("copy mutable inactive shard %s file %s to staging: %w", name, relPath, err)
 			}
-			continue
-		}
-		if err := os.Link(src, dst); err != nil {
-			return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
+		} else {
+			if err := os.Link(src, dst); err != nil {
+				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
+			}
 		}
 
 	}
