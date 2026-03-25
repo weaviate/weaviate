@@ -2625,9 +2625,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 }
 
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
-	var mux sync.Mutex                                     // synchronizes access in coordinator.Pull.
-	counts := make(map[string]map[string]int, len(shards)) // structured as map[shard]map[node]count.
-
+	var total int
 	for _, shard := range shards {
 		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
 		// That interface has a dozen methods and half of them belong to replica.RClient.
@@ -2640,14 +2638,16 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 			i.logger,
 		)
 
-		counts[shard] = make(map[string]int)
+		var mux sync.Mutex // synchronizes access in coordinator.Pull.
+		counts := make(map[string]int)
+
 		// NOTE(dyma): Why do we need to pass both the context and the timeout?
 		results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
 			func(ctx context.Context, host string, _ bool) (any, error) {
 				count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
 				if err == nil {
 					mux.Lock()
-					counts[shard][host] += count
+					counts[host] += count
 					mux.Unlock()
 				}
 				return nil, nil
@@ -2661,12 +2661,10 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				return nil, r.Err
 			}
 		}
+
+		total += reconcile(counts)
 	}
 
-	var total int
-	for shard := range counts {
-		total += reconcile(counts[shard])
-	}
 	return &aggregation.Result{Groups: []aggregation.Group{{Count: total}}}, nil
 }
 
