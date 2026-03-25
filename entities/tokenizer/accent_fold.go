@@ -9,6 +9,60 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// FoldAccents normalizes accented text for accent-insensitive search.
+//
+// ## Common Latin diacritics folded
+//
+//	Character              | Folded to | Language examples
+//	à á â ã ä å            | a         | French, Portuguese, German, Swedish
+//	è é ê ë                | e         | French, Portuguese, Spanish
+//	ì í î ï                | i         | Italian, French
+//	ò ó ô õ ö              | o         | Portuguese, German, Swedish
+//	ù ú û ü                | u         | French, German, Spanish
+//	ý ÿ                    | y         | French, Icelandic
+//	ñ                      | n         | Spanish
+//	ç                      | c         | French, Portuguese, Turkish
+//	ş                      | s         | Turkish, Romanian
+//	ţ ț                    | t         | Romanian
+//	ă                      | a         | Romanian
+//	ź ż ž                  | z         | Polish, Czech
+//	ś š                    | s         | Polish, Czech
+//	ć č                    | c         | Polish, Czech, Croatian
+//	ń ň                    | n         | Polish, Czech
+//	ř                      | r         | Czech
+//	ď                      | d         | Czech
+//	ľ ĺ ł                  | l         | Slovak, Polish (ł via table*)
+//	ő                      | o         | Hungarian
+//	ű                      | u         | Hungarian
+//	ā ē ī ō ū             | a e i o u | Latvian, Māori
+//	æ                      | ae        | Danish, Norwegian (table*)
+//	ø                      | o         | Danish, Norwegian (table*)
+//	ð                      | d         | Icelandic (table*)
+//	þ                      | th        | Icelandic (table*)
+//
+// ## What NFD decomposition handles automatically
+//
+// Everything with a combining mark — the vast majority of accented Latin
+// characters (acute, grave, circumflex, tilde, dieresis, caron/háček,
+// cedilla, ogonek, macron, breve, ring, dot above/below, etc.).
+//
+// ## Special cases NOT handled by NFD (*)
+//
+// These are single codepoints that do not decompose. They are handled by
+// an explicit replacement table in accent_fold.go:
+//
+//	ł (U+0142) — Polish L-stroke
+//	æ (U+00E6) — ligature
+//	ø (U+00F8) — O-stroke
+//	ð (U+00F0) — eth
+//	þ (U+00FE) — thorn
+//	đ (U+0111) — D-stroke (Croatian/Vietnamese)
+//	ß (U+00DF) — German sharp s
+//
+// The implementation does NFD + strip Mn (nonspacing marks), which covers
+// ~95% of real-world Latin-language diacritics. The explicit table covers
+// the remaining stroked letters, ligatures, special letters, and
+// hooked/tailed letters.
 package tokenizer
 
 import (
