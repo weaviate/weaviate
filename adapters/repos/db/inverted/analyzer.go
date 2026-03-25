@@ -69,20 +69,21 @@ type Analyzer struct {
 
 // Text tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) Text(tokenization, in string, accentInsensitive bool) []Countable {
-	return a.TextArray(tokenization, []string{in}, accentInsensitive)
+func (a *Analyzer) Text(tokenization, in string, asciiFold bool, asciiFoldIgnore []string) []Countable {
+	return a.TextArray(tokenization, []string{in}, asciiFold, asciiFoldIgnore)
 }
 
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) TextArray(tokenization string, inArr []string, accentInsensitive bool) []Countable {
+func (a *Analyzer) TextArray(tokenization string, inArr []string, asciiFold bool, asciiFoldIgnore []string) []Countable {
 	var terms []string
 	for _, in := range inArr {
 		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
 	}
 
-	if accentInsensitive {
-		terms = tokenizer.FoldAccentsSlice(terms)
+	if asciiFold {
+		ignore := tokenizer.BuildIgnoreSet(asciiFoldIgnore)
+		terms = tokenizer.FoldAccentsSlice(terms, ignore)
 	}
 
 	counts := map[string]uint64{}

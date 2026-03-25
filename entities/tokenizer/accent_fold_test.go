@@ -173,7 +173,7 @@ func TestFoldAccents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FoldAccents(tt.input)
+			result := FoldAccents(tt.input, nil)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -181,16 +181,92 @@ func TestFoldAccents(t *testing.T) {
 
 func TestFoldAccentsSlice(t *testing.T) {
 	input := []string{"école", "café", "hello"}
-	result := FoldAccentsSlice(input)
+	result := FoldAccentsSlice(input, nil)
 	require.Len(t, result, 3)
 	assert.Equal(t, "ecole", result[0])
 	assert.Equal(t, "cafe", result[1])
 	assert.Equal(t, "hello", result[2])
 }
 
+func TestFoldAccentsWithIgnore(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		ignore   []string
+		expected string
+	}{
+		{
+			name:     "ignore é preserves it",
+			input:    "école fermée",
+			ignore:   []string{"é"},
+			expected: "école fermée",
+		},
+		{
+			name:     "ignore é but fold other accents",
+			input:    "école São Paulo",
+			ignore:   []string{"é"},
+			expected: "école Sao Paulo",
+		},
+		{
+			name:     "ignore multiple characters",
+			input:    "école São café",
+			ignore:   []string{"é", "ã"},
+			expected: "école São café",
+		},
+		{
+			name:     "ignore ß preserves it",
+			input:    "Straße",
+			ignore:   []string{"ß"},
+			expected: "Straße",
+		},
+		{
+			name:     "ignore ø preserves lowercase only",
+			input:    "Ørsted rødgrød",
+			ignore:   []string{"ø"},
+			expected: "Orsted rødgrød",
+		},
+		{
+			name:     "ignore both ø and Ø preserves both",
+			input:    "Ørsted rødgrød",
+			ignore:   []string{"ø", "Ø"},
+			expected: "Ørsted rødgrød",
+		},
+		{
+			name:     "empty ignore list folds everything",
+			input:    "école",
+			ignore:   []string{},
+			expected: "ecole",
+		},
+		{
+			name:     "ignore character not present in input",
+			input:    "école",
+			ignore:   []string{"ñ"},
+			expected: "ecole",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ignore := BuildIgnoreSet(tt.ignore)
+			result := FoldAccents(tt.input, ignore)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFoldAccentsSliceWithIgnore(t *testing.T) {
+	input := []string{"école", "café", "hello"}
+	ignore := BuildIgnoreSet([]string{"é"})
+	result := FoldAccentsSlice(input, ignore)
+	require.Len(t, result, 3)
+	assert.Equal(t, "école", result[0])
+	assert.Equal(t, "café", result[1])
+	assert.Equal(t, "hello", result[2])
+}
+
 func TestFoldAccentsIdempotent(t *testing.T) {
 	input := "ecole"
-	result := FoldAccents(input)
+	result := FoldAccents(input, nil)
 	assert.Equal(t, input, result, "folding already-ASCII text should be a no-op")
 }
 
@@ -220,7 +296,7 @@ func TestFoldAccentsWithWordTokenization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens := Tokenize("word", tt.input)
-			folded := FoldAccentsSlice(tokens)
+			folded := FoldAccentsSlice(tokens, nil)
 			assert.Equal(t, tt.expected, folded)
 		})
 	}

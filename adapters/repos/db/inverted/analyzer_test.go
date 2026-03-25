@@ -118,7 +118,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.Text(tc.tokenization, tc.input, false)
+				countable := a.Text(tc.tokenization, tc.input, false, nil)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -206,7 +206,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.TextArray(tc.tokenization, tc.input, false)
+				countable := a.TextArray(tc.tokenization, tc.input, false, nil)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -465,7 +465,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.Text(tc.tokenization, tc.input, false)
+			countable := a.Text(tc.tokenization, tc.input, false, nil)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -524,7 +524,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.TextArray(tc.tokenization, tc.input, false)
+			countable := a.TextArray(tc.tokenization, tc.input, false, nil)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -597,11 +597,11 @@ func TestDedupItems(t *testing.T) {
 	assert.Equal(t, expectedProps, dedupProps)
 }
 
-func TestAnalyzerAccentInsensitive(t *testing.T) {
+func TestAnalyzerASCIIFold(t *testing.T) {
 	a := NewAnalyzer(nil, "")
 
 	t.Run("Text with accent folding", func(t *testing.T) {
-		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", true)
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", true, nil)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -616,7 +616,7 @@ func TestAnalyzerAccentInsensitive(t *testing.T) {
 	})
 
 	t.Run("Text without accent folding preserves diacritics", func(t *testing.T) {
-		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", false)
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", false, nil)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -628,7 +628,7 @@ func TestAnalyzerAccentInsensitive(t *testing.T) {
 	})
 
 	t.Run("TextArray with accent folding merges duplicates", func(t *testing.T) {
-		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, true)
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, true, nil)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -637,5 +637,35 @@ func TestAnalyzerAccentInsensitive(t *testing.T) {
 		assert.Contains(t, terms, "cafe")
 		assert.NotContains(t, terms, "café")
 		assert.Equal(t, float32(2), terms["cafe"])
+	})
+
+	t.Run("Text with accent folding and ignore list", func(t *testing.T) {
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", true, []string{"é"})
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		// 'é' is ignored so école and fermée keep their é
+		assert.Contains(t, terms, "école")
+		assert.Contains(t, terms, "fermée")
+		assert.NotContains(t, terms, "ecole")
+		assert.NotContains(t, terms, "fermee")
+		assert.Contains(t, terms, "l")
+		assert.Contains(t, terms, "est")
+	})
+
+	t.Run("TextArray with accent folding and ignore preserves ignored chars", func(t *testing.T) {
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, true, []string{"é"})
+		terms := make(map[string]float32)
+		for _, c := range countable {
+			terms[string(c.Data)] = c.TermFrequency
+		}
+
+		// café keeps its é, cafe stays as cafe — they don't merge
+		assert.Contains(t, terms, "café")
+		assert.Contains(t, terms, "cafe")
+		assert.Equal(t, float32(1), terms["café"])
+		assert.Equal(t, float32(1), terms["cafe"])
 	})
 }

@@ -151,7 +151,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND.
-	// Properties with accentInsensitive processing get their own tokenization key
+	// Properties with asciiFold processing get their own tokenization key
 	// (suffixed with ":accent") so that accent-folded query terms are used.
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
@@ -173,11 +173,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		propNamesByTokenization[tokenization] = make([]string, 0)
 
-		// Also prepare accent-folded variants for each tokenization
+		// Also prepare accent-folded variants for each tokenization (no ignore list)
 		accentKey := accentTokenizationKey(tokenization)
 		accentTerms := make([]string, len(queryTermsByTokenization[tokenization]))
 		copy(accentTerms, queryTermsByTokenization[tokenization])
-		accentTerms = tokenizer.FoldAccentsSlice(accentTerms)
+		accentTerms = tokenizer.FoldAccentsSlice(accentTerms, nil)
 		// Re-deduplicate after folding since folding may merge distinct terms
 		accentTerms, accentBoosts := deduplicateTerms(accentTerms)
 		queryTermsByTokenization[accentKey] = accentTerms
@@ -228,8 +228,22 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			tokKey := prop.Tokenization
-			if prop.TextAnalyser != nil && prop.TextAnalyser.AccentInsensitive {
-				tokKey = accentTokenizationKey(prop.Tokenization)
+			if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
+				if len(prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
+					// Property has an ignore list — compute property-specific folded terms
+					tokKey = accentTokenizationKey(prop.Tokenization) + ":" + property
+					ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
+					baseTerms := queryTermsByTokenization[prop.Tokenization]
+					propTerms := make([]string, len(baseTerms))
+					copy(propTerms, baseTerms)
+					propTerms = tokenizer.FoldAccentsSlice(propTerms, ignore)
+					propTerms, propBoosts := deduplicateTerms(propTerms)
+					queryTermsByTokenization[tokKey] = propTerms
+					duplicateBoostsByTokenization[tokKey] = propBoosts
+					propNamesByTokenization[tokKey] = make([]string, 0)
+				} else {
+					tokKey = accentTokenizationKey(prop.Tokenization)
+				}
 			}
 			if _, exists := propNamesByTokenization[tokKey]; !exists {
 				return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",

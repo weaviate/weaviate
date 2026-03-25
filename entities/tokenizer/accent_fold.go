@@ -146,11 +146,20 @@ var foldTable = map[rune]string{
 // signs in Indic and Southeast Asian scripts.
 //
 // Phase 3: NFC recompose to clean up any remaining sequences.
-func FoldAccents(s string) string {
+//
+// If ignore is non-nil, characters present in the set are preserved
+// without folding.
+func FoldAccents(s string, ignore map[rune]struct{}) string {
 	// Phase 1: replace characters that NFD doesn't decompose
 	var buf strings.Builder
 	buf.Grow(len(s))
 	for _, r := range s {
+		if ignore != nil {
+			if _, skip := ignore[r]; skip {
+				buf.WriteRune(r)
+				continue
+			}
+		}
 		if repl, ok := foldTable[r]; ok {
 			buf.WriteString(repl)
 		} else {
@@ -159,12 +168,45 @@ func FoldAccents(s string) string {
 	}
 
 	// Phase 2: NFD decompose and strip nonspacing marks (Mn)
+	// When ignore is set, we need to track which characters to preserve.
+	// We do this by checking if the base character (before decomposition)
+	// was in the ignore set — if so, we keep its combining marks too.
 	decomposed := norm.NFD.String(buf.String())
 
 	result := make([]byte, 0, len(decomposed))
+	skipMarks := false
 	for i := 0; i < len(decomposed); {
 		r, size := utf8.DecodeRuneInString(decomposed[i:])
-		if !unicode.Is(unicode.Mn, r) {
+		if unicode.Is(unicode.Mn, r) {
+			if !skipMarks {
+				// Strip this combining mark (normal folding behavior)
+			} else {
+				// Preserve this mark — it belongs to an ignored character
+				result = append(result, decomposed[i:i+size]...)
+			}
+		} else {
+			// Base character — check if it should be ignored
+			skipMarks = false
+			if ignore != nil {
+				// Check if the original character (base + following marks)
+				// recomposes to an ignored character. We check by looking ahead
+				// at the marks and recomposing to see if the result is ignored.
+				j := i + size
+				for j < len(decomposed) {
+					nr, ns := utf8.DecodeRuneInString(decomposed[j:])
+					if !unicode.Is(unicode.Mn, nr) {
+						break
+					}
+					j += ns
+				}
+				composed := norm.NFC.String(decomposed[i:j])
+				for _, cr := range composed {
+					if _, skip := ignore[cr]; skip {
+						skipMarks = true
+						break
+					}
+				}
+			}
 			result = append(result, decomposed[i:i+size]...)
 		}
 		i += size
@@ -174,10 +216,25 @@ func FoldAccents(s string) string {
 	return norm.NFC.String(string(result))
 }
 
+// BuildIgnoreSet converts a slice of strings (each typically a single character)
+// into a rune set for use with FoldAccents.
+func BuildIgnoreSet(chars []string) map[rune]struct{} {
+	if len(chars) == 0 {
+		return nil
+	}
+	ignore := make(map[rune]struct{}, len(chars))
+	for _, s := range chars {
+		for _, r := range s {
+			ignore[r] = struct{}{}
+		}
+	}
+	return ignore
+}
+
 // FoldAccentsSlice applies accent folding to each element of a string slice in-place.
-func FoldAccentsSlice(terms []string) []string {
+func FoldAccentsSlice(terms []string, ignore map[rune]struct{}) []string {
 	for i := range terms {
-		terms[i] = FoldAccents(terms[i])
+		terms[i] = FoldAccents(terms[i], ignore)
 	}
 	return terms
 }

@@ -105,10 +105,13 @@ type ShardingConfig struct {
 	Function            string `json:"function"`
 }
 
-// PropertyProcessing contains text processing options for a property.
+// PropertyAnalyser contains text processing options for a property.
 // These settings are immutable after creation.
-type PropertyProcessing struct {
-	AccentInsensitive bool `json:"accentInsensitive,omitempty"`
+type PropertyAnalyser struct {
+	ASCIIFold          bool                              `json:"asciiFold,omitempty"`
+	ASCIIFoldIgnore    []string                          `json:"asciiFoldIgnore,omitempty"`
+	Stopwords          []string                          `json:"stopwords,omitempty"`
+	TokenizerOverrides []*models.TokenizerUserDictConfig `json:"tokenizerOverrides,omitempty"`
 }
 
 type Property struct {
@@ -141,7 +144,7 @@ type Property struct {
 	NestedProperties []NestedProperty `json:"nestedProperties,omitempty"`
 
 	// Text processing options for this property. Immutable after creation.
-	Processing PropertyProcessing `json:"processing,omitempty"`
+	Analyser PropertyAnalyser `json:"processing,omitempty"`
 
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
 	// Enum: [word lowercase whitespace field]
@@ -169,7 +172,7 @@ type NestedProperty struct {
 	NestedProperties []NestedProperty `json:"nested_properties,omitempty"`
 
 	// text processing options
-	Processing PropertyProcessing `json:"processing,omitempty"`
+	Processing PropertyAnalyser `json:"processing,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field]
@@ -199,8 +202,11 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 	}
 	n.Name = m.Name
 	if m.TextAnalyser != nil {
-		n.Processing = PropertyProcessing{
-			AccentInsensitive: m.TextAnalyser.AccentInsensitive,
+		n.Processing = PropertyAnalyser{
+			ASCIIFold:          m.TextAnalyser.ASCIIFold,
+			ASCIIFoldIgnore:    m.TextAnalyser.ASCIIFoldIgnore,
+			Stopwords:          m.TextAnalyser.Stopwords,
+			TokenizerOverrides: m.TextAnalyser.TokenizerOverrides,
 		}
 	}
 	n.Tokenization = m.Tokenization
@@ -231,7 +237,10 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
 	m.TextAnalyser = &models.TextAnalyserConfig{
-		AccentInsensitive: n.Processing.AccentInsensitive,
+		ASCIIFold:          n.Processing.ASCIIFold,
+		ASCIIFoldIgnore:    n.Processing.ASCIIFoldIgnore,
+		Stopwords:          n.Processing.Stopwords,
+		TokenizerOverrides: n.Processing.TokenizerOverrides,
 	}
 	m.Tokenization = n.Tokenization
 	if len(n.NestedProperties) > 0 {
@@ -277,8 +286,11 @@ func PropertyFromModel(m models.Property) Property {
 	}
 	p.Tokenization = m.Tokenization
 	if m.TextAnalyser != nil {
-		p.Processing = PropertyProcessing{
-			AccentInsensitive: m.TextAnalyser.AccentInsensitive,
+		p.Analyser = PropertyAnalyser{
+			ASCIIFold:          m.TextAnalyser.ASCIIFold,
+			ASCIIFoldIgnore:    m.TextAnalyser.ASCIIFoldIgnore,
+			Stopwords:          m.TextAnalyser.Stopwords,
+			TokenizerOverrides: m.TextAnalyser.TokenizerOverrides,
 		}
 	}
 	if len(m.NestedProperties) > 0 {
@@ -311,7 +323,10 @@ func PropertyToModel(p Property) models.Property {
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
 	m.TextAnalyser = &models.TextAnalyserConfig{
-		AccentInsensitive: p.Processing.AccentInsensitive,
+		ASCIIFold:          p.Analyser.ASCIIFold,
+		ASCIIFoldIgnore:    p.Analyser.ASCIIFoldIgnore,
+		Stopwords:          p.Analyser.Stopwords,
+		TokenizerOverrides: p.Analyser.TokenizerOverrides,
 	}
 	m.Tokenization = p.Tokenization
 	if len(p.NestedProperties) > 0 {

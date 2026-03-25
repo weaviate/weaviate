@@ -18,7 +18,9 @@ package models
 
 import (
 	"context"
+	"strconv"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -29,16 +31,89 @@ import (
 type TextAnalyserConfig struct {
 
 	// If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.
-	AccentInsensitive bool `json:"accentInsensitive,omitempty"`
+	ASCIIFold bool `json:"asciiFold,omitempty"`
+
+	// If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search.
+	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
+
+	// A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.
+	Stopwords []string `json:"stopwords,omitempty"`
+
+	// User-defined dictionary for tokenization.
+	TokenizerOverrides []*TokenizerUserDictConfig `json:"tokenizerOverrides,omitempty"`
 }
 
 // Validate validates this text analyser config
 func (m *TextAnalyserConfig) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateTokenizerOverrides(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this text analyser config based on context it is used
+func (m *TextAnalyserConfig) validateTokenizerOverrides(formats strfmt.Registry) error {
+	if swag.IsZero(m.TokenizerOverrides) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.TokenizerOverrides); i++ {
+		if swag.IsZero(m.TokenizerOverrides[i]) { // not required
+			continue
+		}
+
+		if m.TokenizerOverrides[i] != nil {
+			if err := m.TokenizerOverrides[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this text analyser config based on the context it is used
 func (m *TextAnalyserConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateTokenizerOverrides(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *TextAnalyserConfig) contextValidateTokenizerOverrides(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.TokenizerOverrides); i++ {
+
+		if m.TokenizerOverrides[i] != nil {
+			if err := m.TokenizerOverrides[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

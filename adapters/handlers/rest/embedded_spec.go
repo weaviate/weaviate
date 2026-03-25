@@ -9583,11 +9583,36 @@ func init() {
       "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
       "type": "object",
       "properties": {
-        "accentInsensitive": {
+        "asciiFold": {
           "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
           "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "tokenizerOverrides": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          },
+          "x-omitempty": true
         }
-      }
+      },
+      "x-omitempty": true
     },
     "TokenizerUserDictConfig": {
       "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
@@ -20053,11 +20078,36 @@ func init() {
       "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
       "type": "object",
       "properties": {
-        "accentInsensitive": {
+        "asciiFold": {
           "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
           "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "tokenizerOverrides": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          },
+          "x-omitempty": true
         }
-      }
+      },
+      "x-omitempty": true
     },
     "TokenizerUserDictConfig": {
       "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
