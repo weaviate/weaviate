@@ -623,10 +623,10 @@ func TestQueueListFiles(t *testing.T) {
 func TestEnableMaintenanceMode(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close(t.Context())
+	defer s.Close()
 
 	q := makeQueueSize(t, s, discardExecutor(), 50)
-	q.Pause(t.Context())
+	q.Pause()
 
 	pushMany(t, q, 1, 100, 200, 300)
 	err := q.Flush()
@@ -668,10 +668,10 @@ func TestEnableMaintenanceMode(t *testing.T) {
 func TestDisableMaintenanceMode(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close(t.Context())
+	defer s.Close()
 
 	q := makeQueueSize(t, s, discardExecutor(), 50)
-	q.Pause(t.Context())
+	q.Pause()
 
 	pushMany(t, q, 1, 100, 200, 300)
 	err := q.Flush()
@@ -711,19 +711,19 @@ func TestDisableMaintenanceMode(t *testing.T) {
 func TestEnableMaintenanceModeCrashRecovery(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close(t.Context())
+	defer s.Close()
 
 	tmpDir := t.TempDir()
 	decoder := &mockTaskDecoder{}
 	q := makeQueueWith(t, s, decoder, 50, tmpDir)
-	q.Pause(t.Context())
+	q.Pause()
 
 	// push 6 tasks → 2 full chunks (3 each at chunkSize=50)
 	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
 	err := q.Flush()
 	require.NoError(t, err)
 
-	err = q.Close(t.Context())
+	err = q.Close()
 	require.NoError(t, err)
 
 	entries, err := os.ReadDir(tmpDir)
@@ -758,12 +758,12 @@ func TestEnableMaintenanceModeCrashRecovery(t *testing.T) {
 func TestListFilesExcludesTombstoned(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
-	defer s.Close(t.Context())
+	defer s.Close()
 
 	tmpDir := t.TempDir()
 	_, e := streamExecutor()
 	q := makeQueueWith(t, s, e, 50, tmpDir)
-	q.Pause(t.Context())
+	q.Pause()
 
 	// push 6 tasks → 2 full chunks
 	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
