@@ -32,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
+const exportIDMaxLength = 128
+
 var (
 	regExpID = regexp.MustCompile(`^[a-z0-9_-]+$`)
 
@@ -142,8 +144,8 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	if s.shuttingDown.Load() {
 		return nil, ErrExportShuttingDown
 	}
-	if !regExpID.MatchString(id) {
-		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	if err := validateExportID(id); err != nil {
+		return nil, err
 	}
 	if backend == "" {
 		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
@@ -229,8 +231,8 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 // Status retrieves the status of an export.
 // Assembles status from metadata's NodeAssignments + per-node status files.
 func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*models.ExportStatusResponse, error) {
-	if !regExpID.MatchString(id) {
-		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	if err := validateExportID(id); err != nil {
+		return nil, err
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
@@ -305,8 +307,8 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // and to avoid the complexity of distributed garbage collection across
 // storage backends. The same applies to failed exports.
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
-	if !regExpID.MatchString(id) {
-		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	if err := validateExportID(id); err != nil {
+		return err
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
@@ -863,6 +865,16 @@ func (s *Scheduler) getExportMetadata(ctx context.Context, backend modulecapabil
 	}
 
 	return &meta, nil
+}
+
+func validateExportID(id string) error {
+	if len(id) > exportIDMaxLength {
+		return fmt.Errorf("%w: export id too long: %d characters, max %d", ErrExportValidation, len(id), exportIDMaxLength)
+	}
+	if !regExpID.MatchString(id) {
+		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	}
+	return nil
 }
 
 // resolveClasses determines which classes to export.

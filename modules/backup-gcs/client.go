@@ -14,7 +14,6 @@ package modstggcs
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -25,13 +24,15 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -40,11 +41,14 @@ type gcsClient struct {
 	config    clientConfig
 	projectID string
 	dataPath  string
+	logger    logrus.FieldLogger
 }
 
-func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
-	options := []option.ClientOption{}
+func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
+	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
+
 	if useAuth {
 		scopes := []string{
 			"https://www.googleapis.com/auth/devstorage.read_write",
@@ -53,10 +57,22 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		if err != nil {
 			return nil, errors.Wrap(err, "find default credentials")
 		}
-		options = append(options, option.WithCredentials(creds))
+		opts = append(opts, option.WithCredentials(creds))
+	} else if backupGCSAuthProxyEndpoint != "" {
+		opts = append(
+			opts,
+			option.WithTokenSource(
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(backupGCSAuthProxyEndpoint)),
+			),
+		)
 	} else {
-		options = append(options, option.WithoutAuthentication())
+		opts = append(opts, option.WithoutAuthentication())
 	}
+
+	return opts, nil
+}
+
+func projectID() string {
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if len(projectID) == 0 {
 		projectID = os.Getenv("GCLOUD_PROJECT")
@@ -64,7 +80,17 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 			projectID = os.Getenv("GCP_PROJECT")
 		}
 	}
-	client, err := storage.NewClient(ctx, options...)
+
+	return projectID
+}
+
+func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
+	opts, err := storageOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := storage.NewClient(ctx, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
@@ -75,30 +101,9 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		Multiplier: 3,
 	}),
 		storage.WithPolicy(storage.RetryAlways),
-		storage.WithErrorFunc(func(err error) bool {
-			if err == nil {
-				return false
-			}
-
-			if storage.ShouldRetry(err) {
-				return true
-			}
-
-			// Retry on http2 connection lost error which is not covered by ShouldRetry
-			if strings.Contains(err.Error(), "http2: client connection lost") {
-				return true
-			}
-
-			var gerr *googleapi.Error
-			if errors.As(err, &gerr) {
-				// retry on 401 on top of the default retryable errors
-				return gerr.Code == 401
-			}
-
-			return false
-		}),
+		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
-	return &gcsClient{client, *config, projectID, dataPath}, nil
+	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath, logger: logger}, nil
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
@@ -141,15 +146,14 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 }
 
 func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
 	bucket, err := g.findBucket(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("find bucket: %w", err)
 	}
 
+	var keys []string
 	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath, MatchGlob: "**/" + ubak.GlobalBackupFile})
 	for {
-		// Check context before each iteration
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -162,23 +166,12 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 			return nil, fmt.Errorf("get next object: %w", err)
 		}
 
-		// mostly needed for testing on the emulator
-		if !strings.HasSuffix(next.Name, ubak.GlobalBackupFile) {
-			continue
-		}
-
-		contents, err := g.getObject(ctx, bucket, next.Name)
-		if err != nil {
-			return nil, fmt.Errorf("read object %q: %w", next.Name, err)
-		}
-		var desc backup.DistributedBackupDescriptor
-		if err := json.Unmarshal(contents, &desc); err != nil {
-			return nil, fmt.Errorf("unmarshal object %q: %w", next.Name, err)
-		}
-		meta = append(meta, &desc)
+		keys = append(keys, next.Name)
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		return g.getObject(ctx, bucket, key)
+	})
 }
 
 func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {

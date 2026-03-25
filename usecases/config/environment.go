@@ -984,10 +984,10 @@ func FromEnv(config *Config) error {
 	{
 		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
 		switch {
-		// Deprecated flag: still honored, environment always wins over auto-detection.
+		// flag: still honored, environment always wins over auto-detection.
 		case waitEnvSet:
 			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
-			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. Vector cache prefill is now always enabled and will match the lazy load shard configuration.")
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
 
 		default:
 			config.HNSWStartupWaitForVectorCache = true
