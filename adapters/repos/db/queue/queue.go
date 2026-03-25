@@ -470,13 +470,10 @@ func (q *DiskQueue) Wait() {
 // PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
 // It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
-	err := q.Pause(ctx)
-	if err != nil {
-		return err
-	}
+	q.Pause()
 	defer q.Resume()
 
-	err = q.Flush()
+	err := q.Flush()
 	if err != nil {
 		return err
 	}
