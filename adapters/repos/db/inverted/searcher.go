@@ -385,6 +385,10 @@ func (s *Searcher) extractPropValuePair(
 		return nil, err
 	}
 
+	if _, ok := schema.AsNested(property.DataType); ok {
+		return s.extractNestedProp(filter, propName, property, class)
+	}
+
 	if s.onRefProp(property) && len(props) != 1 {
 		return s.extractReferenceFilter(property, filter, class)
 	}
