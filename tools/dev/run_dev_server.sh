@@ -1222,7 +1222,6 @@ local-usage-s3)
     AUTHENTICATION_APIKEY_USERS='admin,custom-user' \
     AUTHORIZATION_RBAC_ROOT_USERS='admin' \
     MCP_SERVER_ENABLED='true' \
-    MCP_SERVER_PORT='9002' \
     MCP_SERVER_WRITE_ACCESS_ENABLED='true' \
     MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.json" \
     DEFAULT_VECTORIZER_MODULE=text2vec-transformers \

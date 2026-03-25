@@ -814,9 +814,9 @@ func TestUpsertToolUnauthorized(t *testing.T) {
 		},
 	}, &resp, "wrong-api-key")
 
-	// Should return authorization error
+	// Should return an error — go-swagger returns a 401 JSON response which
+	// the MCP client cannot parse as a JSON-RPC response.
 	require.NotNil(t, err)
-	assert.Contains(t, err.Error(), "unauthorized")
 }
 
 func TestUpsertToolLargeBatch(t *testing.T) {

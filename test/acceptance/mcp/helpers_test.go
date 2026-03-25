@@ -20,7 +20,7 @@ import (
 
 const (
 	testServerAddr = "localhost:8082"
-	testMCPURL     = "http://localhost:9002/mcp"
+	testMCPURL     = "http://localhost:8082/v1/mcp"
 	testAPIKey     = "admin-key"
 )
 
