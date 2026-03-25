@@ -2625,47 +2625,66 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 }
 
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
-	var total int
-	for _, shard := range shards {
-		// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
-		// That interface has a dozen methods and half of them belong to replica.RClient.
-		c := replica.NewReadCoordinator[any](
-			i.router,
-			i.replicaMetrics,
-			i.Config.ClassName.String(),
-			shard,
-			i.DeletionStrategy(),
-			i.logger,
-		)
+	var total atomic.Int32
 
-		var mux sync.Mutex // synchronizes access in coordinator.Pull.
-		counts := make(map[string]int)
+	workers := min(len(shards), runtime.GOMAXPROCS(0)*4) // Maximum concurrency.
+	perWorker := max(len(shards)/workers, 1)             // Base per-worker workload.
+	remainder := len(shards) % workers                   // Remaining workload to be split among the first N workers.
 
-		// NOTE(dyma): Why do we need to pass both the context and the timeout?
-		results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
-			func(ctx context.Context, host string, _ bool) (any, error) {
-				count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
-				if err == nil {
-					mux.Lock()
-					counts[host] += count
-					mux.Unlock()
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(workers)
+
+	for w := range workers {
+		from, to := w*perWorker, (w+1)*perWorker
+		if remainder > w && to < len(shards) {
+			to += 1
+		}
+		eg.Go(func() error {
+			for _, shard := range shards[from:to] {
+				// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
+				// That interface has a dozen methods and half of them belong to replica.RClient.
+				c := replica.NewReadCoordinator[any](
+					i.router,
+					i.replicaMetrics,
+					i.Config.ClassName.String(),
+					shard,
+					i.DeletionStrategy(),
+					i.logger,
+				)
+
+				var mux sync.Mutex // synchronizes access in coordinator.Pull.
+				counts := make(map[string]int)
+
+				// NOTE(dyma): Why do we need to pass both the context and the timeout?
+				results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
+					func(ctx context.Context, host string, _ bool) (any, error) {
+						count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
+						if err == nil {
+							mux.Lock()
+							counts[host] += count
+							mux.Unlock()
+						}
+						return nil, nil
+					}, "", time.Minute)
+				if err != nil {
+					return err
 				}
-				return nil, nil
-			}, "", time.Minute)
-		if err != nil {
-			return nil, err
-		}
 
-		for r := range results {
-			if r.Err != nil {
-				return nil, r.Err
+				// Fan in results from all concurrent Pull request. It is safe to
+				// ignore Result[T].Err, as our func will swallow any error.
+				for range results {
+				}
+				total.Add(int32(reconcile(counts)))
 			}
-		}
-
-		total += reconcile(counts)
+			return nil
+		})
 	}
 
-	return &aggregation.Result{Groups: []aggregation.Group{{Count: total}}}, nil
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return &aggregation.Result{Groups: []aggregation.Group{{Count: int(total.Load())}}}, nil
 }
 
 // reconcile aggregates map's values with the appropriate statistic, such that
