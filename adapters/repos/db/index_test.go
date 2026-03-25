@@ -199,18 +199,20 @@ func (f *fakeRouter) AllHostnames() []string {
 var _ types.Router = (*fakeRouter)(nil)
 
 func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	f.readPlan.Shard = opt.Shard
-	f.readPlan.Tenant = opt.Tenant
+	readPlan := f.readPlan
+	readPlan.Shard = opt.Shard
+	readPlan.Tenant = opt.Tenant
+
 	if opt.Tenant != "" {
 		var filtered []types.Replica
-		for _, r := range f.readPlan.ReplicaSet.Replicas {
+		for _, r := range readPlan.ReplicaSet.Replicas {
 			if r.ShardName == opt.Tenant {
 				filtered = append(filtered, r)
 			}
 		}
-		f.readPlan.ReplicaSet.Replicas = filtered
+		readPlan.ReplicaSet.Replicas = filtered
 	}
-	return f.readPlan, nil
+	return readPlan, nil
 }
 
 func (f *fakeRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
