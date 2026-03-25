@@ -236,9 +236,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	// Abort/IsRunning callers. If initialization fails, backendStore stays
 	// nil and the main critical section below will handle the error with
 	// proper slot cleanup via clearAndRelease.
-	var backendStore modulecapabilities.BackupBackend
-	var backendErr error
-	backendStore, backendErr = p.backends.BackupBackend(req.Backend)
+	backendStore, backendErr := p.backends.BackupBackend(req.Backend)
 	if backendErr == nil {
 		if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
 			backendStore = nil
