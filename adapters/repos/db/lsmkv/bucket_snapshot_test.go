@@ -359,6 +359,7 @@ func TestSnapshotNoFlushRaceDuringHardlink(t *testing.T) {
 
 	// Start a CycleManager that drives the flush callback, just like production.
 	flushCycle := cyclemanager.NewManager(
+		"snapshot-test-flush",
 		cyclemanager.NewFixedTicker(10*time.Millisecond),
 		flushCallbacks.CycleCallback, logger,
 	)
