@@ -123,7 +123,7 @@ func (c *Client) validateConfig() error {
 	}
 
 	if c.Config.Certificate.Get() != "" && c.Config.SkipTLSVerify.Get() {
-		msgs = append(msgs, "certificate and insecure_skip_tls_verify are mutually exclusive: "+
+		msgs = append(msgs, "custom OIDC certificate and insecure_skip_tls_verify are mutually exclusive: "+
 			"remove the certificate or disable insecure_skip_tls_verify")
 	}
 
