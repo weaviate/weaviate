@@ -9,12 +9,32 @@ Usage:
 """
 
 import json
+import urllib.request
 
-import requests
 import weaviate
 
 
+BASE_URL = "http://localhost:8080"
 COLLECTION_NAME = "ASCIIFoldIgnoreTest"
+
+
+def _rest_get(path: str) -> dict:
+    """GET JSON from the Weaviate REST API (stdlib only)."""
+    with urllib.request.urlopen(f"{BASE_URL}{path}") as resp:
+        return json.loads(resp.read())
+
+
+def _rest_put(path: str, body: dict) -> None:
+    """PUT JSON to the Weaviate REST API (stdlib only)."""
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        f"{BASE_URL}{path}",
+        data=data,
+        method="PUT",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        resp.read()
 COLLECTION_NAME_TOKENIZATIONS = "ASCIIFoldTokenizationsTest"
 
 
@@ -55,9 +75,8 @@ def verify_collection_config(client: weaviate.WeaviateClient) -> None:
     """Verify the collection config reflects the textAnalyser settings."""
     # Use the REST API directly to check raw schema since the Python client
     # may not expose textAnalyser fields yet.
-    raw = requests.get(f"http://localhost:8080/v1/schema/{COLLECTION_NAME}")
-    raw.raise_for_status()
-    raw_props = {p["name"]: p for p in raw.json()["properties"]}
+    schema = _rest_get(f"/v1/schema/{COLLECTION_NAME}")
+    raw_props = {p["name"]: p for p in schema["properties"]}
 
     title_analyser = raw_props["title"].get("textAnalyser", {})
     body_analyser = raw_props["body"].get("textAnalyser", {})
@@ -246,26 +265,19 @@ def update_ignore_list_and_verify(client: weaviate.WeaviateClient) -> None:
 
     # Phase 2: Update schema — remove é from ignore list via REST API
     print("\n[Phase 2] Updating asciiFoldIgnore to [] (remove é)")
-    raw = requests.get(f"http://localhost:8080/v1/schema/{COLLECTION_NAME}")
-    raw.raise_for_status()
-    class_schema = raw.json()
+    class_schema = _rest_get(f"/v1/schema/{COLLECTION_NAME}")
 
     # Update the title property's ignore list
     for prop in class_schema["properties"]:
         if prop["name"] == "title":
             prop["textAnalyser"]["asciiFoldIgnore"] = []
 
-    resp = requests.put(
-        f"http://localhost:8080/v1/schema/{COLLECTION_NAME}",
-        json=class_schema,
-    )
-    resp.raise_for_status()
+    _rest_put(f"/v1/schema/{COLLECTION_NAME}", class_schema)
     print("  Schema updated successfully.")
 
     # Verify the config was updated
-    raw = requests.get(f"http://localhost:8080/v1/schema/{COLLECTION_NAME}")
-    raw.raise_for_status()
-    updated_props = {p["name"]: p for p in raw.json()["properties"]}
+    updated_schema = _rest_get(f"/v1/schema/{COLLECTION_NAME}")
+    updated_props = {p["name"]: p for p in updated_schema["properties"]}
     title_ignore = updated_props["title"].get("textAnalyser", {}).get("asciiFoldIgnore")
     assert title_ignore is None or title_ignore == [], (
         f"Expected empty ignore list after update, got {title_ignore}"
