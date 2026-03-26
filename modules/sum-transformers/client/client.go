@@ -23,7 +23,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type client struct {
@@ -50,7 +49,7 @@ type sumResponse struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		origin:     origin,
-		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		httpClient: &http.Client{Timeout: timeout},
 		logger:     logger,
 	}
 }
