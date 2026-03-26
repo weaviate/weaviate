@@ -147,48 +147,26 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// which would require the old WAND implementation.
 	allBucketsAreInverted := true
 
-	// There are currently cases, for different tokenization:
-	// word, lowercase, whitespace and field.
-	// Query is tokenized and respective properties are then searched for the search terms,
-	// results at the end are combined using WAND.
-	// Properties with asciiFold processing get their own tokenization key
-	// (suffixed with ":accent") so that accent-folded query terms are used.
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	for _, tokenization := range tokenizer.Tokenizations {
-		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tokenization, params.Query, class.Class)
-		queryTermsByTokenization[tokenization] = queryTerms
-		duplicateBoostsByTokenization[tokenization] = dupBoosts
-
-		// stopword filtering for word tokenization
-		if tokenization == models.PropertyTokenizationWord {
-			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization],
-				duplicateBoostsByTokenization[tokenization])
-			queryTermsByTokenization[tokenization] = queryTerms
-			duplicateBoostsByTokenization[tokenization] = dupBoosts
-		}
-
-		propNamesByTokenization[tokenization] = make([]string, 0)
-
-		// Also prepare accent-folded variants for each tokenization (no ignore list).
-		// Fold the query first, then tokenize — this is faster than tokenizing then
-		// folding each token individually.
-		accentKey := accentTokenizationKey(tokenization)
-		foldedQuery := tokenizer.FoldAccents(params.Query, nil)
-		accentTerms, accentBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tokenization, foldedQuery, class.Class)
-		if tokenization == models.PropertyTokenizationWord {
-			accentTerms, accentBoosts = b.removeStopwordsFromQueryTerms(accentTerms, accentBoosts)
-		}
-		queryTermsByTokenization[accentKey] = accentTerms
-		duplicateBoostsByTokenization[accentKey] = accentBoosts
-		propNamesByTokenization[accentKey] = make([]string, 0)
+	// First pass: scan properties to determine which tokenization keys are needed.
+	// This avoids eagerly tokenizing the query for all possible tokenizations
+	// when only a subset is actually used by the searched properties.
+	type propInfo struct {
+		name      string
+		prop      *models.Property
+		tokKey    string
+		propMean  float64
+		meanValid bool
 	}
 
-	averagePropLength := 0.
-	averagePropLengthCount := 0
+	props := make([]propInfo, 0, len(params.Properties))
+	neededTokenizations := map[string]struct{}{}
+	needsAccentFold := map[string]struct{}{}
+
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
 		propBoost := 1
@@ -213,15 +191,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			allBucketsAreInverted = false
 		}
 
-		// A NaN here is the results of a corrupted prop length tracker.
-		// This is a workaround to try and avoid 0 or NaN scores.
-		// There is an extra check below in case all prop lengths are NaN or 0.
-		// Related issue https://github.com/weaviate/weaviate/issues/6247
-		if !math.IsNaN(float64(propMean)) {
-			averagePropLength += float64(propMean)
-			averagePropLengthCount++
-		}
-
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
 			return false, 0, nil, nil, nil, nil, 0, err
@@ -232,29 +201,82 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			tokKey := prop.Tokenization
 			if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
 				if len(prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
-					// Property has an ignore list — fold query first, then tokenize
+					// Per-property ignore key — will be computed after tokenization
 					tokKey = accentTokenizationKey(prop.Tokenization) + ":" + property
-					ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
-					foldedQ := tokenizer.FoldAccents(params.Query, ignore)
-					propTerms, propBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(prop.Tokenization, foldedQ, class.Class)
-					if prop.Tokenization == models.PropertyTokenizationWord {
-						propTerms, propBoosts = b.removeStopwordsFromQueryTerms(propTerms, propBoosts)
-					}
-					queryTermsByTokenization[tokKey] = propTerms
-					duplicateBoostsByTokenization[tokKey] = propBoosts
-					propNamesByTokenization[tokKey] = make([]string, 0)
 				} else {
 					tokKey = accentTokenizationKey(prop.Tokenization)
+					needsAccentFold[prop.Tokenization] = struct{}{}
 				}
 			}
-			if _, exists := propNamesByTokenization[tokKey]; !exists {
-				return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
-					prop.Tokenization, prop.Name)
-			}
-			propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], property)
+			neededTokenizations[prop.Tokenization] = struct{}{}
+
+			props = append(props, propInfo{
+				name:      property,
+				prop:      prop,
+				tokKey:    tokKey,
+				propMean:  float64(propMean),
+				meanValid: !math.IsNaN(float64(propMean)),
+			})
 		default:
 			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
+	}
+
+	// Second pass: tokenize query only for needed tokenizations
+	for tok := range neededTokenizations {
+		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tok, params.Query, class.Class)
+		if tok == models.PropertyTokenizationWord {
+			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTerms, dupBoosts)
+		}
+		queryTermsByTokenization[tok] = queryTerms
+		duplicateBoostsByTokenization[tok] = dupBoosts
+		propNamesByTokenization[tok] = make([]string, 0)
+	}
+
+	// Prepare accent-folded variants only for tokenizations that need them
+	for tok := range needsAccentFold {
+		accentKey := accentTokenizationKey(tok)
+		foldedQuery := tokenizer.FoldAccents(params.Query, nil)
+		accentTerms, accentBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tok, foldedQuery, class.Class)
+		if tok == models.PropertyTokenizationWord {
+			accentTerms, accentBoosts = b.removeStopwordsFromQueryTerms(accentTerms, accentBoosts)
+		}
+		queryTermsByTokenization[accentKey] = accentTerms
+		duplicateBoostsByTokenization[accentKey] = accentBoosts
+		propNamesByTokenization[accentKey] = make([]string, 0)
+	}
+
+	// Third pass: assign properties to tokenization keys, compute per-property ignore keys
+	averagePropLength := 0.
+	averagePropLengthCount := 0
+	for _, pi := range props {
+		// A NaN here is the result of a corrupted prop length tracker.
+		// This is a workaround to try and avoid 0 or NaN scores.
+		// There is an extra check below in case all prop lengths are NaN or 0.
+		// Related issue https://github.com/weaviate/weaviate/issues/6247
+		if pi.meanValid {
+			averagePropLength += pi.propMean
+			averagePropLengthCount++
+		}
+
+		tokKey := pi.tokKey
+		if pi.prop.TextAnalyser != nil && pi.prop.TextAnalyser.ASCIIFold && len(pi.prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
+			ignore := tokenizer.BuildIgnoreSet(pi.prop.TextAnalyser.ASCIIFoldIgnore)
+			foldedQ := tokenizer.FoldAccents(params.Query, ignore)
+			propTerms, propBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(pi.prop.Tokenization, foldedQ, class.Class)
+			if pi.prop.Tokenization == models.PropertyTokenizationWord {
+				propTerms, propBoosts = b.removeStopwordsFromQueryTerms(propTerms, propBoosts)
+			}
+			queryTermsByTokenization[tokKey] = propTerms
+			duplicateBoostsByTokenization[tokKey] = propBoosts
+			propNamesByTokenization[tokKey] = make([]string, 0)
+		}
+
+		if _, exists := propNamesByTokenization[tokKey]; !exists {
+			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+				pi.prop.Tokenization, pi.prop.Name)
+		}
+		propNamesByTokenization[tokKey] = append(propNamesByTokenization[tokKey], pi.name)
 	}
 
 	averagePropLength = averagePropLength / float64(averagePropLengthCount)
@@ -272,21 +294,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 // accentTokenizationKey returns the composite key used for accent-insensitive properties.
 func accentTokenizationKey(tokenization string) string {
 	return tokenization + ":accent"
-}
-
-// deduplicateTerms re-deduplicates terms and returns counts (for use after accent folding).
-func deduplicateTerms(terms []string) ([]string, []int) {
-	counts := map[string]int{}
-	for _, t := range terms {
-		counts[t]++
-	}
-	unique := make([]string, 0, len(counts))
-	boosts := make([]int, 0, len(counts))
-	for t, c := range counts {
-		unique = append(unique, t)
-		boosts = append(boosts, c)
-	}
-	return unique, boosts
 }
 
 func (b *BM25Searcher) wand(
