@@ -273,32 +273,32 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 }
 
 type Config struct {
-	RootPath                            string
-	QueryLimit                          int64
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	MaxImportGoroutinesFactor           float64
-	LazySegmentsDisabled                bool
-	SegmentInfoIntoFileNameEnabled      bool
-	WriteMetadataFilesEnabled           bool
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	MaxSegmentSize                      int64
-	TrackVectorDimensions               bool
-	TrackVectorDimensionsInterval       time.Duration
-	UsageEnabled                        bool
-	ServerVersion                       string
-	GitHash                             string
-	AvoidMMap                           bool
+	RootPath                       string
+	QueryLimit                     int64
+	QueryMaximumResults            int64
+	QueryHybridMaximumResults      int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MaxImportGoroutinesFactor      float64
+	LazySegmentsDisabled           bool
+	SegmentInfoIntoFileNameEnabled bool
+	WriteMetadataFilesEnabled      bool
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	MinMMapSize                    int64
+	MaxReuseWalSize                int64
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	MaxSegmentSize                 int64
+	TrackVectorDimensions          bool
+	TrackVectorDimensionsInterval  time.Duration
+	UsageEnabled                   bool
+	ServerVersion                  string
+	GitHash                        string
+	AvoidMMap                      bool
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	EnableLazyLoadShards                *bool

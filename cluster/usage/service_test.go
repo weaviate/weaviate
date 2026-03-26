@@ -624,7 +624,7 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 		RootPath:                  t.TempDir(),
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		MaxReuseWalSize:           0, // disable to make count easier
+		MaxReuseWalSize:           0,   // disable to make count easier
 		EnableLazyLoadShards:      nil, // auto-detect; for this test non-MT collections never lazy-load
 	}, &db.FakeRemoteClient{}, mockNodeSelector, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
