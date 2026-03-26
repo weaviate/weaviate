@@ -318,6 +318,28 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 }
 
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+	dbm, err := pv.fetchBitmap(ctx, s, limit)
+	if err != nil {
+		return nil, err
+	}
+	if pv.isNested {
+		// The nested value bucket stores positions (root|leaf|docID) rather than
+		// plain docIDs. Strip position bits to extract the docID-only bitmap.
+		dbm.docIDs = nested.MaskAllPositions(dbm.docIDs)
+	}
+	return dbm, nil
+}
+
+// fetchRawPositions is like fetchDocIDs but returns the raw position bitmap
+// without stripping the root/leaf bits. Only valid for nested properties
+// (pv.isNested == true). Used by the correlated resolution path which needs
+// full positions to apply MaskLeafPositions AND or the _idx loop.
+func (pv *propValuePair) fetchRawPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+	return pv.fetchBitmap(ctx, s, limit)
+}
+
+// fetchBitmap is the shared implementation for fetchDocIDs and fetchRawPositions.
+func (pv *propValuePair) fetchBitmap(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	// TODO text_rbm_inverted_index find better way check whether prop len
 	if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 		!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -352,11 +374,6 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 	dbm, err := s.docBitmap(ctx, b, limit, pv)
 	if err != nil {
 		return nil, err
-	}
-	if pv.isNested {
-		// The nested value bucket stores positions (root|leaf|docID) rather than
-		// plain docIDs. Strip position bits to extract the docID-only bitmap.
-		dbm.docIDs = nested.MaskAllPositions(dbm.docIDs)
 	}
 	return &dbm, nil
 }
