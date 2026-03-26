@@ -30,11 +30,11 @@ func TestHandleGenericTokenize(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
-		name          string
-		body          *models.TokenizeRequest
-		wantOK        bool
-		wantIndexed   []string
-		wantQuery     []string
+		name        string
+		body        *models.TokenizeRequest
+		wantOK      bool
+		wantIndexed []string
+		wantQuery   []string
 	}{
 		{
 			name: "word tokenization without stopwords",
