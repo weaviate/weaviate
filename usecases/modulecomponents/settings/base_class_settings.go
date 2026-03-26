@@ -283,6 +283,10 @@ func (s BaseClassSettings) Validate(class *models.Class) error {
 	return nil
 }
 
+func (s BaseClassSettings) ValidateBaseURL(baseURL string) error {
+	return s.propertyHelper.ValidateBaseURLSetting(baseURL)
+}
+
 func (s BaseClassSettings) isAutoSchemaEnabled() bool {
 	if s.cfg != nil && s.cfg.Config() != nil && s.cfg.Config().AutoSchema.Enabled != nil {
 		return s.cfg.Config().AutoSchema.Enabled.Get()

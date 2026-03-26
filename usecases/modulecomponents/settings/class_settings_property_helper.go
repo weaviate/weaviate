@@ -14,8 +14,12 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
 	"strconv"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
@@ -32,6 +36,7 @@ type PropertyValuesHelper interface {
 	GetPropertyAsBoolWithNotExists(cfg moduletools.ClassConfig, name string, defaultValue, notExistsValue bool) bool
 	GetNumber(in any) (float32, error)
 	GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string
+	ValidateBaseURLSetting(baseURL string) error
 }
 
 type classPropertyValuesHelper struct {
@@ -195,6 +200,26 @@ func (h *classPropertyValuesHelper) GetPropertyAsListOfStrings(cfg moduletools.C
 	default:
 		return defaultValue
 	}
+}
+
+func (h *classPropertyValuesHelper) ValidateBaseURLSetting(baseURL string) error {
+	if entcfg.Enabled(os.Getenv("MODULES_VALIDATE_BASE_URL")) {
+		parsed, err := url.Parse(baseURL)
+		if err != nil {
+			return fmt.Errorf("invalid baseURL: %w", err)
+		}
+
+		if parsed.Scheme != "https" {
+			return fmt.Errorf("baseURL must use HTTPS")
+		}
+		host := parsed.Hostname()
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+				return fmt.Errorf("baseURL cannot target internal addresses")
+			}
+		}
+	}
+	return nil
 }
 
 func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map[string]any {

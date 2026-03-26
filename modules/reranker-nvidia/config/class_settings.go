@@ -40,5 +40,8 @@ func (cs *classSettings) Model() string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
+	if err := ic.propertyValuesHelper.ValidateBaseURLSetting(ic.BaseURL()); err != nil {
+		return err
+	}
 	return nil
 }

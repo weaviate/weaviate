@@ -51,6 +51,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if model == nil {
 		return errors.Errorf("no model provided")
 	}
+	if err := ic.propertyValuesHelper.ValidateBaseURLSetting(ic.BaseURL()); err != nil {
+		return err
+	}
 
 	return nil
 }

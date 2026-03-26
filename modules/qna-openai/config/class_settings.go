@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -59,11 +60,12 @@ var availableOpenAIModels = []string{
 }
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("qna-openai")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -104,6 +106,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
 	if err != nil {
+		return err
+	}
+
+	if err := ic.propertyValuesHelper.ValidateBaseURLSetting(ic.BaseURL()); err != nil {
 		return err
 	}
 
