@@ -141,6 +141,7 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
+	modusagedo "github.com/weaviate/weaviate/modules/usage-do"
 	modusages3 "github.com/weaviate/weaviate/modules/usage-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -1927,6 +1928,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modusagedo.Name]; ok {
+		appState.Modules.Register(modusagedo.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modusagedo.Name).
+			Debug("enabled module")
+	}
+
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -1949,6 +1958,13 @@ func postInitModules(appState *state.State) {
 		// Initialize usage service for S3
 		if usageS3Module := appState.Modules.GetByName(modusages3.Name); usageS3Module != nil {
 			if usageModuleWithService, ok := usageS3Module.(modulecapabilities.ModuleWithUsageService); ok {
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
+				usageModuleWithService.SetUsageService(usageService)
+			}
+		}
+		// Initialize usage service for DigitalOcean Spaces
+		if usageDOModule := appState.Modules.GetByName(modusagedo.Name); usageDOModule != nil {
+			if usageModuleWithService, ok := usageDOModule.(modulecapabilities.ModuleWithUsageService); ok {
 				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
