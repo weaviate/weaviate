@@ -57,12 +57,10 @@ type awsClient struct {
 
 func New(awsAccessKey, awsSecretKey, awsSessionToken string, timeout time.Duration, logger logrus.FieldLogger) *awsClient {
 	return &awsClient{
-		awsAccessKey:    awsAccessKey,
-		awsSecretKey:    awsSecretKey,
-		awsSessionToken: awsSessionToken,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		awsAccessKey:        awsAccessKey,
+		awsSecretKey:        awsSecretKey,
+		awsSessionToken:     awsSessionToken,
+		httpClient:          modulecomponents.NewBaseHttpClient(timeout),
 		buildBedrockUrlFn:   buildBedrockUrl,
 		buildSagemakerUrlFn: buildSagemakerUrl,
 		logger:              logger,

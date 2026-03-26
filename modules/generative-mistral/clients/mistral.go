@@ -40,11 +40,9 @@ type mistral struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *mistral {
 	return &mistral{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

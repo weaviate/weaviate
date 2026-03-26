@@ -126,13 +126,11 @@ func New[T dto.Embedding](jinaAIApiKey string,
 ) *Client[T] {
 	return &Client[T]{
 		jinaAIApiKey: jinaAIApiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildUrlFn: buildUrlFn,
-		defaultRPM: defaultRPM,
-		defaultTPM: defaultTPM,
-		logger:     logger,
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
+		buildUrlFn:   buildUrlFn,
+		defaultRPM:   defaultRPM,
+		defaultTPM:   defaultTPM,
+		logger:       logger,
 	}
 }
 

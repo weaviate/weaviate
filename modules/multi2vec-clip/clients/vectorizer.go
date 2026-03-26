@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type vectorizer struct {
@@ -33,11 +34,9 @@ type vectorizer struct {
 
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		origin: origin,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		origin:     origin,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

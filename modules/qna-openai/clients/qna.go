@@ -60,7 +60,7 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient:         &http.Client{Timeout: timeout},
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
 		buildUrlFn:         buildUrl,
 		logger:             logger,
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type ner struct {
@@ -54,7 +55,7 @@ type nerResponse struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *ner {
 	return &ner{
 		origin:     origin,
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		logger:     logger,
 	}
 }

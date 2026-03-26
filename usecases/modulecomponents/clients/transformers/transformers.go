@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type taskType string
@@ -96,9 +97,7 @@ type Client struct {
 
 func New(urlBuilder *URLBuilder, timeout time.Duration, logger logrus.FieldLogger) *Client {
 	return &Client{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilder: urlBuilder,
 		logger:     logger,
 	}

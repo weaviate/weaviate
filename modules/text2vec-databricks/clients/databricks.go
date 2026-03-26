@@ -61,10 +61,8 @@ type client struct {
 func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		databricksToken: databricksToken,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		httpClient:      modulecomponents.NewBaseHttpClient(timeout),
+		logger:          logger,
 	}
 }
 

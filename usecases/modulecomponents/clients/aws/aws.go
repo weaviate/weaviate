@@ -190,10 +190,8 @@ func New(awsAccessKey, awsSecret, awsSessionToken string,
 		awsAccessKey:    awsAccessKey,
 		awsSecret:       awsSecret,
 		awsSessionToken: awsSessionToken,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		httpClient:      modulecomponents.NewBaseHttpClient(timeout),
+		logger:          logger,
 	}
 }
 

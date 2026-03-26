@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type client struct {
@@ -33,11 +34,9 @@ type client struct {
 
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
-		origin: origin,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		origin:     origin,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

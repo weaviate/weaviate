@@ -46,7 +46,7 @@ type client struct {
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:       apiKey,
-		httpClient:   &http.Client{Timeout: timeout},
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		maxDocuments: 512,
 		logger:       logger,
 	}

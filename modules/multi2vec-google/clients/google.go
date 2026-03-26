@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -50,11 +51,9 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilderFn: buildURL,
-		logger:       logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilderFn:  buildURL,
+		logger:        logger,
 	}
 }
 

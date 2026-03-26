@@ -89,11 +89,9 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilderFn: buildURL,
-		logger:       logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilderFn:  buildURL,
+		logger:        logger,
 	}
 }
 

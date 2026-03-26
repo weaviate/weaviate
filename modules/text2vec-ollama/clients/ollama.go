@@ -40,9 +40,7 @@ type ollama struct {
 
 func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	return &ollama{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilderFn: buildURL,
 		logger:       logger,
 	}

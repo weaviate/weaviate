@@ -76,10 +76,8 @@ type vectorizer struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		apiKey:                apiKey,
+		httpClient:            modulecomponents.NewBaseHttpClient(timeout),
 		bertEmbeddingsDecoder: newBertEmbeddingsDecoder(),
 		logger:                logger,
 	}

@@ -39,11 +39,9 @@ type nvidia struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *nvidia {
 	return &nvidia{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

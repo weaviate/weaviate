@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type qna struct {
@@ -35,7 +36,7 @@ type qna struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *qna {
 	return &qna{
 		origin:     origin,
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		logger:     logger,
 	}
 }

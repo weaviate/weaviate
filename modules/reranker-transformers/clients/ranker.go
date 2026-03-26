@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -43,7 +44,7 @@ type client struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		origin:       origin,
-		httpClient:   &http.Client{Timeout: timeout},
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		maxDocuments: 32,
 		logger:       logger,
 	}

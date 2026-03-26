@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type spellCheckInput struct {
@@ -47,11 +48,9 @@ type spellCheck struct {
 
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *spellCheck {
 	return &spellCheck{
-		origin: origin,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		origin:     origin,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

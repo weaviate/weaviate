@@ -47,11 +47,9 @@ type cohere struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *cohere {
 	return &cohere{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

@@ -93,11 +93,9 @@ type Settings struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Client {
 	return &Client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

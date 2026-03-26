@@ -40,11 +40,9 @@ type xai struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *xai {
 	return &xai{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 

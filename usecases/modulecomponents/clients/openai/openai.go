@@ -128,12 +128,10 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildUrlFn:    buildUrl,
-		logger:        logger,
-		sampledLogger: logrusext.NewSampler(logger, 5, time.Minute),
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		buildUrlFn:         buildUrl,
+		logger:             logger,
+		sampledLogger:      logrusext.NewSampler(logger, 5, time.Minute),
 	}
 }
 

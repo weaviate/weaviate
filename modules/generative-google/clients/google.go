@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-google/config"
 	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 )
@@ -143,11 +144,9 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildUrlFn: buildURL,
-		logger:     logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		buildUrlFn:    buildURL,
+		logger:        logger,
 	}
 }
 
