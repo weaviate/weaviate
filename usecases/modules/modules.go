@@ -87,6 +87,10 @@ func (p *Provider) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
 
+func (p *Provider) HasModule(name string) bool {
+	return p.GetByName(name) != nil
+}
+
 func (p *Provider) GetAll() []modulecapabilities.Module {
 	out := make([]modulecapabilities.Module, len(p.registered))
 	i := 0

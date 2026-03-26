@@ -238,6 +238,10 @@ func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
 	return strings.Contains(moduleName, "colbert")
 }
 
+func (f *fakeModuleConfig) HasModule(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert") || strings.Contains(moduleName, "text2vec") || strings.Contains(moduleName, "multi2vec")
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }

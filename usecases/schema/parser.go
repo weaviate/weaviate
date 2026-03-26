@@ -38,6 +38,7 @@ type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
 	IsMultiVector(string) bool
+	HasModule(string) bool
 	MigrateVectorizerSettings(any, any) bool
 }
 
@@ -202,6 +203,9 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
 		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
+			if !p.modules.HasModule(vectorizerModuleName) {
+				return fmt.Errorf("parse vector config for %s: vectorizer module %q is not available in this version of Weaviate; if you are downgrading, this module may have been introduced in a later version", targetVector, vectorizerModuleName)
+			}
 			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}
 		vectorConfig.VectorIndexConfig = parsed

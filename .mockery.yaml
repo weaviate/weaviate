@@ -23,6 +23,9 @@ packages:
   github.com/weaviate/weaviate/usecases/cluster:
     interfaces:
       NodeSelector:
+  github.com/weaviate/weaviate/entities/schema/config:
+    interfaces:
+      VectorIndexConfig:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
