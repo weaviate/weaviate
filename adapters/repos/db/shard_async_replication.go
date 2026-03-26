@@ -442,7 +442,7 @@ func (s *Shard) mayStopAsyncReplication() {
 
 	s.asyncReplicationCancelFunc()
 
-	if s.hashtreeFullyInitialized {
+	if s.hashtreeFullyInitialized && !s.hashtreeFlushFailed {
 		// the hashtree needs to be fully in sync with stored data before it can be persisted
 		err := s.dumpHashTree()
 		if err != nil {
@@ -456,6 +456,7 @@ func (s *Shard) mayStopAsyncReplication() {
 
 	s.hashtree = nil
 	s.hashtreeFullyInitialized = false
+	s.hashtreeFlushFailed = false
 	s.hashbeatNotifyCh = nil
 
 	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {

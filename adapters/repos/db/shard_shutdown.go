@@ -137,6 +137,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	// is fully consistent with on-disk state before mayStopAsyncReplication
 	// dumps it. Bucket.Shutdown calls b.active.flush() directly and does not
 	// fire the callback, so this explicit flush is required.
+	// On failure, set hashtreeFlushFailed so mayStopAsyncReplication skips the
+	// dump. A stale .ht file is worse than none: loading it on restart bypasses
+	// initHashtree's corrective disk scan. hashtreeFlushFailed is not protected
+	// by asyncReplicationRWMux because it is only written here (under
+	// shutdownLock) and read by mayStopAsyncReplication (called below, same
+	// goroutine) — initHashtree never touches it, so there is no race.
 	func() {
 		s.asyncReplicationRWMux.RLock()
 		hashtreeActive := s.hashtree != nil
@@ -153,7 +159,8 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 				WithField("action", "async_replication_shutdown").
 				WithField("class_name", s.index.Config.ClassName.String()).
 				WithField("shard_name", s.name).
-				Warnf("failed to flush objects bucket before hashtree dump: %v", err)
+				Warnf("failed to flush objects bucket before hashtree dump, skipping hashtree persistence: %v", err)
+			s.hashtreeFlushFailed = true
 		}
 	}()
 
@@ -200,10 +207,10 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		ec.AddWrapf(err, "stop lsmkv store")
 	}
 
-	// Must be called after store.Shutdown so that the final memtable flush
-	// (which occurs inside store.Shutdown) has fired updateHashtreeOnFlush
-	// and the hashtree is fully consistent with on-disk state before
-	// dumpHashTree persists it.
+	// Called after store.Shutdown to ensure the store is fully stopped before
+	// mayStopAsyncReplication unregisters flush callbacks and dumps the hashtree.
+	// The hashtree was already brought in sync by the explicit FlushAndSwitch
+	// above; store.Shutdown's internal flush (b.active.flush) fires no callback.
 	s.mayStopAsyncReplication()
 
 	if s.dynamicVectorIndexDB != nil {

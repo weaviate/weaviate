@@ -234,6 +234,7 @@ type Shard struct {
 	asyncReplicationConfig     AsyncReplicationConfig
 	hashtree                   hashtree.AggregatedHashTree
 	hashtreeFullyInitialized   bool
+	hashtreeFlushFailed        bool // set by performShutdown on FlushAndSwitch error; prevents stale .ht dump
 	asyncReplicationCancelFunc context.CancelFunc
 
 	// hashbeatNotifyCh is set by initHashBeater and cleared by mayStopAsyncReplication.

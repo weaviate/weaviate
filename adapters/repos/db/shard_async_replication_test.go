@@ -14,8 +14,11 @@
 package db
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -865,4 +868,169 @@ func TestPropagateObjects(t *testing.T) {
 			_, _ = s.propagateObjects(cancelCtx, cfg, "http://fake-host", uuids, nil)
 		})
 	})
+}
+
+// ─── Shutdown hashtree persistence ───────────────────────────────────────────
+
+// htFilesInDir returns all .ht files found directly inside dir.
+func htFilesInDir(t *testing.T, dir string) []os.DirEntry {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var ht []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".ht" {
+			ht = append(ht, e)
+		}
+	}
+	return ht
+}
+
+// TestShutdownHashtreePersistsMemtableObjects is the core regression test for
+// the bug fixed in shard_shutdown.go: Bucket.Shutdown flushes the active
+// memtable via b.active.flush() which does NOT fire objectFlushCallback, so
+// objects that were still in the memtable at shutdown time were missing from
+// the saved .ht file.
+//
+// The fix calls bucket.FlushAndSwitch() explicitly before store.Shutdown so
+// that updateHashtreeOnFlush fires and the hashtree includes every object that
+// lands on disk during the shutdown flush.
+func TestShutdownHashtreePersistsMemtableObjects(t *testing.T) {
+	ctx := context.Background()
+	const class = "ShutdownHashtreeMemtableTest"
+
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.SetAsyncReplicationState(ctx, cfg, true))
+	awaitHashtreeInitialized(t, s)
+
+	// Capture baseline root after init (the shard may have pre-existing state).
+	s.asyncReplicationRWMux.RLock()
+	rootAfterInit := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+
+	// Insert objects — they land in the memtable only, not yet on disk.
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+
+	// Hashtree must still equal the baseline: writes go to memtable only; the
+	// hashtree reflects durable (flushed) data exclusively.
+	s.asyncReplicationRWMux.RLock()
+	rootAfterInsert := s.hashtree.Root()
+	s.asyncReplicationRWMux.RUnlock()
+	require.Equal(t, rootAfterInit, rootAfterInsert,
+		"hashtree must not change while objects are only in the memtable")
+
+	// Capture the hashtree directory path before shutdown destroys the shard.
+	htPath := s.pathHashTree()
+
+	// Shutdown: performShutdown calls FlushAndSwitch (our fix) so that
+	// updateHashtreeOnFlush fires, then mayStopAsyncReplication saves the .ht.
+	require.NoError(t, sl.Shutdown(ctx))
+
+	// Exactly one .ht file must have been written.
+	htFiles := htFilesInDir(t, htPath)
+	require.Len(t, htFiles, 1, "exactly one .ht file must be written on shutdown")
+
+	// The persisted hashtree must differ from the pre-shutdown baseline: the
+	// memtable objects must have been registered via updateHashtreeOnFlush
+	// during the shutdown FlushAndSwitch call.
+	f, err := os.Open(filepath.Join(htPath, htFiles[0].Name()))
+	require.NoError(t, err)
+	defer f.Close()
+	ht, err := hashtree.DeserializeHashTree(bufio.NewReader(f))
+	require.NoError(t, err)
+	require.NotEqual(t, rootAfterInit, ht.Root(),
+		"persisted hashtree must include the objects that were in the memtable at shutdown")
+}
+
+// TestMayStopAsyncReplicationSkipsDumpOnFlushFailure verifies the guard
+// introduced to prevent a stale .ht file from being saved when the pre-dump
+// FlushAndSwitch fails.
+//
+// When hashtreeFlushFailed is true, mayStopAsyncReplication must:
+//   - NOT write a .ht file (a stale file is worse than no file; on restart
+//     initHashtree will re-scan from disk and produce a correct hashtree).
+//   - Reset hashtreeFlushFailed to false.
+//   - Still clean up all other async replication state (hashtree → nil, etc.).
+func TestMayStopAsyncReplicationSkipsDumpOnFlushFailure(t *testing.T) {
+	ctx := context.Background()
+	const class = "SkipDumpOnFlushFailureTest"
+
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.SetAsyncReplicationState(ctx, cfg, true))
+	awaitHashtreeInitialized(t, s)
+
+	htPath := s.pathHashTree()
+
+	// Simulate a FlushAndSwitch failure during performShutdown.
+	// hashtreeFlushFailed is written outside asyncReplicationRWMux in
+	// production (single-goroutine shutdown path); it is safe to set here
+	// because the test is the only goroutine touching the shard at this point.
+	s.hashtreeFlushFailed = true
+
+	s.mayStopAsyncReplication()
+
+	// No .ht file must have been written.
+	require.Empty(t, htFilesInDir(t, htPath),
+		"no .ht file must be written when hashtreeFlushFailed is set")
+
+	// The flag must be reset so that a subsequent re-enable can dump correctly.
+	require.False(t, s.hashtreeFlushFailed,
+		"hashtreeFlushFailed must be reset to false by mayStopAsyncReplication")
+
+	// All other async replication state must be cleaned up.
+	require.Nil(t, s.hashtree, "hashtree must be nil after mayStopAsyncReplication")
+	require.False(t, s.hashtreeFullyInitialized,
+		"hashtreeFullyInitialized must be false after mayStopAsyncReplication")
+}
+
+// TestMayStopAsyncReplicationDumpsHashtreeOnSuccess verifies the happy path:
+// when hashtreeFlushFailed is false (the default), mayStopAsyncReplication
+// writes a .ht file that can be loaded on the next startup.
+func TestMayStopAsyncReplicationDumpsHashtreeOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	const class = "DumpHashtreeOnSuccessTest"
+
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+
+	// Put objects and flush to disk so the hashtree has non-zero state after
+	// the init scan.
+	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+	}
+	flushShard(t, ctx, sl)
+
+	cfg := minAsyncReplicationConfig()
+	require.NoError(t, s.SetAsyncReplicationState(ctx, cfg, true))
+	awaitHashtreeInitialized(t, s)
+
+	htPath := s.pathHashTree()
+
+	// hashtreeFlushFailed is false by default — dump should proceed.
+	require.False(t, s.hashtreeFlushFailed)
+	s.mayStopAsyncReplication()
+
+	htFiles := htFilesInDir(t, htPath)
+	require.Len(t, htFiles, 1,
+		".ht file must be written when hashtreeFullyInitialized is true and hashtreeFlushFailed is false")
+
+	// The persisted root must be non-zero: on-disk objects were registered by
+	// the init scan.
+	f, err := os.Open(filepath.Join(htPath, htFiles[0].Name()))
+	require.NoError(t, err)
+	defer f.Close()
+	ht, err := hashtree.DeserializeHashTree(bufio.NewReader(f))
+	require.NoError(t, err)
+	require.NotEqual(t, hashtree.Digest{}, ht.Root(),
+		"persisted hashtree root must be non-zero: on-disk objects must have been registered")
 }
