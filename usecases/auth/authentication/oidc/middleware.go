@@ -122,6 +122,11 @@ func (c *Client) validateConfig() error {
 			"either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 	}
 
+	if c.Config.Certificate.Get() != "" && c.Config.SkipTLSVerify.Get() {
+		msgs = append(msgs, "certificate and insecure_skip_tls_verify are mutually exclusive: "+
+			"remove the certificate or disable insecure_skip_tls_verify")
+	}
+
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -226,9 +231,6 @@ func (c *Client) buildHTTPClient() (*http.Client, error) {
 	}
 
 	if c.Config.SkipTLSVerify.Get() {
-		if c.Config.Certificate.Get() != "" {
-			c.logger.WithField("action", "oidc_init").Warn("both Certificate and SkipTLSVerify are set — RootCAs will be ignored because InsecureSkipVerify=true takes precedence")
-		}
 		tlsCfg.InsecureSkipVerify = true // #nosec G402 -- opt-in via AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY
 		c.logger.WithField("action", "oidc_init").Warn("TLS verification disabled for OIDC connections — do not use in production")
 	}

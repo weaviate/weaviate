@@ -263,25 +263,25 @@ func Test_Middleware_SkipTLSVerify_BuildsInsecureClient(t *testing.T) {
 		assert.False(t, transport.TLSClientConfig.InsecureSkipVerify)
 	})
 
-	t.Run("both certificate and SkipTLSVerify set", func(t *testing.T) {
+}
+
+func Test_Middleware_ValidateConfig(t *testing.T) {
+	t.Run("certificate and SkipTLSVerify set simultaneously returns error", func(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		client := &Client{
 			Config: config.OIDC{
+				Issuer:        runtime.NewDynamicValue("https://issuer.example.com"),
+				ClientID:      runtime.NewDynamicValue("my-client"),
+				UsernameClaim: runtime.NewDynamicValue("sub"),
 				Certificate:   runtime.NewDynamicValue(testingCertificate),
 				SkipTLSVerify: runtime.NewDynamicValue(true),
 			},
 			logger: logger.WithField("component", "oidc"),
 		}
 
-		httpClient, err := client.buildHTTPClient()
-		require.NoError(t, err)
-		require.NotNil(t, httpClient)
-
-		transport, ok := httpClient.Transport.(*http.Transport)
-		require.True(t, ok)
-		require.NotNil(t, transport.TLSClientConfig)
-		assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
-		assert.NotNil(t, transport.TLSClientConfig.RootCAs)
+		err := client.validateConfig()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "certificate and insecure_skip_tls_verify are mutually exclusive")
 	})
 }
 
