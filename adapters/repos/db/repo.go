@@ -299,7 +299,9 @@ type Config struct {
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
-	EnableLazyLoadShards                bool
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	EnableLazyLoadShards                *bool
 	LazyLoadShardCountThreshold         int
 	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool

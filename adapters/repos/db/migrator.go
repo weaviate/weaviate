@@ -182,9 +182,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			UsageEnabled:                   m.db.config.UsageEnabled,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
-				// If explicitly enabled in config, override auto-detection.
-				if m.db.config.EnableLazyLoadShards {
-					return true
+				// If explicitly set (true = always lazy, false = always eager),
+				// skip auto-detection entirely.
+				if m.db.config.EnableLazyLoadShards != nil {
+					return *m.db.config.EnableLazyLoadShards
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
