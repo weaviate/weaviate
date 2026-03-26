@@ -203,10 +203,12 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
+
+		if !p.modules.HasModule(vectorizerModuleName) {
+			return fmt.Errorf("parse vector config for %s: vectorizer module not found with name: %q", targetVector, vectorizerModuleName)
+		}
+
 		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
-			if !p.modules.HasModule(vectorizerModuleName) {
-				return fmt.Errorf("parse vector config for %s: vectorizer module not found with name: %q", targetVector, vectorizerModuleName)
-			}
 			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}
 		vectorConfig.VectorIndexConfig = parsed
