@@ -178,3 +178,9 @@ func (i *Index) Flush() error {
 func (i *Index) Shutdown(ctx context.Context) error {
 	return i.vectorIndex.Shutdown(ctx)
 }
+
+// UnderlyingVectorIndex returns the underlying vector index (typically HNSW)
+// so it can be wrapped in a VectorIndexQueue for async indexing.
+func (i *Index) UnderlyingVectorIndex() interface{} {
+	return i.vectorIndex
+}
