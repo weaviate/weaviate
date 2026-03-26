@@ -366,12 +366,16 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 	}
 
 	verifyLogs := func(t *testing.T, loggerHook *logrustest.Hook, certificateSource string) {
+		t.Helper()
 		for _, logEntry := range loggerHook.AllEntries() {
-			assert.Contains(t, logEntry.Message, "custom certificate is valid")
-			assert.Contains(t, logEntry.Data["source"], certificateSource)
-			assert.Contains(t, logEntry.Data["action"], "oidc_init")
-			assert.Contains(t, logEntry.Data["component"], "oidc")
+			if logEntry.Message == "custom certificate is valid" {
+				assert.Contains(t, logEntry.Data["source"], certificateSource)
+				assert.Contains(t, logEntry.Data["action"], "oidc_init")
+				assert.Contains(t, logEntry.Data["component"], "oidc")
+				return
+			}
 		}
+		t.Error("expected log entry 'custom certificate is valid' not found")
 	}
 
 	t.Run("certificate string", func(t *testing.T) {

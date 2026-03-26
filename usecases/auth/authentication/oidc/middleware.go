@@ -228,6 +228,7 @@ func (c *Client) buildHTTPClient() (*http.Client, error) {
 			return nil, err
 		}
 		tlsCfg.RootCAs = certPool
+		c.logger.WithField("action", "oidc_init").Info("configured OIDC client with custom certificate")
 	}
 
 	if c.Config.SkipTLSVerify.Get() {
@@ -242,11 +243,10 @@ func (c *Client) buildHTTPClient() (*http.Client, error) {
 
 // loadCertPool fetches the certificate from the configured source (HTTP URL,
 // S3 URI, or inline PEM string) and returns a certificate pool containing it.
-// Note: HTTP URL fetches use the default http.Client, so they will fail if the
-// certificate URL is itself behind a self-signed TLS endpoint — even when
-// SkipTLSVerify is set. The insecure client is built using the pool returned by
-// this function, so cert fetching and insecure-client construction cannot share
-// the same client.
+// Note: HTTP URL fetches use the default http.Client, so the certificate URL
+// must be reachable without custom TLS settings. Certificate and SkipTLSVerify
+// are mutually exclusive, so this function is only called when SkipTLSVerify
+// is false.
 func (c *Client) loadCertPool() (*x509.CertPool, error) {
 	var certificate, certificateSource string
 	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
