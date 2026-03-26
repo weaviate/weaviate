@@ -6954,47 +6954,6 @@ func init() {
         "format": "float"
       }
     },
-    "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of collection names (classes), properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized collection (class) name.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
-          }
-        }
-      }
-    },
     "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
       "properties": {
@@ -8179,78 +8138,6 @@ func init() {
         }
       }
     },
-    "PatchDocumentAction": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
-    "PatchDocumentObject": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -8272,13 +8159,6 @@ func init() {
           "type": "string",
           "format": "uri"
         }
-      }
-    },
-    "PeerUpdateList": {
-      "description": "List of known peers.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Permission": {
@@ -8867,52 +8747,6 @@ func init() {
         }
       }
     },
-    "ReplicationDeleteReplicaRequest": {
-      "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node from which the shard replica will be deleted.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be deleted.",
-          "type": "string"
-        }
-      }
-    },
-    "ReplicationDisableReplicaRequest": {
-      "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be disabled.",
-          "type": "string"
-        }
-      }
-    },
     "ReplicationReplicateDetailsReplicaResponse": {
       "description": "Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.",
       "required": [
@@ -9341,40 +9175,6 @@ func init() {
           "type": "string"
         }
       }
-    },
-    "SchemaClusterStatus": {
-      "description": "Indicates the health of the schema in a cluster.",
-      "type": "object",
-      "properties": {
-        "error": {
-          "description": "Contains the sync check error if one occurred",
-          "type": "string",
-          "x-omitempty": true
-        },
-        "healthy": {
-          "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "hostname": {
-          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
-          "type": "string"
-        },
-        "ignoreSchemaSync": {
-          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "nodeCount": {
-          "description": "Number of nodes that participated in the sync check",
-          "type": "number",
-          "format": "int"
-        }
-      }
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
     },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
@@ -17121,53 +16921,6 @@ func init() {
         "format": "float"
       }
     },
-    "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of collection names (classes), properties and values.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/C11yVectorBasedQuestionItems0"
-      }
-    },
-    "C11yVectorBasedQuestionItems0": {
-      "type": "object",
-      "properties": {
-        "classProps": {
-          "description": "Vectorized properties.",
-          "type": "array",
-          "maxItems": 300,
-          "minItems": 300,
-          "items": {
-            "$ref": "#/definitions/C11yVectorBasedQuestionItems0ClassPropsItems0"
-          }
-        },
-        "classVectors": {
-          "description": "Vectorized collection (class) name.",
-          "type": "array",
-          "maxItems": 300,
-          "minItems": 300,
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
-    "C11yVectorBasedQuestionItems0ClassPropsItems0": {
-      "type": "object",
-      "properties": {
-        "propsVectors": {
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        },
-        "value": {
-          "description": "String with valuename.",
-          "type": "string"
-        }
-      }
-    },
     "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
       "properties": {
@@ -18474,78 +18227,6 @@ func init() {
         }
       }
     },
-    "PatchDocumentAction": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
-    "PatchDocumentObject": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -18567,13 +18248,6 @@ func init() {
           "type": "string",
           "format": "uri"
         }
-      }
-    },
-    "PeerUpdateList": {
-      "description": "List of known peers.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Permission": {
@@ -19318,52 +18992,6 @@ func init() {
         }
       }
     },
-    "ReplicationDeleteReplicaRequest": {
-      "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node from which the shard replica will be deleted.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be deleted.",
-          "type": "string"
-        }
-      }
-    },
-    "ReplicationDisableReplicaRequest": {
-      "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be disabled.",
-          "type": "string"
-        }
-      }
-    },
     "ReplicationReplicateDetailsReplicaResponse": {
       "description": "Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.",
       "required": [
@@ -19795,40 +19423,6 @@ func init() {
           "type": "string"
         }
       }
-    },
-    "SchemaClusterStatus": {
-      "description": "Indicates the health of the schema in a cluster.",
-      "type": "object",
-      "properties": {
-        "error": {
-          "description": "Contains the sync check error if one occurred",
-          "type": "string",
-          "x-omitempty": true
-        },
-        "healthy": {
-          "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "hostname": {
-          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
-          "type": "string"
-        },
-        "ignoreSchemaSync": {
-          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "nodeCount": {
-          "description": "Number of nodes that participated in the sync check",
-          "type": "number",
-          "format": "int"
-        }
-      }
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
     },
     "ShardProgress": {
       "description": "Progress information for exporting a single shard",
