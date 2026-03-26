@@ -38,7 +38,7 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	}{
 		{
 			name:    "valid HTTPS URL",
-			baseURL: "https://api.example.com",
+			baseURL: "https://api.openai.com",
 			wantErr: false,
 		},
 		{
@@ -54,6 +54,21 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 		{
 			name:    "private network address is rejected",
 			baseURL: "https://192.168.1.1",
+			wantErr: true,
+		},
+		{
+			name:    "empty host is rejected",
+			baseURL: "https://",
+			wantErr: true,
+		},
+		{
+			name:    "localhost is rejected",
+			baseURL: "https://localhost",
+			wantErr: true,
+		},
+		{
+			name:    "local domain is rejected",
+			baseURL: "https://myhost.local",
 			wantErr: true,
 		},
 		{

@@ -38,7 +38,7 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	}{
 		{
 			name:    "valid HTTPS URL",
-			baseURL: "https://api.example.com",
+			baseURL: "https://api.openai.com",
 			wantErr: false,
 		},
 		{
@@ -57,8 +57,25 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "default URL is valid",
-			baseURL: DefaultBaseURL,
+			name:    "empty host is rejected",
+			baseURL: "https://",
+			wantErr: true,
+		},
+		{
+			name:    "localhost is rejected",
+			baseURL: "https://localhost",
+			wantErr: true,
+		},
+		{
+			name:    "local domain is rejected",
+			baseURL: "https://myhost.local",
+			wantErr: true,
+		},
+		{
+			// OctoAI is defunct and text.octoai.run no longer resolves,
+			// so we skip the default URL test and use a known-good URL instead.
+			name:    "valid public HTTPS URL",
+			baseURL: "https://api.openai.com",
 			wantErr: false,
 		},
 	}

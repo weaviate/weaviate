@@ -48,7 +48,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	if err := ic.propertyValuesHelper.ValidateBaseURLSetting(ic.BaseURL()); err != nil {
+	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {
 		return err
 	}
 	return nil

@@ -284,7 +284,7 @@ func (s BaseClassSettings) Validate(class *models.Class) error {
 }
 
 func (s BaseClassSettings) ValidateBaseURL(baseURL string) error {
-	return s.propertyHelper.ValidateBaseURLSetting(baseURL)
+	return s.propertyHelper.ValidateBaseURL(baseURL)
 }
 
 func (s BaseClassSettings) isAutoSchemaEnabled() bool {

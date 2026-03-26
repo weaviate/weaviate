@@ -190,7 +190,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		}
 	}
 
-	if err := ic.propertyValuesHelper.ValidateBaseURLSetting(ic.BaseURL()); err != nil {
+	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {
 		return err
 	}
 

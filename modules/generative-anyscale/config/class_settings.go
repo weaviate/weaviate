@@ -49,7 +49,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if model == nil {
 		return errors.Errorf("no model name provided")
 	}
-	if err := ic.propertyValuesHelper.ValidateBaseURLSetting(ic.BaseURL()); err != nil {
+	if err := ic.propertyValuesHelper.ValidateBaseURL(ic.BaseURL()); err != nil {
 		return err
 	}
 

@@ -12,12 +12,15 @@
 package settings
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -36,7 +39,20 @@ type PropertyValuesHelper interface {
 	GetPropertyAsBoolWithNotExists(cfg moduletools.ClassConfig, name string, defaultValue, notExistsValue bool) bool
 	GetNumber(in any) (float32, error)
 	GetPropertyAsListOfStrings(cfg moduletools.ClassConfig, name string, defaultValue []string) []string
-	ValidateBaseURLSetting(baseURL string) error
+	ValidateBaseURL(baseURL string) error
+}
+
+// blockedHostnames is the set of hostname patterns that are always rejected
+// regardless of whether they resolve to a private IP.
+var blockedHostnames = []string{
+	"localhost",
+}
+
+// blockedHostSuffixes are hostname suffixes that are always rejected.
+var blockedHostSuffixes = []string{
+	".local",
+	".internal",
+	".localdomain",
 }
 
 type classPropertyValuesHelper struct {
@@ -202,23 +218,70 @@ func (h *classPropertyValuesHelper) GetPropertyAsListOfStrings(cfg moduletools.C
 	}
 }
 
-func (h *classPropertyValuesHelper) ValidateBaseURLSetting(baseURL string) error {
-	if entcfg.Enabled(os.Getenv("MODULES_VALIDATE_BASE_URL")) {
-		parsed, err := url.Parse(baseURL)
-		if err != nil {
-			return fmt.Errorf("invalid baseURL: %w", err)
-		}
+func (h *classPropertyValuesHelper) ValidateBaseURL(baseURL string) error {
+	if !entcfg.Enabled(os.Getenv("MODULES_VALIDATE_BASE_URL")) {
+		return nil
+	}
 
-		if parsed.Scheme != "https" {
-			return fmt.Errorf("baseURL must use HTTPS")
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("invalid baseURL: %w", err)
+	}
+
+	// 1. Require HTTPS
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("baseURL must use HTTPS")
+	}
+
+	// 2. Reject empty host (handles "https://", "https:///path", etc.)
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("baseURL must have a non-empty host")
+	}
+
+	// 3. If host is an IP literal, reject internal/loopback/link-local ranges
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("baseURL cannot target internal addresses")
 		}
-		host := parsed.Hostname()
-		if ip := net.ParseIP(host); ip != nil {
-			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-				return fmt.Errorf("baseURL cannot target internal addresses")
-			}
+		return nil
+	}
+
+	// 4. For hostnames: reject well-known internal names and suffixes
+	lower := strings.ToLower(host)
+	for _, blocked := range blockedHostnames {
+		if lower == blocked {
+			return fmt.Errorf("baseURL cannot target internal addresses")
 		}
 	}
+	for _, suffix := range blockedHostSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return fmt.Errorf("baseURL cannot target internal addresses")
+		}
+	}
+
+	// 5. DNS resolution check: resolve the hostname and verify none of the
+	//    returned IPs are in a private/loopback/link-local range.
+	//    Use a short timeout to avoid blocking the validation path.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	resolver := &net.Resolver{}
+	addrs, err := resolver.LookupHost(ctx, host)
+	if err != nil {
+		// If DNS resolution fails we reject the URL — a resolvable public
+		// hostname is required.
+		return fmt.Errorf("baseURL host could not be resolved: %w", err)
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("baseURL cannot target internal addresses")
+		}
+	}
+
 	return nil
 }
 
