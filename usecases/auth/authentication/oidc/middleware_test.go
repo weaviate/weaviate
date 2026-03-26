@@ -262,7 +262,6 @@ func Test_Middleware_SkipTLSVerify_BuildsInsecureClient(t *testing.T) {
 		require.NotNil(t, transport.TLSClientConfig)
 		assert.False(t, transport.TLSClientConfig.InsecureSkipVerify)
 	})
-
 }
 
 func Test_Middleware_ValidateConfig(t *testing.T) {
