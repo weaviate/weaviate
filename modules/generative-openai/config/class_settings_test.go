@@ -385,3 +385,53 @@ func (f fakeClassConfig) Config() *config.Config {
 func ptrValue[T float64 | string | int](in T) *T {
 	return &in
 }
+
+func Test_classSettings_ValidateBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{
+			name:    "valid HTTPS URL",
+			baseURL: "https://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP URL is rejected",
+			baseURL: "http://api.example.com",
+			wantErr: true,
+		},
+		{
+			name:    "loopback address is rejected",
+			baseURL: "https://127.0.0.1",
+			wantErr: true,
+		},
+		{
+			name:    "private network address is rejected",
+			baseURL: "https://192.168.1.1",
+			wantErr: true,
+		},
+		{
+			name:    "default URL is valid",
+			baseURL: DefaultOpenAIBaseURL,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ic := NewClassSettings(fakeClassConfig{
+				classConfig: map[string]any{
+					"baseURL": tt.baseURL,
+				},
+			})
+			err := ic.Validate(nil)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

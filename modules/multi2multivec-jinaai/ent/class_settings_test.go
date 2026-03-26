@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -260,4 +261,53 @@ func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 
 func (f fakeClassConfig) Config() *config.Config {
 	return nil
+}
+
+func Test_classSettings_ValidateBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{
+			name:    "valid HTTPS URL",
+			baseURL: "https://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP URL is rejected",
+			baseURL: "http://api.example.com",
+			wantErr: true,
+		},
+		{
+			name:    "loopback address is rejected",
+			baseURL: "https://127.0.0.1",
+			wantErr: true,
+		},
+		{
+			name:    "private network address is rejected",
+			baseURL: "https://192.168.1.1",
+			wantErr: true,
+		},
+		{
+			name:    "default URL is valid",
+			baseURL: DefaultBaseURL,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ic := NewClassSettings(newConfigBuilder().
+				addSetting("imageFields", []interface{}{"field"}).
+				addSetting("baseURL", tt.baseURL).
+				build())
+			err := ic.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

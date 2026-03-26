@@ -462,6 +462,66 @@ func TestPickDefaultModelVersion(t *testing.T) {
 	})
 }
 
+func Test_classSettings_ValidateBaseURL(t *testing.T) {
+	t.Setenv("MODULES_VALIDATE_BASE_URL", "true")
+	class := &models.Class{
+		Class: "test",
+		Properties: []*models.Property{
+			{
+				DataType: []string{schema.DataTypeText.String()},
+				Name:     "test",
+			},
+		},
+	}
+	tests := []struct {
+		name    string
+		baseURL string
+		wantErr bool
+	}{
+		{
+			name:    "valid HTTPS URL",
+			baseURL: "https://api.example.com",
+			wantErr: false,
+		},
+		{
+			name:    "HTTP URL is rejected",
+			baseURL: "http://api.example.com",
+			wantErr: true,
+		},
+		{
+			name:    "loopback address is rejected",
+			baseURL: "https://127.0.0.1",
+			wantErr: true,
+		},
+		{
+			name:    "private network address is rejected",
+			baseURL: "https://192.168.1.1",
+			wantErr: true,
+		},
+		{
+			name:    "default URL is valid",
+			baseURL: DefaultBaseURL,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cs := NewClassSettings(&fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL": tt.baseURL,
+					"model":   "text-embedding-3-small",
+				},
+			})
+			err := cs.Validate(class)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestClassSettings(t *testing.T) {
 	type testCase struct {
 		expectedBaseURL       string

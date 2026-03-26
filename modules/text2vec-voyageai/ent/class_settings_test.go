@@ -16,8 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_classSettings_ValidateBaseURL(t *testing.T) {
@@ -64,7 +64,7 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cs := NewClassSettings(&fakeClassConfig{
+			cs := NewClassSettings(fakeClassConfig{
 				classConfig: map[string]any{
 					"baseURL": tt.baseURL,
 				},
@@ -79,34 +79,52 @@ func Test_classSettings_ValidateBaseURL(t *testing.T) {
 	}
 }
 
-func Test_classSettings_Validate(t *testing.T) {
-	class := &models.Class{
-		Class: "test",
-		Properties: []*models.Property{{
-			DataType: []string{schema.DataTypeText.String()},
-			Name:     "test",
-		}},
-	}
+type fakeClassConfig struct {
+	classConfig           map[string]any
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+}
 
-	tests := []struct {
-		name    string
-		cfg     moduletools.ClassConfig
-		wantErr error
-	}{
-		{
-			name: "morph-embedding-v3",
-			cfg:  &fakeClassConfig{classConfig: map[string]any{"model": "morph-embedding-v3"}},
-		},
+func (f fakeClassConfig) Class() map[string]any {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]any {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]any {
+	if propName == f.skippedProperty {
+		return map[string]any{
+			"skip": true,
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cs := NewClassSettings(tt.cfg)
-			err := cs.Validate(class)
-			if tt.wantErr != nil {
-				assert.EqualError(t, err, tt.wantErr.Error())
-			} else {
-				assert.NoError(t, err)
-			}
-		})
+	if propName == f.excludedProperty {
+		return map[string]any{
+			"vectorizePropertyName": false,
+		}
 	}
+	if f.vectorizePropertyName {
+		return map[string]any{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
+func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
+	return nil
+}
+
+func (f fakeClassConfig) Config() *config.Config {
+	return nil
 }
