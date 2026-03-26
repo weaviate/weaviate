@@ -21,7 +21,6 @@ import (
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -186,7 +185,7 @@ func (c *grpcReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 		Shard:                 shard,
 		RequestId:             requestID,
 		SchemaVersion:         schemaVersion,
-		Uuids:                 shared.UUIDsToStrings(uuids),
+		Uuids:                 clusterapi.UUIDsToStrings(uuids),
 		DeletionTimeUnixMilli: deletionTime.UnixMilli(),
 		DryRun:                dryRun,
 	})
@@ -319,7 +318,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 	resp, err := client.FetchObjects(ctx, &protocol.FetchObjectsRequest{
 		Index: index,
 		Shard: shard,
-		Uuids: shared.UUIDsToStrings(ids),
+		Uuids: clusterapi.UUIDsToStrings(ids),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gRPC FetchObjects: %w", err)
@@ -346,7 +345,7 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 	resp, err := client.DigestObjects(ctx, &protocol.DigestObjectsRequest{
 		Index: index,
 		Shard: shard,
-		Ids:   shared.UUIDsToStrings(ids),
+		Ids:   clusterapi.UUIDsToStrings(ids),
 	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return nil, fmt.Errorf("gRPC DigestObjects: %w", err)
@@ -436,7 +435,7 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		return nil, fmt.Errorf("gRPC FindUUIDs: %w", err)
 	}
 
-	return shared.StringsToUUIDs(resp.GetUuids()), nil
+	return clusterapi.StringsToUUIDs(resp.GetUuids()), nil
 }
 
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
