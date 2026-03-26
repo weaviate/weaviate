@@ -51,13 +51,7 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 // NestedProperty. Returns an error if any segment is not found.
 func findNestedLeaf(segments []string, props []*models.NestedProperty) (*models.NestedProperty, error) {
 	for i, seg := range segments {
-		var found *models.NestedProperty
-		for _, np := range props {
-			if np.Name == seg {
-				found = np
-				break
-			}
-		}
+		found := findNestedPropByName(props, seg)
 		if found == nil {
 			return nil, fmt.Errorf("sub-property %q not found", seg)
 		}
