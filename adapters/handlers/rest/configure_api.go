@@ -1022,6 +1022,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
+		// Signal peers immediately that this node is shutting down so the router
+		// stops routing quorum reads/writes to it before we start draining.
+		if err := appState.Cluster.SetNodeLifecycle(cluster.NodeLifecycleShuttingDown); err != nil {
+			appState.Logger.Errorf("set node lifecycle to SHUTTING_DOWN, err=%s", err)
+		}
+
 		// leave memberlist first to announce node graceful departure
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")

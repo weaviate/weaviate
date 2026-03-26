@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -62,6 +63,7 @@ type Service struct {
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
+	closeLifecyclePromoter  chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -104,16 +106,17 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
-		Raft:               raft,
-		replicationEngine:  replicationEngine,
-		raftAddr:           net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
-		config:             &cfg,
-		rpcClient:          client,
-		rpcServer:          svr,
-		logger:             cfg.Logger,
-		closeBootstrapper:  make(chan struct{}),
-		closeOnFSMCaughtUp: make(chan struct{}),
-		closeWaitForDB:     make(chan struct{}),
+		Raft:                   raft,
+		replicationEngine:      replicationEngine,
+		raftAddr:               net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
+		config:                 &cfg,
+		rpcClient:              client,
+		rpcServer:              svr,
+		logger:                 cfg.Logger,
+		closeBootstrapper:      make(chan struct{}),
+		closeOnFSMCaughtUp:     make(chan struct{}),
+		closeWaitForDB:         make(chan struct{}),
+		closeLifecyclePromoter: make(chan struct{}),
 	}
 }
 
@@ -206,6 +209,30 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	enterrors.GoWrapper(func() {
 		c.onFSMCaughtUp(ctx)
 	}, c.logger)
+
+	// Promote node to ACTIVE once the service reports Ready (DB restored + leader elected).
+	// Until then it stays WARMING_UP so the router skips it for quorum reads.
+	// Uses a ticker (not time.After) to avoid recreating the timer on every loop iteration.
+	// closeLifecyclePromoter stops the goroutine if Close() is called before Ready() is reached,
+	// preventing a race where SHUTTING_DOWN is overwritten with ACTIVE.
+	enterrors.GoWrapper(func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-c.closeLifecyclePromoter:
+				return
+			case <-ticker.C:
+				if c.Ready() {
+					if err := c.config.NodeSelector.SetNodeLifecycle(cluster.NodeLifecycleActive); err != nil {
+						c.logger.WithField("action", "node_lifecycle").Error(err)
+					}
+					return
+				}
+			}
+		}
+	}, c.logger)
+
 	return nil
 }
 
@@ -216,6 +243,7 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeBootstrapper <- struct{}{}
 		c.closeWaitForDB <- struct{}{}
 		c.closeOnFSMCaughtUp <- struct{}{}
+		c.closeLifecyclePromoter <- struct{}{}
 	}, c.logger)
 
 	if c.config.ReplicaMovementEnabled {

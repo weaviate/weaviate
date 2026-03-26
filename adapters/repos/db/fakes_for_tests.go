@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -457,6 +458,10 @@ func (f *FakeNodeResolver) NodeAddress(id string) string {
 
 func (f *FakeNodeResolver) NodeCount() int {
 	return 0
+}
+
+func (f *FakeNodeResolver) NodeLifecycle(nodeName string) cluster.NodeLifecycle {
+	return cluster.NodeLifecycleActive
 }
 
 type FakeRemoteNodeClient struct{}

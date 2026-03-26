@@ -461,6 +461,52 @@ func (_c *MockNodeSelector_NodeHostname_Call) RunAndReturn(run func(string) (str
 	return _c
 }
 
+// NodeLifecycle provides a mock function with given fields: nodeName
+func (_m *MockNodeSelector) NodeLifecycle(nodeName string) NodeLifecycle {
+	ret := _m.Called(nodeName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for NodeLifecycle")
+	}
+
+	var r0 NodeLifecycle
+	if rf, ok := ret.Get(0).(func(string) NodeLifecycle); ok {
+		r0 = rf(nodeName)
+	} else {
+		r0 = ret.Get(0).(NodeLifecycle)
+	}
+
+	return r0
+}
+
+// MockNodeSelector_NodeLifecycle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NodeLifecycle'
+type MockNodeSelector_NodeLifecycle_Call struct {
+	*mock.Call
+}
+
+// NodeLifecycle is a helper method to define mock.On call
+//   - nodeName string
+func (_e *MockNodeSelector_Expecter) NodeLifecycle(nodeName interface{}) *MockNodeSelector_NodeLifecycle_Call {
+	return &MockNodeSelector_NodeLifecycle_Call{Call: _e.mock.On("NodeLifecycle", nodeName)}
+}
+
+func (_c *MockNodeSelector_NodeLifecycle_Call) Run(run func(nodeName string)) *MockNodeSelector_NodeLifecycle_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeLifecycle_Call) Return(_a0 NodeLifecycle) *MockNodeSelector_NodeLifecycle_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeLifecycle_Call) RunAndReturn(run func(string) NodeLifecycle) *MockNodeSelector_NodeLifecycle_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NonStorageNodes provides a mock function with no fields
 func (_m *MockNodeSelector) NonStorageNodes() []string {
 	ret := _m.Called()
@@ -504,6 +550,52 @@ func (_c *MockNodeSelector_NonStorageNodes_Call) Return(_a0 []string) *MockNodeS
 }
 
 func (_c *MockNodeSelector_NonStorageNodes_Call) RunAndReturn(run func() []string) *MockNodeSelector_NonStorageNodes_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetNodeLifecycle provides a mock function with given fields: lc
+func (_m *MockNodeSelector) SetNodeLifecycle(lc NodeLifecycle) error {
+	ret := _m.Called(lc)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetNodeLifecycle")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(NodeLifecycle) error); ok {
+		r0 = rf(lc)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockNodeSelector_SetNodeLifecycle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetNodeLifecycle'
+type MockNodeSelector_SetNodeLifecycle_Call struct {
+	*mock.Call
+}
+
+// SetNodeLifecycle is a helper method to define mock.On call
+//   - lc NodeLifecycle
+func (_e *MockNodeSelector_Expecter) SetNodeLifecycle(lc interface{}) *MockNodeSelector_SetNodeLifecycle_Call {
+	return &MockNodeSelector_SetNodeLifecycle_Call{Call: _e.mock.On("SetNodeLifecycle", lc)}
+}
+
+func (_c *MockNodeSelector_SetNodeLifecycle_Call) Run(run func(lc NodeLifecycle)) *MockNodeSelector_SetNodeLifecycle_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(NodeLifecycle))
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_SetNodeLifecycle_Call) Return(_a0 error) *MockNodeSelector_SetNodeLifecycle_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_SetNodeLifecycle_Call) RunAndReturn(run func(NodeLifecycle) error) *MockNodeSelector_SetNodeLifecycle_Call {
 	_c.Call.Return(run)
 	return _c
 }
