@@ -269,11 +269,13 @@ func makeNodeReadyUnaryInterceptor(nodeReady func() bool, servicePrefixes []stri
 }
 
 func makeQueueUnaryInterceptor(rq *shared.RequestQueue[grpcQueueItem], prefixes []string) grpc.UnaryServerInterceptor {
+	if rq.Enabled() {
+		rq.EnsureStarted()
+	}
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if !matchesAnyPrefix(info.FullMethod, prefixes) || !rq.Enabled() {
 			return handler(ctx, req)
 		}
-		rq.EnsureStarted()
 
 		resultCh := make(chan grpcQueueResult, 1)
 		if err := rq.Enqueue(grpcQueueItem{ctx: ctx, req: req, info: info, handler: handler, result: resultCh}); err != nil {
