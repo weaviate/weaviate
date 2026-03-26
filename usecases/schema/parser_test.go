@@ -184,7 +184,7 @@ func (m fakeModulesProvider) IsMultiVector(name string) bool {
 }
 
 func (m fakeModulesProvider) HasModule(name string) bool {
-	return strings.Contains(name, "colbert") || strings.Contains(name, "text2vec") || strings.Contains(name, "multi2vec")
+	return name == "none" || strings.Contains(name, "colbert") || strings.Contains(name, "text2vec") || strings.Contains(name, "multi2vec")
 }
 
 func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
@@ -237,6 +237,12 @@ func TestParseTargetVectorsIndexConfigErrors(t *testing.T) {
 		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil)
 		// "colbert" satisfies both HasModule and IsMultiVector on fakeModulesProvider
 		err := p.ParseClass(makeClass("colbert"))
+		require.NoError(t, err)
+	})
+
+	t.Run(`vectorizer "none" succeeds for multi vector index`, func(t *testing.T) {
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil)
+		err := p.ParseClass(makeClass("none"))
 		require.NoError(t, err)
 	})
 }
