@@ -216,7 +216,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		if err != nil {
 			return nil, err
 		}
-		items = a.TextArray(prop.Tokenization, in, doASCIIFold(prop), getASCIIFoldIgnore(prop))
+		items = a.TextArray(prop.Tokenization, in, prop.TextAnalyser)
 	case schema.DataTypeIntArray:
 		in := make([]int64, len(values))
 		for i, value := range values {
@@ -358,7 +358,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
-		items = a.Text(prop.Tokenization, asString, doASCIIFold(prop), getASCIIFoldIgnore(prop))
+		items = a.Text(prop.Tokenization, asString, prop.TextAnalyser)
 		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		if asFloat, ok := value.(float64); ok {

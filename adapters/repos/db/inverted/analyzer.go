@@ -69,21 +69,24 @@ type Analyzer struct {
 
 // Text tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) Text(tokenization, in string, asciiFold bool, asciiFoldIgnore []string) []Countable {
-	return a.TextArray(tokenization, []string{in}, asciiFold, asciiFoldIgnore)
+func (a *Analyzer) Text(tokenization, in string, textAnalyser *models.TextAnalyserConfig) []Countable {
+	return a.TextArray(tokenization, []string{in}, textAnalyser)
 }
 
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) TextArray(tokenization string, inArr []string, asciiFold bool, asciiFoldIgnore []string) []Countable {
-	var terms []string
-	for _, in := range inArr {
-		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
+func (a *Analyzer) TextArray(tokenization string, inArr []string, textAnalyser *models.TextAnalyserConfig) []Countable {
+	var ignore map[rune]struct{}
+	if textAnalyser != nil && textAnalyser.ASCIIFold {
+		ignore = tokenizer.BuildIgnoreSet(textAnalyser.ASCIIFoldIgnore)
 	}
 
-	if asciiFold {
-		ignore := tokenizer.BuildIgnoreSet(asciiFoldIgnore)
-		terms = tokenizer.FoldAccentsSlice(terms, ignore)
+	var terms []string
+	for _, in := range inArr {
+		if textAnalyser != nil && textAnalyser.ASCIIFold {
+			in = tokenizer.FoldAccents(in, ignore)
+		}
+		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
 	}
 
 	counts := map[string]uint64{}

@@ -173,13 +173,15 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		propNamesByTokenization[tokenization] = make([]string, 0)
 
-		// Also prepare accent-folded variants for each tokenization (no ignore list)
+		// Also prepare accent-folded variants for each tokenization (no ignore list).
+		// Fold the query first, then tokenize — this is faster than tokenizing then
+		// folding each token individually.
 		accentKey := accentTokenizationKey(tokenization)
-		accentTerms := make([]string, len(queryTermsByTokenization[tokenization]))
-		copy(accentTerms, queryTermsByTokenization[tokenization])
-		accentTerms = tokenizer.FoldAccentsSlice(accentTerms, nil)
-		// Re-deduplicate after folding since folding may merge distinct terms
-		accentTerms, accentBoosts := deduplicateTerms(accentTerms)
+		foldedQuery := tokenizer.FoldAccents(params.Query, nil)
+		accentTerms, accentBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tokenization, foldedQuery, class.Class)
+		if tokenization == models.PropertyTokenizationWord {
+			accentTerms, accentBoosts = b.removeStopwordsFromQueryTerms(accentTerms, accentBoosts)
+		}
 		queryTermsByTokenization[accentKey] = accentTerms
 		duplicateBoostsByTokenization[accentKey] = accentBoosts
 		propNamesByTokenization[accentKey] = make([]string, 0)
@@ -230,14 +232,14 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			tokKey := prop.Tokenization
 			if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
 				if len(prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
-					// Property has an ignore list — compute property-specific folded terms
+					// Property has an ignore list — fold query first, then tokenize
 					tokKey = accentTokenizationKey(prop.Tokenization) + ":" + property
 					ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
-					baseTerms := queryTermsByTokenization[prop.Tokenization]
-					propTerms := make([]string, len(baseTerms))
-					copy(propTerms, baseTerms)
-					propTerms = tokenizer.FoldAccentsSlice(propTerms, ignore)
-					propTerms, propBoosts := deduplicateTerms(propTerms)
+					foldedQ := tokenizer.FoldAccents(params.Query, ignore)
+					propTerms, propBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(prop.Tokenization, foldedQ, class.Class)
+					if prop.Tokenization == models.PropertyTokenizationWord {
+						propTerms, propBoosts = b.removeStopwordsFromQueryTerms(propTerms, propBoosts)
+					}
 					queryTermsByTokenization[tokKey] = propTerms
 					duplicateBoostsByTokenization[tokKey] = propBoosts
 					propNamesByTokenization[tokKey] = make([]string, 0)

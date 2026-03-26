@@ -118,7 +118,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.Text(tc.tokenization, tc.input, false, nil)
+				countable := a.Text(tc.tokenization, tc.input, nil)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -206,7 +206,7 @@ func TestAnalyzer(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				countable := a.TextArray(tc.tokenization, tc.input, false, nil)
+				countable := a.TextArray(tc.tokenization, tc.input, nil)
 				assert.ElementsMatch(t, tc.expectedCountable, countable)
 			})
 		}
@@ -465,7 +465,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.Text(tc.tokenization, tc.input, false, nil)
+			countable := a.Text(tc.tokenization, tc.input, nil)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -524,7 +524,7 @@ func TestAnalyzer_DefaultEngPreset(t *testing.T) {
 		}
 
 		for _, tc := range testCases {
-			countable := a.TextArray(tc.tokenization, tc.input, false, nil)
+			countable := a.TextArray(tc.tokenization, tc.input, nil)
 			assert.ElementsMatch(t, tc.expectedCountable, countable)
 		}
 	})
@@ -601,7 +601,11 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	a := NewAnalyzer(nil, "")
 
 	t.Run("Text with accent folding", func(t *testing.T) {
-		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", true, nil)
+		config := &models.TextAnalyserConfig{
+			ASCIIFold: true,
+		}
+
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", config)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -616,7 +620,7 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("Text without accent folding preserves diacritics", func(t *testing.T) {
-		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", false, nil)
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", nil)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -628,7 +632,10 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("TextArray with accent folding merges duplicates", func(t *testing.T) {
-		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, true, nil)
+		config := &models.TextAnalyserConfig{
+			ASCIIFold: true,
+		}
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, config)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -640,7 +647,12 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("Text with accent folding and ignore list", func(t *testing.T) {
-		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", true, []string{"é"})
+		config := &models.TextAnalyserConfig{
+			ASCIIFold:       true,
+			ASCIIFoldIgnore: []string{"é"},
+		}
+
+		countable := a.Text(models.PropertyTokenizationWord, "L'école est fermée", config)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
@@ -656,7 +668,11 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("TextArray with accent folding and ignore preserves ignored chars", func(t *testing.T) {
-		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, true, []string{"é"})
+		config := &models.TextAnalyserConfig{
+			ASCIIFold:       true,
+			ASCIIFoldIgnore: []string{"é"},
+		}
+		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, config)
 		terms := make(map[string]float32)
 		for _, c := range countable {
 			terms[string(c.Data)] = c.TermFrequency
