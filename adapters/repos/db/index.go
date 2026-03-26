@@ -2668,7 +2668,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 						counts = append(counts, count)
 						mux.Unlock()
 						return nil, nil
-					}, i.replicator.LocalNodeName(), time.Minute)
+					}, "", time.Minute)
 				if err != nil {
 					return err
 				}
