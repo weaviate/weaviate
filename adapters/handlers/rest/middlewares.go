@@ -106,7 +106,6 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		}
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
-		handler = addTokenizeHandlers(appState.SchemaManager, appState.Logger, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		// Add client tracking middleware early in the chain to capture all requests
