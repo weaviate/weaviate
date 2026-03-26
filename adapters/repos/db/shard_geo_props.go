@@ -69,7 +69,9 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		if err != nil {
 			return errors.Wrapf(err, "create geo index queue for prop %q", prop.Name)
 		}
+		s.propertyIndicesLock.Lock()
 		s.geoQueues[prop.Name] = geoQueue
+		s.propertyIndicesLock.Unlock()
 	}
 
 	return nil
