@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -2653,7 +2652,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 				)
 
 				var mux sync.Mutex // synchronizes access in coordinator.Pull.
-				counts := make(map[string]int)
+				var counts []int
 
 				// NOTE(dyma): Why do we need to pass both the context and the timeout?
 				results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
@@ -2666,10 +2665,10 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 							}).Errorf("poll object count for count(*) aggregation: %v", err)
 						}
 						mux.Lock()
-						counts[host] += count
+						counts = append(counts, count)
 						mux.Unlock()
 						return nil, nil
-					}, "", time.Second)
+					}, "", time.Minute)
 				if err != nil {
 					return err
 				}
@@ -2706,7 +2705,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 // of which none is a mode, then the median would be calculated as an average,
 // which is not contained in the set. In that case we pick the lower value of
 // the two "candidate" values.
-func reconcile(counts map[string]int) int {
+func reconcile(counts []int) int {
 	var mode int
 	var modeHits int
 	hits := make(map[int]int)
@@ -2714,7 +2713,8 @@ func reconcile(counts map[string]int) int {
 	var median int
 	medianIdx := len(counts) / 2
 
-	for i, count := range slices.Sorted(maps.Values(counts)) {
+	slices.Sort(counts)
+	for i, count := range counts {
 		hits[count]++
 		if h := hits[count]; h > modeHits {
 			mode = count
