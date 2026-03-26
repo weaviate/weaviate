@@ -572,17 +572,6 @@ func convertToUntyped[T comparable](in []T) []any {
 	return out
 }
 
-func doASCIIFold(prop *models.Property) bool {
-	return prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold
-}
-
-func getASCIIFoldIgnore(prop *models.Property) []string {
-	if prop.TextAnalyser == nil {
-		return nil
-	}
-	return prop.TextAnalyser.ASCIIFoldIgnore
-}
-
 // Indicates whether property should be indexed
 // Index holds document ids with property of/containing particular value
 // and number of its occurrences in that property
