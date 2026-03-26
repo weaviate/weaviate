@@ -49,7 +49,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *clien
 	return &client{
 		apiKey:       apiKey,
 		httpClient:   &http.Client{Timeout: timeout},
-		urlBuilder:   cohere.NewCohereUrlBuilder("/v1/rerank"),
+		urlBuilder:   cohere.NewCohereUrlBuilder("/v2/rerank"),
 		maxDocuments: 1000,
 		logger:       logger,
 	}
