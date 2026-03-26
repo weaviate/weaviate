@@ -26,9 +26,7 @@ import (
 	tokenizeops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 )
 
-func strPtr(s string) *string { return &s }
-
-func handleGenericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogger) middleware.Responder {
+func genericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogger) middleware.Responder {
 	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
 	query := make([]string, len(indexed))
 	copy(query, indexed)
@@ -40,7 +38,7 @@ func handleGenericTokenize(params tokenizeops.TokenizeParams, logger logrus.Fiel
 		if err != nil {
 			return tokenizeops.NewTokenizeBadRequest()
 		}
-		query = filterStopwords(indexed, detector)
+		query = removeStopwords(indexed, detector)
 	}
 
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
@@ -51,7 +49,7 @@ func handleGenericTokenize(params tokenizeops.TokenizeParams, logger logrus.Fiel
 	})
 }
 
-func filterStopwords(tokens []string, detector *stopwords.Detector) []string {
+func removeStopwords(tokens []string, detector *stopwords.Detector) []string {
 	filtered := make([]string, 0, len(tokens))
 	for _, token := range tokens {
 		if !detector.IsStopword(token) {
@@ -60,6 +58,8 @@ func filterStopwords(tokens []string, detector *stopwords.Detector) []string {
 	}
 	return filtered
 }
+
+func strPtr(s string) *string { return &s }
 
 func TestHandleGenericTokenize(t *testing.T) {
 	logger, _ := test.NewNullLogger()
@@ -154,7 +154,7 @@ func TestHandleGenericTokenize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := handleGenericTokenize(params, logger)
+			resp := genericTokenize(params, logger)
 
 			if tt.wantOK {
 				okResp, ok := resp.(*tokenizeops.TokenizeOK)
@@ -207,7 +207,7 @@ func TestFilterStopwords(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			detector, err := stopwords.NewDetectorFromConfig(tt.config)
 			require.NoError(t, err)
-			result := filterStopwords(tt.tokens, detector)
+			result := removeStopwords(tt.tokens, detector)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -246,7 +246,7 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := handleGenericTokenize(params, logger)
+			resp := genericTokenize(params, logger)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
@@ -305,7 +305,7 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := handleGenericTokenize(params, logger)
+			resp := genericTokenize(params, logger)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
