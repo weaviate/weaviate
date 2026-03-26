@@ -135,7 +135,7 @@ func (c *client) performRank(ctx context.Context,
 
 	var resBody rankResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
 
 	return c.toDocumentScores(documents, resBody.Rankings), nil
@@ -204,15 +204,13 @@ func (c *client) getResponseError(statusCode int, bodyBytes []byte) error {
 	case 402, 403:
 		var resBody responseError402
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return fmt.Errorf("connection to NVIDIA API failed with status: %d: unmarshal response body: %w: got: %v",
-				statusCode, err, string(bodyBytes))
+			return fmt.Errorf("failed to parse reranker error response (status %d): %w", statusCode, err)
 		}
 		return fmt.Errorf("connection to NVIDIA API failed with status: %d error: %s", statusCode, resBody.Detail)
 	case 422:
 		var resBody responseError422
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return fmt.Errorf("connection to NVIDIA API failed with status: %d: unmarshal response body: %w: got: %v",
-				statusCode, err, string(bodyBytes))
+			return fmt.Errorf("failed to parse reranker error response (status %d): %w", statusCode, err)
 		}
 		details := make([]string, len(resBody.Detail))
 		for i := range resBody.Detail {

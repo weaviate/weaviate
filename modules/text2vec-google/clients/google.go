@@ -252,7 +252,7 @@ func (v *google) parseGenerativeAIApiResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody batchEmbedTextResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -284,7 +284,7 @@ func (v *google) parseEmbeddingsResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {

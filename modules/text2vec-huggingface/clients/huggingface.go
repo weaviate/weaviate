@@ -145,7 +145,7 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		return nil, err
 	}
 
-	vector, errs, err := v.decodeVector(bodyBytes)
+	vector, errs, err := v.decodeVector(res.StatusCode, bodyBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot decode vector")
 	}
@@ -186,14 +186,14 @@ func checkResponse(res *http.Response, bodyBytes []byte) error {
 	return errors.New(message)
 }
 
-func (v *vectorizer) decodeVector(bodyBytes []byte) ([][]float32, []error, error) {
+func (v *vectorizer) decodeVector(statusCode int, bodyBytes []byte) ([][]float32, []error, error) {
 	var emb embedding
 	if err := json.Unmarshal(bodyBytes, &emb); err != nil {
 		var embObject embeddingObject
 		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
 			var embBert embeddingBert
 			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-				return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+				return nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 			}
 
 			if len(embBert) == 1 && len(embBert[0]) > 0 {

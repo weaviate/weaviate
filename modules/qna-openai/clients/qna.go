@@ -136,7 +136,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 
 	var resBody answersResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse QnA response (status %d): %w", res.StatusCode, err)
 	}
 
 	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))

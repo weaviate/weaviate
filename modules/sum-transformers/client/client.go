@@ -83,7 +83,7 @@ func (c *client) GetSummary(ctx context.Context, property, text string,
 
 	var resBody sumResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse summarization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode > 399 {

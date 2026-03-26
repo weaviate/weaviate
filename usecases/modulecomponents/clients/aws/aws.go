@@ -330,7 +330,7 @@ func (c *Client) invokeAmazonModel(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("invoke model: %w", err)
 	}
-	embeddings, err := c.parseBedrockAmazonResponse(result.Body)
+	embeddings, err := c.parseBedrockAmazonResponse(result.Body, 200)
 	if err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
@@ -348,7 +348,7 @@ func (c *Client) invokeCohereModel(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("invoke model: %w", err)
 	}
-	return c.parseBedrockCohereResponse(result.Body)
+	return c.parseBedrockCohereResponse(result.Body, 200)
 }
 
 func (c *Client) createAmazonTitanBody(text, image string, settings Settings) bedrockEmbeddingsRequest {
@@ -449,10 +449,10 @@ func (c *Client) invokeModel(ctx context.Context,
 	return result, nil
 }
 
-func (c *Client) parseBedrockCohereResponse(bodyBytes []byte) ([][]float32, error) {
+func (c *Client) parseBedrockCohereResponse(bodyBytes []byte, statusCode int) ([][]float32, error) {
 	var resBody bedrockEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 	if len(resBody.Embeddings) == 0 {
 		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
@@ -460,10 +460,10 @@ func (c *Client) parseBedrockCohereResponse(bodyBytes []byte) ([][]float32, erro
 	return resBody.Embeddings, nil
 }
 
-func (c *Client) parseBedrockAmazonResponse(bodyBytes []byte) ([]float32, error) {
+func (c *Client) parseBedrockAmazonResponse(bodyBytes []byte, statusCode int) ([]float32, error) {
 	var resBody bedrockEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 	if len(resBody.getEmbeddings()) == 0 {
 		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
@@ -502,13 +502,13 @@ func (c *Client) sendSagemakerRequest(ctx context.Context,
 		return nil, nil, fmt.Errorf("invoke request: %w", err)
 	}
 
-	return c.parseSagemakerResponse(result.Body)
+	return c.parseSagemakerResponse(result.Body, 200)
 }
 
-func (c *Client) parseSagemakerResponse(bodyBytes []byte) ([][]float32, [][]float32, error) {
+func (c *Client) parseSagemakerResponse(bodyBytes []byte, statusCode int) ([][]float32, [][]float32, error) {
 	var smEmbeddings [][]float32
 	if err := json.Unmarshal(bodyBytes, &smEmbeddings); err != nil {
-		return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 	if len(smEmbeddings) == 0 {
 		return nil, nil, errors.Errorf("empty embeddings response")

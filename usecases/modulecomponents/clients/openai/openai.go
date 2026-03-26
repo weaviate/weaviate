@@ -215,7 +215,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, 0, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {

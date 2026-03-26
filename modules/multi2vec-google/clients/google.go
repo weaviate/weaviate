@@ -248,7 +248,7 @@ func (v *google) getEmbeddingsFromVertexResponse(statusCode int, bodyBytes []byt
 ) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
@@ -294,7 +294,7 @@ func (v *google) getEmbeddingsFromGeminiResponse(statusCode int, bodyBytes []byt
 ) {
 	var resBody batchEmbedResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {

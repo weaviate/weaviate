@@ -137,7 +137,7 @@ func (c *Client) Vectorize(ctx context.Context,
 
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if len(resBody.Data) == 0 {
@@ -199,8 +199,7 @@ func (c *Client) getResponseError(statusCode int, bodyBytes []byte) error {
 	case 400, 402, 422, 500:
 		var resBody embeddingsErrorResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return fmt.Errorf("connection to NVIDIA API failed with status: %d: unmarshal response body: %w: got: %v",
-				statusCode, err, string(bodyBytes))
+			return fmt.Errorf("failed to parse vectorization error response (status %d): %w", statusCode, err)
 		}
 		switch statusCode {
 		case 400:

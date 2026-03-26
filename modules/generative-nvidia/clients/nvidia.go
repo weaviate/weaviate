@@ -99,14 +99,14 @@ func (v *nvidia) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if res.StatusCode != 200 {
 		var resBody generateResponseError
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body error: got: %v", string(bodyBytes)))
+			return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 		}
 		return nil, errors.Errorf("connection to NVIDIA API failed with status: %d error: %s: %s", res.StatusCode, resBody.Title, resBody.Detail)
 	}
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
 	textResponse := resBody.Choices[0].Message.Content
