@@ -580,7 +580,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 			}
 
 			if selector != nil {
-				ids, dists, err = s.applyMMRSelection(ctx, selector, targetVector, ids, dists, limit)
+				ids, dists, err = s.applySelection(ctx, selector, targetVector, ids, dists, limit)
 				if err != nil {
 					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
 				}
@@ -649,7 +649,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	return objs, distCombined, nil
 }
 
-func (s *Shard) applyMMRSelection(ctx context.Context, selector *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+func (s *Shard) applySelection(ctx context.Context, selector *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
 	// Build distancer from the target vector's distance config
 	var distProv distancer.Provider
 	cfg := s.index.GetVectorIndexConfig(targetVector)
@@ -907,16 +907,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
-		if err = queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
 		}
 		return nil
 	})
