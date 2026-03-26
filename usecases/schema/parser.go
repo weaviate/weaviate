@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -204,7 +205,7 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 		}
 		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
 			if !p.modules.HasModule(vectorizerModuleName) {
-				return fmt.Errorf("parse vector config for %s: vectorizer module %q is not available in this version of Weaviate; if you are downgrading, this module may have been introduced in a later version", targetVector, vectorizerModuleName)
+				return fmt.Errorf("parse vector config for %s: vectorizer module not found with name: %q", targetVector, vectorizerModuleName)
 			}
 			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}

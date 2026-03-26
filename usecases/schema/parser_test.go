@@ -222,7 +222,7 @@ func TestParseTargetVectorsIndexConfigErrors(t *testing.T) {
 		// "new-module-v2" is not returned by HasModule on fakeModulesProvider
 		err := p.ParseClass(makeClass("new-module-v2"))
 		require.Error(t, err)
-		require.ErrorContains(t, err, "not available in this version")
+		require.ErrorContains(t, err, "not found with name")
 	})
 
 	t.Run("module registered but does not support multi vectors", func(t *testing.T) {
