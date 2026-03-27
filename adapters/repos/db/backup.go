@@ -377,13 +377,13 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return fmt.Errorf("create staging subdir for inactive shard %s file %s: %w", name, relPath, err)
 		}
-		if isMutableFile(relPath) {
-			if err := copyFile(src, dst); err != nil {
-				return fmt.Errorf("copy mutable inactive shard %s file %s to staging: %w", name, relPath, err)
-			}
-		} else {
+		if isImmutableFile(relPath) {
 			if err := os.Link(src, dst); err != nil {
 				return fmt.Errorf("hardlink inactive shard %s file %s to staging: %w", name, relPath, err)
+			}
+		} else {
+			if err := copyFile(src, dst); err != nil {
+				return fmt.Errorf("copy inactive shard %s file %s to staging: %w", name, relPath, err)
 			}
 		}
 
@@ -396,34 +396,25 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 	return nil
 }
 
-// isMutableFile reports whether a backup file (relative path) can be modified
-// in place after a COLD/INACTIVE shard is activated. Such files must be copied
-// rather than hard-linked during backup to avoid post-snapshot corruption.
-func isMutableFile(relPath string) bool {
+// isImmutableFile reports whether a backup file (relative path) is guaranteed
+// never to be modified in place after a COLD/INACTIVE shard is activated.
+// Only these files are safe to hard-link during backup; all other files are
+// copied to avoid post-snapshot corruption from in-place writes.
+func isImmutableFile(relPath string) bool {
 	base := filepath.Base(relPath)
 	ext := filepath.Ext(base)
 
-	// LSM WAL files — reopened with O_APPEND on activation (commitlogger.go:248)
-	if ext == ".wal" {
+	// LSM segment data files — written once during flush/compaction, never modified.
+	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
+	if ext == ".db" && !strings.HasPrefix(base, "meta") && base != "index.db" {
 		return true
 	}
-	// Flat index BoltDB metadata — mmap in-place writes (metadata.go:108)
-	if strings.HasPrefix(base, "meta") && ext == ".db" {
+	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
+	if ext == ".condensed" {
 		return true
 	}
-	// HNSW commitlog files (non-condensed) — latest is reopened with O_APPEND
-	// on activation (commit_logger.go:162). Condensed files are immutable.
-	if strings.Contains(relPath, ".hnsw.commitlog.d") && ext != ".condensed" {
-		return true
-	}
-	// Async vector indexing queue chunks — reopened with O_RDWR on activation
-	// (queue/queue.go). Chunk files are rotated when size exceeds threshold.
-	if strings.Contains(relPath, ".queue.d") {
-		return true
-	}
-	// Dynamic vector index shared BoltDB — mmap in-place writes on activation
-	// (shard_init_vector.go). Only exists for dynamic index type.
-	if base == "index.db" {
+	// HNSW snapshots — point-in-time captures, never modified after creation.
+	if ext == ".snapshot" {
 		return true
 	}
 	return false
