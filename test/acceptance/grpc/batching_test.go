@@ -438,6 +438,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateClusterWithGRPC().
+		WithWeaviateEnv("REPLICATION_GRPC_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
