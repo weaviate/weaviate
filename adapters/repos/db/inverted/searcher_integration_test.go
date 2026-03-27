@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -794,6 +795,162 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 				assert.True(t, allowList.Contains(expectedId), "expected id %d not found in result %v", expectedId, tc.filter)
 			}
 			allowList.Close()
+		})
+	}
+}
+
+func TestFilterASCIIFold(t *testing.T) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	defer store.Shutdown(context.Background())
+
+	// Two properties: one with asciiFold + ignore, one with full fold
+	propFold := "textFolded"
+	propIgnore := "textIgnoreE"
+
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(),
+		helpers.ObjectsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1)))
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(),
+		helpers.BucketSearchableFromPropNameLSM(propFold),
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+	require.NoError(t, store.CreateOrLoadBucket(context.Background(),
+		helpers.BucketSearchableFromPropNameLSM(propIgnore),
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+
+	vTrue := true
+	vFalse := false
+	accentSchema := &schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: className,
+					Properties: []*models.Property{
+						{
+							Name:            propFold,
+							DataType:        schema.DataTypeText.PropString(),
+							Tokenization:    models.PropertyTokenizationWord,
+							IndexFilterable: &vFalse,
+							IndexSearchable: &vTrue,
+							TextAnalyser: &models.TextAnalyserConfig{
+								ASCIIFold: true,
+							},
+						},
+						{
+							Name:            propIgnore,
+							DataType:        schema.DataTypeText.PropString(),
+							Tokenization:    models.PropertyTokenizationWord,
+							IndexFilterable: &vFalse,
+							IndexSearchable: &vTrue,
+							TextAnalyser: &models.TextAnalyserConfig{
+								ASCIIFold:       true,
+								ASCIIFoldIgnore: []string{"é"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Index data the same way the analyzer does: fold, then tokenize
+	// Input: "L'école est fermée"
+	textFolded := "l'ecole est fermee" // full fold of "L'école est fermée"
+	textIgnore := "l'école est fermée" // fold with ignore é
+
+	foldedTokens := tokenizer.TokenizeForClass(models.PropertyTokenizationWord, textFolded, className)
+	ignoreTokens := tokenizer.TokenizeForClass(models.PropertyTokenizationWord, textIgnore, className)
+
+	var docID uint64
+
+	// Insert object into objects bucket
+	obj := storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+			Properties: map[string]interface{}{
+				propFold:   "L'école est fermée",
+				propIgnore: "L'école est fermée",
+			},
+		},
+		DocID: docID,
+	}
+	b, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	require.NoError(t, store.Bucket(helpers.ObjectsBucketLSM).Put(
+		[]byte(obj.ID()), b, lsmkv.WithSecondaryKey(0, docIDBytes)))
+
+	// Populate searchable buckets with folded tokens
+	for _, tok := range foldedTokens {
+		require.NoError(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propFold)).
+			MapSet([]byte(tok), pairPropWithFreq(docID, 1, float32(len(tok)))))
+	}
+	for _, tok := range ignoreTokens {
+		require.NoError(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propIgnore)).
+			MapSet([]byte(tok), pairPropWithFreq(docID, 1, float32(len(tok)))))
+	}
+
+	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(docID))
+	searcher := NewSearcher(logger, store, accentSchema.GetClass, nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+	makeFilter := func(prop string, op filters.Operator, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			On: &filters.Path{
+				Class:    className,
+				Property: schema.PropertyName(prop),
+			},
+			Value: &filters.Value{
+				Value: val,
+				Type:  schema.DataTypeText,
+			},
+		}}
+	}
+
+	tests := []struct {
+		name     string
+		prop     string
+		op       filters.Operator
+		query    string
+		expected int
+	}{
+		// Full fold property: both accented and unaccented queries match
+		{"fold: ecole matches", propFold, filters.OperatorEqual, "ecole", 1},
+		{"fold: école matches (folded to ecole)", propFold, filters.OperatorEqual, "école", 1},
+		{"fold: fermee matches", propFold, filters.OperatorEqual, "fermee", 1},
+		{"fold: fermée matches (folded)", propFold, filters.OperatorEqual, "fermée", 1},
+
+		// Ignore é property: é preserved, so unaccented won't match
+		{"ignore: école matches", propIgnore, filters.OperatorEqual, "école", 1},
+		{"ignore: ecole does NOT match", propIgnore, filters.OperatorEqual, "ecole", 0},
+		{"ignore: fermée matches", propIgnore, filters.OperatorEqual, "fermée", 1},
+		{"ignore: fermee does NOT match", propIgnore, filters.OperatorEqual, "fermee", 0},
+
+		// Like operator
+		{"fold: like ecol* matches", propFold, filters.OperatorLike, "ecol*", 1},
+		{"fold: like école matches", propFold, filters.OperatorLike, "école", 1},
+		{"ignore: like écol* matches", propIgnore, filters.OperatorLike, "écol*", 1},
+		{"ignore: like ecol* does NOT match", propIgnore, filters.OperatorLike, "ecol*", 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := makeFilter(tc.prop, tc.op, tc.query)
+			objs, err := searcher.Objects(context.Background(), 10,
+				filter, nil, additional.Properties{}, className, []string{tc.prop}, nil)
+			require.NoError(t, err)
+			assert.Len(t, objs, tc.expected)
 		})
 	}
 }

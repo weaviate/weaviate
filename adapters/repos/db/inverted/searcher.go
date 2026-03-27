@@ -650,6 +650,12 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
+	// Fold accents before tokenization so filter values match the indexed form
+	if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
+		ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
+		valueString = tokenizer.FoldAccents(valueString, ignore)
+	}
+
 	switch propType {
 	case schema.DataTypeText:
 		// if the operator is like, we cannot apply the regular text-splitting

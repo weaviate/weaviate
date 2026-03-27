@@ -374,3 +374,101 @@ def test_tokenization_variants() -> None:
         assert len(bm25("eco", ["trigramProp", "trigramNoIgnore"]).objects) == 1
 
         client.collections.delete(COLLECTION_NAME_TOKENIZATIONS)
+
+
+def test_filters_with_ascii_fold() -> None:
+    """Filters (Equal, Like) respect asciiFold and asciiFoldIgnore."""
+    import weaviate.classes as wvc
+
+    with weaviate.connect_to_local() as client:
+        _create_and_populate(client)
+        collection = client.collections.get(COLLECTION_NAME)
+
+        # --- Equal filter on body (full fold, no ignore) ---
+        # Indexed: "école" → "ecole". Filter "ecole" should match.
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("body").equal("ecole"),
+            limit=5,
+        )
+        assert len(r.objects) == 1, (
+            f"body Equal 'ecole': expected 1, got {len(r.objects)}"
+        )
+
+        # Filter "école" should also match (folded to "ecole")
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("body").equal("école"),
+            limit=5,
+        )
+        assert len(r.objects) == 1, (
+            f"body Equal 'école': expected 1, got {len(r.objects)}"
+        )
+
+        # --- Equal filter on title (ignore é) ---
+        # Indexed: "école" stays "école". Filter "école" should match.
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("title").equal("école"),
+            limit=5,
+        )
+        assert len(r.objects) == 1, (
+            f"title Equal 'école': expected 1, got {len(r.objects)}"
+        )
+
+        # Filter "ecole" should NOT match (é preserved in index)
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("title").equal("ecole"),
+            limit=5,
+        )
+        assert len(r.objects) == 0, (
+            f"title Equal 'ecole': expected 0 (é preserved), "
+            f"got {len(r.objects)}"
+        )
+
+        # --- Like filter on body (full fold) ---
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("body").like("ecol*"),
+            limit=5,
+        )
+        assert len(r.objects) == 1, (
+            f"body Like 'ecol*': expected 1, got {len(r.objects)}"
+        )
+
+        # --- Like filter on title (ignore é) ---
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("title").like("écol*"),
+            limit=5,
+        )
+        assert len(r.objects) == 1, (
+            f"title Like 'écol*': expected 1, got {len(r.objects)}"
+        )
+
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("title").like("ecol*"),
+            limit=5,
+        )
+        assert len(r.objects) == 0, (
+            f"title Like 'ecol*': expected 0 (é preserved), "
+            f"got {len(r.objects)}"
+        )
+
+        # --- Equal filter for "cafe" on body (full fold) ---
+        # Both "café" and "cafe" fold to "cafe"
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("body").equal("cafe"),
+            limit=5,
+        )
+        assert len(r.objects) == 2, (
+            f"body Equal 'cafe': expected 2 (café+cafe), "
+            f"got {len(r.objects)}"
+        )
+
+        # --- Equal filter for "café" on title (ignore é) ---
+        # é preserved: "café" stays "café" in both index and query
+        r = collection.query.fetch_objects(
+            filters=wvc.query.Filter.by_property("title").equal("café"),
+            limit=5,
+        )
+        assert len(r.objects) == 1, (
+            f"title Equal 'café': expected 1, got {len(r.objects)}"
+        )
+
+        client.collections.delete(COLLECTION_NAME)
