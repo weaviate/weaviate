@@ -293,3 +293,17 @@ func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 		return nil
 	}
 }
+
+// WithImmutable marks the bucket as immutable. All write operations (Put,
+// Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrImmutable.
+// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+//
+// This is distinct from the shard-level read-only status
+// (storagestate.StatusReadOnly) which temporarily halts flushes during
+// backup/compaction operations.
+func WithImmutable(immutable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.immutable = immutable
+		return nil
+	}
+}

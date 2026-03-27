@@ -126,6 +126,8 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
 	}
 
 	// Lazy load shard count threshold for auto-detection
@@ -140,7 +142,8 @@ func FromEnv(config *Config) error {
 		}
 		config.LazyLoadShardCountThreshold = asInt
 		if config.LazyLoadShardCountThreshold == 0 {
-			config.EnableLazyLoadShards = true
+			v := true
+			config.EnableLazyLoadShards = &v
 		}
 	} else {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
