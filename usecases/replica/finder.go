@@ -97,7 +97,7 @@ func NewFinder(className string,
 	}
 }
 
-// GetOne gets object which satisfies the giving consistency
+// GetOne gets object which satisfies the given consistency
 func (f *Finder) GetOne(ctx context.Context,
 	l types.ConsistencyLevel, shard string,
 	id strfmt.UUID,
@@ -240,7 +240,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	return gr.Wait()
 }
 
-// Exists checks if an object exists which satisfies the giving consistency
+// Exists checks if an object exists which satisfies the given consistency
 func (f *Finder) Exists(ctx context.Context,
 	l types.ConsistencyLevel,
 	shard string,
