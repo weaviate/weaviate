@@ -106,7 +106,7 @@ type ShardingConfig struct {
 }
 
 // PropertyAnalyser contains text processing options for a property.
-// ASCIIFold is immutable after creation; ASCCIFoldIgnore can change, but will not be applied to already indexed data.
+// ASCIIFold is immutable after creation; ASCIIFoldIgnore can change, but will not be applied to already indexed data.
 // Stopwords and TokenizerOverrides are not being used at the moment, but are included for future use.
 type PropertyAnalyser struct {
 	ASCIIFold          bool                              `json:"asciiFold,omitempty"`
