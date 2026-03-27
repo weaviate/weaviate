@@ -31,6 +31,9 @@ packages:
     interfaces:
       NodeSelector:
       NodeResolver:
+  github.com/weaviate/weaviate/entities/schema/config:
+    interfaces:
+      VectorIndexConfig:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:

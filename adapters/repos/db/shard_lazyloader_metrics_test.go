@@ -82,7 +82,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
