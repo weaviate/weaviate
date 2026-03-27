@@ -23,7 +23,10 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetAddOne(key, value)
@@ -34,7 +37,10 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetRemoveOne(key, value)
@@ -45,7 +51,10 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetAddList(key, values)
@@ -56,7 +65,10 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.roaringSetAddBitmap(key, bm)

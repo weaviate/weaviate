@@ -67,11 +67,9 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildUrl: buildUrlFn,
-		logger:   logger,
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		buildUrl:           buildUrlFn,
+		logger:             logger,
 	}
 }
 
@@ -163,7 +161,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {

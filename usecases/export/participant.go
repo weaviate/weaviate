@@ -16,12 +16,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
@@ -39,10 +40,14 @@ const (
 // It exports its assigned shards directly to S3 and writes status files.
 //
 // The two-phase commit protocol works as follows:
-//  1. Prepare: reserves the export slot (atomic CAS). A background timer
-//     auto-aborts after reservationTimeout if Commit is not called.
-//  2. Commit: cancels the timer and starts the actual export work.
-//  3. Abort: releases the reservation immediately.
+//  1. Prepare: reserves the export slot (atomic CAS) and starts snapshotting
+//     all shards in the background. This anchors the point-in-time to the
+//     Prepare phase. A background timer auto-aborts after reservationTimeout
+//     if Commit is not called.
+//  2. Commit: waits for the snapshot goroutine to finish, then starts the
+//     scan phase that reads the snapshots and uploads parquet files.
+//  3. Abort: releases the reservation immediately, canceling any in-flight
+//     snapshot goroutine.
 type Participant struct {
 	shutdownCtx          context.Context
 	shutdownCancel       context.CancelFunc
@@ -62,12 +67,13 @@ type Participant struct {
 	// promotion) before the server process exits.
 	exportWg sync.WaitGroup
 
-	// mu guards preparedReq, abortTimer, and cancelExport, which are set
-	// during Prepare/Commit and consumed during Commit/Abort.
+	// mu guards preparedReq, abortTimer, cancelExport, and pending, which
+	// are set during Prepare/Commit and consumed during Commit/Abort.
 	mu           sync.Mutex
 	preparedReq  *ExportRequest
 	abortTimer   *time.Timer
 	cancelExport context.CancelFunc
+	pending      *pendingSnapshot // set during Prepare, consumed by Commit
 	// this stays set from the moment Prepare() reserves the slot until Commit() or Abort() releases it. Used for IsRunning() checks.
 	activeExport string
 }
@@ -148,6 +154,32 @@ func (p *Participant) Prepare(_ context.Context, req *ExportRequest) error {
 		p.activeExport = req.ID
 
 		p.preparedReq = req
+
+		// Start snapshotting in the background so the point-in-time is
+		// anchored to the Prepare phase. Commit blocks on ps.done before
+		// proceeding.
+		//
+		// NOTE: Prepare returns success before the snapshot completes.
+		// This is intentional — it allows the coordinator to Prepare all
+		// nodes concurrently and overlap their snapshot work with the
+		// metadata write. The tradeoff is that a snapshot failure is only
+		// discovered at Commit time, after other nodes may have already
+		// committed. Those nodes are then aborted. Making Prepare
+		// synchronous would be simpler but would serialize snapshotting
+		// across the 2PC-like phases, increasing the chance of hitting the
+		// reservation timeout on large deployments.
+		snapshotCtx, snapshotCancel := context.WithCancel(p.shutdownCtx)
+		ps := &pendingSnapshot{
+			done:   make(chan struct{}),
+			cancel: snapshotCancel,
+		}
+		p.pending = ps
+
+		enterrors.GoWrapper(func() {
+			defer close(ps.done)
+			ps.snapshots, ps.skipped, ps.err = p.snapshotAllShards(snapshotCtx, req)
+		}, p.logger)
+
 		p.abortTimer = time.AfterFunc(reservationTimeout, func() {
 			wasSet := func() bool {
 				p.mu.Lock()
@@ -186,11 +218,17 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		return fmt.Errorf("export ID cannot be empty")
 	}
 
-	// Peek at the prepared request under a short lock to get the backend
-	// name, bucket, and path needed for initialization. We don't consume
-	// the request yet — that happens in the critical section below.
+	// Peek at the prepared request and pending snapshot under a short lock.
+	// Fail early if no matching export is prepared — no point doing backend
+	// I/O or waiting for snapshots.
 	p.mu.Lock()
 	req := p.preparedReq
+	pending := p.pending
+	if req == nil || req.ID != exportID || pending == nil {
+		p.clearAndRelease()
+		p.mu.Unlock()
+		return fmt.Errorf("no matching export prepared for ID %q", exportID)
+	}
 	p.mu.Unlock()
 
 	// Initialize the backend outside the lock — this may involve network
@@ -198,15 +236,36 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	// Abort/IsRunning callers. If initialization fails, backendStore stays
 	// nil and the main critical section below will handle the error with
 	// proper slot cleanup via clearAndRelease.
-	var backendStore modulecapabilities.BackupBackend
-	var backendErr error
-	if req != nil && req.ID == exportID {
-		backendStore, backendErr = p.backends.BackupBackend(req.Backend)
-		if backendErr == nil {
-			if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
-				backendStore = nil
-			}
+	backendStore, backendErr := p.backends.BackupBackend(req.Backend)
+	if backendErr == nil {
+		if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
+			backendStore = nil
 		}
+	}
+
+	// Wait for the snapshot goroutine started during Prepare. The mutex
+	// is NOT held here so that Abort can cancel the snapshot if needed.
+	var snapshots []shardSnapshot
+	var skipped []skippedShard
+	var snapshotErr error
+	select {
+	case <-pending.done:
+		snapshots = pending.snapshots
+		skipped = pending.skipped
+		if pending.err != nil {
+			snapshotErr = fmt.Errorf("snapshot phase failed: %w", pending.err)
+		}
+	case <-ctx.Done():
+		snapshotErr = ctx.Err()
+	}
+	if snapshotErr != nil {
+		p.cleanupSnapshots(snapshots)
+		func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			p.clearAndRelease()
+		}()
+		return snapshotErr
 	}
 
 	var exportCtx context.Context
@@ -214,13 +273,11 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		p.mu.Lock()
 		defer func() {
 			if errRet != nil {
-				// clearAndRelease is intentionally unconditional here. If
-				// Abort+Prepare for a different export raced with the backend
-				// I/O above, activeExport now belongs to that new export and
-				// clearAndRelease will tear it down. This is acceptable:
-				// concurrent Prepare/Commit/Abort for different exports is not
-				// a supported sequence — only one export slot exists, so the
-				// conflicting request should fail too.
+				// On error, clean up snapshots we took ownership of.
+				// clearAndRelease may also try to clean up via the pending
+				// field, but we nil it below. os.RemoveAll on an
+				// already-removed dir is a no-op.
+				p.pending = nil
 				p.clearAndRelease()
 			}
 			p.mu.Unlock()
@@ -246,6 +303,12 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 			errRet = fmt.Errorf("export ID mismatch: expected %q, got %q", p.preparedReq.ID, exportID)
 			return errRet
 		}
+		// Pointer identity check: if an Abort cleared the slot and a new
+		// Prepare set a different *ExportRequest (possibly with the same
+		// export ID) while we were doing backend I/O outside the lock,
+		// the pointer will differ even though the ID matches. This is a
+		// defense-in-depth guard — the coordinator prevents ID reuse via
+		// checkIfExportExists, so this race cannot happen in practice.
 		if p.preparedReq != req {
 			errRet = fmt.Errorf("export request was replaced during backend initialization (abort+re-prepare race)")
 			return errRet
@@ -262,6 +325,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 		p.preparedReq = nil
 		p.abortTimer = nil
+		p.pending = nil // snapshot done; nil so clearAndRelease won't re-cancel it
 
 		exportCtx2, cancel := context.WithCancel(p.shutdownCtx)
 		p.cancelExport = cancel
@@ -269,7 +333,10 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 		return nil
 	}
-	if err := f(); err != nil {
+	err := f()
+	if err != nil {
+		// Critical section failed — clean up snapshots we own.
+		p.cleanupSnapshots(snapshots)
 		return err
 	}
 
@@ -282,7 +349,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	p.exportWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer p.exportWg.Done()
-		p.executeExport(exportCtx, backendStore, req)
+		p.executeExport(exportCtx, backendStore, req, snapshots, skipped)
 	}, p.logger)
 
 	return nil
@@ -326,9 +393,12 @@ func (p *Participant) Abort(exportID string) {
 	}
 }
 
-// clearAndRelease is called by the reservation timer. It only releases the
-// slot if preparedReq is still set — if Commit or Abort already consumed it,
-// the timer is a no-op.
+// clearAndRelease is called by the reservation timer, Abort, or Commit
+// error paths. It releases the slot and cancels any in-flight work.
+// If a pending snapshot goroutine is still running, it is canceled and a
+// background goroutine waits for it to finish before cleaning up its
+// snapshot directories. os.RemoveAll on an already-removed directory is
+// a no-op, so double cleanup from both Commit and this path is safe.
 func (p *Participant) clearAndRelease() {
 	p.preparedReq = nil
 	if p.abortTimer != nil {
@@ -339,6 +409,20 @@ func (p *Participant) clearAndRelease() {
 		p.cancelExport()
 	}
 	p.cancelExport = nil
+
+	if ps := p.pending; ps != nil {
+		p.pending = nil
+		ps.cancel()
+		// This goroutine is intentionally not tracked by exportWg. If the
+		// process shuts down before it finishes, the snapshot directories
+		// will be cleaned up on the next startup by the index-level
+		// os.RemoveAll(snapshotsPath) in NewIndex.
+		enterrors.GoWrapper(func() {
+			<-ps.done // wait for goroutine to finish
+			p.cleanupSnapshots(ps.snapshots)
+		}, p.logger)
+	}
+
 	p.activeExport = ""
 }
 
@@ -392,7 +476,7 @@ func (p *Participant) abortSiblings(exportID string, req *ExportRequest) {
 	}, p.logger)
 }
 
-func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest) {
+func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, snapshots []shardSnapshot, skipped []skippedShard) {
 	defer func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -406,7 +490,7 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		Version:       config.ServerVersion,
 	}
 
-	if err := p.doExport(ctx, backend, req, nodeStatus); err != nil {
+	if err := p.doExport(ctx, backend, req, nodeStatus, snapshots, skipped); err != nil {
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
@@ -488,14 +572,62 @@ func (p *Participant) tryPromoteMetadata(backend modulecapabilities.BackupBacken
 	}
 }
 
-// doExport performs the actual export of all classes/shards in the request.
-// It uses an N-worker pool pattern: a single producer goroutine walks all
-// shards depth-first and submits scanJobs to workers via a shared channel.
-// The caller provides nodeStatus so it can inspect the final state after return.
-func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, nodeStatus *NodeStatus) error {
+// shardSnapshot holds the result of snapshotting a single shard's objects bucket.
+type shardSnapshot struct {
+	className string
+	shardName string
+	isMT      bool
+	dir       string // snapshot directory path
+	strategy  string // bucket strategy for NewSnapshotBucket
+}
+
+// skippedShard records a shard that was skipped during the snapshot phase,
+// along with the reason. This is kept separate from nodeStatus so that
+// snapshotAllShards can run without access to the NodeStatus (which belongs
+// to the Commit/doExport phase).
+type skippedShard struct {
+	className  string
+	shardName  string
+	skipReason string
+}
+
+// pendingSnapshot tracks an in-flight snapshot goroutine started during
+// Prepare. The goroutine writes its results and closes done; consumers
+// must wait on done before reading snapshots, skipped, or err.
+type pendingSnapshot struct {
+	done   chan struct{}
+	cancel context.CancelFunc
+
+	// Written by goroutine before closing done; read only after done is closed.
+	snapshots []shardSnapshot
+	skipped   []skippedShard
+	err       error
+}
+
+// doExport performs the actual export. Snapshots were already created during
+// the Prepare phase and are passed in; this method records skipped shards
+// in nodeStatus and runs the scan phase.
+//
+// The scan phase opens each snapshot as a read-only bucket, computes key
+// ranges, and submits parallel scan jobs to an N-worker pool. Cleanup
+// goroutines shut down snapshot buckets and remove snapshot directories
+// once scanning completes.
+func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, nodeStatus *NodeStatus, snapshots []shardSnapshot, skipped []skippedShard) error {
+	// Ensure all snapshot directories are removed even if the scan phase
+	// fails or panics. Snapshots that are successfully processed by cleanup
+	// goroutines will already have their directories removed; RemoveAll on
+	// a non-existent path is a no-op.
+	defer p.cleanupSnapshots(snapshots)
+
 	stopWriter := p.startNodeStatusWriter(ctx, backend, req, nodeStatus)
 	defer stopWriter()
 
+	// Record shards that were skipped during the snapshot phase.
+	for _, s := range skipped {
+		nodeStatus.SetShardProgress(s.className, s.shardName, export.ShardSkipped, "", s.skipReason)
+	}
+
+	// Scan all snapshots in parallel using an N-worker pool.
 	parallelism := runtime.GOMAXPROCS(0) * 2
 	jobCh := make(chan scanJob, parallelism)
 
@@ -514,9 +646,8 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	// cleanupErr collects the first error from any cleanup goroutine
 	// (scan failure, write failure, upload failure). Written under
 	// cleanupErrOnce so only the first error wins.
-	// failFastCancel cancels all in-flight work (scan workers, shard
-	// acquisition, range submission) so we don't waste effort after a
-	// failure.
+	// failFastCancel cancels all in-flight work (scan workers, range
+	// submission) so we don't waste effort after a failure.
 	failFastCtx, failFastCancel := context.WithCancel(ctx)
 	defer failFastCancel()
 
@@ -529,23 +660,25 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 		})
 	}
 
-	// Depth-first walk: submit all range jobs for all shards.
+	// Depth-first walk: submit all range jobs for all snapshots.
 	var cleanupWg sync.WaitGroup
-	err := p.submitJobs(failFastCtx, jobCh, &cleanupWg, setCleanupErr, backend, req, nodeStatus, parallelism)
+	submitErr := p.submitSnapshotJobs(failFastCtx, jobCh, &cleanupWg, setCleanupErr, backend, req, nodeStatus, parallelism, snapshots)
 	close(jobCh)
 	workerWg.Wait()
-	// Wait for all per-shard cleanup goroutines (writer flush, shard release)
-	// to finish. This must happen after workers are done so that all scan
-	// results have been produced before cleanup closes the rows channels.
+	// Wait for all per-shard cleanup goroutines (snapshot shutdown, dir
+	// removal) to finish. This must happen after workers are done so that
+	// all scan results have been produced before cleanup runs.
 	cleanupWg.Wait()
 
-	// submitJobs errors (context cancellation, shard acquisition) take
+	// submitSnapshotJobs errors (context cancellation, snapshot open) take
 	// precedence over cleanupErr (writer flush, upload) because cleanup
 	// failures are typically a downstream consequence of the root cause.
-	if err != nil {
-		return err
+	if submitErr != nil {
+		nodeStatus.SetNodeError(submitErr.Error())
+		return submitErr
 	}
 	if cleanupErr != nil {
+		nodeStatus.SetNodeError(cleanupErr.Error())
 		return cleanupErr
 	}
 
@@ -553,21 +686,27 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	return nil
 }
 
-// submitJobs walks classes → shards → ranges depth-first, submitting scanJobs
-// to jobCh. For each shard it sets up a Parquet writer pipeline and a cleanup
-// goroutine that waits for all range jobs to complete before flushing.
-// cleanupWg tracks the spawned cleanup goroutines; the caller must wait on it
-// after workers have drained jobCh.
-func (p *Participant) submitJobs(
+// snapshotAllShards snapshots all shards for all classes in one batch per
+// class. The selector handles locking, tenant status checks, and the
+// active-vs-disk decision internally.
+//
+// Skip information is returned separately so that the caller (doExport) can
+// record it in the NodeStatus, which is not available during the Prepare
+// phase when this method runs.
+func (p *Participant) snapshotAllShards(
 	ctx context.Context,
-	jobCh chan<- scanJob,
-	cleanupWg *sync.WaitGroup,
-	setCleanupErr func(error),
-	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
-	nodeStatus *NodeStatus,
-	parallelism int,
-) error {
+) (snapshots []shardSnapshot, skipped []skippedShard, retErr error) {
+	// On error, clean up all snapshots created so far. Individual
+	// SnapshotShards calls don't need to clean up their own partial
+	// results — this single defer handles everything.
+	defer func() {
+		if retErr != nil {
+			p.cleanupSnapshots(snapshots)
+			snapshots = nil
+		}
+	}()
+
 	for _, className := range req.Classes {
 		shardNames, ok := req.Shards[className]
 		if !ok || len(shardNames) == 0 {
@@ -576,38 +715,93 @@ func (p *Participant) submitJobs(
 
 		isMT := p.selector.IsMultiTenant(ctx, className)
 
-		for _, shardName := range shardNames {
-			if err := ctx.Err(); err != nil {
-				nodeStatus.SetFailed(className, err)
-				return fmt.Errorf("export class %s: %w", className, err)
-			}
+		results, snapshotErr := p.selector.SnapshotShards(ctx, className, shardNames, req.ID)
+		if snapshotErr != nil {
+			// SnapshotShards cleans up any partial snapshot dirs on error,
+			// so we only need to return the error here. The defer handles
+			// cleanup of snapshots from previously successful classes.
+			return nil, nil, fmt.Errorf("snapshot class %s: %w", className, snapshotErr)
+		}
 
-			shard, release, skipReason, err := p.selector.AcquireShardForExport(ctx, className, shardName)
-			if err != nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
-				return fmt.Errorf("acquire shard %s/%s: %w", className, shardName, err)
-			}
-
-			if shard == nil {
-				nodeStatus.SetShardProgress(className, shardName, export.ShardSkipped, "", skipReason)
+		for _, r := range results {
+			if r.SkipReason != "" {
+				skipped = append(skipped, skippedShard{
+					className:  className,
+					shardName:  r.ShardName,
+					skipReason: r.SkipReason,
+				})
 				continue
 			}
-
-			nodeStatus.SetShardProgress(className, shardName, export.ShardTransferring, "", "")
-
-			if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr, backend, req, className, shardName, shard, release, isMT, nodeStatus, parallelism); err != nil {
-				return err
+			if r.SnapshotDir == "" {
+				skipped = append(skipped, skippedShard{
+					className:  className,
+					shardName:  r.ShardName,
+					skipReason: "no data",
+				})
+				continue
 			}
+			snapshots = append(snapshots, shardSnapshot{
+				className: className,
+				shardName: r.ShardName,
+				isMT:      isMT,
+				dir:       r.SnapshotDir,
+				strategy:  r.Strategy,
+			})
 		}
 	}
 
+	return snapshots, skipped, nil
+}
+
+// cleanupSnapshots removes all snapshot directories. Used on error paths
+// when the scan phase will not run.
+func (p *Participant) cleanupSnapshots(snapshots []shardSnapshot) {
+	for _, snap := range snapshots {
+		if err := os.RemoveAll(snap.dir); err != nil {
+			p.logger.WithField("class", snap.className).
+				WithField("shard", snap.shardName).
+				WithField("path", snap.dir).
+				Warnf("failed to remove snapshot directory: %v", err)
+		}
+	}
+}
+
+// submitSnapshotJobs opens each pre-created snapshot as a read-only bucket,
+// computes key ranges, and submits scanJobs to the worker pool. A cleanup
+// goroutine per shard shuts down the snapshot bucket, removes the directory,
+// and updates shard status.
+func (p *Participant) submitSnapshotJobs(
+	ctx context.Context,
+	jobCh chan<- scanJob,
+	cleanupWg *sync.WaitGroup,
+	setCleanupErr func(error),
+	backend modulecapabilities.BackupBackend,
+	req *ExportRequest,
+	nodeStatus *NodeStatus,
+	parallelism int,
+	snapshots []shardSnapshot,
+) error {
+	for _, snap := range snapshots {
+		if err := ctx.Err(); err != nil {
+			nodeStatus.SetFailed(snap.className, err)
+			return fmt.Errorf("export class %s: %w", snap.className, err)
+		}
+
+		nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardTransferring, "", "")
+
+		if err := p.submitShardJobs(ctx, jobCh, cleanupWg, setCleanupErr,
+			backend, req, snap, nodeStatus, parallelism); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// submitShardJobs validates the shard, computes key ranges, and submits
+// submitShardJobs opens a snapshot bucket, computes key ranges, and submits
 // scanJobs to jobCh. Each scanJob owns its own writer pipeline (one parquet
 // file per range). A cleanup goroutine (tracked by cleanupWg) waits for all
-// range jobs, aggregates counts, and releases the shard.
+// range jobs to complete, then shuts down the snapshot bucket and removes the
+// snapshot directory.
 func (p *Participant) submitShardJobs(
 	ctx context.Context,
 	jobCh chan<- scanJob,
@@ -615,39 +809,35 @@ func (p *Participant) submitShardJobs(
 	setCleanupErr func(error),
 	backend modulecapabilities.BackupBackend,
 	req *ExportRequest,
-	className, shardName string,
-	shard ShardLike,
-	release func(),
-	isMT bool,
+	snap shardSnapshot,
 	nodeStatus *NodeStatus,
 	parallelism int,
 ) error {
-	// Validate store/bucket before submitting jobs.
-	store := shard.Store()
-	if store == nil {
-		release()
-		err := fmt.Errorf("store not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
+	// CalcCountNetAdditions is cheap here: the hard-linked .cna files from
+	// the source bucket already contain the precomputed counts, so each
+	// segment just reads 12 bytes from disk. The count is needed by
+	// computeRanges to split the key space for parallel scanning.
+	snapshotBucket, err := lsmkv.NewSnapshotBucket(ctx, snap.dir,
+		p.logger, lsmkv.WithStrategy(snap.strategy),
+		lsmkv.WithCalcCountNetAdditions(true))
+	if err != nil {
+		os.RemoveAll(snap.dir)
+		err = fmt.Errorf("open snapshot bucket for %s/%s: %w", snap.className, snap.shardName, err)
+		nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardFailed, err.Error(), "")
 		return err
 	}
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		release()
-		err := fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
-		nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, err.Error(), "")
-		return err
-	}
-	ranges := computeRanges(bucket, parallelism)
+
+	ranges := computeRanges(snapshotBucket, parallelism)
 
 	writerCfg := &rangeWriterConfig{
 		backend:   backend,
 		req:       req,
-		className: className,
-		shardName: shardName,
-		isMT:      isMT,
+		className: snap.className,
+		shardName: snap.shardName,
+		isMT:      snap.isMT,
 		logger:    p.logger,
 		onFlush: func(n int64) {
-			nodeStatus.AddShardExported(className, shardName, n)
+			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
 		},
 	}
 
@@ -673,7 +863,7 @@ rangeloop:
 		select {
 		case jobCh <- scanJob{
 			ctx:        ctx,
-			bucket:     bucket,
+			bucket:     snapshotBucket,
 			keyRange:   r,
 			rangeIndex: i,
 			writerCfg:  writerCfg,
@@ -688,29 +878,39 @@ rangeloop:
 		}
 	}
 
-	// Cleanup goroutine: waits for all range jobs, updates shard status,
-	// and releases the shard. The written count lives in the shard's atomic
-	// counter and is synced into ObjectsExported by SyncAndSnapshot.
+	// Cleanup goroutine: waits for all range jobs, shuts down the snapshot
+	// bucket, removes the snapshot directory, and updates shard status.
+	// The written count lives in the shard's atomic counter and is synced
+	// into ObjectsExported by SyncAndSnapshot.
 	cleanupWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer cleanupWg.Done()
 		shardWg.Wait()
 
+		if err := snapshotBucket.Shutdown(context.Background()); err != nil {
+			p.logger.WithField("class", snap.className).
+				WithField("shard", snap.shardName).
+				Warnf("failed to shutdown snapshot bucket: %v", err)
+		}
+		os.RemoveAll(snap.dir)
+
 		if shardErr != nil {
-			// setCleanupErr was already called by setErr (which triggered
-			// failFastCancel); here we only record per-shard status.
-			nodeStatus.SetShardProgress(className, shardName, export.ShardFailed, shardErr.Error(), "")
-			release()
+			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardFailed, shardErr.Error(), "")
 			return
 		}
 
-		p.logger.WithField("class", className).
-			WithField("shard", shardName).
-			WithField("objects", nodeStatus.GetShardWritten(className, shardName)).
+		written := nodeStatus.GetShardWritten(snap.className, snap.shardName)
+
+		p.logger.WithField("class", snap.className).
+			WithField("shard", snap.shardName).
+			WithField("objects", written).
 			Info("shard export completed")
 
-		nodeStatus.SetShardProgress(className, shardName, export.ShardSuccess, "", "")
-		release()
+		if written == 0 {
+			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardSkipped, "", "no data")
+		} else {
+			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardSuccess, "", "")
+		}
 	}, p.logger)
 
 	return submitErr
@@ -894,6 +1094,12 @@ func (p *Participant) startNodeStatusWriter(
 	}
 
 	// Goroutine 1: periodic status flush.
+	//
+	// This intentionally does NOT select on exportCtx.Done(). On cancellation
+	// the goroutine must stay alive until stopWriter() closes quit, so it can
+	// perform the final flush with the terminal status (Failed/Canceled).
+	// The cost is at most a few unnecessary intermediate flushes between
+	// context cancellation and stopWriter() — negligible (small JSON PUTs).
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
