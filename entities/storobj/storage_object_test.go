@@ -1601,6 +1601,26 @@ func TestSkipMissingObjects(t *testing.T) {
 	}
 }
 
+func TestObjectsByDocIDWithEmptyKeepsMissingEntries(t *testing.T) {
+	bucket := genFakeBucket(t, 1000)
+	logger, _ := test.NewNullLogger()
+
+	ids := []uint64{11, 1001, 22, 1002}
+	objs, err := ObjectsByDocIDWithEmpty(bucket, ids, additional.Properties{}, nil, logger)
+	require.NoError(t, err)
+	require.Len(t, objs, len(ids))
+
+	require.NotNil(t, objs[0])
+	assert.Equal(t, ids[0], objs[0].DocID)
+
+	assert.Nil(t, objs[1])
+
+	require.NotNil(t, objs[2])
+	assert.Equal(t, ids[2], objs[2].DocID)
+
+	assert.Nil(t, objs[3])
+}
+
 func TestIterateThroughVectorDimensions(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
