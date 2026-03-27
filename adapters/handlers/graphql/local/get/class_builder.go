@@ -182,12 +182,14 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["distance"] = b.additionalDistanceField(class)
 	additionalProperties["vector"] = b.additionalVectorField(class)
 	additionalProperties["vectors"] = b.additionalVectorsField(class)
+	additionalProperties["queryVector"] = b.additionalQueryVectorField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
+	additionalProperties["highlight"] = b.additionalHighlightField(class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
 	}
@@ -264,6 +266,26 @@ func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Fiel
 		}
 	}
 	return nil
+}
+
+func (b *classBuilder) additionalQueryVectorField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Description: "The vector used for this search query",
+		Type:        graphql.NewList(graphql.Float),
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Description: "Highlighted text fragments from keyword search",
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", class.Class),
+			Fields: graphql.Fields{
+				"property":  &graphql.Field{Type: graphql.String},
+				"fragments": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
+	}
 }
 
 func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {
