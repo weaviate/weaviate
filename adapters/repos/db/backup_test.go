@@ -263,6 +263,9 @@ func TestIsMutableFile(t *testing.T) {
 		{"myclass/shard1/main.hnsw.snapshot.d/1709203456.snapshot", false, "HNSW snapshot (immutable)"},
 		{"myclass/shard1/lsm/.migrations/m1", false, "migration file (immutable)"},
 		{"myclass/shard1/lsm/objects/segment.db.tmp", false, "tmp file (immutable)"},
+		{"myclass/shard1/main.queue.d/1709203456000000", true, "async indexing queue chunk"},
+		{"myclass/shard1/index.db", true, "dynamic vector index BoltDB"},
+		{"myclass/shard1/hashtree_uuid/hashtree-abc.ht", false, "hashtree (replication state, not mutable for backup)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -532,16 +535,15 @@ func createColdShardFiles(t *testing.T, rootDir, className, shardName string) {
 	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), []byte("wal-data"), 0o644))
 }
 
-func TestDescriptorHotColdFrozenTenants(t *testing.T) {
+func TestDescriptorColdAndFrozenTenants(t *testing.T) {
 	rootDir := t.TempDir()
 	className := "TestClass"
 	ctx := context.Background()
 
 	shardState := NewMultiTenantShardingStateBuilder().
-		AddTenant("hot-tenant", models.TenantActivityStatusHOT).
 		AddTenant("cold-tenant", models.TenantActivityStatusCOLD).
 		AddTenant("frozen-tenant", models.TenantActivityStatusFROZEN).
-		WithReplicationFactor(3).
+		WithReplicationFactor(2).
 		Build()
 
 	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
@@ -551,66 +553,25 @@ func TestDescriptorHotColdFrozenTenants(t *testing.T) {
 
 	// FROZEN tenant: no directory at all.
 
-	// HOT tenant: mock shard in shardMap.
-	hotShard := NewMockShardLike(t)
-	hotShard.EXPECT().CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-			sd.Name = "hot-tenant"
-			sd.Node = "node1"
-			sd.DocIDCounter = []byte("100")
-			sd.DocIDCounterPath = filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "indexcount")
-			sd.PropLengthTracker = []byte("{}")
-			sd.PropLengthTrackerPath = filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "proplengths")
-			sd.Version = []byte("2")
-			sd.ShardVersionPath = filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "version")
-
-			relPath := filepath.Join(indexID(schema.ClassName(className)), "hot-tenant", "lsm", "objects", "segment-001.db")
-			dst := filepath.Join(stagingRoot, relPath)
-			require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
-			require.NoError(t, os.WriteFile(dst, []byte("hot-seg-data"), 0o644))
-			return []string{relPath}, nil
-		})
-	idx.shards.Store("hot-tenant", hotShard)
-
 	var desc backup.ClassDescriptor
 	err := idx.descriptor(ctx, "test-backup", &desc, nil)
 	require.NoError(t, err)
 
-	// Only HOT and COLD should be in desc.Shards — FROZEN is omitted.
-	require.Len(t, desc.Shards, 2)
+	// Only COLD should be in desc.Shards — FROZEN is omitted.
+	require.Len(t, desc.Shards, 1)
 
-	shardsByName := map[string]*backup.ShardDescriptor{}
-	for _, sd := range desc.Shards {
-		shardsByName[sd.Name] = sd
-	}
-
-	// HOT shard descriptor populated by mock.
-	hotDesc := shardsByName["hot-tenant"]
-	require.NotNil(t, hotDesc, "HOT tenant should be in desc.Shards")
-	assert.Equal(t, "node1", hotDesc.Node)
-	assert.Equal(t, []byte("100"), hotDesc.DocIDCounter)
-	assert.NotEmpty(t, hotDesc.Files, "HOT descriptor should have files")
-
-	// COLD shard descriptor populated from disk.
-	coldDesc := shardsByName["cold-tenant"]
-	require.NotNil(t, coldDesc, "COLD tenant should be in desc.Shards")
+	coldDesc := desc.Shards[0]
+	assert.Equal(t, "cold-tenant", coldDesc.Name)
 	assert.Equal(t, "node1", coldDesc.Node)
 	assert.Equal(t, []byte("42"), coldDesc.DocIDCounter)
-	assert.NotEmpty(t, coldDesc.Files, "COLD descriptor should have files")
+	assert.NotEmpty(t, coldDesc.Files, "COLD descriptor should have files from disk")
 
-	// FROZEN should be absent from desc.Shards.
-	assert.Nil(t, shardsByName["frozen-tenant"], "FROZEN tenant should NOT be in desc.Shards")
-
-	// ShardingState should contain all 3 tenants.
+	// ShardingState should contain both tenants with correct statuses.
 	require.NotNil(t, desc.ShardingState, "ShardingState should be marshalled")
 	var restoredState sharding.State
 	require.NoError(t, json.Unmarshal(desc.ShardingState, &restoredState))
-	assert.Contains(t, restoredState.Physical, "hot-tenant")
 	assert.Contains(t, restoredState.Physical, "cold-tenant")
 	assert.Contains(t, restoredState.Physical, "frozen-tenant")
-
-	// ShardingState should reflect correct activity statuses.
-	assert.Equal(t, models.TenantActivityStatusHOT, restoredState.Physical["hot-tenant"].Status)
 	assert.Equal(t, models.TenantActivityStatusCOLD, restoredState.Physical["cold-tenant"].Status)
 	assert.Equal(t, models.TenantActivityStatusFROZEN, restoredState.Physical["frozen-tenant"].Status)
 

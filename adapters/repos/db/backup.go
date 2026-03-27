@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -341,11 +343,11 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		releaseBlock()
 	}
 
+	// Active path => shard is loaded in memory.
 	s, ok := shard.(*Shard)
 	if !ok {
 		return nil, fmt.Errorf("unexpected shard type for active shard %v", name)
 	}
-	// Active path => shard is loaded in memory.
 	files, err := s.CreateBackupSnapshot(ctx, &sd, stagingRoot)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
@@ -419,6 +421,16 @@ func isMutableFile(relPath string) bool {
 	// HNSW commitlog files (non-condensed) — latest is reopened with O_APPEND
 	// on activation (commit_logger.go:162). Condensed files are immutable.
 	if strings.Contains(relPath, ".hnsw.commitlog.d") && ext != ".condensed" {
+		return true
+	}
+	// Async vector indexing queue chunks — reopened with O_RDWR on activation
+	// (queue/queue.go). Chunk files are rotated when size exceeds threshold.
+	if strings.Contains(relPath, ".queue.d") {
+		return true
+	}
+	// Dynamic vector index shared BoltDB — mmap in-place writes on activation
+	// (shard_init_vector.go). Only exists for dynamic index type.
+	if base == "index.db" {
 		return true
 	}
 	return false
@@ -633,8 +645,38 @@ func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor) error {
 	return nil
 }
 
+// snapshotNameMaxLabel is the maximum length of the human-readable label
+// in a snapshot directory name. The full name is:
+//
+//	SnapshotDirPrefix + label + "-" + hash (12 hex chars)
+//
+// With SnapshotDirPrefix=".snapshot-" (10 chars), a 20-char label, and
+// a 13-char suffix ("-" + 12 hex), the total is 43 chars — well within
+// the 255-byte filesystem path component limit.
+const snapshotNameMaxLabel = 20
+
+// SafeSnapshotName builds a snapshot directory name that is guaranteed to
+// fit within filesystem path component limits (255 bytes). It truncates
+// the human-readable label and appends a hash of the full input for
+// uniqueness. The parts are joined with "-" before hashing.
+//
+// Example: safeSnapshotName("backup", "backup1", "MyClass")
+// → "backup-backup1-MyClass-a1b2c3d4e5f6"
+func safeSnapshotName(parts ...string) string {
+	full := strings.Join(parts, "-")
+	h := sha256.Sum256([]byte(full))
+	hashSuffix := hex.EncodeToString(h[:6]) // 12 hex chars
+
+	label := full
+	if len(label) > snapshotNameMaxLabel {
+		label = label[:snapshotNameMaxLabel]
+	}
+	return label + "-" + hashSuffix
+}
+
 func backupStagingDir(rootPath, backupID string, className schema.ClassName) string {
-	return filepath.Join(rootPath, backup.BackupStagingPrefix+backupID+"-"+indexID(className))
+	name := safeSnapshotName(backup.BackupStagingPrefix, backupID, "-", indexID(className))
+	return filepath.Join(rootPath, name)
 }
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
