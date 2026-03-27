@@ -710,3 +710,92 @@ func TestDescriptorReleaseCleansUpStagingDir(t *testing.T) {
 	assert.NoDirExists(t, stagingDir, "staging dir should be removed after ReleaseBackup")
 	assert.Nil(t, idx.lastBackup.Load(), "backup state should be reset")
 }
+
+// TestDescriptorHotTenants verifies that descriptor() correctly backs up HOT
+// and COLD tenants through the same CreateBackupSnapshot interface
+func TestDescriptorHotAndColdTenants(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	ctx := context.Background()
+
+	hotTenants := []string{"hot-tenant-1", "hot-tenant-2"}
+	coldTenants := []string{"cold-tenant-1"}
+	allTenants := append(hotTenants, coldTenants...)
+
+	builder := NewMultiTenantShardingStateBuilder().
+		WithReplicationFactor(int64(len(allTenants)))
+	for _, name := range hotTenants {
+		builder.AddTenant(name, models.TenantActivityStatusHOT)
+	}
+	for _, name := range coldTenants {
+		builder.AddTenant(name, models.TenantActivityStatusCOLD)
+	}
+	shardState := builder.Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	// Store MockShardLike for each HOT tenant. MockShardLike is neither
+	// *LazyLoadShard nor *Shard, so it exercises the interface-based code path.
+	hotFiles := map[string][]string{
+		"hot-tenant-1": {"hot-tenant-1/lsm/objects/segment-0001.db"},
+		"hot-tenant-2": {"hot-tenant-2/lsm/objects/segment-0002.db"},
+	}
+	for _, name := range hotTenants {
+		name := name
+		mockShard := NewMockShardLike(t)
+		files := hotFiles[name]
+		mockShard.EXPECT().
+			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+				sd.Name = name
+				sd.Node = "node1"
+				return files, nil
+			})
+		idx.shards.Store(name, mockShard)
+	}
+
+	// COLD tenants: real files on disk (shard not in shardMap).
+	for _, name := range coldTenants {
+		createColdShardFiles(t, rootDir, className, name)
+	}
+
+	var desc backup.ClassDescriptor
+	err := idx.descriptor(ctx, "test-backup", &desc, nil)
+	require.NoError(t, err)
+
+	require.Len(t, desc.Shards, len(hotTenants)+len(coldTenants),
+		"descriptor should include both HOT and COLD tenants")
+
+	shardsByName := map[string]*backup.ShardDescriptor{}
+	for _, sd := range desc.Shards {
+		shardsByName[sd.Name] = sd
+	}
+
+	// Verify HOT tenants were backed up through the mock.
+	for _, name := range hotTenants {
+		sd, ok := shardsByName[name]
+		require.True(t, ok, "HOT tenant %s should be in descriptor", name)
+		assert.Equal(t, "node1", sd.Node)
+		assert.Equal(t, hotFiles[name], sd.Files,
+			"HOT tenant %s should have files from CreateBackupSnapshot", name)
+	}
+
+	// Verify COLD tenants were backed up from disk.
+	for _, name := range coldTenants {
+		sd, ok := shardsByName[name]
+		require.True(t, ok, "COLD tenant %s should be in descriptor", name)
+		assert.Equal(t, "node1", sd.Node)
+		assert.NotEmpty(t, sd.Files, "COLD tenant %s should have files from disk", name)
+	}
+
+	// ShardingState should contain all tenants.
+	require.NotNil(t, desc.ShardingState)
+	var restoredState sharding.State
+	require.NoError(t, json.Unmarshal(desc.ShardingState, &restoredState))
+	for _, name := range hotTenants {
+		assert.Contains(t, restoredState.Physical, name)
+	}
+	for _, name := range coldTenants {
+		assert.Contains(t, restoredState.Physical, name)
+	}
+}

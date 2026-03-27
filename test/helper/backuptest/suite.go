@@ -1259,9 +1259,10 @@ func NewSuiteConfigFromTestCase(sharedConfig SharedComposeConfig, testCase Backu
 		ClassName:   fmt.Sprintf("Class_%s_%d", testCase.Name, timestamp),
 		BackupID:    fmt.Sprintf("backup-%s-%d", testCase.Name, timestamp),
 		MultiTenant: BackupTestSuiteMultiTenancyConfig{
-			Enabled:          testCase.MultiTenant,
-			NumTenants:       numTenants,
-			ObjectsPerTenant: objectsPerTenant,
+			Enabled:                  testCase.MultiTenant,
+			NumTenants:               numTenants,
+			ObjectsPerTenant:         objectsPerTenant,
+			WithMidBackupActivations: testCase.WithMidBackupActivations,
 		},
 		ClusterSize:      clusterSize,
 		WithVectorizer:   true,

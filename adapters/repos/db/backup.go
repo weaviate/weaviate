@@ -70,6 +70,8 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 					desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 					return
 				}
+				idx.dropIndex.RLock()
+				defer idx.dropIndex.RUnlock()
 				idx.closeLock.RLock()
 				defer idx.closeLock.RUnlock()
 				if idx.closed {
@@ -240,15 +242,9 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		return fmt.Errorf("create backup staging dir: %w", err)
 	}
 
-	i.dropIndex.RLock()
-	i.closeLock.RLock()
-
 	defer func() {
-		i.closeLock.RUnlock()
-		i.dropIndex.RUnlock()
 		if err != nil {
 			os.RemoveAll(stagingRoot)
-			// closelock is hold by the caller
 			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
@@ -343,12 +339,9 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		releaseBlock()
 	}
 
-	// Active path => shard is loaded in memory.
-	s, ok := shard.(*Shard)
-	if !ok {
-		return nil, fmt.Errorf("unexpected shard type for active shard %v", name)
-	}
-	files, err := s.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+	// Active path => shard is loaded in memory. Call through the ShardLike
+	// interface so both *Shard and loaded *LazyLoadShard work correctly.
+	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
 	}
