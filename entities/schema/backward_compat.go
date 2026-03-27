@@ -24,7 +24,7 @@ type PropertyInterface interface {
 	GetNestedProperties() []*models.NestedProperty
 }
 
-// GetClassByName returns the class by its name
+// GetClassByName returns the class by its name.
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	if s == nil {
 		return nil, fmt.Errorf(ErrorNoSuchClass, className)
@@ -39,7 +39,9 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
-// GetPropertyByName returns the class by its name
+// GetPropertyByName returns a frst-order property by its name.
+// If propName is a name of the nested property, then this property is returned.
+// It is not possible to retrieve deeply nested properties using the dot-notation.
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
 	for _, prop := range c.Properties {
 		// Check if the name of the property is the given name, that's the property we need
