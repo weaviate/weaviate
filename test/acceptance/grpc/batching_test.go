@@ -651,9 +651,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 		// Restart node
 		t.Logf("Stopping node %v...", node)
-		common.StopNodeAtWithTimeout(ctx, t, compose, node-1, 300*time.Second)
+		common.StopNodeAtWithTimeout(ctx, t, compose, node, 300*time.Second)
 		t.Logf("Restarting node %v...", node)
-		common.StartNodeAt(ctx, t, compose, node-1)
+		common.StartNodeAt(ctx, t, compose, node)
 		t.Log("Node was restarted successfully in time")
 
 		// Setup again to allow cleanup to work in defer
