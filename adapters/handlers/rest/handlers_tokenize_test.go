@@ -14,8 +14,6 @@ package rest
 import (
 	"testing"
 
-	"github.com/go-openapi/runtime/middleware"
-	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,39 +23,6 @@ import (
 
 	tokenizeops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 )
-
-func genericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogger) middleware.Responder {
-	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
-	query := make([]string, len(indexed))
-	copy(query, indexed)
-
-	var analyzerConfig *models.TokenizeAnalyzerConfig
-	if params.Body.AnalyzerConfig != nil && params.Body.AnalyzerConfig.Stopwords != nil {
-		analyzerConfig = params.Body.AnalyzerConfig
-		detector, err := stopwords.NewDetectorFromConfig(*params.Body.AnalyzerConfig.Stopwords)
-		if err != nil {
-			return tokenizeops.NewTokenizeBadRequest()
-		}
-		query = removeStopwords(indexed, detector)
-	}
-
-	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
-		Tokenization:   *params.Body.Tokenization,
-		AnalyzerConfig: analyzerConfig,
-		Indexed:        indexed,
-		Query:          query,
-	})
-}
-
-func removeStopwords(tokens []string, detector *stopwords.Detector) []string {
-	filtered := make([]string, 0, len(tokens))
-	for _, token := range tokens {
-		if !detector.IsStopword(token) {
-			filtered = append(filtered, token)
-		}
-	}
-	return filtered
-}
 
 func strPtr(s string) *string { return &s }
 
