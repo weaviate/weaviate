@@ -438,6 +438,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateClusterWithGRPC().
+		WithWeaviateEnv("REPLICATION_GRPC_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -648,12 +649,14 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		err := send(stream, batch, nil, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 
+		start := time.Now()
 		// Restart node
 		t.Logf("Stopping node %v...", node)
-		common.StopNodeAtWithTimeout(ctx, t, compose, node-1, 300*time.Second)
+		common.StopNodeAtWithTimeout(ctx, t, compose, node, 300*time.Second)
 		t.Logf("Restarting node %v...", node)
-		common.StartNodeAt(ctx, t, compose, node-1)
+		common.StartNodeAt(ctx, t, compose, node)
 		t.Log("Node was restarted successfully in time")
+		require.Less(t, time.Since(start), 300*time.Second, "Node did not restart within time")
 
 		// Setup again to allow cleanup to work in defer
 		helper.SetupClient(compose.GetWeaviateNode(node).URI())

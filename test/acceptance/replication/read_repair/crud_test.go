@@ -115,7 +115,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 					WithContents(fmt.Sprintf("paragraph#%d", i)).
 					Object()
 			}
-			common.CreateObjects(t, compose.ContainerURI(3), batch)
+			common.CreateObjectsCL(t, compose.ContainerURI(3), batch, types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -145,7 +145,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					Object()
-				common.CreateObjectCL(t, compose.ContainerURI(3), obj, types.ConsistencyLevelOne)
+				common.CreateObjectCL(t, compose.ContainerURI(3), obj, types.ConsistencyLevelAll)
 			}
 		})
 
@@ -179,7 +179,7 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 		}
 
 		t.Run("OnNode-3", func(t *testing.T) {
-			common.AddReferences(t, compose.ContainerURI(3), refs)
+			common.AddReferencesCL(t, compose.ContainerURI(3), refs, types.ConsistencyLevelAll)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {

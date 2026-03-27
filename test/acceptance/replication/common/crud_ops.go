@@ -181,6 +181,13 @@ func AddReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
+func AddReferencesCL(t *testing.T, host string, refs []*models.BatchReference, cl types.ConsistencyLevel) {
+	t.Helper()
+	helper.SetupClient(host)
+	resp, err := helper.AddReferencesCL(t, refs, cl)
+	helper.CheckReferencesBatchResponse(t, resp, err)
+}
+
 func AddTenantReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	t.Helper()
 	helper.SetupClient(host)

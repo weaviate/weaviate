@@ -23,7 +23,6 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -31,6 +30,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -48,26 +48,11 @@ type replicatedIndices struct {
 	maintenanceModeEnabled func() bool
 
 	requestQueueConfig cluster.RequestQueueConfig
-	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
-	// overwhelming the system with requests during spikes (also allows for backpressure)
-	requestQueue chan queuedRequest
-	// requestQueueMu guards access to the queue during shutdown
-	requestQueueMu sync.RWMutex
-	// startWorkersOnce ensures that the workers are started only once
-	startWorkersOnce sync.Once
-	// set to true when shutting down
-	isShutdown atomic.Bool
-	// workerWg waits for all workers to finish
-	workerWg sync.WaitGroup
-	logger   logrus.FieldLogger
+	requestQueue       *shared.RequestQueue[queuedRequest]
+	logger             logrus.FieldLogger
 	// nodeReady reports whether the node is ready to accept requests
 	nodeReady func() bool
 }
-
-var (
-	errReplicatedIndicesShutdown  = errors.New("replicated indices shutting down")
-	errReplicatedIndicesQueueFull = errors.New("replicated indices request queue full")
-)
 
 const (
 	responseShuttingDown = "503 Service Unavailable - shutting down"
@@ -114,46 +99,34 @@ func NewReplicatedIndices(
 		replicator:             replicator,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
-		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
 		nodeReady:              nodeReady,
 	}
-	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
-		i.startWorkersOnce.Do(i.startWorkers)
-	}
-	return i
-}
 
-func (i *replicatedIndices) queueEnabled() bool {
-	return i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get()
+	i.requestQueue = shared.NewRequestQueue(requestQueueConfig, logger,
+		func(qr queuedRequest) { i.handleRequest(qr) },
+		func(qr queuedRequest) bool { return qr.r.Context().Err() != nil },
+		func(qr queuedRequest) {
+			if qr.wg != nil {
+				qr.wg.Done() //nolint:SA2000
+			}
+			qr.w.WriteHeader(http.StatusRequestTimeout)
+		},
+	)
+
+	return i
 }
 
 func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, errReplicatedIndicesShutdown):
+	case errors.Is(err, shared.ErrShutdown):
 		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
-	case errors.Is(err, errReplicatedIndicesQueueFull):
+	case errors.Is(err, shared.ErrQueueFull):
 		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
 	default:
 		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
-
-func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter, wg *sync.WaitGroup) error {
-	i.requestQueueMu.RLock()
-	defer i.requestQueueMu.RUnlock()
-
-	if i.isShutdown.Load() {
-		return errReplicatedIndicesShutdown
-	}
-
-	select {
-	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
-		return nil
-	default:
-		return errReplicatedIndicesQueueFull
 	}
 }
 
@@ -162,25 +135,6 @@ type queuedRequest struct {
 	w http.ResponseWriter
 	// when the request is done being handled, the waitgroup is done
 	wg *sync.WaitGroup
-}
-
-func (i *replicatedIndices) startWorkers() {
-	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
-		i.workerWg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer i.workerWg.Done()
-			for rq := range i.requestQueue {
-				if rq.r.Context().Err() != nil {
-					if rq.wg != nil {
-						rq.wg.Done() //nolint:SA2000
-					}
-					rq.w.WriteHeader(http.StatusRequestTimeout)
-					continue
-				}
-				i.handleRequest(rq)
-			}
-		}, i.logger)
-	}
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
@@ -199,17 +153,17 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
-		if i.isShutdown.Load() {
-			i.writeResponse(w, errReplicatedIndicesShutdown)
+		if i.requestQueue.IsShutdown() {
+			i.writeResponse(w, shared.ErrShutdown)
 			return
 		}
 
-		if i.queueEnabled() {
-			i.startWorkersOnce.Do(i.startWorkers)
+		if i.requestQueue.Enabled() {
+			i.requestQueue.EnsureStarted()
 
 			wg := &sync.WaitGroup{}
 			wg.Add(1)
-			err := i.enqueueRequest(r, w, wg)
+			err := i.requestQueue.Enqueue(queuedRequest{r: r, w: w, wg: wg})
 			if err != nil {
 				wg.Done() //nolint:SA2000
 				i.writeResponse(w, err)
@@ -395,10 +349,10 @@ func (i *replicatedIndices) postObject() http.Handler {
 
 		switch ct {
 
-		case IndicesPayloads.SingleObject.MIME():
+		case shared.IndicesPayloads.SingleObject.MIME():
 			i.postObjectSingle(w, r, index, shard, requestID, schemaVersion)
 			return
-		case IndicesPayloads.ObjectList.MIME():
+		case shared.IndicesPayloads.ObjectList.MIME():
 			i.postObjectBatch(w, r, index, shard, requestID, schemaVersion)
 			return
 		default:
@@ -430,7 +384,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 
-		mergeDoc, err := IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
+		mergeDoc, err := shared.IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -442,7 +396,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 		resp := i.replicator.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -697,9 +651,9 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 
 		var vobjs []*objects.VObject
 		if r.Header.Get("X-Request-Encoding") == "binary" {
-			vobjs, err = IndicesPayloads.VersionedObjectList.UnmarshalV2(reqPayload)
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalV2(reqPayload)
 		} else {
-			vobjs, err = IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
 		}
 		if err != nil {
 			http.Error(w, "unmarshal overwrite objects: "+err.Error(),
@@ -758,7 +712,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			return
 		}
 		resp := i.replicator.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -796,7 +750,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 		defer r.Body.Close()
 
-		uuids, deletionTimeUnix, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		uuids, deletionTimeUnix, dryRun, err := shared.IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -809,7 +763,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 
 		resp := i.replicator.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -833,14 +787,14 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	obj, err := IndicesPayloads.SingleObject.Unmarshal(bodyBytes, MethodPut)
+	obj, err := shared.IndicesPayloads.SingleObject.Unmarshal(bodyBytes, shared.MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	resp := i.replicator.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -864,14 +818,14 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes, MethodPut)
+	objs, err := shared.IndicesPayloads.ObjectList.Unmarshal(bodyBytes, shared.MethodPut)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	resp := i.replicator.ReplicateObjects(r.Context(), index, shard, requestID, objs, schemaVersion)
-	if localIndexNotReady(resp) {
+	if shared.LocalIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
 	}
@@ -996,7 +950,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 			return
 		}
 
-		refs, err := IndicesPayloads.ReferenceList.Unmarshal(bodyBytes)
+		refs, err := shared.IndicesPayloads.ReferenceList.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1009,7 +963,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 		}
 
 		resp := i.replicator.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
-		if localIndexNotReady(resp) {
+		if shared.LocalIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
 		}
@@ -1025,67 +979,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 	})
 }
 
-func localIndexNotReady(resp replica.SimpleResponse) bool {
-	if err := resp.FirstError(); err != nil {
-		var replicaErr *replica.Error
-		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
-			return true
-		}
-	}
-	return false
-}
-
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
-	i.logger.WithField("action", "close_replicated_indices").Debug("attempting to shut down replicated indices")
-	if i.isShutdown.CompareAndSwap(false, true) {
-		i.logger.WithField("action", "close_replicated_indices").Debug("shutting down replicated indices")
-		// Set a timeout for graceful shutdown
-		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
-		if shutdownTimeoutSeconds == 0 {
-			shutdownTimeoutSeconds = cluster.DefaultRequestQueueShutdownTimeoutSeconds
-		}
-
-		// Create a context with timeout for shutdown
-		shutdownCtx, cancel := context.WithTimeout(ctx, time.Duration(shutdownTimeoutSeconds)*time.Second)
-		defer cancel()
-
-		// Wait for workers to finish with timeout
-		done := make(chan struct{})
-		enterrors.GoWrapper(func() {
-			i.workerWg.Wait()
-			close(done)
-		}, i.logger)
-
-		i.requestQueueMu.Lock()
-		close(i.requestQueue)
-		i.requestQueueMu.Unlock()
-		select {
-		case <-done:
-			// Workers finished gracefully
-			i.logger.WithField("action", "close_replicated_indices").Debug("workers finished gracefully")
-		case <-shutdownCtx.Done():
-			// Timeout reached, workers are still running
-			err := fmt.Errorf("shutdown timeout reached, some workers may still be running")
-			i.logger.WithField("action", "close_replicated_indices").WithError(err).Warn("shutdown timeout reached, attempting to drain queue")
-			for {
-				select {
-				case rq, ok := <-i.requestQueue:
-					if !ok {
-						i.logger.WithField("action", "close_replicated_indices").Debug("queue closed")
-						return err
-					}
-					func() {
-						defer rq.wg.Done()
-						rq.w.WriteHeader(http.StatusRequestTimeout)
-					}()
-				default:
-					i.logger.WithField("action", "close_replicated_indices").Debug("no more requests to drain")
-					return err
-				}
-			}
-		}
-		i.logger.WithField("action", "close_replicated_indices").Debug("replicated indices shutdown complete")
-	}
-	return nil
+	return i.requestQueue.Close(ctx)
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -61,6 +62,10 @@ func (f *fakeReplicator) ReplicateDeletions(ctx context.Context, indexName, shar
 
 func (f *fakeReplicator) ReplicateReferences(ctx context.Context, indexName, shardName, requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse {
 	return replica.SimpleResponse{}
+}
+
+func (f *fakeReplicator) FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	return []strfmt.UUID{}, nil
 }
 
 // CommitReplication waits to return until a message is received on the commitBlock channel

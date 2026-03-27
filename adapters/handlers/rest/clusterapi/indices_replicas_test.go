@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -628,7 +629,7 @@ func vobjectPayload(t *testing.T) []byte {
 			StaleUpdateTime: now.UnixMilli(),
 		},
 	}
-	body, err := clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjs)
+	body, err := shared.IndicesPayloads.VersionedObjectList.MarshalV2(vobjs)
 	require.NoError(t, err)
 	return body
 }
@@ -689,7 +690,7 @@ func TestPutOverwriteObjectsCompression(t *testing.T) {
 					StaleUpdateTime: now.UnixMilli(),
 				}}
 				var err error
-				body, err = clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjs)
+				body, err = shared.IndicesPayloads.VersionedObjectList.Marshal(vobjs)
 				require.NoError(t, err)
 			}
 

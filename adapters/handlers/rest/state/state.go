@@ -97,7 +97,10 @@ type State struct {
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
 
+	// GRPCConnManager is a general connection manager for any/all gRPC connections used by the application. It implements retry logic and connection pooling.
 	GRPCConnManager *grpcconn.ConnManager
+	// ReplGRPCConnManager is a separate connection manager that implements retry logic to each RPC call on top of connection pooling, specifically for replication traffic.
+	ReplGRPCConnManager *grpcconn.ConnManager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -183,6 +184,16 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 		return nil, pr.FirstError()
 	}
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
+	f *filters.LocalFilter, limit int,
+) ([]strfmt.UUID, error) {
+	index, pr := db.replicatedIndex(indexName)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
 }
 
 func (db *DB) CommitReplication(ctx context.Context,
