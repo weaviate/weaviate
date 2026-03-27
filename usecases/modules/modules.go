@@ -41,6 +41,7 @@ var (
 		"after", "groupBy", "bm25", "hybrid",
 	}
 	internalAdditionalProperties = []string{"classification", "certainty", "id", "distance", "group"}
+	NoneModule                   = "none"
 )
 
 type Provider struct {
@@ -85,6 +86,14 @@ func (p *Provider) GetByName(name string) modulecapabilities.Module {
 		return p.registered[origName]
 	}
 	return nil
+}
+
+func (p *Provider) HasModule(name string) bool {
+	if name == NoneModule {
+		return true
+	}
+
+	return p.GetByName(name) != nil
 }
 
 func (p *Provider) GetAll() []modulecapabilities.Module {
