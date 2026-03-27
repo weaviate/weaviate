@@ -325,7 +325,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 	if pv.isNested {
 		// The nested value bucket stores positions (root|leaf|docID) rather than
 		// plain docIDs. Strip position bits to extract the docID-only bitmap.
-		dbm.docIDs = nested.MaskAllPositions(dbm.docIDs)
+		dbm.docIDs = nested.MaskRootLeaf(dbm.docIDs)
 	}
 	return dbm, nil
 }
@@ -333,7 +333,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 // fetchRawPositions is like fetchDocIDs but returns the raw position bitmap
 // without stripping the root/leaf bits. Only valid for nested properties
 // (pv.isNested == true). Used by the correlated resolution path which needs
-// full positions to apply MaskLeafPositions AND or the _idx loop.
+// full positions to apply MaskLeaf AND or the _idx loop.
 func (pv *propValuePair) fetchRawPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	return pv.fetchBitmap(ctx, s, limit)
 }

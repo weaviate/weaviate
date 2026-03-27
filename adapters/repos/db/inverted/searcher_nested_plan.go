@@ -61,7 +61,7 @@ type pathRelationship struct {
 //     identical positions) → directAnd
 //  4. At least one path has a sub-array:
 //     – LCA is intermediate object[] → idxLoopAnd (leaf_idx encodes element
-//     identity and is zeroed by MaskLeafPositions)
+//     identity and is zeroed by MaskLeaf)
 //     – LCA is single object or root object[] → maskLeafAnd
 func nestedPathsRelationship(
 	paths []string,
@@ -129,7 +129,7 @@ func nestedPathsRelationship(
 
 	// At least one path descends into a further sub-array. For intermediate
 	// object[] arrays the leaf_idx encodes element identity and is zeroed by
-	// MaskLeafPositions, so the _idx loop is required. At the root level or
+	// MaskLeaf, so the _idx loop is required. At the root level or
 	// under a single object, root_idx or docID alignment is sufficient.
 	lcaPath := strings.Join(lcaSegs, ".")
 	if lcaDT == schema.DataTypeObjectArray && lcaPath != "" {
@@ -270,7 +270,7 @@ func buildResolutionPlan(
 	if len(order) > 1 {
 		// Paths span multiple sub-trees → always maskLeafAnd.
 		// nestedPathsRelationship is not needed: cross-subtree divergence always
-		// requires MaskLeafPositions AND to align on root+docID.
+		// requires MaskLeaf AND to align on root+docID.
 		subPlans := make([]*resolutionPlan, 0, len(order))
 		for _, first := range order {
 			subPlan, err := buildResolutionPlan(byFirst[first], rootDT, rootProps)
@@ -296,7 +296,7 @@ func buildResolutionPlan(
 		return &resolutionPlan{op: idxLoopAnd, lcaPath: rel.lcaPath, paths: paths}, nil
 	case maskLeafAnd:
 		// maskLeafAnd within a single group means paths diverge under a sub-object
-		// node. Return a leaf maskLeafAnd — the executor will apply MaskLeafPositions
+		// node. Return a leaf maskLeafAnd — the executor will apply MaskLeaf
 		// AND across the paths.
 		return &resolutionPlan{op: maskLeafAnd, paths: paths}, nil
 	}

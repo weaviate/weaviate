@@ -150,7 +150,7 @@ func TestNestedPathRelationship(t *testing.T) {
 		},
 
 		// --- diverge at root of object[] → maskLeafAnd ---
-		// root_idx already distinguishes root elements so MaskLeafPositions AND
+		// root_idx already distinguishes root elements so MaskLeaf AND
 		// is sufficient; no _idx metadata is emitted at root level.
 		{
 			name:  "diverge at root of object[] property",
@@ -299,7 +299,7 @@ func TestNestedPathsRelationshipMulti(t *testing.T) {
 		},
 		// Paths from two different sub-trees (addresses and cars) diverge at the
 		// root of a single object. LCA = root (DataTypeObject) → maskLeafAnd.
-		// MaskLeafPositions AND aligns on root=1 + docID giving correct doc-level
+		// MaskLeaf AND aligns on root=1 + docID giving correct doc-level
 		// results even though addresses and cars have disjoint leaf positions.
 		{
 			name:     "addresses.city + addresses.postcode + cars.make + cars.colors (mixed subtrees at root)",
