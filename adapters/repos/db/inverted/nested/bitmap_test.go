@@ -159,7 +159,7 @@ func TestValidateLeafIdx(t *testing.T) {
 	assert.Error(t, ValidateLeafIdx(-1))
 }
 
-func TestMaskLeafPositions(t *testing.T) {
+func TestMaskLeaf(t *testing.T) {
 	bm := sroar.NewBitmap()
 	// addresses[0].city="Berlin" in doc 123 with positions l3, l4
 	bm.Set(Encode(1, 3, 123))
@@ -169,7 +169,7 @@ func TestMaskLeafPositions(t *testing.T) {
 	// Same in doc 456
 	bm.Set(Encode(1, 3, 456))
 
-	masked := MaskLeafPositions(bm)
+	masked := MaskLeaf(bm)
 
 	// After masking leaf bits, all positions with same root+docID collapse
 	arr := masked.ToArray()
@@ -180,7 +180,7 @@ func TestMaskLeafPositions(t *testing.T) {
 	}
 }
 
-func TestMaskAllPositions(t *testing.T) {
+func TestMaskRootLeaf(t *testing.T) {
 	bm := sroar.NewBitmap()
 	// Object array: root=1 in doc 999, root=2 in doc 999
 	bm.Set(Encode(1, 3, 999))
@@ -189,7 +189,7 @@ func TestMaskAllPositions(t *testing.T) {
 	// Different doc
 	bm.Set(Encode(1, 1, 888))
 
-	stripped := MaskAllPositions(bm)
+	stripped := MaskRootLeaf(bm)
 
 	arr := stripped.ToArray()
 	assert.Len(t, arr, 2) // d999 and d888
@@ -245,9 +245,9 @@ func TestMaskPosThenAND_CrossSubtree(t *testing.T) {
 	makeBm.Set(Encode(1, 7, 123))
 	makeBm.Set(Encode(1, 8, 123))
 
-	// MaskLeafPositions to erase leaf differences
-	maskedCity := MaskLeafPositions(cityBm)
-	maskedMake := MaskLeafPositions(makeBm)
+	// MaskLeaf to erase leaf differences
+	maskedCity := MaskLeaf(cityBm)
+	maskedMake := MaskLeaf(makeBm)
 
 	result := maskedCity.And(maskedMake)
 	arr := result.ToArray()
@@ -260,4 +260,81 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, 1<<14, MaxRoots)
 	assert.Equal(t, 1<<14, MaxLeavesPerRoot)
 	assert.Equal(t, uint64(0x0000000FFFFFFFFF), uint64(MaxDocID))
+}
+
+func TestAndAll(t *testing.T) {
+	t.Run("empty input returns empty bitmap", func(t *testing.T) {
+		result := AndAll(nil)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("single bitmap returned as clone", func(t *testing.T) {
+		bm := sroar.NewBitmap()
+		bm.SetMany([]uint64{1, 2, 3})
+		result := AndAll([]*sroar.Bitmap{bm})
+		assert.Equal(t, bm.ToArray(), result.ToArray())
+		// original unmodified
+		assert.Equal(t, []uint64{1, 2, 3}, bm.ToArray())
+	})
+
+	t.Run("intersection of two bitmaps", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.SetMany([]uint64{1, 2, 3, 4})
+		b := sroar.NewBitmap()
+		b.SetMany([]uint64{2, 4, 6})
+		result := AndAll([]*sroar.Bitmap{a, b})
+		assert.Equal(t, []uint64{2, 4}, result.ToArray())
+		// inputs unmodified
+		assert.Equal(t, []uint64{1, 2, 3, 4}, a.ToArray())
+	})
+
+	t.Run("three bitmaps intersection", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.SetMany([]uint64{1, 2, 3, 4, 5})
+		b := sroar.NewBitmap()
+		b.SetMany([]uint64{2, 3, 4})
+		c := sroar.NewBitmap()
+		c.SetMany([]uint64{3, 4, 5})
+		result := AndAll([]*sroar.Bitmap{a, b, c})
+		assert.Equal(t, []uint64{3, 4}, result.ToArray())
+	})
+}
+
+func TestAndAllMaskLeaf(t *testing.T) {
+	// Use two positions from the same doc but different leaf indices.
+	// After MaskLeaf, both become root+docID and should AND together.
+	doc := uint64(42)
+	posA := Encode(1, 3, doc) // root=1 leaf=3 doc=42
+	posB := Encode(1, 7, doc) // root=1 leaf=7 doc=42 (different leaf)
+	posC := Encode(2, 3, doc) // root=2 leaf=3 doc=42 (different root)
+
+	t.Run("same root different leaf — AND succeeds after masking", func(t *testing.T) {
+		bmA := sroar.NewBitmap()
+		bmA.Set(posA)
+		bmB := sroar.NewBitmap()
+		bmB.Set(posB)
+		result := AndAllMaskLeaf([]*sroar.Bitmap{bmA, bmB})
+		// After masking leaf bits: both become Encode(1, 0, 42) → AND non-empty
+		require.False(t, result.IsEmpty())
+		// Result contains root+docID only (leaf zeroed)
+		assert.Equal(t, uint16(0), DecodeLeafIdx(result.ToArray()[0]))
+		assert.Equal(t, uint16(1), DecodeRootIdx(result.ToArray()[0]))
+	})
+
+	t.Run("different root — AND gives empty after masking", func(t *testing.T) {
+		bmA := sroar.NewBitmap()
+		bmA.Set(posA) // root=1
+		bmC := sroar.NewBitmap()
+		bmC.Set(posC) // root=2
+		result := AndAllMaskLeaf([]*sroar.Bitmap{bmA, bmC})
+		// After masking: root=1|doc=42 vs root=2|doc=42 → no overlap
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("inputs not modified", func(t *testing.T) {
+		bmA := sroar.NewBitmap()
+		bmA.Set(posA)
+		AndAllMaskLeaf([]*sroar.Bitmap{bmA})
+		assert.Equal(t, []uint64{posA}, bmA.ToArray())
+	})
 }

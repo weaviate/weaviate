@@ -116,15 +116,60 @@ func ValidateLeafIdx(leafIdx int) error {
 	return nil
 }
 
-// MaskLeafPositions zeroes the leaf bits in all bitmap values, keeping
-// root+docID. Use this for cross-subtree checks where leaf differences
-// should be erased.
-func MaskLeafPositions(bm *sroar.Bitmap) *sroar.Bitmap {
+// MaskLeaf zeroes the leaf bits of every value in bm, collapsing positions
+// to root+docID granularity. Values that differed only in leaf_idx become
+// identical after masking, allowing element-level alignment across sub-trees.
+func MaskLeaf(bm *sroar.Bitmap) *sroar.Bitmap {
 	return bm.Masked(zeroLeafBits)
 }
 
-// MaskAllPositions zeroes both root and leaf bits, keeping only docID.
-// Use this for final result extraction.
-func MaskAllPositions(bm *sroar.Bitmap) *sroar.Bitmap {
+// MaskRootLeaf zeroes both root and leaf bits of every value in bm, keeping
+// only the docID. Use this as the final step to extract plain document IDs
+// from a position bitmap.
+func MaskRootLeaf(bm *sroar.Bitmap) *sroar.Bitmap {
 	return bm.Masked(zeroRootBits & zeroLeafBits)
+}
+
+// AndAll returns the intersection of all bitmaps on raw positions. Inputs are
+// not modified. Returns an empty bitmap if bitmaps is empty.
+func AndAll(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
+	if len(bitmaps) == 0 {
+		return sroar.NewBitmap()
+	}
+	result := bitmaps[0].Clone()
+	for _, bm := range bitmaps[1:] {
+		result.And(bm)
+	}
+	return result
+}
+
+// AndAllMaskLeaf zeroes the leaf bits of each bitmap and ANDs them all,
+// returning root+docID values present across every input. Use this to find
+// which document-element pairs satisfy all conditions simultaneously.
+// Returns an empty bitmap if bitmaps is empty.
+func AndAllMaskLeaf(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
+	if len(bitmaps) == 0 {
+		return sroar.NewBitmap()
+	}
+	result := MaskLeaf(bitmaps[0])
+	for _, bm := range bitmaps[1:] {
+		result.AndMasked(bm, zeroLeafBits)
+	}
+	return result
+}
+
+// MaskLeafAnd intersects a and b on raw positions and zeroes the leaf bits of
+// the result, returning root+docID values. Both a and b must be raw position
+// bitmaps. Equivalent to MaskLeaf(sroar.And(a, b)) but avoids allocating the
+// intermediate AND bitmap.
+func MaskLeafAnd(a, b *sroar.Bitmap) *sroar.Bitmap {
+	return sroar.MaskedAnd(a, b, zeroLeafBits)
+}
+
+// AndWithMaskLeaf intersects a with b after zeroing b's leaf bits, returning
+// root+docID values. a must already be leaf-masked (e.g. from MaskLeaf or
+// AndAllMaskLeaf); only b is leaf-masked before the AND. Avoids allocating an
+// intermediate masked copy of b.
+func AndWithMaskLeaf(a, b *sroar.Bitmap) *sroar.Bitmap {
+	return a.Clone().AndMasked(b, zeroLeafBits)
 }
