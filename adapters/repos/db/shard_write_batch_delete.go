@@ -143,6 +143,15 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		return nil
 	})
 
+	_ = b.shard.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err := queue.Flush(); err != nil {
+			for i := range b.objects {
+				b.setErrorAtIndex(fmt.Errorf("geo prop %s: %w", propName, err), i)
+			}
+		}
+		return nil
+	})
+
 	if err := b.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
