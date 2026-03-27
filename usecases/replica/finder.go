@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"time"
 
@@ -457,4 +458,73 @@ func (f *Finder) Overwrite(ctx context.Context,
 
 func (f *Finder) LocalNodeName() string {
 	return f.nodeName
+}
+
+// CountObjects returns an aggregated object count from all replicas the shard exists on.
+func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
+	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+
+	// NOTE(dyma): Why do we need to pass both the context and the timeout?
+	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
+		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard)
+		if err != nil {
+			f.logger.WithFields(logrus.Fields{
+				"shard": shard,
+				"host":  host,
+			}).Errorf("poll object count for count(*) aggregation: %v", err)
+		}
+		return count, nil
+	}, "", time.Minute)
+	if err != nil {
+		return 0, nil
+	}
+
+	// Fan in results from all concurrent Pull requests. It is safe
+	// to ignore Result[T].Err, as our func will swallow any errors.
+	var counts []int
+	for r := range results {
+		counts = append(counts, r.Value)
+	}
+
+	if len(counts) == 0 {
+		return 0, fmt.Errorf("no nodes reported object count for shard %q", shard)
+	}
+
+	return reconcile(counts), nil
+}
+
+// reconcile aggregates counts with the appropriate statistic, such that
+// the returned values is always contained within the input set. If possible,
+// we try to calculate the mode.
+//
+// If we can't calculate the mode, we fallback to median. We can only calculate
+// the true median for an odd-numbered set. If a set has even number of elemets
+// of which none is a mode, then the median would be calculated as an average,
+// which is not contained in the set. In that case we pick the lower value of
+// the two "candidate" values.
+func reconcile(counts []int) int {
+	var mode int
+	var modeHits int
+	hits := make(map[int]int)
+
+	var median int
+	medianIdx := len(counts) / 2
+
+	slices.Sort(counts)
+	for i, count := range counts {
+		hits[count]++
+		if h := hits[count]; h > modeHits {
+			mode = count
+			modeHits = h
+		}
+
+		if i == medianIdx {
+			median = count
+		}
+	}
+
+	if modeHits > 1 {
+		return mode
+	}
+	return median
 }

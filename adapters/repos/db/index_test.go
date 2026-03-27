@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -150,21 +151,31 @@ func TestIndex_aggregateCount(t *testing.T) {
 				return strings.Compare(r1.ShardName, r2.ShardName)
 			})
 
-			index := Index{
-				router: &fakeRouter{
-					readPlan: types.ReadRoutingPlan{
-						IntConsistencyLevel: len(tt.counts) + len(tt.nodes),
-						ConsistencyLevel:    types.ConsistencyLevelAll,
-						ReplicaSet: types.ReadReplicaSet{
-							Replicas: replicas,
-						},
+			router := &fakeRouter{
+				readPlan: types.ReadRoutingPlan{
+					IntConsistencyLevel: len(tt.counts) + len(tt.nodes),
+					ConsistencyLevel:    types.ConsistencyLevelAll,
+					ReplicaSet: types.ReadReplicaSet{
+						Replicas: replicas,
 					},
+				},
+			}
+			index := Index{
+				router: router,
+				replicator: &replica.Replicator{
+					Finder: replica.NewFinder(
+						"Abc",
+						router,
+						cluster.NewMockNodeResolver(t),
+						"node-1",
+						clients.NewReplicationClient(&http.Client{}),
+						replicaMetrics,
+						logger,
+						func() string { return "Delete" }),
 				},
 				shardCreateLocks: esync.NewKeyRWLocker(),
 				Config:           IndexConfig{ClassName: schema.ClassName("Abc")},
-				replicaClient:    clients.NewReplicationClient(&http.Client{}),
 				metrics:          metrics,
-				replicaMetrics:   replicaMetrics,
 				logger:           logger,
 			}
 

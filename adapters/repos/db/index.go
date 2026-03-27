@@ -267,8 +267,6 @@ type Index struct {
 	shardCreateLocks *esync.KeyRWLocker
 
 	metrics          *Metrics
-	replicaMetrics   *replica.Metrics
-	replicaClient    replica.Client
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
@@ -362,11 +360,6 @@ func NewIndex(
 		return nil, fmt.Errorf("create metrics for index %q: %w", cfg.ClassName.String(), err)
 	}
 
-	replicaMetrics, err := replica.NewMetrics(promMetrics)
-	if err != nil {
-		return nil, fmt.Errorf("create replica metrics: %w", err)
-	}
-
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
@@ -382,8 +375,6 @@ func NewIndex(
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
-		replicaMetrics:          replicaMetrics,
-		replicaClient:           replicaClient,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
 		scheduler:               scheduler,
@@ -2632,46 +2623,11 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	for si := range shards {
 		shard := shards[si]
 		eg.Go(func() error {
-			// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
-			// That interface has a dozen methods and half of them belong to replica.RClient.
-			c := replica.NewReadCoordinator[int](
-				i.router,
-				i.replicaMetrics,
-				i.Config.ClassName.String(),
-				shard,
-				i.DeletionStrategy(),
-				i.logger,
-			)
-
-			// NOTE(dyma): Why do we need to pass both the context and the timeout?
-			results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
-				func(ctx context.Context, host string, _ bool) (int, error) {
-					count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
-					if err != nil {
-						i.logger.WithFields(logrus.Fields{
-							"shard": shard,
-							"host":  host,
-						}).Errorf("poll object count for count(*) aggregation: %v", err)
-					}
-					return count, nil
-				}, "", time.Minute)
+			count, err := i.replicator.CountObjects(ctx, shard, routerTypes.ConsistencyLevelAll)
 			if err != nil {
 				return err
 			}
-
-			// Fan in results from all concurrent Pull requests. It is safe
-			// to ignore Result[T].Err, as our func will swallow any errors.
-			var counts []int
-			for r := range results {
-				counts = append(counts, r.Value)
-			}
-
-			if len(counts) == 0 {
-				return fmt.Errorf("no nodes reported object count for shard %q", shard)
-			}
-
-			// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
-			total.Add(int32(reconcile(counts)))
+			total.Add(int32(count))
 			return nil
 		})
 	}
@@ -2681,42 +2637,6 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	}
 
 	return &aggregation.Result{Groups: []aggregation.Group{{Count: int(total.Load())}}}, nil
-}
-
-// reconcile aggregates map's values with the appropriate statistic, such that
-// the returned values is always contained within the input set. If possible,
-// we try to calculate the mode.
-//
-// If we can't calculate the mode, we fallback to median. We can only calculate
-// the true median for an odd-numbered set. If a set has even number of elemets
-// of which none is a mode, then the median would be calculated as an average,
-// which is not contained in the set. In that case we pick the lower value of
-// the two "candidate" values.
-func reconcile(counts []int) int {
-	var mode int
-	var modeHits int
-	hits := make(map[int]int)
-
-	var median int
-	medianIdx := len(counts) / 2
-
-	slices.Sort(counts)
-	for i, count := range counts {
-		hits[count]++
-		if h := hits[count]; h > modeHits {
-			mode = count
-			modeHits = h
-		}
-
-		if i == medianIdx {
-			median = count
-		}
-	}
-
-	if modeHits > 1 {
-		return mode
-	}
-	return median
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
