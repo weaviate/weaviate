@@ -2,6 +2,7 @@ import json
 import urllib.request
 import urllib.error
 from typing import Any
+import os
 
 import pytest
 import weaviate
@@ -9,15 +10,25 @@ import weaviate.classes as wvc
 from weaviate.collections.classes.config import Property, DataType, Configure
 
 
-WEAVIATE_URL = "http://localhost:8080"
+WEAVIATE_URL = os.environ.get("WEAVIATE_URL", "http://localhost:8080")
 
 
-def post_json(url: str, data: dict[str, Any]) -> tuple[int, dict[str, Any] | None]:
+REQUEST_TIMEOUT = 10.0
+def post_json(
+    url: str,
+    data: dict[str, Any],
+    timeout: float = REQUEST_TIMEOUT,
+) -> tuple[int, dict[str, Any] | None]:
     """POST JSON using urllib and return (status_code, parsed_body_or_None)."""
     body = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
         resp_body = None
