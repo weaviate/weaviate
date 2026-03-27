@@ -2642,7 +2642,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 			for _, shard := range shards[from:to] {
 				// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
 				// That interface has a dozen methods and half of them belong to replica.RClient.
-				c := replica.NewReadCoordinator[any](
+				c := replica.NewReadCoordinator[int](
 					i.router,
 					i.replicaMetrics,
 					i.Config.ClassName.String(),
@@ -2651,12 +2651,9 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 					i.logger,
 				)
 
-				var mux sync.Mutex // synchronizes access in coordinator.Pull.
-				var counts []int
-
 				// NOTE(dyma): Why do we need to pass both the context and the timeout?
 				results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
-					func(ctx context.Context, host string, _ bool) (any, error) {
+					func(ctx context.Context, host string, _ bool) (int, error) {
 						count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
 						if err != nil {
 							i.logger.WithFields(logrus.Fields{
@@ -2664,10 +2661,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 								"host":  host,
 							}).Errorf("poll object count for count(*) aggregation: %v", err)
 						}
-						mux.Lock()
-						counts = append(counts, count)
-						mux.Unlock()
-						return nil, nil
+						return count, nil
 					}, "", time.Minute)
 				if err != nil {
 					return err
@@ -2675,7 +2669,9 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 
 				// Fan in results from all concurrent Pull requests. It is safe
 				// to ignore Result[T].Err, as our func will swallow any errors.
-				for range results {
+				var counts []int
+				for r := range results {
+					counts = append(counts, r.Value)
 				}
 
 				if len(counts) == 0 {
