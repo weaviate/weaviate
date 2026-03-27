@@ -58,6 +58,18 @@ func (o *TokenizeReader) ReadResponse(response runtime.ClientResponse, consumer 
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewTokenizeUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 500:
+		result := NewTokenizeInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -300,6 +312,142 @@ func (o *TokenizeForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *TokenizeForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewTokenizeUnprocessableEntity creates a TokenizeUnprocessableEntity with default headers values
+func NewTokenizeUnprocessableEntity() *TokenizeUnprocessableEntity {
+	return &TokenizeUnprocessableEntity{}
+}
+
+/*
+TokenizeUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request binding or validation error. Check the ErrorResponse for details.
+*/
+type TokenizeUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this tokenize unprocessable entity response has a 2xx status code
+func (o *TokenizeUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this tokenize unprocessable entity response has a 3xx status code
+func (o *TokenizeUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this tokenize unprocessable entity response has a 4xx status code
+func (o *TokenizeUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this tokenize unprocessable entity response has a 5xx status code
+func (o *TokenizeUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this tokenize unprocessable entity response a status code equal to that given
+func (o *TokenizeUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the tokenize unprocessable entity response
+func (o *TokenizeUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *TokenizeUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /tokenize][%d] tokenizeUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *TokenizeUnprocessableEntity) String() string {
+	return fmt.Sprintf("[POST /tokenize][%d] tokenizeUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *TokenizeUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *TokenizeUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewTokenizeInternalServerError creates a TokenizeInternalServerError with default headers values
+func NewTokenizeInternalServerError() *TokenizeInternalServerError {
+	return &TokenizeInternalServerError{}
+}
+
+/*
+TokenizeInternalServerError describes a response with status code 500, with default header values.
+
+An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.
+*/
+type TokenizeInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this tokenize internal server error response has a 2xx status code
+func (o *TokenizeInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this tokenize internal server error response has a 3xx status code
+func (o *TokenizeInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this tokenize internal server error response has a 4xx status code
+func (o *TokenizeInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this tokenize internal server error response has a 5xx status code
+func (o *TokenizeInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this tokenize internal server error response a status code equal to that given
+func (o *TokenizeInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the tokenize internal server error response
+func (o *TokenizeInternalServerError) Code() int {
+	return 500
+}
+
+func (o *TokenizeInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /tokenize][%d] tokenizeInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *TokenizeInternalServerError) String() string {
+	return fmt.Sprintf("[POST /tokenize][%d] tokenizeInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *TokenizeInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *TokenizeInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

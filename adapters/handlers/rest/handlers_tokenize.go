@@ -80,7 +80,8 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 			return schemaops.NewSchemaObjectsPropertiesTokenizeForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
-		return schemaops.NewSchemaObjectsPropertiesTokenizeBadRequest()
+		return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	class := schemaManager.ReadOnlyClass(className)

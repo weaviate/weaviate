@@ -64,6 +64,18 @@ func (o *SchemaObjectsPropertiesTokenizeReader) ReadResponse(response runtime.Cl
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewSchemaObjectsPropertiesTokenizeUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 500:
+		result := NewSchemaObjectsPropertiesTokenizeInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -369,6 +381,142 @@ func (o *SchemaObjectsPropertiesTokenizeNotFound) String() string {
 }
 
 func (o *SchemaObjectsPropertiesTokenizeNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewSchemaObjectsPropertiesTokenizeUnprocessableEntity creates a SchemaObjectsPropertiesTokenizeUnprocessableEntity with default headers values
+func NewSchemaObjectsPropertiesTokenizeUnprocessableEntity() *SchemaObjectsPropertiesTokenizeUnprocessableEntity {
+	return &SchemaObjectsPropertiesTokenizeUnprocessableEntity{}
+}
+
+/*
+SchemaObjectsPropertiesTokenizeUnprocessableEntity describes a response with status code 422, with default header values.
+
+Validation error, such as invalid class or property configuration for tokenization.
+*/
+type SchemaObjectsPropertiesTokenizeUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this schema objects properties tokenize unprocessable entity response has a 2xx status code
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects properties tokenize unprocessable entity response has a 3xx status code
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects properties tokenize unprocessable entity response has a 4xx status code
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects properties tokenize unprocessable entity response has a 5xx status code
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects properties tokenize unprocessable entity response a status code equal to that given
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the schema objects properties tokenize unprocessable entity response
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/tokenize][%d] schemaObjectsPropertiesTokenizeUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) String() string {
+	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/tokenize][%d] schemaObjectsPropertiesTokenizeUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewSchemaObjectsPropertiesTokenizeInternalServerError creates a SchemaObjectsPropertiesTokenizeInternalServerError with default headers values
+func NewSchemaObjectsPropertiesTokenizeInternalServerError() *SchemaObjectsPropertiesTokenizeInternalServerError {
+	return &SchemaObjectsPropertiesTokenizeInternalServerError{}
+}
+
+/*
+SchemaObjectsPropertiesTokenizeInternalServerError describes a response with status code 500, with default header values.
+
+Unexpected server error while tokenizing the text.
+*/
+type SchemaObjectsPropertiesTokenizeInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this schema objects properties tokenize internal server error response has a 2xx status code
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects properties tokenize internal server error response has a 3xx status code
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects properties tokenize internal server error response has a 4xx status code
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects properties tokenize internal server error response has a 5xx status code
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this schema objects properties tokenize internal server error response a status code equal to that given
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the schema objects properties tokenize internal server error response
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) Code() int {
+	return 500
+}
+
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/tokenize][%d] schemaObjectsPropertiesTokenizeInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) String() string {
+	return fmt.Sprintf("[POST /schema/{className}/properties/{propertyName}/tokenize][%d] schemaObjectsPropertiesTokenizeInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

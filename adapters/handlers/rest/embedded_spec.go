@@ -5351,6 +5351,18 @@ func init() {
           },
           "404": {
             "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -5914,6 +5926,18 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15608,6 +15632,18 @@ func init() {
           },
           "404": {
             "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -16171,6 +16207,18 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

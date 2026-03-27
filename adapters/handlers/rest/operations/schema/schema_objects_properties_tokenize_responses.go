@@ -188,3 +188,93 @@ func (o *SchemaObjectsPropertiesTokenizeNotFound) WriteResponse(rw http.Response
 
 	rw.WriteHeader(404)
 }
+
+// SchemaObjectsPropertiesTokenizeUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsPropertiesTokenizeUnprocessableEntity
+const SchemaObjectsPropertiesTokenizeUnprocessableEntityCode int = 422
+
+/*
+SchemaObjectsPropertiesTokenizeUnprocessableEntity Validation error, such as invalid class or property configuration for tokenization.
+
+swagger:response schemaObjectsPropertiesTokenizeUnprocessableEntity
+*/
+type SchemaObjectsPropertiesTokenizeUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsPropertiesTokenizeUnprocessableEntity creates SchemaObjectsPropertiesTokenizeUnprocessableEntity with default headers values
+func NewSchemaObjectsPropertiesTokenizeUnprocessableEntity() *SchemaObjectsPropertiesTokenizeUnprocessableEntity {
+
+	return &SchemaObjectsPropertiesTokenizeUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the schema objects properties tokenize unprocessable entity response
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *SchemaObjectsPropertiesTokenizeUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects properties tokenize unprocessable entity response
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsPropertiesTokenizeUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// SchemaObjectsPropertiesTokenizeInternalServerErrorCode is the HTTP code returned for type SchemaObjectsPropertiesTokenizeInternalServerError
+const SchemaObjectsPropertiesTokenizeInternalServerErrorCode int = 500
+
+/*
+SchemaObjectsPropertiesTokenizeInternalServerError Unexpected server error while tokenizing the text.
+
+swagger:response schemaObjectsPropertiesTokenizeInternalServerError
+*/
+type SchemaObjectsPropertiesTokenizeInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsPropertiesTokenizeInternalServerError creates SchemaObjectsPropertiesTokenizeInternalServerError with default headers values
+func NewSchemaObjectsPropertiesTokenizeInternalServerError() *SchemaObjectsPropertiesTokenizeInternalServerError {
+
+	return &SchemaObjectsPropertiesTokenizeInternalServerError{}
+}
+
+// WithPayload adds the payload to the schema objects properties tokenize internal server error response
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) WithPayload(payload *models.ErrorResponse) *SchemaObjectsPropertiesTokenizeInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects properties tokenize internal server error response
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsPropertiesTokenizeInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -163,3 +163,93 @@ func (o *TokenizeForbidden) WriteResponse(rw http.ResponseWriter, producer runti
 		}
 	}
 }
+
+// TokenizeUnprocessableEntityCode is the HTTP code returned for type TokenizeUnprocessableEntity
+const TokenizeUnprocessableEntityCode int = 422
+
+/*
+TokenizeUnprocessableEntity Request binding or validation error. Check the ErrorResponse for details.
+
+swagger:response tokenizeUnprocessableEntity
+*/
+type TokenizeUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewTokenizeUnprocessableEntity creates TokenizeUnprocessableEntity with default headers values
+func NewTokenizeUnprocessableEntity() *TokenizeUnprocessableEntity {
+
+	return &TokenizeUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the tokenize unprocessable entity response
+func (o *TokenizeUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *TokenizeUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the tokenize unprocessable entity response
+func (o *TokenizeUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *TokenizeUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// TokenizeInternalServerErrorCode is the HTTP code returned for type TokenizeInternalServerError
+const TokenizeInternalServerErrorCode int = 500
+
+/*
+TokenizeInternalServerError An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.
+
+swagger:response tokenizeInternalServerError
+*/
+type TokenizeInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewTokenizeInternalServerError creates TokenizeInternalServerError with default headers values
+func NewTokenizeInternalServerError() *TokenizeInternalServerError {
+
+	return &TokenizeInternalServerError{}
+}
+
+// WithPayload adds the payload to the tokenize internal server error response
+func (o *TokenizeInternalServerError) WithPayload(payload *models.ErrorResponse) *TokenizeInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the tokenize internal server error response
+func (o *TokenizeInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *TokenizeInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
