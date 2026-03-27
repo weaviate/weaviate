@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -91,7 +92,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to get gRPC port for source node: %w", err)
 	}
 
-	client, err := c.clientFactory(ctx, fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort))
+	client, err := c.clientFactory(ctx, net.JoinHostPort(sourceNodeAddress, fmt.Sprintf("%d", sourceNodeGRPCPort)))
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}

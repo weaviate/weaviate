@@ -49,6 +49,7 @@ func testMulti2VecGoogleAIStudio(host, vectorizerName string) func(t *testing.T)
 				name:        "gemini-embedding-2-preview",
 				model:       "gemini-embedding-2-preview",
 				apiEndpoint: "generativelanguage.googleapis.com",
+				withAudio:   true,
 			},
 		}
 		for _, tt := range tests {
@@ -62,6 +63,7 @@ type testCase struct {
 	model        string
 	apiEndpoint  string
 	withoutVideo bool
+	withAudio    bool
 }
 
 func multimodalTests(tt testCase, gcpProject, location, vectorizerName string) func(t *testing.T) {
@@ -119,7 +121,7 @@ func multimodalTests(tt testCase, gcpProject, location, vectorizerName string) f
 
 		// Define class
 		className := "GoogleClipTest"
-		class := multimodal.BaseClass(className, true)
+		class := multimodal.BaseClass(className, !tt.withoutVideo, tt.withAudio)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip_google": {
 				Vectorizer: map[string]any{
@@ -166,18 +168,41 @@ func multimodalTests(tt testCase, gcpProject, location, vectorizerName string) f
 				VectorIndexType: "flat",
 			}
 		}
+		if tt.withAudio {
+			clipGoogleAudioSettings := map[string]any{
+				"audioFields":        []any{multimodal.PropertyAudio},
+				"vectorizeClassName": false,
+				"location":           location,
+				"projectId":          gcpProject,
+			}
+			if tt.model != "" {
+				clipGoogleAudioSettings["model"] = tt.model
+			}
+			if tt.apiEndpoint != "" {
+				clipGoogleAudioSettings["apiEndpoint"] = tt.apiEndpoint
+			}
+			class.VectorConfig["clip_google_audio"] = models.VectorConfig{
+				Vectorizer: map[string]any{
+					vectorizerName: clipGoogleAudioSettings,
+				},
+				VectorIndexType: "flat",
+			}
+		}
 		// create schema
 		helper.CreateClass(t, class)
 		defer helper.DeleteClass(t, class.Class)
 
 		t.Run("import data", func(t *testing.T) {
-			multimodal.InsertObjects(t, dataFolderPath, class.Class, true)
+			multimodal.InsertObjects(t, dataFolderPath, class.Class, !tt.withoutVideo, tt.withAudio)
 		})
 
 		t.Run("check objects", func(t *testing.T) {
 			vectorNames := []string{"clip_google", "clip_google_128", "clip_google_256", "clip_google_weights"}
 			if !tt.withoutVideo {
 				vectorNames = append(vectorNames, "clip_google_video")
+			}
+			if tt.withAudio {
+				vectorNames = append(vectorNames, "clip_google_audio")
 			}
 			multimodal.CheckObjects(t, dataFolderPath, class.Class, vectorNames, nil)
 		})
@@ -203,6 +228,9 @@ func multimodalTests(tt testCase, gcpProject, location, vectorizerName string) f
 			if !tt.withoutVideo {
 				targetVectors["clip_google_video"] = defaultDimensions
 			}
+			if tt.withAudio {
+				targetVectors["clip_google_audio"] = defaultDimensions
+			}
 			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
 		})
 
@@ -225,6 +253,33 @@ func multimodalTests(tt testCase, gcpProject, location, vectorizerName string) f
 					"clip_google_256":     256,
 					"clip_google_video":   defaultDimensions,
 					"clip_google_weights": 512,
+				}
+				if tt.withAudio {
+					targetVectors["clip_google_audio"] = defaultDimensions
+				}
+				multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
+			})
+		}
+		if tt.withAudio {
+			t.Run("nearAudio", func(t *testing.T) {
+				blob, err := multimodal.GetAudioBlob(dataFolderPath, 2)
+				require.NoError(t, err)
+				targetVector := "clip_google_audio"
+				nearMediaArgument := fmt.Sprintf(`
+						nearAudio: {
+							audio: "%s"
+							targetVectors: ["%s"]
+						}
+					`, blob, targetVector)
+				titleProperty := multimodal.PropertyAudioTitle
+				titlePropertyValue := "ocean"
+				targetVectors := map[string]int{
+					"clip_google":         defaultDimensions,
+					"clip_google_128":     128,
+					"clip_google_256":     256,
+					"clip_google_video":   defaultDimensions,
+					"clip_google_weights": 512,
+					"clip_google_audio":   defaultDimensions,
 				}
 				multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
 			})

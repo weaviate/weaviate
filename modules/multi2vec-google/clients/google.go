@@ -59,42 +59,45 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 }
 
 func (v *google) Vectorize(ctx context.Context,
-	texts, images, videos []string, config ent.VectorizationConfig,
+	texts, images, videos, audios []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, texts, images, videos, config)
+	return v.vectorize(ctx, texts, images, videos, audios, config)
 }
 
 func (v *google) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, nil, nil, config)
+	return v.vectorize(ctx, input, nil, nil, nil, config)
 }
 
 func (v *google) vectorize(ctx context.Context,
-	texts, images, videos []string, config ent.VectorizationConfig,
+	texts, images, videos, audios []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	var textEmbeddings [][]float32
 	var imageEmbeddings [][]float32
 	var videoEmbeddings [][]float32
+	var audioEmbeddings [][]float32
 	endpointURL := v.getURL(config)
-	maxCount := max(len(texts), len(images), len(videos))
+	maxCount := max(len(texts), len(images), len(videos), len(audios))
 	for i := 0; i < maxCount; i++ {
 		text := v.safelyGet(texts, i)
 		image := v.safelyGet(images, i)
 		video := v.safelyGet(videos, i)
-		payload := v.getPayload(text, image, video, config)
+		audio := v.safelyGet(audios, i)
+		payload := v.getPayload(text, image, video, audio, config)
 		statusCode, res, err := v.sendRequest(ctx, endpointURL, payload, config)
 		if err != nil {
 			return nil, err
 		}
 
-		var textVectors, imageVectors, videoVectors [][]float32
+		var textVectors, imageVectors, videoVectors, audioVectors [][]float32
 		if v.useGeminiApi(config) {
-			textVectors, imageVectors, videoVectors, err = v.getEmbeddingsFromGeminiResponse(statusCode, res, text, image, video)
+			textVectors, imageVectors, videoVectors, audioVectors, err = v.getEmbeddingsFromGeminiResponse(statusCode, res, text, image, video, audio)
 			if err != nil {
 				return nil, err
 			}
 		} else {
+			// Vertex AI doesn't support audio files
 			textVectors, imageVectors, videoVectors, err = v.getEmbeddingsFromVertexResponse(statusCode, res)
 			if err != nil {
 				return nil, err
@@ -104,9 +107,10 @@ func (v *google) vectorize(ctx context.Context,
 		textEmbeddings = append(textEmbeddings, textVectors...)
 		imageEmbeddings = append(imageEmbeddings, imageVectors...)
 		videoEmbeddings = append(videoEmbeddings, videoVectors...)
+		audioEmbeddings = append(audioEmbeddings, audioVectors...)
 	}
 
-	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings)
+	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings, audioEmbeddings)
 }
 
 func (v *google) safelyGet(input []string, i int) string {
@@ -164,14 +168,14 @@ func (v *google) useGeminiApi(config ent.VectorizationConfig) bool {
 	return config.ApiEndpoint == "generativelanguage.googleapis.com"
 }
 
-func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfig) any {
+func (v *google) getPayload(text, img, vid, audio string, config ent.VectorizationConfig) any {
 	if v.useGeminiApi(config) {
-		return v.getGeminiPayload(text, img, vid, config)
+		return v.getGeminiPayload(text, img, vid, audio, config)
 	}
-	return v.getVertexPayload(text, img, vid, config)
+	return v.getVertexPayload(text, img, vid, audio, config)
 }
 
-func (v *google) getVertexPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
+func (v *google) getVertexPayload(text, img, vid, audio string, config ent.VectorizationConfig) embeddingsRequest {
 	inst := instance{}
 	if text != "" {
 		inst.Text = &text
@@ -194,7 +198,7 @@ func (v *google) getVertexPayload(text, img, vid string, config ent.Vectorizatio
 	return req
 }
 
-func (v *google) getGeminiPayload(text, img, vid string, config ent.VectorizationConfig) *batchEmbedContents {
+func (v *google) getGeminiPayload(text, img, vid, audio string, config ent.VectorizationConfig) *batchEmbedContents {
 	var parts []contentPart
 	if text != "" {
 		parts = append(parts, contentPart{Text: &text})
@@ -204,6 +208,9 @@ func (v *google) getGeminiPayload(text, img, vid string, config ent.Vectorizatio
 	}
 	if vid != "" {
 		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "video/mp4", Data: vid}})
+	}
+	if audio != "" {
+		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "audio/mpeg", Data: audio}})
 	}
 
 	var requests []embedContentRequest
@@ -278,26 +285,27 @@ func (v *google) getEmbeddingsFromVertexResponse(statusCode int, bodyBytes []byt
 }
 
 func (v *google) getEmbeddingsFromGeminiResponse(statusCode int, bodyBytes []byte,
-	text, image, video string,
+	text, image, video, audio string,
 ) (
 	textEmbeddings [][]float32,
 	imageEmbeddings [][]float32,
 	videoEmbeddings [][]float32,
+	audioEmbeddings [][]float32,
 	err error,
 ) {
 	var resBody batchEmbedResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
 		err = respErr
-		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
+		return nil, nil, nil, nil, err
 	}
 
 	if len(resBody.Embeddings) == 0 {
 		err = errors.Errorf("empty embeddings response")
-		return textEmbeddings, imageEmbeddings, videoEmbeddings, err
+		return nil, nil, nil, nil, err
 	}
 
 	for _, p := range resBody.Embeddings {
@@ -307,16 +315,19 @@ func (v *google) getEmbeddingsFromGeminiResponse(statusCode int, bodyBytes []byt
 			imageEmbeddings = append(imageEmbeddings, p.Values)
 		} else if video != "" && len(videoEmbeddings) == 0 {
 			videoEmbeddings = append(videoEmbeddings, p.Values)
+		} else if audio != "" && len(audioEmbeddings) == 0 {
+			audioEmbeddings = append(audioEmbeddings, p.Values)
 		}
 	}
-	return textEmbeddings, imageEmbeddings, videoEmbeddings, err
+	return textEmbeddings, imageEmbeddings, videoEmbeddings, audioEmbeddings, err
 }
 
-func (v *google) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {
+func (v *google) getResponse(textVectors, imageVectors, videoVectors, audioVectors [][]float32) (*ent.VectorizationResult, error) {
 	return &ent.VectorizationResult{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
 		VideoVectors: videoVectors,
+		AudioVectors: audioVectors,
 	}, nil
 }
 

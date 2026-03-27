@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -27,7 +28,7 @@ const hnswT = vectorindex.VectorIndexTypeHNSW
 
 func TestParser(t *testing.T) {
 	cs := fakes.NewFakeClusterState()
-	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil)
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
 	vic := enthnsw.NewDefaultUserConfig()
@@ -183,4 +184,78 @@ func (m fakeModulesProvider) IsMultiVector(name string) bool {
 
 func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
 	return false
+}
+
+func TestParserDefaultShardingCount(t *testing.T) {
+	t.Run("zero means use node count", func(t *testing.T) {
+		cs := fakes.NewFakeClusterState()
+		dsc := configRuntime.NewDynamicValue(0)
+		p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+
+		class := &models.Class{Class: "Test", VectorIndexType: hnswT}
+		err := p.ParseClass(class)
+		require.NoError(t, err)
+
+		sc := class.ShardingConfig.(config.Config)
+		require.Equal(t, cs.NodeCount(), sc.DesiredCount)
+	})
+
+	t.Run("override with 12", func(t *testing.T) {
+		cs := fakes.NewFakeClusterState()
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+
+		class := &models.Class{Class: "Test", VectorIndexType: hnswT}
+		err := p.ParseClass(class)
+		require.NoError(t, err)
+
+		sc := class.ShardingConfig.(config.Config)
+		require.Equal(t, 12, sc.DesiredCount)
+	})
+
+	t.Run("user explicit desiredCount wins over override", func(t *testing.T) {
+		cs := fakes.NewFakeClusterState()
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+
+		class := &models.Class{
+			Class:           "Test",
+			VectorIndexType: hnswT,
+			ShardingConfig:  map[string]interface{}{"desiredCount": 5},
+		}
+		err := p.ParseClass(class)
+		require.NoError(t, err)
+
+		sc := class.ShardingConfig.(config.Config)
+		require.Equal(t, 5, sc.DesiredCount)
+	})
+
+	t.Run("nil defaultShardingCount uses node count", func(t *testing.T) {
+		cs := fakes.NewFakeClusterState()
+		p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+		class := &models.Class{Class: "Test", VectorIndexType: hnswT}
+		err := p.ParseClass(class)
+		require.NoError(t, err)
+
+		sc := class.ShardingConfig.(config.Config)
+		require.Equal(t, cs.NodeCount(), sc.DesiredCount)
+	})
+
+	t.Run("multi-tenancy unaffected by override", func(t *testing.T) {
+		cs := fakes.NewFakeClusterState()
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+
+		class := &models.Class{
+			Class:              "Test",
+			VectorIndexType:    hnswT,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		}
+		err := p.ParseClass(class)
+		require.NoError(t, err)
+
+		sc := class.ShardingConfig.(config.Config)
+		require.Equal(t, 0, sc.DesiredCount)
+	})
 }

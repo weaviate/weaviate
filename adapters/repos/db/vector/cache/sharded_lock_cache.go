@@ -18,6 +18,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
@@ -135,6 +136,10 @@ func (s *shardedLockCache[T]) All() [][]T {
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return nil, errors.Errorf("id %d is out of bounds", id)
+	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
 
@@ -457,6 +462,9 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 		if err != nil {
 			return nil, err
 		}
+		if relativeID >= uint64(len(vecs)) {
+			return nil, errors.Errorf("relativeID %d is out of bounds for docID %d", relativeID, id)
+		}
 		vec := vecs[relativeID]
 		if normalizeOnRead {
 			vec = distancer.Normalize(vec)
@@ -578,6 +586,10 @@ func (s *shardedMultipleLockCache[T]) GetKeysNoLock(id uint64) (uint64, uint64) 
 
 func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.cache) {
+		s.shardedLocks.RUnlock(id)
+		return nil, errors.Errorf("id %d is out of bounds", id)
+	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
 

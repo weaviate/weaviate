@@ -166,6 +166,35 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	}, s.index.logger)
 }
 
+// CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
+// a staging directory, then immediately resumes compaction. This minimizes the
+// compaction pause to just the time needed for enumeration and hardlink creation
+// (typically 2-5s), rather than blocking for the entire upload duration.
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+		return nil, fmt.Errorf("halt for snapshot: %w", err)
+	}
+	defer s.resumeMaintenanceCycles(ctx)
+
+	files, err := s.ListBackupFiles(ctx, sd)
+	if err != nil {
+		return nil, fmt.Errorf("list backup files: %w", err)
+	}
+
+	for _, relPath := range files {
+		src := filepath.Join(s.index.Config.RootPath, relPath)
+		dst := filepath.Join(stagingRoot, relPath)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+		}
+		if err := os.Link(src, dst); err != nil {
+			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
+		}
+	}
+
+	return files, nil
+}
+
 // ListBackupFiles lists all files used to backup a shard
 func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	s.haltForTransferMux.Lock()

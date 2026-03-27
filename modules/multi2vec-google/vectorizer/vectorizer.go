@@ -37,7 +37,7 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images, videos []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		texts, images, videos, audios []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
 type ClassSettings interface {
@@ -47,6 +47,8 @@ type ClassSettings interface {
 	TextFieldsWeights() ([]float32, error)
 	VideoField(property string) bool
 	VideoFieldsWeights() ([]float32, error)
+	AudioField(property string) bool
+	AudioFieldsWeights() ([]float32, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -57,7 +59,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, nil, []string{image}, nil, v.getVectorizationConfig(cfg))
+	res, err := v.client.Vectorize(ctx, nil, []string{image}, nil, nil, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +73,7 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 func (v *Vectorizer) VectorizeVideo(ctx context.Context,
 	video string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, nil, nil, []string{video}, v.getVectorizationConfig(cfg))
+	res, err := v.client.Vectorize(ctx, nil, nil, []string{video}, nil, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +82,20 @@ func (v *Vectorizer) VectorizeVideo(ctx context.Context,
 	}
 
 	return res.VideoVectors[0], nil
+}
+
+func (v *Vectorizer) VectorizeAudio(ctx context.Context,
+	audio string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, nil, nil, nil, []string{audio}, v.getVectorizationConfig(cfg))
+	if err != nil {
+		return nil, err
+	}
+	if len(res.AudioVectors) != 1 {
+		return nil, errors.New("empty vector")
+	}
+
+	return res.AudioVectors[0], nil
 }
 
 func (v *Vectorizer) object(ctx context.Context, object *models.Object,
@@ -91,6 +107,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	texts := []string{}
 	images := []string{}
 	videos := []string{}
+	audios := []string{}
 
 	if object.Properties != nil {
 		schemamap := object.Properties.(map[string]interface{})
@@ -106,6 +123,9 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 				if ichek.VideoField(propName) {
 					videos = append(videos, val)
 				}
+				if ichek.AudioField(propName) {
+					audios = append(audios, val)
+				}
 
 			case []string:
 				if ichek.TextField(propName) {
@@ -119,14 +139,15 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 	}
 
 	vectors := [][]float32{}
-	if len(texts) > 0 || len(images) > 0 || len(videos) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images, videos, v.getVectorizationConfig(cfg))
+	if len(texts) > 0 || len(images) > 0 || len(videos) > 0 || len(audios) > 0 {
+		res, err := v.client.Vectorize(ctx, texts, images, videos, audios, v.getVectorizationConfig(cfg))
 		if err != nil {
 			return nil, err
 		}
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
 		vectors = append(vectors, res.VideoVectors...)
+		vectors = append(vectors, res.AudioVectors...)
 	}
 	weights, err := v.getWeights(ichek)
 	if err != nil {
@@ -150,10 +171,15 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
+	audioFieldsWeights, err := ichek.AudioFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
 
 	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, imageFieldsWeights...)
 	weights = append(weights, videoFieldsWeights...)
+	weights = append(weights, audioFieldsWeights...)
 
 	normalizedWeights := v.normalizeWeights(weights)
 

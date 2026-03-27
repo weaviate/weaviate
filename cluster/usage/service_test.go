@@ -210,7 +210,8 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
 		},
-	).Maybe()
+	)
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(className).Return(len(shardingState.Physical), nil)
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})
@@ -218,10 +219,13 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	repo.SetSchemaReader(mockSchemaReader)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
+	logger, _ := logrus.NewNullLogger()
+	migrator := db.NewMigrator(repo, logger, nodeName)
+	require.NoError(t, migrator.LoadShard(context.Background(), class.Class, hotTenant))
+
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
-	logger, _ := logrus.NewNullLogger()
 	service := NewService(mockSchema, repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
@@ -603,6 +607,16 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 		return readFunc(class, shardingState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		names := make([]string, 0, len(shardingState.Physical))
+		for name := range shardingState.Physical {
+			names = append(names, name)
+		}
+		return names, nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).RunAndReturn(func(className string) (int, error) {
+		return len(shardingState.Physical), nil
+	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	logger, _ := logrus.NewNullLogger()
 	repo, err := db.New(logger, nodeName, db.Config{

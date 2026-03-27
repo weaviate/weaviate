@@ -60,6 +60,12 @@ const (
 var DefaultUsingBlockMaxWAND = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
 
 const (
+	// Lazy load shard auto-detection thresholds
+	DefaultLazyLoadShardCountThreshold  = 1000
+	DefaultLazyLoadShardSizeThresholdGB = 100.0 // 100GB
+)
+
+const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 
 	DefaultDiskUseWarningPercentage  = uint64(80)
@@ -146,6 +152,8 @@ type Config struct {
 	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	EnableLazyLoadShards                bool                     `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold         int                      `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB        float64                  `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
@@ -220,6 +228,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this shard count instead of the cluster node count.
+	// A value of 0 means use the cluster node count (default behavior).
+	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
+
 	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
 	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
 
@@ -252,6 +264,9 @@ type Config struct {
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
+	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
 type MapToBlockamaxConfig struct {
