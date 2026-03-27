@@ -2626,61 +2626,52 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
 	var total atomic.Int32
 
-	workers := min(len(shards), runtime.GOMAXPROCS(0)*4) // Maximum concurrency.
-	perWorker := max(len(shards)/workers, 1)             // Base per-worker workload.
-	remainder := len(shards) % workers                   // Remaining workload to be split among the first N workers.
-
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
-	eg.SetLimit(workers)
+	eg.SetLimit(min(len(shards), runtime.GOMAXPROCS(0)*4))
 
-	for w := range workers {
-		from, to := w*perWorker, (w+1)*perWorker
-		if remainder > w && to < len(shards) {
-			to += 1
-		}
+	for si := range shards {
+		shard := shards[si]
 		eg.Go(func() error {
-			for _, shard := range shards[from:to] {
-				// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
-				// That interface has a dozen methods and half of them belong to replica.RClient.
-				c := replica.NewReadCoordinator[int](
-					i.router,
-					i.replicaMetrics,
-					i.Config.ClassName.String(),
-					shard,
-					i.DeletionStrategy(),
-					i.logger,
-				)
+			// NOTE(dyma): Why doesn't ReadCoordinator set the Client field??
+			// That interface has a dozen methods and half of them belong to replica.RClient.
+			c := replica.NewReadCoordinator[int](
+				i.router,
+				i.replicaMetrics,
+				i.Config.ClassName.String(),
+				shard,
+				i.DeletionStrategy(),
+				i.logger,
+			)
 
-				// NOTE(dyma): Why do we need to pass both the context and the timeout?
-				results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
-					func(ctx context.Context, host string, _ bool) (int, error) {
-						count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
-						if err != nil {
-							i.logger.WithFields(logrus.Fields{
-								"shard": shard,
-								"host":  host,
-							}).Errorf("poll object count for count(*) aggregation: %v", err)
-						}
-						return count, nil
-					}, "", time.Minute)
-				if err != nil {
-					return err
-				}
-
-				// Fan in results from all concurrent Pull requests. It is safe
-				// to ignore Result[T].Err, as our func will swallow any errors.
-				var counts []int
-				for r := range results {
-					counts = append(counts, r.Value)
-				}
-
-				if len(counts) == 0 {
-					return fmt.Errorf("no nodes reported object count for shard %q", shard)
-				}
-
-				// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
-				total.Add(int32(reconcile(counts)))
+			// NOTE(dyma): Why do we need to pass both the context and the timeout?
+			results, _, err := c.Pull(ctx, routerTypes.ConsistencyLevelAll,
+				func(ctx context.Context, host string, _ bool) (int, error) {
+					count, err := i.replicaClient.CountObjects(ctx, host, i.Config.ClassName.String(), shard)
+					if err != nil {
+						i.logger.WithFields(logrus.Fields{
+							"shard": shard,
+							"host":  host,
+						}).Errorf("poll object count for count(*) aggregation: %v", err)
+					}
+					return count, nil
+				}, "", time.Minute)
+			if err != nil {
+				return err
 			}
+
+			// Fan in results from all concurrent Pull requests. It is safe
+			// to ignore Result[T].Err, as our func will swallow any errors.
+			var counts []int
+			for r := range results {
+				counts = append(counts, r.Value)
+			}
+
+			if len(counts) == 0 {
+				return fmt.Errorf("no nodes reported object count for shard %q", shard)
+			}
+
+			// Here counts is accessed by a single goroutine, so we needn't acquire the lock.
+			total.Add(int32(reconcile(counts)))
 			return nil
 		})
 	}
