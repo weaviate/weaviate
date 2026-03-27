@@ -95,7 +95,7 @@ class TestPropertyTokenize:
 
     COLLECTION_NAME = "TokenizeTestCollection"
 
-    @pytest.fixture(autouse=True)
+    @pytest.fixture(autouse=True, scope="class")
     def setup_collection(self) -> None:
         client = weaviate.connect_to_local()
         try:
