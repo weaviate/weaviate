@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/usecases/highlight"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -502,6 +503,13 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		if params.AdditionalProperties.ExplainScore {
 			additionalProperties["explainScore"] = res.ExplainScore
+		}
+
+		if params.AdditionalProperties.Highlight {
+			highlights := e.computeHighlights(res, params)
+			if len(highlights) > 0 {
+				additionalProperties["highlight"] = highlights
+			}
 		}
 
 		if params.AdditionalProperties.Vector {
@@ -991,4 +999,55 @@ func (e *Explorer) usageOperationFromExploreParams(params ExploreParams) string 
 	}
 
 	return "n/a"
+}
+
+// computeHighlights generates highlighted text fragments for a search result.
+// It extracts the query string from BM25 or hybrid search params, tokenizes
+// it, then runs the highlighter against each text property in the result.
+func (e *Explorer) computeHighlights(res search.Result, params dto.GetParams) []additional.Highlight {
+	// Extract query string from keyword ranking or hybrid search params
+	query := ""
+	if params.KeywordRanking != nil {
+		query = params.KeywordRanking.Query
+	} else if params.HybridSearch != nil {
+		query = params.HybridSearch.Query
+	}
+
+	if query == "" {
+		return nil
+	}
+
+	queryTerms := highlight.TokenizeQuery(query)
+	if len(queryTerms) == 0 {
+		return nil
+	}
+
+	// Extract text properties from the result schema
+	schemaMap, ok := res.Schema.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	textProps := make(map[string]string)
+	for key, val := range schemaMap {
+		if key == "_additional" {
+			continue
+		}
+		if strVal, ok := val.(string); ok {
+			textProps[key] = strVal
+		}
+	}
+
+	if len(textProps) == 0 {
+		return nil
+	}
+
+	// Use the configured highlight settings or defaults
+	hlConfig := additional.DefaultHighlightConfig()
+	if params.AdditionalProperties.HighlightConfig != nil {
+		hlConfig = *params.AdditionalProperties.HighlightConfig
+	}
+
+	h := highlight.New(hlConfig)
+	return h.HighlightProperties(textProps, queryTerms)
 }
