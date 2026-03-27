@@ -86,7 +86,11 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				PrintStack(egw.logger)
+
+				// FIXME(dyma): this is racy if multiple goroutines fail at once.
+				// The errgroup.Group has a errOnce sync.Once guard for that.
 				egw.returnError = fmt.Errorf("panic occurred: %v", r)
+
 				egw.cancelCtx()
 			}
 		}
