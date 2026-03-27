@@ -14,7 +14,6 @@ package rest
 import (
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -27,8 +26,6 @@ import (
 func strPtr(s string) *string { return &s }
 
 func TestHandleGenericTokenize(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
 	tests := []struct {
 		name        string
 		body        *models.TokenizeRequest
@@ -119,7 +116,7 @@ func TestHandleGenericTokenize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params, logger)
+			resp := genericTokenize(params)
 
 			if tt.wantOK {
 				okResp, ok := resp.(*tokenizeops.TokenizeOK)
@@ -183,8 +180,6 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")
 	tokenizer.InitOptionalTokenizers()
 
-	logger, _ := test.NewNullLogger()
-
 	tests := []struct {
 		name        string
 		body        *models.TokenizeRequest
@@ -211,7 +206,7 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params, logger)
+			resp := genericTokenize(params)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
@@ -225,8 +220,6 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
 	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
 	tokenizer.InitOptionalTokenizers()
-
-	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
 		name        string
@@ -270,7 +263,7 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params, logger)
+			resp := genericTokenize(params)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")

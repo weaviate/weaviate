@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -20,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	schemaops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -30,16 +33,16 @@ import (
 func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, logger logrus.FieldLogger) {
 	api.TokenizeTokenizeHandler = tokenizeops.TokenizeHandlerFunc(
 		func(params tokenizeops.TokenizeParams, principal *models.Principal) middleware.Responder {
-			return genericTokenize(params, logger)
+			return genericTokenize(params)
 		})
 
 	api.SchemaSchemaObjectsPropertiesTokenizeHandler = schemaops.SchemaObjectsPropertiesTokenizeHandlerFunc(
 		func(params schemaops.SchemaObjectsPropertiesTokenizeParams, principal *models.Principal) middleware.Responder {
-			return propertyTokenize(params, schemaManager, logger)
+			return propertyTokenize(params, principal, schemaManager, logger)
 		})
 }
 
-func genericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogger) middleware.Responder {
+func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
 	query := make([]string, len(indexed))
 	copy(query, indexed)
@@ -63,9 +66,23 @@ func genericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogge
 }
 
 func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
-	schemaManager *schemaUC.Manager, logger logrus.FieldLogger,
+	principal *models.Principal, schemaManager *schemaUC.Manager, logger logrus.FieldLogger,
 ) middleware.Responder {
 	className := schema.UppercaseClassName(params.ClassName)
+
+	// Authorize: reading collection metadata (same as other schema read operations)
+	err := schemaManager.Authorizer.Authorize(
+		params.HTTPRequest.Context(), principal, authorization.READ,
+		authorization.CollectionsMetadata(className)...,
+	)
+	if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schemaops.NewSchemaObjectsPropertiesTokenizeForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+		return schemaops.NewSchemaObjectsPropertiesTokenizeBadRequest()
+	}
+
 	class := schemaManager.ReadOnlyClass(className)
 	if class == nil {
 		return schemaops.NewSchemaObjectsPropertiesTokenizeNotFound()
