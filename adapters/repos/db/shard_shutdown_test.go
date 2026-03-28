@@ -159,7 +159,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),

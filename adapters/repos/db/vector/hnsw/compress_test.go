@@ -931,3 +931,92 @@ func Test_NoRaceRQCompressAndPrefillCache(t *testing.T) {
 	index.PostStartup(ctx)
 	wg.Wait()
 }
+
+func Test_CompressSkipsTargetVectorNotFound(t *testing.T) {
+	tests := []struct {
+		name  string
+		pqCfg ent.PQConfig
+		sqCfg ent.SQConfig
+	}{
+		{
+			name: "PQ",
+			pqCfg: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeKMeans,
+					Distribution: ent.PQEncoderDistributionLogNormal,
+				},
+				TrainingLimit: 75,
+				Segments:      10,
+				Centroids:     5,
+			},
+		},
+		{
+			name: "SQ",
+			sqCfg: ent.SQConfig{
+				Enabled:       true,
+				TrainingLimit: 75,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dimensions := 20
+			vectorsSize := 100
+			vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, dimensions)
+			dist := distancer.NewL2SquaredProvider()
+			logger, _ := test.NewNullLogger()
+			ctx := context.Background()
+
+			uc := ent.UserConfig{}
+			uc.MaxConnections = 32
+			uc.EFConstruction = 64
+			uc.EF = 32
+			uc.VectorCacheMaxObjects = 10e12
+			uc.PQ = tc.pqCfg
+			uc.SQ = tc.sqCfg
+
+			// Half of the IDs return ErrNotFound to simulate objects where
+			// the target vector is missing (the shard converts
+			// ErrTargetVectorNotFound to ErrNotFound).
+			index, err := New(Config{
+				RootPath:              t.TempDir(),
+				ID:                    "target_vector_not_found",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      dist,
+				AllocChecker:          memwatch.NewDummyMonitor(),
+				MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					if int(id) >= len(vectors) {
+						return nil, storobj.NewErrNotFoundf(id, "out of range")
+					}
+					if id%2 == 0 {
+						return nil, storobj.NewErrNotFoundf(id, "target vector %q not found", "test_vector")
+					}
+					return vectors[int(id)], nil
+				},
+				GetViewThunk: func() common.BucketView {
+					return &noopBucketView{}
+				},
+				TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+					if id%2 == 0 {
+						return nil, storobj.NewErrNotFoundf(id, "target vector %q not found", "test_vector")
+					}
+					copy(container.Slice, vectors[int(id)])
+					return container.Slice, nil
+				},
+			}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.NoError(t, err)
+			defer index.Shutdown(context.Background())
+
+			require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+				return index.Add(ctx, uint64(id), vectors[id])
+			}))
+
+			err = index.compress(uc)
+			require.NoError(t, err, "compress should skip objects with missing target vectors")
+			assert.True(t, index.compressed.Load(), "index should be compressed")
+		})
+	}
+}

@@ -193,23 +193,23 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 		}, 360*time.Second, 2*time.Second)
 	})
 
-	// Extract node number from nodeToRemove (e.g., "node1" -> 1, "node2" -> 2)
-	nodeNumStr := strings.TrimPrefix(nodeToRemove, "node")
+	// Extract node number from nodeToRemove (e.g., "weaviate-0" -> 0, "weaviate-1" -> 1)
+	nodeNumStr := strings.TrimPrefix(nodeToRemove, "weaviate-")
 	nodeNum, err := strconv.Atoi(nodeNumStr)
 	require.NoError(t, err, "failed to parse node number from %q", nodeToRemove)
-	require.GreaterOrEqual(t, nodeNum, 1)
-	require.LessOrEqual(t, nodeNum, 3)
+	require.GreaterOrEqual(t, nodeNum, 0)
+	require.LessOrEqual(t, nodeNum, 2)
 
 	// Helper function to map node number to container name
-	// node1 -> "weaviate", node2 -> "weaviate2", node3 -> "weaviate3"
+	// weaviate-0 -> "weaviate-0", weaviate-1 -> "weaviate-1", weaviate-2 -> "weaviate-2"
 	nodeToContainerName := func(nodeNum int) string {
 		switch nodeNum {
+		case 0:
+			return docker.Weaviate0
 		case 1:
 			return docker.Weaviate1
 		case 2:
 			return docker.Weaviate2
-		case 3:
-			return docker.Weaviate3
 		default:
 			t.Fatalf("unexpected node number: %d", nodeNum)
 			return "" // unreachable, but satisfies compiler
@@ -220,7 +220,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 
 	t.Run("restart remaining cluster nodes", func(t *testing.T) {
 		// Restart all nodes except the removed one to ensure cluster stability
-		for i := 1; i <= 3; i++ {
+		for i := 0; i <= 2; i++ {
 			if i == nodeNum {
 				continue // Skip the removed node
 			}
@@ -246,20 +246,12 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 		// Collect objects from all remaining nodes (cluster-wide view), skipping the removed node.
 		idSet := make(map[string]struct{})
 
-		for i := 1; i <= 3; i++ {
+		for i := 0; i <= 2; i++ {
 			if i == nodeNum {
 				continue // skip removed node
 			}
 
-			var container *docker.DockerContainer
-			switch i {
-			case 1:
-				container = compose.GetWeaviate()
-			case 2:
-				container = compose.GetWeaviateNode2()
-			case 3:
-				container = compose.GetWeaviateNode3()
-			}
+			container := compose.GetWeaviateNode(i + 1)
 			if container == nil || container.URI() == "" {
 				continue
 			}

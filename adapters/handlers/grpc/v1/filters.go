@@ -13,6 +13,7 @@ package v1
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -145,39 +146,51 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
 
-		// correct the type of value when filtering on a float/int property but sending an int/float. This is easy to
-		// get wrong
-		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
-			val = float64(number)
-		}
-		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
-			val = int(number)
-			if float64(int(number)) != number {
-				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
-			}
-		}
-
-		// correct type for containsXXX in case users send int/float for a float/int array
-		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeNumber {
-			valSlice, ok := val.([]int)
-			if ok {
-				val64 := make([]float64, len(valSlice))
-				for i := 0; i < len(valSlice); i++ {
-					val64[i] = float64(valSlice[i])
+		// correct the type of value when filtering on a float/int property but sending an int/float/string. This is easy to
+		// get wrong for humans and agents alike (e.g. sending "2.3" as a filter on a number property)
+		if dataType == schema.DataTypeNumber {
+			switch v := val.(type) {
+			case int:
+				val = float64(v)
+			case string:
+				fVal, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					return filters.Clause{}, fmt.Errorf("expected a number value, but could not parse string '%v' as float: %w", v, err)
+				}
+				val = fVal
+			// correct type for containsXXX in case users send ints for a []number type
+			case []int:
+				if !returnFilter.Operator.IsContains() {
+					break
+				}
+				val64 := make([]float64, len(v))
+				for i := 0; i < len(v); i++ {
+					val64[i] = float64(v[i])
 				}
 				val = val64
 			}
 		}
-
-		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeInt {
-			valSlice, ok := val.([]float64)
-			if ok {
-				valInt := make([]int, len(valSlice))
-				for i := 0; i < len(valSlice); i++ {
-					if float64(int(valSlice[i])) != valSlice[i] {
-						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", valSlice[i])
+		if dataType == schema.DataTypeInt {
+			switch v := val.(type) {
+			case float64:
+				val = int(v)
+			case string:
+				fVal, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					return filters.Clause{}, fmt.Errorf("expected an integer value, but could not parse string '%v' as int: %w", v, err)
+				}
+				val = int(fVal)
+			// correct type for containsXXX in case users send floats for a []int type
+			case []float64:
+				if !returnFilter.Operator.IsContains() {
+					break
+				}
+				valInt := make([]int, len(v))
+				for i := 0; i < len(v); i++ {
+					if float64(int(v[i])) != v[i] {
+						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", v[i])
 					}
-					valInt[i] = int(valSlice[i])
+					valInt[i] = int(v[i])
 				}
 				val = valInt
 			}

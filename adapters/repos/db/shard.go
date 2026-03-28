@@ -126,6 +126,7 @@ type ShardLike interface {
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -226,6 +227,8 @@ type Shard struct {
 	queue         *VectorIndexQueue
 	vectorIndexes map[string]VectorIndex
 	queues        map[string]*VectorIndexQueue
+
+	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
