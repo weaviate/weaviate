@@ -448,14 +448,14 @@ func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
 // has error'd, it marks all objects which have not previously error'd yet with
 // the ctx error
 func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
-	if err := ctx.Err(); err != nil {
-		for i, err := range ob.errs {
-			if err == nil {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		for i, objErr := range ob.errs {
+			if objErr != nil {
 				// already has an error, ignore
 				continue
 			}
 
-			ob.errs[i] = errors.Wrapf(err,
+			ob.errs[i] = errors.Wrapf(ctxErr,
 				"inverted indexing complete, about to start vector indexing")
 		}
 
