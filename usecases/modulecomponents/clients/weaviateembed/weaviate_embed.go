@@ -64,9 +64,7 @@ type metadata struct {
 
 func New[T dto.Embedding](timeout time.Duration, defaultRPM, defaultTPM int) *Client[T] {
 	return &Client[T]{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		defaultRPM: defaultRPM,
 		defaultTPM: defaultTPM,
 	}

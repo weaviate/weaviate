@@ -30,14 +30,22 @@ import (
 
 func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+	backend := newWriteBlockingBackend()
 
-	// blockingSelector blocks in AcquireShardForExport until released
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+	// Use a real store so snapshots complete during Prepare and Commit
+	// proceeds to the scan phase, which blocks on the parquet write.
+	// StartShutdown then cancels the export context.
+	store, _ := createTestStore(t, 100)
+	defer store.Shutdown(context.Background())
+	selector := &fakeSelector{
+		shards: map[string]map[string]*testShard{
+			"TestClass": {"shard0": {store: store, name: "shard0"}},
+		},
+		snapshotsRoot: t.TempDir(),
 	}
 
-	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -50,14 +58,11 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	require.NoError(t, participant.Prepare(context.Background(), req))
 	require.NoError(t, participant.Commit(context.Background(), "test-export"))
 
-	// Wait for AcquireShardForExport to be called
-	selector.waitForCall(t)
+	// Wait for the scan phase to reach the backend write
+	backend.waitForParquetWrite(t)
 
 	// Simulate shutdown
 	participant.StartShutdown()
-
-	// Unblock the selector so it can return the context error
-	close(selector.blockCh)
 
 	// Wait for the export goroutine to finish by polling for the status file
 	require.Eventually(t, func() bool {
@@ -71,59 +76,85 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	assert.Contains(t, nodeStatus.Error, "context canceled")
 }
 
-func TestParticipant_ShutdownWritesFailedNodeStatus(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+// TestParticipant_CancelDuringSnapshot verifies that an in-flight snapshot
+// goroutine (started during Prepare) is canceled and cleaned up when:
+//   - Abort is called while snapshots are still running
+//   - Commit's context is canceled while waiting for snapshots
+func TestParticipant_CancelDuringSnapshot(t *testing.T) {
+	tests := []struct {
+		name       string
+		cancelFunc func(t *testing.T, p *Participant, exportID string)
+	}{
+		{
+			name: "abort",
+			cancelFunc: func(t *testing.T, p *Participant, exportID string) {
+				p.Abort(exportID)
+			},
+		},
+		{
+			name: "commit ctx canceled",
+			cancelFunc: func(t *testing.T, p *Participant, exportID string) {
+				commitCtx, commitCancel := context.WithCancel(context.Background())
+				commitCancel()
 
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+				err := p.Commit(commitCtx, exportID)
+				require.Error(t, err)
+				assert.ErrorIs(t, err, context.Canceled)
+
+				// Abort to release the slot (Commit ctx cancel doesn't
+				// release it — the abort timer would, but we speed it up).
+				p.Abort(exportID)
+			},
+		},
 	}
 
-	p := &Participant{
-		shutdownCtx: shutdownCtx,
-		selector:    selector,
-		backends:    &fakeBackendProvider{backend: backend},
-		logger:      logger,
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			backend := &fakeBackend{}
+
+			// blockingSelector blocks in SnapshotShards until its context
+			// is canceled or blockCh is closed. This simulates a
+			// long-running snapshot phase.
+			selector := newBlockingSelector()
+
+			participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+
+			exportID := "test-cancel-snap-" + tc.name
+			req := &ExportRequest{
+				ID:       exportID,
+				Backend:  "s3",
+				Classes:  []string{"TestClass"},
+				Shards:   map[string][]string{"TestClass": {"shard0"}},
+				NodeName: "node1",
+			}
+
+			// Prepare starts the snapshot goroutine in the background.
+			require.NoError(t, participant.Prepare(context.Background(), req))
+
+			// Wait for SnapshotShards to be called so we know the
+			// goroutine is running and blocked.
+			selector.waitForCall(t)
+
+			// Cancel via the test-specific path.
+			tc.cancelFunc(t, participant, exportID)
+
+			// The slot must be released so a new export can start.
+			assert.False(t, participant.IsRunning(exportID))
+
+			// Prove the slot is truly free by starting a new Prepare.
+			req2 := &ExportRequest{
+				ID:       exportID + "-followup",
+				Backend:  "s3",
+				Classes:  []string{"TestClass"},
+				Shards:   map[string][]string{"TestClass": {"shard0"}},
+				NodeName: "node1",
+			}
+			require.NoError(t, participant.Prepare(context.Background(), req2))
+			participant.Abort(req2.ID)
+		})
 	}
-
-	req := &ExportRequest{
-		ID:       "test-export",
-		Backend:  "s3",
-		Classes:  []string{"TestClass"},
-		Shards:   map[string][]string{"TestClass": {"shard0"}},
-		NodeName: "node1",
-	}
-
-	done := make(chan struct{})
-	go func() {
-		p.executeExport(shutdownCtx, backend, req)
-		close(done)
-	}()
-
-	// Wait for AcquireShardForExport to be called
-	selector.waitForCall(t)
-
-	// Simulate shutdown
-	shutdownCancel()
-
-	// Unblock the selector
-	close(selector.blockCh)
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("executeExport did not return after shutdown")
-	}
-
-	// Verify a failed node status was written
-	written := backend.getWritten("node_node1_status.json")
-	require.NotNil(t, written, "expected node status to be written")
-
-	var nodeStatus NodeStatus
-	require.NoError(t, json.Unmarshal(written, &nodeStatus))
-	assert.Equal(t, export.Failed, nodeStatus.Status)
-	assert.Contains(t, nodeStatus.Error, "context canceled")
 }
 
 func TestScheduler_DeadNodeMarkedAsFailed(t *testing.T) {
@@ -415,10 +446,11 @@ func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// fakeSelector returns no shards, so export succeeds immediately
+	// fakeSelector with no shards returns no shards, so export succeeds immediately
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
-	participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	participant := NewParticipant(selector, backends, logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -455,7 +487,8 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 
 			selector := &fakeSelector{classList: []string{"TestClass"}}
 			backends := &fakeBackendProvider{backend: backend}
-			participant := NewParticipant(selector, backends, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			participant := NewParticipant(selector, backends, logger,
+				&fakeExportClient{}, &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}, "node1")
 
 			resolver := &fakeNodeResolver{
 				nodes: map[string]string{

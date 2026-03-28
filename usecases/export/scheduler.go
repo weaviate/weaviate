@@ -17,13 +17,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -31,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
+
+const exportIDMaxLength = 128
 
 var (
 	regExpID = regexp.MustCompile(`^[a-z0-9_-]+$`)
@@ -60,26 +63,6 @@ var (
 )
 
 const exportMetadataFile = "export_metadata.json"
-
-// BackendProvider provides access to storage backends for export.
-type BackendProvider interface {
-	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
-}
-
-// Selector selects shards and classes for export
-type Selector interface {
-	ListClasses(ctx context.Context) []string
-	ShardOwnership(ctx context.Context, className string) (map[string][]string, error)
-	AcquireShardForExport(ctx context.Context, className, shardName string) (shard ShardLike, release func(), skipReason string, err error)
-	IsMultiTenant(ctx context.Context, className string) bool
-	IsAsyncReplicationEnabled(ctx context.Context, className string) bool
-}
-
-// ShardLike is an alias for db.ShardLike
-type ShardLike = interface {
-	Store() *lsmkv.Store
-	Name() string
-}
 
 // Scheduler manages export operations.
 // The node that receives the request acts as coordinator and uses a two-phase
@@ -142,8 +125,8 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	if s.shuttingDown.Load() {
 		return nil, ErrExportShuttingDown
 	}
-	if !regExpID.MatchString(id) {
-		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	if err := validateExportID(id); err != nil {
+		return nil, err
 	}
 	if backend == "" {
 		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
@@ -229,8 +212,8 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 // Status retrieves the status of an export.
 // Assembles status from metadata's NodeAssignments + per-node status files.
 func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*models.ExportStatusResponse, error) {
-	if !regExpID.MatchString(id) {
-		return nil, fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	if err := validateExportID(id); err != nil {
+		return nil, err
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
@@ -305,8 +288,8 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // and to avoid the complexity of distributed garbage collection across
 // storage backends. The same applies to failed exports.
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
-	if !regExpID.MatchString(id) {
-		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	if err := validateExportID(id); err != nil {
+		return err
 	}
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
@@ -584,10 +567,13 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
-	// Bound the entire 2PC (Prepare all + metadata write + Commit all) to the
-	// reservation timeout. If the coordinator can't finish within this window
-	// participants will auto-release their reservations anyway.
-	ctx, cancel := context.WithTimeout(ctx, reservationTimeout)
+	// Bound the entire 2PC-like flow (Prepare all + metadata write + Commit all) so the
+	// coordinator doesn't hang indefinitely if a participant is unreachable.
+	// The budget is 2× the participant reservation timeout: one window for
+	// Prepare (which now includes snapshotting) and one for Commit. Each
+	// participant still has its own abort timer, so this is a belt-and-
+	// suspenders safeguard for the HTTP request path.
+	ctx, cancel := context.WithTimeout(ctx, 2*reservationTimeout)
 	defer cancel()
 
 	// Build node assignments: node → className → []shardName
@@ -645,21 +631,21 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 		nodes = append(nodes, ni)
 	}
 
-	// Phase 1: Prepare all nodes.
-	var prepared []exportNodeInfo
+	// Phase 1: Prepare all nodes concurrently.
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
 	for _, ni := range nodes {
-		var err error
-		if ni.host == "" {
-			err = s.participant.Prepare(ctx, ni.req)
-		} else {
-			err = s.client.Prepare(ctx, ni.host, ni.req)
-		}
-		if err != nil {
-			// Abort all previously prepared nodes.
-			s.abortAll(exportID, prepared)
-			return fmt.Errorf("prepare node %s: %w", ni.req.NodeName, err)
-		}
-		prepared = append(prepared, ni)
+		eg.Go(func() error {
+			if err := s.prepareNode(egCtx, ni); err != nil {
+				return fmt.Errorf("prepare node %s: %w", ni.req.NodeName, err)
+			}
+			return nil
+		}, ni.req.NodeName)
+	}
+	if err := eg.Wait(); err != nil {
+		// nothing has been written to backend yet
+		s.abortAll(exportID, nodes)
+		return err
 	}
 
 	// Write initial metadata to the backend after all nodes are prepared.
@@ -672,42 +658,58 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 		NodeAssignments: nodeAssignments,
 	}
 	if err := writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger); err != nil {
-		s.abortAll(exportID, prepared)
+		s.abortAll(exportID, nodes)
 		return fmt.Errorf("failed to write export metadata: %w", err)
 	}
 
-	// Phase 2: Commit all nodes.
-	for _, ni := range prepared {
-		var err error
-		if ni.host == "" {
-			err = s.participant.Commit(ctx, exportID)
-		} else {
-			err = s.client.Commit(ctx, ni.host, exportID)
-		}
-		if err != nil {
-			s.abortAll(exportID, prepared)
-			initialMeta.Status = export.Failed
-			initialMeta.Error = fmt.Sprintf("commit node %s failed: %v", ni.req.NodeName, err)
-			initialMeta.CompletedAt = time.Now().UTC()
-			if writeErr := writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger); writeErr != nil {
-				s.logger.WithField("action", "export_commit").
-					WithField("export_id", exportID).
-					Errorf("failed to persist failure metadata: %v", writeErr)
-				return fmt.Errorf("commit node %s: %w (follow-up: failed to persist failure metadata: %w)", ni.req.NodeName, err, writeErr)
+	// Phase 2: Commit all nodes concurrently.
+	eg, egCtx = enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
+	for _, ni := range nodes {
+		eg.Go(func() error {
+			if err := s.commitNode(egCtx, ni, exportID); err != nil {
+				return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
 			}
-			return fmt.Errorf("commit node %s: %w", ni.req.NodeName, err)
+			return nil
+		}, ni.req.NodeName)
+	}
+	if err := eg.Wait(); err != nil {
+		s.abortAll(exportID, nodes)
+		initialMeta.Status = export.Failed
+		initialMeta.Error = err.Error()
+		initialMeta.CompletedAt = time.Now().UTC()
+		if writeErr := writeExportMetadata(backend, exportID, bucket, path, initialMeta, s.logger); writeErr != nil {
+			s.logger.WithField("action", "export_commit").
+				WithField("export_id", exportID).
+				Errorf("failed to persist failure metadata: %v", writeErr)
+			return fmt.Errorf("%w (follow-up: failed to persist failure metadata: %w)", err, writeErr)
 		}
+		return err
 	}
 
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
-		WithField("nodes", len(prepared)).
+		WithField("nodes", len(nodes)).
 		Info("multi-node export committed on all nodes")
 
 	return nil
 }
 
-// abortAll sends abort to all previously prepared nodes (best-effort).
+func (s *Scheduler) prepareNode(ctx context.Context, ni exportNodeInfo) error {
+	if ni.host == "" {
+		return s.participant.Prepare(ctx, ni.req)
+	}
+	return s.client.Prepare(ctx, ni.host, ni.req)
+}
+
+func (s *Scheduler) commitNode(ctx context.Context, ni exportNodeInfo, exportID string) error {
+	if ni.host == "" {
+		return s.participant.Commit(ctx, exportID)
+	}
+	return s.client.Commit(ctx, ni.host, exportID)
+}
+
+// abortAll sends best-effort abort requests to every node in the list.
 // It uses a fresh context so abort requests reach participants even when the
 // original request context has been canceled (e.g. client disconnect).
 // Remote aborts are retried up to 3 times on error.
@@ -863,6 +865,16 @@ func (s *Scheduler) getExportMetadata(ctx context.Context, backend modulecapabil
 	}
 
 	return &meta, nil
+}
+
+func validateExportID(id string) error {
+	if len(id) > exportIDMaxLength {
+		return fmt.Errorf("%w: export id too long: %d characters, max %d", ErrExportValidation, len(id), exportIDMaxLength)
+	}
+	if !regExpID.MatchString(id) {
+		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
+	}
+	return nil
 }
 
 // resolveClasses determines which classes to export.

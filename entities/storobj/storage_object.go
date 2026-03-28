@@ -1321,7 +1321,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 	offset, ok := tvOffsets[targetVector]
 	if !ok {
 		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
-		return nil, fmt.Errorf("target vector %q not found", targetVector)
+		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))

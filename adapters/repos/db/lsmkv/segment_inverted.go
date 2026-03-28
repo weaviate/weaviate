@@ -12,14 +12,13 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"math"
 	"sync"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -105,10 +104,7 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	if err := s.copyNode(buffer, nodeOffset{propertyLengthsStart, propertyLengthsEnd}); err != nil {
 		return nil, fmt.Errorf("copy node: %w", err)
 	}
-	e := gob.NewDecoder(bytes.NewReader(buffer))
-
-	propLengths := map[uint64]uint32{}
-	err := e.Decode(&propLengths)
+	propLengths, err := gobenc.Decode(buffer)
 	if err != nil {
 		return s.invertedData.propertyLengths, fmt.Errorf("decode property lengths: %w", err)
 	}
