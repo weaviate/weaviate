@@ -22,6 +22,10 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
+type contextKey string
+
+const QueryVectorKey contextKey = "query_vector_key"
+
 type GroupParams struct {
 	Strategy string
 	Force    float32
