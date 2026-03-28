@@ -788,6 +788,28 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping' or 'acorn'",
 		},
 		{
+			name: "with pq enabled and negative segments",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled":  true,
+					"segments": float64(-128),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hnsw config: pq segments must be a positive integer",
+		},
+		{
+			name: "with pq enabled and zero segments",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled":  true,
+					"segments": float64(0),
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hnsw config: pq segments must be a positive integer",
+		},
+		{
 			name: "acorn enabled, all defaults",
 			input: map[string]interface{}{
 				"filterStrategy": "acorn",

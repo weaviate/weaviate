@@ -306,7 +306,12 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
-	err := ValidateRQConfig(u.RQ)
+	err := ValidatePQConfig(u.PQ)
+	if err != nil {
+		return fmt.Errorf("invalid hnsw config: %w", err)
+	}
+
+	err = ValidateRQConfig(u.RQ)
 	if err != nil {
 		return err
 	}
