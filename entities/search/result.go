@@ -29,6 +29,7 @@ type Result struct {
 	Dist                 float32
 	Vector               []float32
 	Vectors              models.Vectors
+	QueryVector          []float32 // the vector used for the search query
 	Beacon               string
 	Certainty            float32
 	Schema               models.PropertySchema
