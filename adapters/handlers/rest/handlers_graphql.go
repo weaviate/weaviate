@@ -29,6 +29,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -118,6 +119,9 @@ func setupGraphQLHandlers(
 
 		ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
+		var qv []float32
+		ctx = context.WithValue(ctx, dto.QueryVectorKey, &qv)
+
 		result := graphQL.Resolve(ctx, query,
 			operationName, variables)
 
@@ -136,6 +140,10 @@ func setupGraphQLHandlers(
 		// Put the data in a response ready object
 		graphQLResponse := &models.GraphQLResponse{}
 		marshallErr := json.Unmarshal(resultJSON, graphQLResponse)
+
+		if len(qv) > 0 {
+			graphQLResponse.QueryVector = qv
+		}
 
 		// If json gave error, return nothing.
 		if marshallErr != nil {
@@ -246,6 +254,9 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			}
 		}
 
+		var qv []float32
+		ctx = context.WithValue(ctx, dto.QueryVectorKey, &qv)
+
 		result := graphQL.Resolve(ctx, query, operationName, variables)
 
 		// Marshal the JSON
@@ -266,6 +277,10 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		} else {
 			// Put the result data in a response ready object
 			marshallErr := json.Unmarshal(resultJSON, graphQLResponse)
+
+			if len(qv) > 0 {
+				graphQLResponse.QueryVector = qv
+			}
 
 			// Return an unprocessable error if unmarshalling the result to JSON failed
 			if marshallErr != nil {
