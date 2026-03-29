@@ -40,6 +40,18 @@ func HashBlobHashProperties(class *models.Class, obj *models.Object) {
 		return
 	}
 
+	HashBlobHashPrimitiveProperties(class, props)
+}
+
+// HashBlobHashPrimitiveProperties replaces the base64 data of all BlobHash
+// properties in the given property map with their SHA-256 hashes. This
+// variant operates on a raw property map and is used by the merge/patch path
+// where properties have already been split from references.
+func HashBlobHashPrimitiveProperties(class *models.Class, props map[string]interface{}) {
+	if class == nil || props == nil {
+		return
+	}
+
 	for _, prop := range class.Properties {
 		if !IsBlobHashDataType(prop.DataType) {
 			continue
