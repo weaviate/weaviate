@@ -5919,7 +5919,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Invalid request body, missing required fields, or unknown tokenization method."
+            "description": "Invalid or malformed request body."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -16200,7 +16200,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Invalid request body, missing required fields, or unknown tokenization method."
+            "description": "Invalid or malformed request body."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

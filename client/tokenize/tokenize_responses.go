@@ -151,7 +151,7 @@ func NewTokenizeBadRequest() *TokenizeBadRequest {
 /*
 TokenizeBadRequest describes a response with status code 400, with default header values.
 
-Invalid request body, missing required fields, or unknown tokenization method.
+Invalid or malformed request body.
 */
 type TokenizeBadRequest struct {
 }

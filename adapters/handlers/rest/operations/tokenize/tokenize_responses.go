@@ -73,7 +73,7 @@ func (o *TokenizeOK) WriteResponse(rw http.ResponseWriter, producer runtime.Prod
 const TokenizeBadRequestCode int = 400
 
 /*
-TokenizeBadRequest Invalid request body, missing required fields, or unknown tokenization method.
+TokenizeBadRequest Invalid or malformed request body.
 
 swagger:response tokenizeBadRequest
 */
