@@ -390,32 +390,39 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 				}
 
 				// let's fallback to the backups in the retry queue
-				for hr := range hostRetryQueue {
-					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
-						replyCh <- Result[T]{resp, err}
-						return
-					}
-					nextBackOff := hr.currentBackOff.NextBackOff()
-					if nextBackOff == backoff.Stop {
-						// this host has run out of retries, send the result and note that
-						// we have the worker exit here with the assumption that once we've reached
-						// this many failures for this host, we've tried all other hosts enough
-						// that we're not going to reach level successes
-						replyCh <- Result[T]{resp, err}
-						return
-					}
-
-					timer := time.NewTimer(nextBackOff)
+				for {
 					select {
 					case <-workerCtx.Done():
-						timer.Stop()
-						replyCh <- Result[T]{resp, err}
+						replyCh <- Result[T]{Err: workerCtx.Err()}
 						return
-					case <-timer.C:
-						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
+					case hr := <-hostRetryQueue:
+						resp, err = op(workerCtx, hr.host, isFullReadWorker)
+						if err == nil {
+							successful.Add(1)
+							replyCh <- Result[T]{resp, err}
+							return
+						}
+						nextBackOff := hr.currentBackOff.NextBackOff()
+						if nextBackOff == backoff.Stop {
+							// this host has run out of retries, send the result and note that
+							// we have the worker exit here with the assumption that once we've reached
+							// this many failures for this host, we've tried all other hosts enough
+							// that we're not going to reach level successes
+							replyCh <- Result[T]{resp, err}
+							return
+						}
+
+						timer := time.NewTimer(nextBackOff)
+						select {
+						case <-workerCtx.Done():
+							timer.Stop()
+							replyCh <- Result[T]{resp, err}
+							return
+						case <-timer.C:
+							hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
+						}
+						timer.Stop()
 					}
-					timer.Stop()
 				}
 			}
 			enterrors.GoWrapper(workerFunc, c.log)
