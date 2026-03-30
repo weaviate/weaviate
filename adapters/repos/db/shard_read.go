@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -728,7 +729,7 @@ func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Sele
 		return vecMap[id], nil
 	}
 
-	sel, err := selection.New(selector, distFn, vecForID, k)
+	sel, err := selector.New(selection, distFn, vecForID, k)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mmr selection: %w", err)
 	}

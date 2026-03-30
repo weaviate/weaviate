@@ -169,7 +169,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames(), params.Selector)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames(), params.Selection)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}

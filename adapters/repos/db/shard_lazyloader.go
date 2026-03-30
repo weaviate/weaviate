@@ -286,7 +286,7 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties, selector)
+	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties, selection)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {

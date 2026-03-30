@@ -2374,7 +2374,7 @@ func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context
 
 // ObjectVectorSearch provides a mock function with given fields: ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties
 func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
-	ret := _m.Called(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)
+	ret := _m.Called(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selection)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectVectorSearch")
@@ -2384,10 +2384,10 @@ func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors [
 	var r1 []float32
 	var r2 error
 	if rf, ok := ret.Get(0).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection) ([]*storobj.Object, []float32, error)); ok {
-		return rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)
+		return rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selection)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection) []*storobj.Object); ok {
-		r0 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)
+		r0 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selection)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*storobj.Object)
@@ -2395,7 +2395,7 @@ func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors [
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection) []float32); ok {
-		r1 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)
+		r1 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selection)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).([]float32)
@@ -2403,7 +2403,7 @@ func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors [
 	}
 
 	if rf, ok := ret.Get(2).(func(context.Context, []models.Vector, []string, float32, int, *filters.LocalFilter, []filters.Sort, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection) error); ok {
-		r2 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)
+		r2 = rf(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selection)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -2430,7 +2430,7 @@ type MockShardLike_ObjectVectorSearch_Call struct {
 //   - properties []string
 //   - selection *searchparams.Selection
 func (_e *MockShardLike_Expecter) ObjectVectorSearch(ctx interface{}, searchVectors interface{}, targetVectors interface{}, targetDist interface{}, limit interface{}, _a5 interface{}, sort interface{}, groupBy interface{}, _a8 interface{}, targetCombination interface{}, properties interface{}, selection interface{}) *MockShardLike_ObjectVectorSearch_Call {
-	return &MockShardLike_ObjectVectorSearch_Call{Call: _e.mock.On("ObjectVectorSearch", ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)}
+	return &MockShardLike_ObjectVectorSearch_Call{Call: _e.mock.On("ObjectVectorSearch", ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selection)}
 }
 
 func (_c *MockShardLike_ObjectVectorSearch_Call) Run(run func(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection)) *MockShardLike_ObjectVectorSearch_Call {

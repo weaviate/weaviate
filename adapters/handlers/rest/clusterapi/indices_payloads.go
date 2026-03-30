@@ -730,7 +730,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, selector}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, selection}
 	return json.Marshal(par)
 }
 
@@ -747,7 +747,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, fl
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Selector, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Selection, err
 }
 
 func (p searchParamsPayload) MIME() string {
