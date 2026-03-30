@@ -13,6 +13,7 @@ package rest
 
 import (
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -43,6 +44,10 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 }
 
 func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
+	if !slices.Contains(tokenizer.Tokenizations, *params.Body.Tokenization) {
+		return tokenizeops.NewTokenizeBadRequest()
+	}
+
 	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
 	query := make([]string, len(indexed))
 	copy(query, indexed)
