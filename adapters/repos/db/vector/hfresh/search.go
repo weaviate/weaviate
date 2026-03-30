@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"math"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -29,7 +30,7 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	if allowList != nil && allowList.Len() < flatSearchCutoff {
+	if !h.muvera.Load() && allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
@@ -141,6 +142,16 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				return nil, nil, errors.Wrapf(err, "failed to enqueue merge for posting %d", selectedCentroids[i])
 			}
 		}
+	}
+
+	if h.muvera.Load() {
+		ids := make([]uint64, 0, q.Len())
+		dists := make([]float32, 0, q.Len())
+		for id, dist := range q.Iter() {
+			ids = append(ids, id)
+			dists = append(dists, dist)
+		}
+		return ids, dists, nil
 	}
 
 	rescored := NewResultSet(k)
@@ -312,30 +323,143 @@ func (ks *ResultSet) Reset(k int) {
 	ks.k = k
 }
 
-func (h *HFresh) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
-		h.logger.Error(ErrMuveraNotEnabled)
 		return nil, nil, ErrMuveraNotEnabled
 	}
-	return nil, nil, errors.New("SearchByMultiVector not yet implemented for HFresh")
+
+	queryFlat := h.muveraEncoder.EncodeQuery(vectors)
+	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, 2*k, allow)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "muvera candidate search")
+	}
+
+	return h.computeLateInteraction(ctx, vectors, k, candidateIDs)
 }
 
-func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (h *HFresh) SearchByMultiVectorDistance(ctx context.Context, vectors [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 	if !h.muvera.Load() {
-		h.logger.Error(ErrMuveraNotEnabled)
 		return nil, nil, ErrMuveraNotEnabled
 	}
-	return nil, nil, errors.New("SearchByMultiVectorDistance not yet implemented for HFresh")
+
+	searchParams := common.NewSearchByDistParams(0, common.DefaultSearchByDistInitialLimit, common.DefaultSearchByDistInitialLimit, maxLimit)
+	var resultIDs []uint64
+	var resultDist []float32
+
+	recursiveSearch := func() (bool, error) {
+		totalLimit := searchParams.TotalLimit()
+		ids, dists, err := h.SearchByMultiVector(ctx, vectors, totalLimit, allow)
+		if err != nil {
+			return false, errors.Wrap(err, "multi-vector search")
+		}
+
+		shouldContinue := len(ids) >= totalLimit
+
+		offsetCap := searchParams.OffsetCapacity(ids)
+		totalLimitCap := searchParams.TotalLimitCapacity(ids)
+		if offsetCap == totalLimitCap {
+			return false, nil
+		}
+
+		ids, dists = ids[offsetCap:totalLimitCap], dists[offsetCap:totalLimitCap]
+		for i := range ids {
+			if aboveThresh := dists[i] <= targetDistance; aboveThresh ||
+				floatcomp.InDelta(float64(dists[i]), float64(targetDistance), 1e-6) {
+				resultIDs = append(resultIDs, ids[i])
+				resultDist = append(resultDist, dists[i])
+			} else {
+				shouldContinue = false
+				break
+			}
+		}
+
+		return shouldContinue, nil
+	}
+
+	var shouldContinue bool
+	var err error
+	for shouldContinue, err = recursiveSearch(); shouldContinue && err == nil; {
+		searchParams.Iterate()
+		if searchParams.MaxLimitReached() {
+			h.logger.
+				WithField("action", "unlimited_multi_vector_search").
+				Warnf("maximum search limit of %d results has been reached",
+					searchParams.MaximumSearchLimit())
+			break
+		}
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return resultIDs, resultDist, nil
 }
 
-func (h *HFresh) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.QueryVectorDistancer {
 	if !h.muvera.Load() {
-		h.logger.Error(ErrMuveraNotEnabled)
 		return common.QueryVectorDistancer{
 			DistanceFunc: func(uint64) (float32, error) {
 				return 0, ErrMuveraNotEnabled
 			},
 		}
 	}
-	panic("QueryMultiVectorDistancer not yet implemented for HFresh")
+
+	distFunc := func(id uint64) (float32, error) {
+		docVectors, err := h.multivectorForId(h.ctx, id)
+		if err != nil {
+			return 0, errors.Wrapf(err, "get multi-vector for id %d", id)
+		}
+		return h.maxSimScore(queryVectors, docVectors)
+	}
+
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]float32, k int, candidateIDs []uint64) ([]uint64, []float32, error) {
+	results := NewResultSet(k)
+
+	for _, id := range candidateIDs {
+		docVectors, err := h.multivectorForId(ctx, id)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "get multi-vector for id %d", id)
+		}
+		score, err := h.maxSimScore(queryVectors, docVectors)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "compute maxsim for id %d", id)
+		}
+		results.Insert(id, score)
+	}
+
+	ids := make([]uint64, results.Len())
+	dists := make([]float32, results.Len())
+	i := 0
+	for id, dist := range results.Iter() {
+		ids[i] = id
+		dists[i] = dist
+		i++
+	}
+
+	return ids, dists, nil
+}
+
+// maxSimScore computes the MaxSim score between query and document multi-vectors.
+// For each query token, it finds the minimum distance to any document token, then
+// sums across all query tokens. Lower score = more similar.
+func (h *HFresh) maxSimScore(queryVectors [][]float32, docVectors [][]float32) (float32, error) {
+	var score float32
+	for _, queryToken := range queryVectors {
+		d := h.config.DistanceProvider.New(queryToken)
+		minDist := float32(math.MaxFloat32)
+		for _, docToken := range docVectors {
+			dist, err := d.Distance(docToken)
+			if err != nil {
+				return 0, err
+			}
+			if dist < minDist {
+				minDist = dist
+			}
+		}
+		score += minDist
+	}
+	return score, nil
 }
