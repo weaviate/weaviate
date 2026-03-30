@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -194,10 +193,12 @@ type rangeWriterConfig struct {
 	onFlush   func(int64) // called after each successful ParquetWriter flush
 }
 
-// rangePipeline bundles a per-range ParquetWriter, io.Pipe, and upload goroutine.
+// rangePipeline bundles a per-range ParquetWriter, buffered pipe, and upload
+// goroutine. The buffered pipe decouples scan speed from upload speed so that
+// LSM cursors are not held open waiting on network I/O.
 type rangePipeline struct {
-	pr         *io.PipeReader
-	pw         *io.PipeWriter
+	pr         *bufferedPipeReader
+	pw         *bufferedPipeWriter
 	writer     *ParquetWriter
 	uploadDone <-chan error
 }
@@ -244,9 +245,12 @@ func (rp *rangePipeline) Shutdown(scanErr error) error {
 	return nil
 }
 
-// startRangeWriter creates a rangePipeline for a single key range.
+// startRangeWriter creates a rangePipeline for a single key range. A bounded
+// buffered pipe (defaultPipeBufferSize) sits between the ParquetWriter and
+// the upload goroutine so that the scan can run at disk speed without being
+// blocked by upload latency.
 func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex int) (*rangePipeline, error) {
-	pr, pw := io.Pipe()
+	pr, pw := newBufferedPipe(defaultPipeBufferSize)
 
 	fileName := fmt.Sprintf("%s_%s_%04d.parquet", cfg.className, cfg.shardName, rangeIndex)
 
