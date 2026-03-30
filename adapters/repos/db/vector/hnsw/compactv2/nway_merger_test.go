@@ -430,6 +430,208 @@ func TestNWayMerger_ThreeIteratorsComplexMerge(t *testing.T) {
 	assert.Nil(t, nodeCommits)
 }
 
+// ClearLinksCommit precedence in commitMerger.
+//
+// commitMerger processes iterators from highest to lowest precedence (newest
+// first). ClearLinksAtLevelCommit is handled correctly — it guards with
+// !m.seenReplaceAtLevel[level] so it never erases data already accumulated
+// from newer iterators, and it sets the flag to stop older accumulation.
+//
+// ClearLinksCommit (all-level variant) has the same two responsibilities but
+// implements neither guard:
+//
+//  1. It unconditionally resets linksPerLevel/seenReplaceAtLevel, wiping links
+//     that were already set by newer (higher-precedence) iterators.
+//
+//  2. Because it resets seenReplaceAtLevel, older AddLinks commits processed
+//     afterwards can accumulate links that should have been cleared.
+//
+// These tests pin the correct expected behaviour. They currently FAIL because
+// the bug is present; once the bug is fixed they should pass without
+// modification.
+
+// TestCommitMerger_ClearLinks_OlderIterator_ShouldNotWipeNewerReplace checks
+// that a ClearLinks from an older file does not erase a ReplaceLinksAtLevel
+// that was written by a newer file.
+//
+// Timeline (oldest → newest):
+//
+//	it0: AddNode(5)  ClearLinks(5)
+//	it1:                             ReplaceLinks(5, level=0, [10,11,12])
+//
+// The replace is more recent and must survive.
+func TestCommitMerger_ClearLinks_OlderIterator_ShouldNotWipeNewerReplace(t *testing.T) {
+	// it0 is older (ID=0); it1 is newer (ID=1).
+	commits0 := []Commit{
+		&AddNodeCommit{ID: 5, Level: 0},
+		&ClearLinksCommit{ID: 5},
+	}
+	commits1 := []Commit{
+		&ReplaceLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{10, 11, 12}},
+	}
+
+	it0, err := NewIterator(newFakeCommitReader(commits0), 0, logrus.New())
+	require.NoError(t, err)
+	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
+	require.NoError(t, err)
+
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
+	require.NoError(t, err)
+
+	nodeCommits, err := merger.Next()
+	require.NoError(t, err)
+	require.NotNil(t, nodeCommits)
+	assert.Equal(t, uint64(5), nodeCommits.NodeID)
+
+	// Expected: AddNode + ReplaceLinksAtLevel(0, [10,11,12])
+	// Bug:      AddNode only — ClearLinks from it0 erases the newer replace.
+	require.Len(t, nodeCommits.Commits, 2,
+		"ClearLinks from an older iterator must not erase links set by a newer iterator")
+
+	_, ok := nodeCommits.Commits[0].(*AddNodeCommit)
+	assert.True(t, ok, "first commit should be AddNode")
+
+	replace, ok := nodeCommits.Commits[1].(*ReplaceLinksAtLevelCommit)
+	require.True(t, ok, "second commit should be ReplaceLinksAtLevel")
+	assert.Equal(t, uint16(0), replace.Level)
+	assert.Equal(t, []uint64{10, 11, 12}, replace.Targets,
+		"links from the newer iterator must survive the older ClearLinks")
+}
+
+// TestCommitMerger_ClearLinks_OlderIterator_ShouldNotWipeAnyNewerLevel checks
+// that ClearLinks from an older file does not erase links at any level set
+// by a newer file, even when the older file also had per-level adds before
+// the clear.
+//
+// Timeline (oldest → newest):
+//
+//	it0: AddNode(5)  AddLinks(5,0,[1,2])  AddLinks(5,1,[3,4])  ClearLinks(5)
+//	it1:                                                         ReplaceLinks(5,0,[10,11])  AddLinks(5,1,[20])
+func TestCommitMerger_ClearLinks_OlderIterator_ShouldNotWipeAnyNewerLevel(t *testing.T) {
+	commits0 := []Commit{
+		&AddNodeCommit{ID: 5, Level: 1},
+		&AddLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{1, 2}},
+		&AddLinksAtLevelCommit{Source: 5, Level: 1, Targets: []uint64{3, 4}},
+		&ClearLinksCommit{ID: 5},
+	}
+	commits1 := []Commit{
+		&ReplaceLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{10, 11}},
+		&AddLinksAtLevelCommit{Source: 5, Level: 1, Targets: []uint64{20}},
+	}
+
+	it0, err := NewIterator(newFakeCommitReader(commits0), 0, logrus.New())
+	require.NoError(t, err)
+	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
+	require.NoError(t, err)
+
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
+	require.NoError(t, err)
+
+	nodeCommits, err := merger.Next()
+	require.NoError(t, err)
+	require.NotNil(t, nodeCommits)
+
+	// Expected: AddNode + ReplaceLinks(0,[10,11]) + AddLinks(1,[20])
+	// The older AddLinks(0,[1,2]) and AddLinks(1,[3,4]) are superseded by the
+	// ClearLinks within it0 itself, so they must NOT appear.
+	// The ClearLinks must NOT erase the newer it1 contributions.
+	// Bug: ClearLinks from it0 wipes everything → AddNode only.
+	require.Len(t, nodeCommits.Commits, 3,
+		"ClearLinks from an older iterator must not erase links at any level set by a newer iterator")
+
+	_, ok := nodeCommits.Commits[0].(*AddNodeCommit)
+	assert.True(t, ok, "first commit should be AddNode")
+
+	replace, ok := nodeCommits.Commits[1].(*ReplaceLinksAtLevelCommit)
+	require.True(t, ok, "second commit should be ReplaceLinksAtLevel for level 0")
+	assert.Equal(t, uint16(0), replace.Level)
+	assert.Equal(t, []uint64{10, 11}, replace.Targets)
+
+	addLinks, ok := nodeCommits.Commits[2].(*AddLinksAtLevelCommit)
+	require.True(t, ok, "third commit should be AddLinksAtLevel for level 1")
+	assert.Equal(t, uint16(1), addLinks.Level)
+	assert.Equal(t, []uint64{20}, addLinks.Targets,
+		"older AddLinks(1,[3,4]) must be blocked by the ClearLinks within the same file")
+}
+
+// TestCommitMerger_ClearLinks_NewerIterator_ShouldBlockOlderAccumulation checks
+// that a ClearLinks from a newer file prevents older AddLinks from
+// accumulating into the merged result.
+//
+// Timeline (oldest → newest):
+//
+//	it0: AddNode(5)  AddLinks(5,0,[1,2])
+//	it1:                                  ClearLinks(5)
+//
+// The clear is more recent and must erase the older adds.
+func TestCommitMerger_ClearLinks_NewerIterator_ShouldBlockOlderAccumulation(t *testing.T) {
+	commits0 := []Commit{
+		&AddNodeCommit{ID: 5, Level: 0},
+		&AddLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{1, 2}},
+	}
+	commits1 := []Commit{
+		&ClearLinksCommit{ID: 5},
+	}
+
+	it0, err := NewIterator(newFakeCommitReader(commits0), 0, logrus.New())
+	require.NoError(t, err)
+	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
+	require.NoError(t, err)
+
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
+	require.NoError(t, err)
+
+	nodeCommits, err := merger.Next()
+	require.NoError(t, err)
+	require.NotNil(t, nodeCommits)
+
+	// Expected: AddNode only — the newer ClearLinks must erase the older AddLinks.
+	// Bug: ClearLinks resets seenReplaceAtLevel, so the older AddLinks accumulates
+	//      afterwards → node ends up with AddNode + AddLinks(0,[1,2]).
+	require.Len(t, nodeCommits.Commits, 1,
+		"newer ClearLinks must block older AddLinks from accumulating into the result")
+	_, ok := nodeCommits.Commits[0].(*AddNodeCommit)
+	assert.True(t, ok, "only commit should be AddNode; older links must be cleared")
+}
+
+// TestCommitMerger_ClearLinksAtLevel_Correct shows that the per-level variant
+// already handles both responsibilities correctly and serves as a reference for
+// how ClearLinksCommit should behave after the fix.
+//
+// This test is expected to PASS even before the bug fix.
+func TestCommitMerger_ClearLinksAtLevel_Correct(t *testing.T) {
+	// Same shape as the ClearLinks tests above, but per-level.
+	commits0 := []Commit{
+		&AddNodeCommit{ID: 5, Level: 0},
+		&AddLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{1, 2}},
+		&ClearLinksAtLevelCommit{ID: 5, Level: 0},
+	}
+	commits1 := []Commit{
+		&ReplaceLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{10, 11, 12}},
+	}
+
+	it0, err := NewIterator(newFakeCommitReader(commits0), 0, logrus.New())
+	require.NoError(t, err)
+	it1, err := NewIterator(newFakeCommitReader(commits1), 1, logrus.New())
+	require.NoError(t, err)
+
+	merger, err := NewNWayMerger([]IteratorLike{it0, it1}, logrus.New())
+	require.NoError(t, err)
+
+	nodeCommits, err := merger.Next()
+	require.NoError(t, err)
+	require.NotNil(t, nodeCommits)
+
+	// ClearLinksAtLevel correctly guards with !seenReplaceAtLevel, so it does
+	// NOT erase the newer replace. This is the behaviour ClearLinks should mirror.
+	require.Len(t, nodeCommits.Commits, 2)
+	_, ok := nodeCommits.Commits[0].(*AddNodeCommit)
+	assert.True(t, ok)
+	replace, ok := nodeCommits.Commits[1].(*ReplaceLinksAtLevelCommit)
+	require.True(t, ok)
+	assert.Equal(t, []uint64{10, 11, 12}, replace.Targets)
+}
+
 func TestNWayMerger_ClearLinksAtLevel(t *testing.T) {
 	// Iterator 0 - add links
 	commits0 := []Commit{

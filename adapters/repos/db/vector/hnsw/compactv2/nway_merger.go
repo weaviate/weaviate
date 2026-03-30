@@ -229,7 +229,9 @@ func (m *NWayMerger) mergeNodeCommits(nodeID uint64, iterators []IteratorLike) (
 
 	merger := newCommitMerger(nodeID, m.logger)
 
-	// Process commits from highest precedence to lowest
+	// Process commits from highest precedence to lowest.
+	// finishIterator is called after each iterator so that ClearLinks from a
+	// lower-precedence iterator cannot erase links contributed by higher-precedence ones.
 	for _, it := range sortedIterators {
 		commits := it.Current().Commits
 		for _, c := range commits {
@@ -237,6 +239,7 @@ func (m *NWayMerger) mergeNodeCommits(nodeID uint64, iterators []IteratorLike) (
 				return nil, err
 			}
 		}
+		merger.finishIterator()
 	}
 
 	return merger.result(), nil
@@ -268,16 +271,27 @@ func (h *iteratorHeap) Pop() any {
 }
 
 // commitMerger handles merging commits for a single node.
+//
+// Links are tracked in two phases to correctly handle ClearLinksCommit:
+//   - pendingLinks: accumulates links from the iterator currently being processed.
+//   - linksPerLevel: holds finalized links from already-processed (higher-precedence) iterators.
+//
+// After all commits from one iterator are fed via addCommit, call finishIterator() to
+// move pendingLinks into linksPerLevel. This boundary lets ClearLinks erase only the
+// current iterator's own accumulated links without touching data contributed by newer
+// iterators.
 type commitMerger struct {
 	nodeID             uint64
 	logger             logrus.FieldLogger
 	deleted            bool
 	addNode            *AddNodeCommit
-	linksPerLevel      map[uint16][]uint64 // merged links
+	linksPerLevel      map[uint16][]uint64 // finalized links from already-processed iterators
+	pendingLinks       map[uint16][]uint64 // links accumulating from the current iterator
 	linksReplaced      map[uint16]bool     // true if links were replaced at this level
 	addTombstone       bool
 	removeTombstone    bool
-	seenReplaceAtLevel map[uint16]bool // track if we've seen a replace at each level
+	seenReplaceAtLevel map[uint16]bool // true once a Replace or Clear has been seen at a level
+	seenClearLinks     bool            // true once ClearLinks has been seen from any iterator
 }
 
 func newCommitMerger(nodeID uint64, logger logrus.FieldLogger) *commitMerger {
@@ -285,9 +299,21 @@ func newCommitMerger(nodeID uint64, logger logrus.FieldLogger) *commitMerger {
 		nodeID:             nodeID,
 		logger:             logger,
 		linksPerLevel:      make(map[uint16][]uint64),
+		pendingLinks:       make(map[uint16][]uint64),
 		linksReplaced:      make(map[uint16]bool),
 		seenReplaceAtLevel: make(map[uint16]bool),
 	}
+}
+
+// finishIterator must be called after all commits for one iterator have been fed
+// via addCommit. It merges pendingLinks into linksPerLevel so that the next
+// (lower-precedence) iterator's ClearLinks cannot erase these finalized links.
+func (m *commitMerger) finishIterator() {
+	for level, pending := range m.pendingLinks {
+		existing := m.linksPerLevel[level]
+		m.linksPerLevel[level] = append(pending, existing...)
+	}
+	m.pendingLinks = make(map[uint16][]uint64)
 }
 
 func (m *commitMerger) addCommit(c Commit) error {
@@ -297,8 +323,10 @@ func (m *commitMerger) addCommit(c Commit) error {
 		m.deleted = true
 		m.addNode = nil
 		m.linksPerLevel = make(map[uint16][]uint64)
+		m.pendingLinks = make(map[uint16][]uint64)
 		m.linksReplaced = make(map[uint16]bool)
 		m.seenReplaceAtLevel = make(map[uint16]bool)
+		m.seenClearLinks = false
 
 	case *AddNodeCommit:
 		if !m.deleted && m.addNode == nil {
@@ -307,52 +335,61 @@ func (m *commitMerger) addCommit(c Commit) error {
 		}
 
 	case *ReplaceLinksAtLevelCommit:
-		if !m.deleted && !m.seenReplaceAtLevel[ct.Level] {
-			// First replace at this level - prepend to any existing links (which came from newer logs)
-			// and mark as replaced to stop accumulation from older logs
-			existing := m.linksPerLevel[ct.Level]
-			m.linksPerLevel[ct.Level] = append(ct.Targets, existing...)
+		if !m.deleted && !m.seenReplaceAtLevel[ct.Level] && !m.seenClearLinks {
+			// First replace at this level - prepend to any pending links from this iterator,
+			// then finishIterator will prepend the whole pending block before finalized links.
+			// Mark as replaced to stop accumulation from older iterators.
+			existing := m.pendingLinks[ct.Level]
+			m.pendingLinks[ct.Level] = append(ct.Targets, existing...)
 			m.linksReplaced[ct.Level] = true
 			m.seenReplaceAtLevel[ct.Level] = true
 		}
 
 	case *AddLinksAtLevelCommit:
 		if !m.deleted {
-			if m.seenReplaceAtLevel[ct.Level] {
-				// We've already seen a replace, stop accumulating (older data is obsolete)
-				// Don't add these links
+			if m.seenReplaceAtLevel[ct.Level] || m.seenClearLinks {
+				// A newer iterator already owns this level (or all levels) — stop accumulating.
 			} else {
-				// No replace seen yet, prepend to existing links (we're going newest to oldest)
-				existing := m.linksPerLevel[ct.Level]
-				m.linksPerLevel[ct.Level] = append(ct.Targets, existing...)
+				// Prepend to pending links (we're going newest to oldest within this iterator).
+				existing := m.pendingLinks[ct.Level]
+				m.pendingLinks[ct.Level] = append(ct.Targets, existing...)
 			}
 		}
 
 	case *AddLinkAtLevelCommit:
 		if !m.deleted {
-			if m.seenReplaceAtLevel[ct.Level] {
-				// We've already seen a replace, stop accumulating (older data is obsolete)
-				// Don't add this link
+			if m.seenReplaceAtLevel[ct.Level] || m.seenClearLinks {
+				// A newer iterator already owns this level (or all levels) — stop accumulating.
 			} else {
-				// No replace seen yet, prepend to existing links (we're going newest to oldest)
-				existing := m.linksPerLevel[ct.Level]
-				m.linksPerLevel[ct.Level] = append([]uint64{ct.Target}, existing...)
+				// Prepend to pending links (we're going newest to oldest within this iterator).
+				existing := m.pendingLinks[ct.Level]
+				m.pendingLinks[ct.Level] = append([]uint64{ct.Target}, existing...)
 			}
 		}
 
 	case *ClearLinksAtLevelCommit:
 		if !m.deleted && !m.seenReplaceAtLevel[ct.Level] {
-			// Clear acts like replace - keep any links from newer logs (already in linksPerLevel)
-			// and stop accumulation from older logs
+			// Wipe any pending links accumulated at this level within the current iterator
+			// (they are older than this clear within the same file).
+			delete(m.pendingLinks, ct.Level)
+			// Finalized links from newer iterators (in linksPerLevel) are unaffected.
+			// Mark as replaced to stop accumulation from older iterators.
 			m.linksReplaced[ct.Level] = true
 			m.seenReplaceAtLevel[ct.Level] = true
 		}
 
 	case *ClearLinksCommit:
 		if !m.deleted {
-			m.linksPerLevel = make(map[uint16][]uint64)
-			m.linksReplaced = make(map[uint16]bool)
-			m.seenReplaceAtLevel = make(map[uint16]bool)
+			// Wipe pending links: any links accumulated so far within the current iterator
+			// are superseded by this clear (which is newer within the same file).
+			m.pendingLinks = make(map[uint16][]uint64)
+			// Finalized links (linksPerLevel) came from higher-precedence iterators and must
+			// be preserved. Seal each such level so that older iterators cannot modify them.
+			for level := range m.linksPerLevel {
+				m.seenReplaceAtLevel[level] = true
+			}
+			// Block all further link additions from older iterators at any level.
+			m.seenClearLinks = true
 		}
 
 	case *AddTombstoneCommit:
