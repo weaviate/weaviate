@@ -45,7 +45,7 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	}
 
 	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -119,7 +119,7 @@ func TestParticipant_CancelDuringSnapshot(t *testing.T) {
 			selector := newBlockingSelector()
 
 			participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
-				&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 
 			exportID := "test-cancel-snap-" + tc.name
 			req := &ExportRequest{
@@ -450,7 +450,7 @@ func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
 	participant := NewParticipant(selector, backends, logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -488,7 +488,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 			selector := &fakeSelector{classList: []string{"TestClass"}}
 			backends := &fakeBackendProvider{backend: backend}
 			participant := NewParticipant(selector, backends, logger,
-				&fakeExportClient{}, &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}, "node1")
+				&fakeExportClient{}, &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}, "node1", nil)
 
 			resolver := &fakeNodeResolver{
 				nodes: map[string]string{

@@ -83,6 +83,11 @@ const (
 	DefaultObjectsTTLConcurrencyFactor   = 1
 	DefaultObjectsTTLPauseEveryNoBatches = 10
 	DefaultObjectsTTLPauseDuration       = time.Minute
+
+	// DefaultExportParallelism is the number of concurrent scan workers per
+	// export. Defaults to 0 which means GOMAXPROCS at runtime. The value is
+	// dynamically configurable via runtime overrides.
+	DefaultExportParallelism = 0
 )
 
 // Flags are input options
@@ -267,6 +272,10 @@ type Config struct {
 	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
 	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// ExportParallelism controls the number of concurrent scan workers per
+	// export. 0 (default) means GOMAXPROCS at runtime.
+	ExportParallelism *runtime.DynamicValue[int] `json:"export_parallelism" yaml:"export_parallelism"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`

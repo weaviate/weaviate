@@ -228,6 +228,13 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
+	}
+
 	cptParser := newCollectionPropsTenantsParser()
 
 	// variable expects string in format:
