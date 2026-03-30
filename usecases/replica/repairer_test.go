@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 func TestRepairerOneWithALL(t *testing.T) {
@@ -113,9 +113,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
 			require.Error(t, err)
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Nil(t, got)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
 			f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 			f.assertLogErrorContains(t, "conflict")
 		})
@@ -174,8 +174,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
 			require.Nil(t, got)
 			f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 		})
@@ -196,8 +196,8 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(emptyItem, errAny)
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Nil(t, got)
 			f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
 		})
@@ -218,11 +218,11 @@ func TestRepairerOneWithALL(t *testing.T) {
 				Return(item1, nil).Once()
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
 			require.Nil(t, got)
 			f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
-			f.assertLogErrorContains(t, rplicaerrors.ErrConflictObjectChanged.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrConflictObjectChanged.Error())
 		})
 
 		t.Run(fmt.Sprintf("CreateMissingObject_%v", tc.variant), func(t *testing.T) {
@@ -263,9 +263,9 @@ func TestRepairerOneWithALL(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
 
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, nilObject, got)
-			f.assertLogErrorContains(t, rplicaerrors.ErrConflictExistOrDeleted.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrConflictExistOrDeleted.Error())
 		})
 		t.Run(fmt.Sprintf("NoConflictDeletedObject_%v", tc.variant), func(t *testing.T) {
 			var (
@@ -347,8 +347,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			}
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 
 			f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
@@ -414,8 +414,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 
 			f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
@@ -439,8 +439,8 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(emptyItem, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 
 			f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
@@ -464,11 +464,11 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(item1, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 			f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
-			f.assertLogErrorContains(t, rplicaerrors.ErrConflictObjectChanged.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrConflictObjectChanged.Error())
 		})
 
 		t.Run(fmt.Sprintf("CreateMissingObject_%v", tc.variant), func(t *testing.T) {
@@ -516,10 +516,10 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, anyVal).Return(digestR3, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelAll, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
-			f.assertLogErrorContains(t, rplicaerrors.ErrConflictExistOrDeleted.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrConflictExistOrDeleted.Error())
 		})
 	}
 }
@@ -586,7 +586,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			}
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 			f.assertLogContains(t, "msg", "A:3", "B:2")
 			f.assertLogErrorContains(t, "conflict")
@@ -648,8 +648,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 			f.assertLogContains(t, "msg", "A:3", "B:2")
 			f.assertLogErrorContains(t, errAny.Error())
@@ -672,8 +672,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, anyVal).Return(emptyItem, errAny)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 			f.assertLogContains(t, "msg", "A:1", "C:3")
 			f.assertLogErrorContains(t, errAny.Error())
@@ -696,12 +696,12 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[1], cls, shard, id, proj, adds, anyVal).Return(item1, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
 			require.Equal(t, false, got)
 
 			f.assertLogContains(t, "msg", "A:1", "B:3")
-			f.assertLogErrorContains(t, rplicaerrors.ErrConflictObjectChanged.Error())
+			f.assertLogErrorContains(t, replicaerrors.ErrConflictObjectChanged.Error())
 		})
 
 		t.Run(fmt.Sprintf("CreateMissingObject_%v", tc.variant), func(t *testing.T) {
@@ -744,9 +744,9 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, anyVal).Return(digestR2, nil)
 
 			got, err := finder.Exists(ctx, types.ConsistencyLevelQuorum, shard, id)
-			require.ErrorContains(t, err, rplicaerrors.ErrRepair.Error())
-			require.ErrorContains(t, err, rplicaerrors.MsgCLevel)
-			f.assertLogErrorContains(t, rplicaerrors.ErrConflictExistOrDeleted.Error())
+			require.ErrorContains(t, err, replicaerrors.ErrRepair.Error())
+			require.ErrorContains(t, err, replicaerrors.MsgCLevel)
+			f.assertLogErrorContains(t, replicaerrors.ErrConflictExistOrDeleted.Error())
 			require.Equal(t, false, got)
 		})
 	}

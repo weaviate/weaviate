@@ -38,7 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -210,14 +210,14 @@ func (db *DB) AbortReplication(ctx context.Context,
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
 	if !db.StartupComplete() {
-		return nil, &replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			*rplicaerrors.NewError(rplicaerrors.StatusNotReady, name),
+		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			*replicaerrors.NewError(replicaerrors.StatusNotReady, name),
 		}}
 	}
 
 	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
-		return nil, &replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			*rplicaerrors.NewError(rplicaerrors.StatusClassNotFound, name),
+		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			*replicaerrors.NewError(replicaerrors.StatusClassNotFound, name),
 		}}
 	}
 	return idx, resp
@@ -225,7 +225,7 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 
 func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersion uint64) *replica.SimpleResponse {
 	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return &replica.SimpleResponse{Errors: []rplicaerrors.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
 	}
 	return nil
 }
@@ -233,15 +233,15 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func(), *replica.SimpleResponse) {
 	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
-		return nil, func() {}, &replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			{Code: rplicaerrors.StatusShardNotFound, Msg: name, Err: err},
+		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: name, Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
 		release()
 
-		return nil, func() {}, &replica.SimpleResponse{Errors: []rplicaerrors.Error{{
-			Code: rplicaerrors.StatusReadOnly, Msg: name,
+		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusReadOnly, Msg: name,
 		}}}
 	}
 	return localShard, release, nil
@@ -318,15 +318,15 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) any {
 	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
-		return replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			{Code: rplicaerrors.StatusShardNotFound, Msg: shard, Err: err},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
 	defer release()
 
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			{Code: rplicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 
@@ -339,15 +339,15 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) any {
 	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
-		return replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			{Code: rplicaerrors.StatusShardNotFound, Msg: shard, Err: err},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
 	defer release()
 
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []rplicaerrors.Error{
-			{Code: rplicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 
