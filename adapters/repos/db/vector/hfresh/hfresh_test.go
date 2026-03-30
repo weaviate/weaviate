@@ -80,7 +80,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
+func makeNoopCommitLogger(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
@@ -97,10 +97,10 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	cfg.Centroids.HNSWConfig = &hnsw.Config{
 		RootPath: tmpDir,
 		ID:       "centroids",
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+		MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(tmpDir, "centroids",
 				l, cyclemanager.NewCallbackGroupNoop(),
-				hnsw.WithAllocChecker(memwatch.NewDummyMonitor()),
+				opts...,
 			)
 		},
 		DistanceProvider:  distancer.NewCosineDistanceProvider(),
@@ -218,16 +218,16 @@ func TestHFreshRecall(t *testing.T) {
 	t.Run("test disk layout", func(t *testing.T) {
 		dirs, err := os.ReadDir(cfg.RootPath)
 		require.NoError(t, err)
-		require.Len(t, dirs, 6)
+		require.Len(t, dirs, 5)
 		require.Equal(t, "analyze.queue.d", dirs[0].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[0].Name())))
 		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[1].Name())
-		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[2].Name())
-		require.Equal(t, "merge.queue.d", dirs[3].Name())
+		require.Equal(t, "merge.queue.d", dirs[2].Name())
+		require.Equal(t, "reassign.queue.d", dirs[3].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[3].Name())))
-		require.Equal(t, "reassign.queue.d", dirs[4].Name())
+		require.Equal(t, "split.queue.d", dirs[4].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[4].Name())))
-		require.Equal(t, "split.queue.d", dirs[5].Name())
+		require.Equal(t, "reassign.queue.d", dirs[4].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[5].Name())))
 	})
 

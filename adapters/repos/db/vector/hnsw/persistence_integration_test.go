@@ -44,9 +44,9 @@ func TestHnswPersistence(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	makeCL := func() (CommitLogger, error) {
+	makeCL := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), opts...)
 	}
 
 	index, err := New(Config{
@@ -118,9 +118,9 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	makeCL := func() (CommitLogger, error) {
+	makeCL := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), opts...)
 	}
 
 	index, err := New(Config{
@@ -229,9 +229,9 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	indexID := "integrationtest_deletion"
 	logger, _ := test.NewNullLogger()
 
-	makeCL := func() (CommitLogger, error) {
+	makeCL := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), opts...)
 	}
 
 	index, err := New(Config{
@@ -313,9 +313,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	makeCL := func() (CommitLogger, error) {
+	makeCL := func(opts ...CommitlogOption) (CommitLogger, error) {
 		return NewCommitLogger(dirName, indexID, logger,
-			cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), opts...)
 	}
 
 	index, err := New(Config{

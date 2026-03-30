@@ -14,6 +14,7 @@ package hnsw
 import (
 	"sync"
 
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
@@ -81,4 +82,20 @@ func (v *vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[node
 		}
 	}
 	return connections
+}
+
+// convertEntityNodes converts entity Vertex slice to internal vertex slice.
+// This is used when loading state from compactv2 which uses the shared entity types.
+func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
+	nodes := make([]*vertex, len(entNodes))
+	for i, en := range entNodes {
+		if en != nil {
+			nodes[i] = &vertex{
+				id:          en.ID,
+				level:       en.Level,
+				connections: en.Connections,
+			}
+		}
+	}
+	return nodes
 }
