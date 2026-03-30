@@ -17,49 +17,48 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/replica"
-
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 func TestReplicationErrorTimeout(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithDeadline(ctx, time.Now())
 	defer cancel()
-	err := &replica.Error{Err: ctx.Err()}
+	err := &rplicaerrors.Error{Err: ctx.Err()}
 	assert.True(t, err.Timeout())
 	err = err.Clone()
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestReplicationErrorMarshal(t *testing.T) {
-	rawErr := replica.Error{Code: replica.StatusClassNotFound, Msg: "Article", Err: errors.New("error cannot be marshalled")}
+	rawErr := rplicaerrors.Error{Code: rplicaerrors.StatusClassNotFound, Msg: "Article", Err: errors.New("error cannot be marshalled")}
 	bytes, err := json.Marshal(&rawErr)
 	assert.Nil(t, err)
-	got := replica.NewError(0, "")
+	got := rplicaerrors.NewError(0, "")
 	assert.Nil(t, json.Unmarshal(bytes, got))
-	want := &replica.Error{Code: replica.StatusClassNotFound, Msg: "Article"}
+	want := &rplicaerrors.Error{Code: rplicaerrors.StatusClassNotFound, Msg: "Article"}
 	assert.Equal(t, want, got)
 }
 
 func TestReplicationErrorStatus(t *testing.T) {
 	tests := []struct {
-		code replica.StatusCode
+		code rplicaerrors.StatusCode
 		desc string
 	}{
 		{-1, ""},
-		{replica.StatusOK, "ok"},
-		{replica.StatusClassNotFound, "class not found"},
-		{replica.StatusShardNotFound, "shard not found"},
-		{replica.StatusNotFound, "not found"},
-		{replica.StatusAlreadyExisted, "already existed"},
-		{replica.StatusConflict, "conflict"},
-		{replica.StatusPreconditionFailed, "precondition failed"},
-		{replica.StatusReadOnly, "read only"},
+		{rplicaerrors.StatusOK, "ok"},
+		{rplicaerrors.StatusClassNotFound, "class not found"},
+		{rplicaerrors.StatusShardNotFound, "shard not found"},
+		{rplicaerrors.StatusNotFound, "not found"},
+		{rplicaerrors.StatusAlreadyExisted, "already existed"},
+		{rplicaerrors.StatusConflict, "conflict"},
+		{rplicaerrors.StatusPreconditionFailed, "precondition failed"},
+		{rplicaerrors.StatusReadOnly, "read only"},
 	}
 	for _, test := range tests {
-		got := replica.StatusText(test.code)
+		got := rplicaerrors.StatusText(test.code)
 		if got != test.desc {
 			t.Errorf("StatusText(%d) want %v got %v", test.code, test.desc, got)
 		}

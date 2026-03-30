@@ -39,7 +39,7 @@ import (
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -1246,7 +1246,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		if s.asyncReplicationStatsByTargetNode == nil {
 			s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 		}
-		if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
+		if (err == nil || errors.Is(err, rplicaerrors.ErrNoDiffFound)) && stats != nil {
 			for _, stat := range stats {
 				if stat != nil {
 					s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
@@ -1274,9 +1274,9 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			return false, ctx.Err()
 		}
 
-		if errors.Is(err, replica.ErrNoDiffFound) {
-			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
-				s.asyncRepLastLog.Store(time.Now().Unix())
+		if errors.Is(err, rplicaerrors.ErrNoDiffFound) {
+			if time.Since(*lastLog) >= config.loggingFrequency {
+				*lastLog = time.Now()
 				s.index.logger.
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
@@ -1378,7 +1378,7 @@ func (s *Shard) hashBeat(
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
 
-		if err != nil && !errors.Is(err, replica.ErrNoDiffFound) {
+		if err != nil && !errors.Is(err, rplicaerrors.ErrNoDiffFound) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return
 		}
@@ -1406,7 +1406,7 @@ func (s *Shard) hashBeat(
 
 	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
 	if err != nil {
-		if errors.Is(err, replica.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
+		if errors.Is(err, rplicaerrors.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(targetNodeOverridesSnapshot))
 			for _, o := range targetNodeOverridesSnapshot {
 				stats = append(stats, &hashBeatHostStats{
