@@ -99,6 +99,14 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"hel", "ell", "llo"},
 		},
 		{
+			name: "disabled tokenizer returns bad request",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("gse"),
+			},
+			wantOK: false,
+		},
+		{
 			name: "invalid stopwords preset returns bad request",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello"),
