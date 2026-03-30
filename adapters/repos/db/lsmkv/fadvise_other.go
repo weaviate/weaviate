@@ -19,3 +19,8 @@ import "os"
 func fadviseSequential(_ *os.File) error {
 	return nil
 }
+
+// fadviseDontNeed is a no-op on non-Linux platforms.
+func fadviseDontNeed(_ *os.File, _ int64) error {
+	return nil
+}

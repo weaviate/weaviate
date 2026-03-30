@@ -26,3 +26,13 @@ import (
 func fadviseSequential(f *os.File) error {
 	return unix.Fadvise(int(f.Fd()), 0, 0, unix.FADV_SEQUENTIAL)
 }
+
+// fadviseDontNeed tells the kernel that the file's pages are no longer
+// needed and can be evicted from the page cache. This prevents a completed
+// sequential scan from polluting the cache with pages that won't be
+// accessed again, freeing space for other workloads. When the underlying
+// inode is shared (e.g. via hard links), only pages not actively mapped by
+// other file descriptors are evicted.
+func fadviseDontNeed(f *os.File, size int64) error {
+	return unix.Fadvise(int(f.Fd()), 0, size, unix.FADV_DONTNEED)
+}

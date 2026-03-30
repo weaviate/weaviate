@@ -896,6 +896,15 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	defer sg.maintenanceLock.Unlock()
 
 	for _, seg := range sg.segments {
+		// For sequential-access buckets, drop page cache entries before
+		// closing to avoid polluting the cache with pages that won't be
+		// accessed again. Best-effort: fadvise is purely advisory.
+		if sg.sequentialAccess {
+			if cs, ok := seg.(*segment); ok && cs.contentFile != nil {
+				_ = fadviseDontNeed(cs.contentFile, cs.size)
+			}
+		}
+
 		if err := seg.close(); err != nil {
 			return err
 		}
