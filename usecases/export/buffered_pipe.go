@@ -32,7 +32,7 @@ const defaultPipeBufferSize = 16 * 1024 * 1024 // 16 MB per range pipeline
 //
 // Thread safety: all methods are safe for concurrent use by one writer
 // goroutine and one reader goroutine. Using multiple concurrent writers or
-// multiple concurrent readers is not supported and will panic.
+// multiple concurrent readers is not supported and will return an error.
 type bufferedPipe struct {
 	mu   sync.Mutex
 	cond *sync.Cond
