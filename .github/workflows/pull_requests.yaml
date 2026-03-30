@@ -807,7 +807,7 @@ jobs:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
       - name: Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           fail_ci_if_error: false
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
