@@ -45,7 +45,16 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 
 func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	if !slices.Contains(tokenizer.Tokenizations, *params.Body.Tokenization) {
-		return tokenizeops.NewTokenizeBadRequest()
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "unsupported tokenization strategy: " + *params.Body.Tokenization}},
+		})
+	}
+
+	// allow a max length of 10k characters to prevent abuse of this endpoint; the tokenizer can handle more, but it may cause performance issues
+	if len(*params.Body.Text) > 10000 {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "text exceeds maximum allowed length of 10,000 characters"}},
+		})
 	}
 
 	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
@@ -57,7 +66,9 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		analyzerConfig = params.Body.AnalyzerConfig
 		detector, err := stopwords.NewDetectorFromConfig(*params.Body.AnalyzerConfig.Stopwords)
 		if err != nil {
-			return tokenizeops.NewTokenizeBadRequest()
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
 		}
 		query = removeStopwords(indexed, detector)
 	}
@@ -106,7 +117,9 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	}
 
 	if prop.Tokenization == "" {
-		return schemaops.NewSchemaObjectsPropertiesTokenizeBadRequest()
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "tokenization is not enabled for this property"}},
+		})
 	}
 
 	indexed := tokenizer.TokenizeForClass(prop.Tokenization, *params.Body.Text, className)
@@ -117,6 +130,9 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		detector, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {
 			logger.WithField("action", "create_stopword_detector").Error(err)
+			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
 		} else {
 			query = removeStopwords(indexed, detector)
 		}
