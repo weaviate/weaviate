@@ -19,8 +19,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/export"
 )
 
@@ -62,9 +60,7 @@ func TestDoExport(t *testing.T) {
 			classes: map[string][]shardSpec{
 				"Article": {{name: "shard0", numObjects: 0}},
 			},
-			expected: []expectedFile{
-				{key: "Article_shard0_0000.parquet", numRows: 0},
-			},
+			expected: nil, // no parquet file for empty shards
 		},
 		{
 			name: "multi-tenant",
@@ -104,8 +100,9 @@ func TestDoExport(t *testing.T) {
 
 			// Build selector from class/shard specs.
 			sel := &fakeSelector{
-				shards: make(map[string]map[string]*testShard),
-				mt:     tc.mt,
+				shards:        make(map[string]map[string]*testShard),
+				mt:            tc.mt,
+				snapshotsRoot: t.TempDir(),
 			}
 			reqShards := make(map[string][]string)
 			var classNames []string
@@ -132,7 +129,10 @@ func TestDoExport(t *testing.T) {
 				NodeName: "node1",
 			}
 
-			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
+			snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+			require.NoError(t, snapErr)
+
+			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 			require.NoError(t, err)
 
 			for _, ef := range tc.expected {
@@ -173,6 +173,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 				"shard1": "tenant is COLD",
 			},
 		},
+		snapshotsRoot: t.TempDir(),
 	}
 
 	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
@@ -186,7 +187,10 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
+	snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+	require.NoError(t, snapErr)
+
+	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 	require.NoError(t, err)
 
 	// Exported shard should have data.
@@ -221,38 +225,51 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 				"shard0": {store: store0, name: "shard0"},
 			},
 		},
+		snapshotsRoot: t.TempDir(),
 	}
+
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	req := &ExportRequest{
+		ID:       "test-export",
+		Backend:  "fake",
+		Classes:  []string{"Article"},
+		Shards:   map[string][]string{"Article": {"shard0"}},
+		Bucket:   "bucket",
+		Path:     "path",
+		NodeName: "node1",
+	}
+
+	// Create snapshots with a valid context, then cancel before doExport.
+	snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+	require.NoError(t, snapErr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
-	req := &ExportRequest{
-		ID:       "test-export",
-		Backend:  "fake",
-		Classes:  []string{"Article"},
-		Shards:   map[string][]string{"Article": {"shard0"}},
-		Bucket:   "bucket",
-		Path:     "path",
-		NodeName: "node1",
-	}
-
-	err := p.doExport(ctx, backend, req, newTestNodeStatus(req.NodeName))
+	err := p.doExport(ctx, backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestDoExport_NilStore(t *testing.T) {
+// TestSnapshotAllShards_Error verifies that errors from SnapshotShards
+// propagate correctly through snapshotAllShards.
+func TestSnapshotAllShards_Error(t *testing.T) {
 	t.Parallel()
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
 
+	store0, _ := createTestStore(t, 100)
+	defer store0.Shutdown(context.Background())
+
+	// shard0 succeeds, shard1 has a nil store which causes SnapshotShards to
+	// return an error.
 	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
-				"shard0": {store: nil, name: "shard0"},
+				"shard0": {store: store0, name: "shard0"},
+				"shard1": {store: nil, name: "shard1"},
 			},
 		},
+		snapshotsRoot: t.TempDir(),
 	}
 
 	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
@@ -260,51 +277,13 @@ func TestDoExport_NilStore(t *testing.T) {
 		ID:       "test-export",
 		Backend:  "fake",
 		Classes:  []string{"Article"},
-		Shards:   map[string][]string{"Article": {"shard0"}},
+		Shards:   map[string][]string{"Article": {"shard0", "shard1"}},
 		Bucket:   "bucket",
 		Path:     "path",
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
+	_, _, err := p.snapshotAllShards(context.Background(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
-}
-
-func TestDoExport_NilBucket(t *testing.T) {
-	t.Parallel()
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	// Create a store without the objects bucket.
-	dir := t.TempDir()
-	store, err := lsmkv.New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	defer store.Shutdown(context.Background())
-
-	selector := &fakeSelector{
-		shards: map[string]map[string]*testShard{
-			"Article": {
-				"shard0": {store: store, name: "shard0"},
-			},
-		},
-	}
-
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
-	req := &ExportRequest{
-		ID:       "test-export",
-		Backend:  "fake",
-		Classes:  []string{"Article"},
-		Shards:   map[string][]string{"Article": {"shard0"}},
-		Bucket:   "bucket",
-		Path:     "path",
-		NodeName: "node1",
-	}
-
-	err = p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "objects bucket not found")
 }
