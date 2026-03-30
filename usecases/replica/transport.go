@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -47,7 +47,7 @@ type Client interface {
 }
 
 type SimpleResponse struct {
-	Errors []rplicaerrors.Error `json:"errors,omitempty"`
+	Errors []replicaerrors.Error `json:"errors,omitempty"`
 }
 
 func (r *SimpleResponse) FirstError() error {
@@ -65,8 +65,8 @@ type DeleteBatchResponse struct {
 }
 
 type UUID2Error struct {
-	UUID  string             `json:"uuid,omitempty"`
-	Error rplicaerrors.Error `json:"error,omitempty"`
+	UUID  string              `json:"uuid,omitempty"`
+	Error replicaerrors.Error `json:"error,omitempty"`
 }
 
 // FirstError returns the first found error

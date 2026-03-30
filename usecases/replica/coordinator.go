@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const (
@@ -164,7 +164,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: rplicaerrors.NewNotEnoughReplicasError(errors.Join(replicaErrs...))}
+			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasError(errors.Join(replicaErrs...))}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -243,7 +243,7 @@ func (c *coordinator[T, R]) read(
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = rplicaerrors.NewNotEnoughReplicasError(nil)
+		firstError = replicaerrors.NewNotEnoughReplicasError(nil)
 	}
 	failures = append(failures, successes...)
 	return onFlatten(batchSize, failures, firstError)

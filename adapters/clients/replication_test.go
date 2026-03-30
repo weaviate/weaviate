@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -65,7 +65,7 @@ func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion u
 	return &fakeServer{
 		method:                method,
 		path:                  path,
-		RequestError:          replica.SimpleResponse{Errors: []rplicaerrors.Error{{Msg: "error"}}},
+		RequestError:          replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}},
 		RequestSuccess:        replica.SimpleResponse{},
 		ExpectedSchemaVersion: fmt.Sprint(schemaVersion),
 	}
@@ -207,7 +207,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects", 123)
-	fs.RequestError.Errors = append(fs.RequestError.Errors, rplicaerrors.Error{Msg: "error2"})
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replicaerrors.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -289,7 +289,7 @@ func TestReplicationAddReferences(t *testing.T) {
 
 	ctx := context.Background()
 	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references", 0)
-	fs.RequestError.Errors = append(fs.RequestError.Errors, rplicaerrors.Error{Msg: "error2"})
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replicaerrors.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -325,7 +325,7 @@ func TestReplicationDeleteObjects(t *testing.T) {
 
 	ctx := context.Background()
 	fs := newFakeReplicationServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects", 0)
-	fs.RequestError.Errors = append(fs.RequestError.Errors, rplicaerrors.Error{Msg: "error2"})
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replicaerrors.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(t, ts.Client())
