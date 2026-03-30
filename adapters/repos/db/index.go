@@ -2004,7 +2004,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
-	selector *searchparams.Selection,
+	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
@@ -2023,7 +2023,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
-	selector *searchparams.Selection,
+	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -2052,7 +2052,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, tenantName string, shardName string,
-	selector *searchparams.Selection,
+	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
 	var outScores []float32
@@ -2102,7 +2102,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
-	selector *searchparams.Selection,
+	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
@@ -2261,7 +2261,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	selector *searchparams.Selection,
+	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {

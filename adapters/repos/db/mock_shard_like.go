@@ -2373,7 +2373,7 @@ func (_c *MockShardLike_ObjectSearch_Call) RunAndReturn(run func(context.Context
 }
 
 // ObjectVectorSearch provides a mock function with given fields: ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties
-func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, selector *searchparams.Selection) ([]*storobj.Object, []float32, error) {
+func (_m *MockShardLike) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	ret := _m.Called(ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)
 
 	if len(ret) == 0 {
@@ -2428,12 +2428,12 @@ type MockShardLike_ObjectVectorSearch_Call struct {
 //   - _a8 additional.Properties
 //   - targetCombination *dto.TargetCombination
 //   - properties []string
-//   - selector *searchparams.Selection
-func (_e *MockShardLike_Expecter) ObjectVectorSearch(ctx interface{}, searchVectors interface{}, targetVectors interface{}, targetDist interface{}, limit interface{}, _a5 interface{}, sort interface{}, groupBy interface{}, _a8 interface{}, targetCombination interface{}, properties interface{}, selector interface{}) *MockShardLike_ObjectVectorSearch_Call {
+//   - selection *searchparams.Selection
+func (_e *MockShardLike_Expecter) ObjectVectorSearch(ctx interface{}, searchVectors interface{}, targetVectors interface{}, targetDist interface{}, limit interface{}, _a5 interface{}, sort interface{}, groupBy interface{}, _a8 interface{}, targetCombination interface{}, properties interface{}, selection interface{}) *MockShardLike_ObjectVectorSearch_Call {
 	return &MockShardLike_ObjectVectorSearch_Call{Call: _e.mock.On("ObjectVectorSearch", ctx, searchVectors, targetVectors, targetDist, limit, _a5, sort, groupBy, _a8, targetCombination, properties, selector)}
 }
 
-func (_c *MockShardLike_ObjectVectorSearch_Call) Run(run func(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, selector *searchparams.Selection)) *MockShardLike_ObjectVectorSearch_Call {
+func (_c *MockShardLike_ObjectVectorSearch_Call) Run(run func(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, _a5 *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, _a8 additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection)) *MockShardLike_ObjectVectorSearch_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].([]models.Vector), args[2].([]string), args[3].(float32), args[4].(int), args[5].(*filters.LocalFilter), args[6].([]filters.Sort), args[7].(*searchparams.GroupBy), args[8].(additional.Properties), args[9].(*dto.TargetCombination), args[10].([]string), args[11].(*searchparams.Selection))
 	})

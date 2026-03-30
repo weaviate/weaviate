@@ -282,7 +282,7 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selector *searchparams.Selection) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}

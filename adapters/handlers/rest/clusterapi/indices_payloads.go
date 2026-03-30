@@ -661,7 +661,7 @@ type searchParametersPayload struct {
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
-	Selector          *searchparams.Selection      `json:"selector,omitempty"`
+	Selection         *searchparams.Selection      `json:"selection,omitempty"`
 }
 
 func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
@@ -717,7 +717,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	selector *searchparams.Selection,
+	selection *searchparams.Selection,
 ) ([]byte, error) {
 	var vector []float32
 	var targetVector string

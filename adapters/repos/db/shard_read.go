@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -481,7 +480,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selector *searchparams.Selection) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -604,8 +603,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				return nil
 			}
 
-			if selector != nil {
-				ids, dists, err = s.applySelection(ctx, selector, targetVector, ids, dists, limit)
+			if selection != nil {
+				ids, dists, err = s.applySelection(ctx, selection, targetVector, ids, dists, limit)
 				if err != nil {
 					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
 				}
@@ -674,7 +673,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	return objs, distCombined, nil
 }
 
-func (s *Shard) applySelection(ctx context.Context, selector *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
 	// Build distancer from the target vector's distance config
 	var distProv distancer.Provider
 	cfg := s.index.GetVectorIndexConfig(targetVector)

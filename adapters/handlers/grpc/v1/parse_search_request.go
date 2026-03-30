@@ -141,7 +141,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.NearVector.WithDistance = true
 		}
 
-		out.Selector = parseSelection(nv.Selection)
+		out.Selection = parseSelection(nv.Selection)
 	}
 
 	if no := req.NearObject; no != nil {
@@ -152,7 +152,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			ID:            no.Id,
 			TargetVectors: targetVectors,
 		}
-		out.Selector = parseSelection(no.Selection)
+		out.Selection = parseSelection(no.Selection)
 
 		// The following business logic should not sit in the API. However, it is
 		// also part of the GraphQL API, so we need to duplicate it in order to get
@@ -313,7 +313,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			Distance:        distance,
 			WithDistance:    withDistance,
 		}
-		out.Selector = parseSelection(hs.Selection)
+		out.Selection = parseSelection(hs.Selection)
 
 		if hs.Bm25SearchOperator != nil {
 			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
@@ -359,7 +359,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearText"] = nearText
-		out.Selector = parseSelection(req.NearText.Selection)
+		out.Selection = parseSelection(req.NearText.Selection)
 	}
 
 	if req.Generative != nil {

@@ -21,18 +21,18 @@ import (
 //	score = -lambda * queryDist + (1-lambda) * minDistToSelected
 //
 // lambda=1 pure relevance ranking, lambda=0 pure diversity.
-type MMRSelector struct {
+type MMRSelection struct {
 	distFn   func(a, b []float32) (float32, error)
 	vecForID func(ctx context.Context, id uint64) ([]float32, error)
 	k        int
 	lambda   float32
 }
 
-func newMMRSelector(distFn func(a, b []float32) (float32, error), vecForID func(ctx context.Context, id uint64) ([]float32, error), k int, lambda float32) *MMRSelector {
-	return &MMRSelector{distFn: distFn, vecForID: vecForID, k: k, lambda: lambda}
+func newMMRSelector(distFn func(a, b []float32) (float32, error), vecForID func(ctx context.Context, id uint64) ([]float32, error), k int, lambda float32) *MMRSelection {
+	return &MMRSelection{distFn: distFn, vecForID: vecForID, k: k, lambda: lambda}
 }
 
-func (s *MMRSelector) Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error) {
+func (s *MMRSelection) Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error) {
 	n := len(ids)
 	k := s.k
 	if n == 0 || k <= 0 {

@@ -149,7 +149,7 @@ type shards interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-		selector *searchparams.Selection,
+		selection *searchparams.Selection,
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)

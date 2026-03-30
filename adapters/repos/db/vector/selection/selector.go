@@ -18,15 +18,15 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
-// Selector post-processes a candidate set of (ids, distances) into a final
+// Selection post-processes a candidate set of (ids, distances) into a final
 // result. Implementations encode all algorithm-specific parameters at
 // construction time so that the call site stays uniform regardless of which
 // strategy is active.
-type Selector interface {
+type Selection interface {
 	Select(ctx context.Context, ids []uint64, queryDistances []float32) ([]uint64, []float32, error)
 }
 
-// New returns the Selector described by sel, wired up with the provided
+// New returns the Selection described by sel, wired up with the provided
 // distance and vector-fetch functions. Returns nil when sel is nil or no
 // known strategy is set, meaning the caller should skip post-processing.
 func New(
@@ -34,7 +34,7 @@ func New(
 	distFn func(a, b []float32) (float32, error),
 	vecForID func(ctx context.Context, id uint64) ([]float32, error),
 	k int,
-) (Selector, error) {
+) (Selection, error) {
 	if sel == nil {
 		return nil, nil
 	}
