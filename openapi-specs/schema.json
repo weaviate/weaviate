@@ -1779,13 +1779,10 @@
             "type": "string"
           }
         },
-        "stopwords": {
-          "description": "A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.",
-          "type": "array",
-          "x-omitempty": true,
-          "items": {
-            "type": "string"
-          }
+        "stopwordPreset": {
+          "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
+          "type": "string",
+          "x-omitempty": true
         },
         "tokenizerOverrides" : {
           "description": "User-defined dictionary for tokenization.",

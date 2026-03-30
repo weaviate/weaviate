@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// TextAnalyserConfig Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.
+// TextAnalyserConfig Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types with searchable indexing.
 //
 // swagger:model TextAnalyserConfig
 type TextAnalyserConfig struct {
@@ -33,11 +33,11 @@ type TextAnalyserConfig struct {
 	// If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.
 	ASCIIFold bool `json:"asciiFold,omitempty"`
 
-	// If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search.
+	// If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
 
-	// A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.
-	Stopwords []string `json:"stopwords,omitempty"`
+	// If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.
+	StopwordPreset string `json:"stopwordPreset,omitempty"`
 
 	// User-defined dictionary for tokenization.
 	TokenizerOverrides []*TokenizerUserDictConfig `json:"tokenizerOverrides,omitempty"`

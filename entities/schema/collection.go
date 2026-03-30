@@ -111,7 +111,7 @@ type ShardingConfig struct {
 type PropertyAnalyser struct {
 	ASCIIFold          bool                              `json:"asciiFold,omitempty"`
 	ASCIIFoldIgnore    []string                          `json:"asciiFoldIgnore,omitempty"`
-	Stopwords          []string                          `json:"stopwords,omitempty"`
+	StopwordPreset     string                            `json:"stopwordPreset,omitempty"`
 	TokenizerOverrides []*models.TokenizerUserDictConfig `json:"tokenizerOverrides,omitempty"`
 }
 
@@ -206,7 +206,7 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 		n.Processing = PropertyAnalyser{
 			ASCIIFold:          m.TextAnalyser.ASCIIFold,
 			ASCIIFoldIgnore:    m.TextAnalyser.ASCIIFoldIgnore,
-			Stopwords:          m.TextAnalyser.Stopwords,
+			StopwordPreset:     m.TextAnalyser.StopwordPreset,
 			TokenizerOverrides: m.TextAnalyser.TokenizerOverrides,
 		}
 	}
@@ -240,7 +240,7 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	m.TextAnalyser = &models.TextAnalyserConfig{
 		ASCIIFold:          n.Processing.ASCIIFold,
 		ASCIIFoldIgnore:    n.Processing.ASCIIFoldIgnore,
-		Stopwords:          n.Processing.Stopwords,
+		StopwordPreset:     n.Processing.StopwordPreset,
 		TokenizerOverrides: n.Processing.TokenizerOverrides,
 	}
 	m.Tokenization = n.Tokenization
@@ -290,7 +290,7 @@ func PropertyFromModel(m models.Property) Property {
 		p.Analyser = PropertyAnalyser{
 			ASCIIFold:          m.TextAnalyser.ASCIIFold,
 			ASCIIFoldIgnore:    m.TextAnalyser.ASCIIFoldIgnore,
-			Stopwords:          m.TextAnalyser.Stopwords,
+			StopwordPreset:     m.TextAnalyser.StopwordPreset,
 			TokenizerOverrides: m.TextAnalyser.TokenizerOverrides,
 		}
 	}
@@ -326,7 +326,7 @@ func PropertyToModel(p Property) models.Property {
 	m.TextAnalyser = &models.TextAnalyserConfig{
 		ASCIIFold:          p.Analyser.ASCIIFold,
 		ASCIIFoldIgnore:    p.Analyser.ASCIIFoldIgnore,
-		Stopwords:          p.Analyser.Stopwords,
+		StopwordPreset:     p.Analyser.StopwordPreset,
 		TokenizerOverrides: p.Analyser.TokenizerOverrides,
 	}
 	m.Tokenization = p.Tokenization

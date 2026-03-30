@@ -9580,7 +9580,7 @@ func init() {
       }
     },
     "TextAnalyserConfig": {
-      "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types with searchable indexing.",
       "type": "object",
       "properties": {
         "asciiFold": {
@@ -9588,19 +9588,16 @@ func init() {
           "type": "boolean"
         },
         "asciiFoldIgnore": {
-          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search.",
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
           "type": "array",
           "items": {
             "type": "string"
           },
           "x-omitempty": true
         },
-        "stopwords": {
-          "description": "A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
+        "stopwordPreset": {
+          "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
+          "type": "string",
           "x-omitempty": true
         },
         "tokenizerOverrides": {
@@ -20075,7 +20072,7 @@ func init() {
       }
     },
     "TextAnalyserConfig": {
-      "description": "Text analysis options for a property. These settings are immutable after creation. Applies only to text and text[] data types with searchable indexing.",
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types with searchable indexing.",
       "type": "object",
       "properties": {
         "asciiFold": {
@@ -20083,19 +20080,16 @@ func init() {
           "type": "boolean"
         },
         "asciiFoldIgnore": {
-          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search.",
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
           "type": "array",
           "items": {
             "type": "string"
           },
           "x-omitempty": true
         },
-        "stopwords": {
-          "description": "A list of stopwords to exclude from indexing and searching. Stopwords are common words that are often ignored in search queries to improve performance and relevance. For example, ['the', 'is', 'at'] would exclude these words from being indexed or considered in search queries.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
+        "stopwordPreset": {
+          "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
+          "type": "string",
           "x-omitempty": true
         },
         "tokenizerOverrides": {
