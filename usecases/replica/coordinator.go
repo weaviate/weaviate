@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const (
@@ -133,9 +135,11 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 	f := func() {
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
+		var replicaErrs []error
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
+				replicaErrs = append(replicaErrs, r.Err)
 				continue
 			}
 
@@ -157,7 +161,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
+			resChan <- Result[string]{Err: rplicaerrors.NewNotEnoughReplicasError(errors.Join(replicaErrs...))}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -236,7 +240,7 @@ func (c *coordinator[T, R]) read(
 		}
 	}
 	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+		firstError = rplicaerrors.NewNotEnoughReplicasError(nil)
 	}
 	failures = append(failures, successes...)
 	return onFlatten(batchSize, failures, firstError)

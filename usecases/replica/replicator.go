@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	rplicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // opID operation encode as and int
@@ -113,8 +114,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
-
+		return fmt.Errorf("%s %q: %w", rplicaerrors.MsgCLevel, l, rplicaerrors.NewNotEnoughReplicasError(err))
 	}
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "put").WithField("class", r.class).
@@ -145,13 +145,13 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return fmt.Errorf("%s %q: %w", rplicaerrors.MsgCLevel, l, rplicaerrors.NewNotEnoughReplicasError(err))
 	}
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
-		var replicaErr *Error
-		if errors.As(err, &replicaErr) && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
+		var replicaErr *rplicaerrors.Error
+		if errors.As(err, &replicaErr) && replicaErr != nil && replicaErr.Code == rplicaerrors.StatusObjectNotFound {
 			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 		}
 		return err
@@ -181,7 +181,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return fmt.Errorf("%s %q: %w", rplicaerrors.MsgCLevel, l, rplicaerrors.NewNotEnoughReplicasError(err))
 	}
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "put").WithField("class", r.class).
@@ -212,7 +212,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		err = fmt.Errorf("%s %q: %w", rplicaerrors.MsgCLevel, l, rplicaerrors.NewNotEnoughReplicasError(err))
 		errs := make([]error, len(objs))
 		for i := 0; i < len(objs); i++ {
 			errs[i] = err
@@ -260,7 +260,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		err = fmt.Errorf("%s %q: %w", rplicaerrors.MsgCLevel, l, rplicaerrors.NewNotEnoughReplicasError(err))
 		errs := make([]objects.BatchSimpleObject, len(uuids))
 		for i := 0; i < len(uuids); i++ {
 			errs[i].Err = err
@@ -295,7 +295,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		err = fmt.Errorf("%s %q: %w", rplicaerrors.MsgCLevel, l, rplicaerrors.NewNotEnoughReplicasError(err))
 		errs := make([]error, len(refs))
 		for i := 0; i < len(refs); i++ {
 			errs[i] = err
