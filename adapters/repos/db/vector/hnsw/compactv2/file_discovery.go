@@ -101,13 +101,7 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 		return nil, errors.Wrapf(err, "read directory %s", d.dir)
 	}
 
-	state := &DirectoryState{
-		SortedFiles:    make([]FileInfo, 0),
-		RawFiles:       make([]FileInfo, 0),
-		CondensedFiles: make([]FileInfo, 0),
-		Overlaps:       make([]Overlap, 0),
-	}
-
+	var state DirectoryState
 	var allFiles []FileInfo
 
 	for _, entry := range entries {
@@ -157,8 +151,10 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 	for i, f := range allFiles {
 		switch f.Type {
 		case FileTypeSnapshot:
-			if state.Snapshot == nil || f.StartTS < state.Snapshot.StartTS {
-				// Keep the oldest snapshot (root file)
+			if state.Snapshot == nil || f.EndTS > state.Snapshot.EndTS {
+				// Keep the most complete snapshot (highest EndTS = most recent data).
+				// When two snapshots coexist after a crash mid-compaction they typically
+				// share the same StartTS, so EndTS is the correct discriminator.
 				state.Snapshot = &allFiles[i]
 			}
 		case FileTypeSorted:
@@ -180,9 +176,9 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 	})
 
 	// Detect overlaps
-	state.Overlaps = d.detectOverlaps(state)
+	state.Overlaps = d.detectOverlaps(&state)
 
-	return state, nil
+	return &state, nil
 }
 
 // parseFilename parses a commit log filename and extracts file info.
@@ -215,17 +211,14 @@ func (d *FileDiscovery) parseFilename(name string) (FileInfo, error) {
 
 	// Parse timestamp(s) from base name
 	// Format: {timestamp} or {start}_{end}
-	if idx := strings.Index(baseName, "_"); idx != -1 {
+	if start, end, ok := strings.Cut(baseName, "_"); ok {
 		// Merged range format: {start}_{end}
-		startStr := baseName[:idx]
-		endStr := baseName[idx+1:]
-
-		startTS, err := strconv.ParseInt(startStr, 10, 64)
+		startTS, err := strconv.ParseInt(start, 10, 64)
 		if err != nil {
 			return FileInfo{}, errors.Wrapf(err, "parse start timestamp from %s", name)
 		}
 
-		endTS, err := strconv.ParseInt(endStr, 10, 64)
+		endTS, err := strconv.ParseInt(end, 10, 64)
 		if err != nil {
 			return FileInfo{}, errors.Wrapf(err, "parse end timestamp from %s", name)
 		}

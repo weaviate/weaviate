@@ -406,6 +406,36 @@ func TestBuildMergedFilename(t *testing.T) {
 	}
 }
 
+// TestFileDiscovery_Scan_MultipleSnapshots_KeepsNewest verifies that when two
+// snapshots coexist (e.g. after a crash mid-compaction), the one with the
+// highest EndTS is selected. The old snapshot has a smaller range and should
+// be superseded by the newer, more complete one.
+//
+// This is a regression test for a bug where the selection used StartTS instead
+// of EndTS, causing the older snapshot to be returned when both share the same
+// StartTS (the common case: both snapshots root at the same origin timestamp).
+func TestFileDiscovery_Scan_MultipleSnapshots_KeepsNewest(t *testing.T) {
+	dir := t.TempDir()
+
+	// Simulate post-crash state: compactor wrote 1000_5000.snapshot then crashed
+	// before it could delete 1000_3000.snapshot. Both snapshots share StartTS=1000
+	// because each covers all data from the beginning.
+	createFile(t, dir, "1000_3000.snapshot") // old, smaller
+	createFile(t, dir, "1000_5000.snapshot") // new, more complete
+
+	discovery := NewFileDiscovery(dir)
+	state, err := discovery.Scan()
+	require.NoError(t, err)
+
+	// Must pick the snapshot that covers the most data (highest EndTS).
+	// With the bug the selection used StartTS, and since both share StartTS=1000,
+	// whichever file was encountered first (alphabetically "1000_3000" < "1000_5000")
+	// would win — returning the stale, smaller snapshot.
+	require.NotNil(t, state.Snapshot)
+	assert.Equal(t, int64(5000), state.Snapshot.EndTS,
+		"should select snapshot with highest EndTS (most complete data), not first encountered")
+}
+
 func TestDirectoryState_TotalSizes(t *testing.T) {
 	state := &DirectoryState{
 		Snapshot: &FileInfo{Size: 1000},

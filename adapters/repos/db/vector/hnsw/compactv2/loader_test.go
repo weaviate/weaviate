@@ -540,6 +540,75 @@ func TestLoader_MixedFileTypes(t *testing.T) {
 	require.NotNil(t, result.State.Graph.Nodes[4])
 }
 
+// TestLoader_CrashRecovery_TwoSnapshotsUsesNewest is a regression test for a
+// bug in FileDiscovery.Scan where, when two snapshots coexist, the snapshot
+// with the lowest StartTS was selected instead of the one with the highest EndTS.
+//
+// Crash scenario that triggers the bug:
+//  1. Compactor merges old snapshot A (1000_3000) with sorted files 4000.sorted
+//     and 5000.sorted into new snapshot B (1000_5000).
+//  2. B is written atomically via SafeFileWriter rename. ✓
+//  3. Compactor starts deleting sources. The sorted files are deleted first
+//     (they come after A in StartTS order when there is a gap), or A's removal
+//     fails transiently while the sorted file removals succeed.
+//  4. Result on disk: A (1000_3000) and B (1000_5000) — no sorted files.
+//
+// On the next startup with the buggy selection:
+//   - FileDiscovery picks A (alphabetically first: "1000_3000" < "1000_5000").
+//   - No WAL files remain — the sorted files are gone.
+//   - Only A is loaded → nodes 3 and 4 are missing. Data loss.
+//
+// With the fix (select highest EndTS):
+//   - FileDiscovery picks B.
+//   - B contains nodes 0-4. All data present.
+func TestLoader_CrashRecovery_TwoSnapshotsUsesNewest(t *testing.T) {
+	dir := t.TempDir()
+
+	// Old snapshot A: contains nodes 0, 1, 2 — written in an earlier compaction.
+	oldSnapshotPath := filepath.Join(dir, "1000_3000.snapshot")
+	createTestSnapshot(t, oldSnapshotPath, 0, 0, []testNode{
+		{id: 0, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		{id: 1, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		{id: 2, level: 0, connections: [][]uint64{{}}, tombstone: false},
+	})
+
+	// New snapshot B: contains nodes 0-4 — the compactor merged A + sorted files
+	// into B. The sorted files were deleted but A's deletion failed.
+	newSnapshotPath := filepath.Join(dir, "1000_5000.snapshot")
+	createTestSnapshot(t, newSnapshotPath, 0, 0, []testNode{
+		{id: 0, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		{id: 1, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		{id: 2, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		{id: 3, level: 0, connections: [][]uint64{{}}, tombstone: false},
+		{id: 4, level: 0, connections: [][]uint64{{}}, tombstone: false},
+	})
+
+	// The source sorted files (4000.sorted, 5000.sorted) are intentionally absent:
+	// they were already deleted before the crash / removal failure for A.
+	// Without any WAL files, the loader must rely entirely on whichever snapshot
+	// it selects — choosing A means nodes 3 and 4 are permanently lost.
+
+	loader := NewLoader(LoaderConfig{
+		Dir:    dir,
+		Logger: loaderTestLogger(),
+	})
+
+	result, err := loader.Load()
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// All five nodes must be present. With the buggy snapshot selection the
+	// loader picks A (nodes 0-2 only) and finds no WAL files to compensate,
+	// so nodes 3 and 4 are permanently lost.
+	require.True(t, len(result.State.Graph.Nodes) > 4,
+		"expected nodes 0-4 to be present; loader may have selected the old snapshot")
+	for i := uint64(0); i <= 4; i++ {
+		require.NotNilf(t, result.State.Graph.Nodes[i],
+			"node %d is missing — loader likely selected the old snapshot (1000_3000) "+
+				"instead of the new one (1000_5000)", i)
+	}
+}
+
 // Helper types and functions for creating test files
 
 type testNode struct {
