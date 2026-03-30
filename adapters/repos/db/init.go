@@ -158,9 +158,10 @@ func (db *DB) init(ctx context.Context) error {
 				UsageEnabled:                   db.config.UsageEnabled,
 				AvoidMMap:                      db.config.AvoidMMap,
 				EnableLazyLoadShards: func() bool {
-					// If explicitly enabled in config, override auto-detection.
-					if db.config.EnableLazyLoadShards {
-						return true
+					// If explicitly set (true = always lazy, false = always eager),
+					// skip auto-detection entirely.
+					if db.config.EnableLazyLoadShards != nil {
+						return *db.config.EnableLazyLoadShards
 					}
 
 					lazyLoadShardEnabled = shouldAutoLazyLoadShards(
