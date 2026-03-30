@@ -15,9 +15,6 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
-	"io/fs"
-	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -158,7 +155,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	h.taskQueue = *taskQueue
 
 	if err = h.restoreMetadata(); err != nil {
-		h.logger.Warnf("unable to restore metadata from previous run with error: %v", err)
+		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
 	}
 
 	return &h, nil
@@ -219,7 +216,7 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 
 	var errs []error
 
-	err := h.taskQueue.Close()
+	err := h.taskQueue.Close(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -260,18 +257,20 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) stopTaskQueues() error {
+func (h *HFresh) stopTaskQueues(ctx context.Context) error {
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue,
 		h.taskQueue.splitQueue,
 		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
-		queue.Pause()
-		queue.Wait()
-		err := queue.Flush()
+		err := queue.Pause(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("pause queue: %w", err)
+		}
+		err = queue.Flush()
+		if err != nil {
+			return fmt.Errorf("flush queue: %w", err)
 		}
 	}
 	return nil
@@ -293,7 +292,12 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return h.stopTaskQueues()
+	return h.stopTaskQueues(ctx)
+}
+
+func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
+	h.resumeTaskQueues()
+	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 
 func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -316,38 +320,21 @@ func (h *HFresh) ListFiles(ctx context.Context, basePath string) ([]string, erro
 }
 
 func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, error) {
-	files := make([]string, 0)
-	// list all files in paths that end with .queue.d
-	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+	var files []string
+
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		f, err := queue.ForceSwitch(ctx, basePath)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if d.IsDir() && strings.HasSuffix(d.Name(), ".queue.d") {
-			// list all files in this directory
-			err := filepath.WalkDir(path, func(p string, de fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !de.IsDir() {
-					relPath, err := filepath.Rel(basePath, p)
-					if err != nil {
-						return err
-					}
-					files = append(files, relPath)
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-			// skip walking into subdirectories of this queue directory
-			return filepath.SkipDir
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list queue files: %w", err)
+		files = append(files, f...)
 	}
+
 	return files, nil
 }
 

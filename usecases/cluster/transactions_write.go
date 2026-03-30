@@ -362,7 +362,7 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 		"ownership": "coordinator",
 	}).Inc()
 
-	c.resetTxExpiry(ttl, c.currentTransaction.ID)
+	c.resetTxExpiry(ttl, tx.ID)
 
 	if err := c.remote.BroadcastTransaction(ctx, tx); err != nil {
 		// we could not open the transaction on every node, therefore we need to
@@ -405,7 +405,7 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 	c.Lock()
 	defer c.Unlock()
 	c.slowLog.Update("begin_tx_completed")
-	return c.currentTransaction, nil
+	return tx, nil
 }
 
 func (c *TxManager) CommitWriteTransaction(ctx context.Context,

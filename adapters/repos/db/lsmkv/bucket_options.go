@@ -30,6 +30,12 @@ func MakeNoopBucketOptions(strategy string, _ ...BucketOption) []BucketOption {
 	return []BucketOption{WithStrategy(strategy)}
 }
 
+func MakeRegularBucketOptions(strategy string, customOptions ...BucketOption) []BucketOption {
+	return append([]BucketOption{
+		WithStrategy(strategy),
+	}, customOptions...)
+}
+
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
 		if err := CheckExpectedStrategy(strategy); err != nil {
@@ -277,6 +283,27 @@ func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
 func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Context) (bool, error)) BucketOption {
 	return func(b *Bucket) error {
 		b.shouldSkipKey = shouldSkipKey
+		return nil
+	}
+}
+
+func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
+	return func(b *Bucket) error {
+		b.skipSecondaryKeyCheck = skip
+		return nil
+	}
+}
+
+// WithImmutable marks the bucket as immutable. All write operations (Put,
+// Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrImmutable.
+// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+//
+// This is distinct from the shard-level read-only status
+// (storagestate.StatusReadOnly) which temporarily halts flushes during
+// backup/compaction operations.
+func WithImmutable(immutable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.immutable = immutable
 		return nil
 	}
 }

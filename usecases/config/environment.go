@@ -22,13 +22,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
+	"github.com/sirupsen/logrus"
+
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -53,6 +55,8 @@ const (
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
+
+	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -121,7 +125,43 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.DisableLazyLoadShards = true
+		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
+	}
+
+	// Lazy load shard count threshold for auto-detection
+	// Determines at what shard count auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_COUNT_THRESHOLD as int: %w", err)
+		}
+		if asInt < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 0")
+		}
+		config.LazyLoadShardCountThreshold = asInt
+		if config.LazyLoadShardCountThreshold == 0 {
+			v := true
+			config.EnableLazyLoadShards = &v
+		}
+	} else {
+		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Lazy load shard size threshold for auto-detection (in GB)
+	// Determines at what total shard size auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB as float: %w", err)
+		}
+		if asFloat < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB must be >= 0")
+		}
+		config.LazyLoadShardSizeThresholdGB = asFloat
+	} else {
+		config.LazyLoadShardSizeThresholdGB = DefaultLazyLoadShardSizeThresholdGB
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -152,43 +192,40 @@ func FromEnv(config *Config) error {
 	}
 
 	{
-		objectsTtlConcurrencyFactorEnv := "OBJECTS_TTL_CONCURRENCY_FACTOR"
-		if err := parsePositiveFloat(objectsTtlConcurrencyFactorEnv,
-			func(val float64) {
-				validate := func(val float64) error { return validatePositiveFloat(val, objectsTtlConcurrencyFactorEnv) }
-				config.ObjectsTTLConcurrencyFactor, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-			},
-			DefaultObjectsTTLConcurrencyFactor); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlConcurrencyFactorEnv, err)
+		if err := parser.ParseDynamicFloatWithValidation("OBJECTS_TTL_CONCURRENCY_FACTOR",
+			DefaultObjectsTTLConcurrencyFactor,
+			parser.ValidateFloatGreaterThan0,
+			func(val *configRuntime.DynamicValue[float64]) { config.ObjectsTTLConcurrencyFactor = val }); err != nil {
+			return err
 		}
 
-		objectsTtlBatchSizeEnv := "OBJECTS_TTL_BATCH_SIZE"
-		if err := parsePositiveInt(objectsTtlBatchSizeEnv,
-			func(val int) {
-				validate := func(val int) error { return validatePositiveInt(val, objectsTtlBatchSizeEnv) }
-				config.ObjectsTTLBatchSize, _ = configRuntime.NewDynamicValueWithValidation(val, validate)
-			},
-			DefaultObjectsTTLBatchSize); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlBatchSizeEnv, err)
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_BATCH_SIZE",
+			DefaultObjectsTTLBatchSize,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLBatchSize = val }); err != nil {
+			return err
 		}
 
-		objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
-		objectsTtlDeleteSchedule := DefaultObjectsTTLDeleteSchedule
-		if env := os.Getenv(objectsTtlDeleteScheduleEnv); env != "" {
-			objectsTtlDeleteSchedule = env
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_PAUSE_EVERY_NO_BATCHES",
+			DefaultObjectsTTLPauseEveryNoBatches,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLPauseEveryNoBatches = val }); err != nil {
+			return err
 		}
-		dv, err := configRuntime.NewDynamicValueWithValidation(objectsTtlDeleteSchedule, func(val string) error {
-			if val != "" {
-				if _, err := cron.FullParser().Parse(val); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
+
+		if err := parser.ParseDynamicDurationWithValidation("OBJECTS_TTL_PAUSE_DURATION",
+			DefaultObjectsTTLPauseDuration,
+			parser.ValidateDurationGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[time.Duration]) { config.ObjectsTTLPauseDuration = val }); err != nil {
+			return err
 		}
-		config.ObjectsTTLDeleteSchedule = dv
+
+		if err := parser.ParseDynamicStringWithValidation("OBJECTS_TTL_DELETE_SCHEDULE",
+			DefaultObjectsTTLDeleteSchedule,
+			parser.ValidateGocronSchedule,
+			func(val *configRuntime.DynamicValue[string]) { config.ObjectsTTLDeleteSchedule = val }); err != nil {
+			return err
+		}
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -508,9 +545,21 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
-		config.HFreshEnabled = true
+	defaultShardingCount := 0
+	if err := parseNonNegativeInt(
+		"DEFAULT_SHARDING_COUNT",
+		func(v int) { defaultShardingCount = v },
+		0,
+	); err != nil {
+		return err
 	}
+	if defaultShardingCount > DefaultMaxShardingCount {
+		return fmt.Errorf("DEFAULT_SHARDING_COUNT must be <= %d, got %d",
+			DefaultMaxShardingCount, defaultShardingCount)
+	}
+	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
+
+	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -632,6 +681,17 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("BACKUP_MIN_CHUNK_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_MIN_CHUNK_SIZE: %w", err)
+		}
+
+		config.Backup.MinChunkSize = parsed
+	} else {
+		config.Backup.MinChunkSize = DefaultBackupMinChunkSize
+	}
+
 	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -641,6 +701,17 @@ func FromEnv(config *Config) error {
 		config.Backup.ChunkTargetSize = parsed
 	} else {
 		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
+	}
+
+	if v := os.Getenv("BACKUP_SPLIT_FILE_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_SPLIT_FILE_SIZE: %w", err)
+		}
+
+		config.Backup.SplitFileSize = parsed
+	} else {
+		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -848,7 +919,7 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
-	if err := parseNonNegativeInt(
+	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
 		func(val int) { config.GRPC.MaxOpenConns = val },
 		DefaultGRPCMaxOpenConns,
@@ -856,7 +927,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if err := parseDuration(
+	if err := parsePositiveDuration(
 		"GRPC_IDLE_CONN_TIMEOUT",
 		func(val time.Duration) { config.GRPC.IdleConnTimeout = val },
 		DefaultGRPCIdleConnTimeout,
@@ -913,8 +984,18 @@ func FromEnv(config *Config) error {
 		config.TelemetryPushInterval = interval
 	}
 
-	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
-		config.HNSWStartupWaitForVectorCache = true
+	{
+		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
+		switch {
+		// flag: still honored, environment always wins over auto-detection.
+		case waitEnvSet:
+			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
+
+		default:
+			config.HNSWStartupWaitForVectorCache = true
+
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -1055,6 +1136,13 @@ func FromEnv(config *Config) error {
 		operationalMode = v
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
+	disableDimensionMetrics := false
+	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
+		disableDimensionMetrics = entcfg.Enabled(v)
+	}
+
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
 	return nil
 }
@@ -1432,21 +1520,6 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 	return nil
 }
 
-func parseDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
-	var err error
-	asDuration := defaultValue
-
-	if v := os.Getenv(envName); v != "" {
-		asDuration, err = time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as time.Duration: %w", envName, err)
-		}
-	}
-
-	cb(asDuration)
-	return nil
-}
-
 const (
 	DefaultQueryMaximumResults       = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
@@ -1472,7 +1545,7 @@ const (
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 30
+	DefaultAsyncReplicationClusterMaxWorkers   = 15
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 

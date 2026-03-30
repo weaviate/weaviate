@@ -150,13 +150,11 @@ func TestFIFOOrdering(t *testing.T) {
 	var order []int
 	var mu sync.Mutex
 
-	enqueued := make(chan struct{}, 3)
 	release := make(chan struct{})
 
 	for i := 0; i < 3; i++ {
 		i := i
 		go func() {
-			enqueued <- struct{}{} // signal intent
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return
 			}
@@ -166,7 +164,12 @@ func TestFIFOOrdering(t *testing.T) {
 			<-release
 			sem.Release(1)
 		}()
-		<-enqueued // enforce enqueue order
+		// Wait until this goroutine is actually in the waiters queue
+		// before starting the next one, so FIFO order is deterministic.
+		expectedWaiters := i + 1
+		eventually(t, time.Second, func() bool {
+			return sem.WaitersLen() == expectedWaiters
+		})
 	}
 
 	// Allow first waiter to proceed

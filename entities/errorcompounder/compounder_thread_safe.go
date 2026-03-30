@@ -75,6 +75,13 @@ func (ec *errorCompounderSafe) ToError() error {
 	return ec.c.ToError()
 }
 
+func (ec *errorCompounderSafe) ToErrorLimited(limit int) error {
+	ec.m.Lock()
+	defer ec.m.Unlock()
+
+	return ec.c.ToErrorLimited(limit)
+}
+
 func (ec *errorCompounderSafe) Len() int {
 	ec.m.Lock()
 	defer ec.m.Unlock()

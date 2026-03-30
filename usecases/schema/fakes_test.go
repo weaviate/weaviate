@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -55,6 +56,11 @@ func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*m
 	return 0, args.Error(0)
 }
 
+func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property) (uint64, error) {
+	args := f.Called(class, property)
+	return 0, args.Error(0)
+}
+
 func (f *fakeSchemaManager) UpdateShardStatus(c_ context.Context, class, shard, status string) (uint64, error) {
 	args := f.Called(class, shard, status)
 	return 0, args.Error(0)
@@ -67,6 +73,9 @@ func (f *fakeSchemaManager) AddTenants(_ context.Context, class string, req *com
 
 func (f *fakeSchemaManager) UpdateTenants(_ context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
+	if args.Get(0) != nil {
+		return args.Get(0).(uint64), args.Error(1)
+	}
 	return 0, args.Error(0)
 }
 
@@ -250,6 +259,9 @@ func (f *fakeSchemaManager) ShardOwnerWithVersion(ctx context.Context, class, sh
 
 func (f *fakeSchemaManager) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
 	args := f.Called(ctx, version, class, tenants)
+	if m, ok := args.Get(0).(map[string]string); ok {
+		return m, args.Error(1)
+	}
 	return map[string]string{args.String(0): args.String(1)}, args.Error(2)
 }
 
@@ -271,6 +283,11 @@ func (f *fakeSchemaManager) Shards(class string) ([]string, error) {
 func (f *fakeSchemaManager) LocalShards(class string) ([]string, error) {
 	args := f.Called(class)
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeSchemaManager) LocalActiveShardsCount(class string) (int, error) {
+	args := f.Called(class)
+	return args.Get(0).(int), args.Error(1)
 }
 
 func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
@@ -315,7 +332,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}, nil, nil),
 	}
 }
 

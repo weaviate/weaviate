@@ -31,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -44,6 +46,7 @@ func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
 	ctx := context.Background()
 
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 
 	class := &models.Class{
 		Class:      "TTLClass",
@@ -965,6 +968,7 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				collection := createCollection()
 				tc.reconfigure(collection)
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 
@@ -1384,6 +1388,129 @@ func Test_UpdateClass(t *testing.T) {
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
 		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("immutable vectorizer properties", func(t *testing.T) {
+		deepCopy := func(t *testing.T, vc *models.Class) *models.Class {
+			t.Helper()
+
+			b, err := json.Marshal(vc)
+			require.NoError(t, err, "deep copy %+v", vc)
+
+			var dest models.Class
+			err = json.Unmarshal(b, &dest)
+			require.NoError(t, err, "deep copy %s", string(b))
+
+			return &dest
+		}
+
+		for _, tt := range []struct {
+			indexType                string
+			initial, updated         any
+			skipDefaultQuantization  func(cfg any) bool
+			trackDefaultQuantization func(cfg any) bool
+		}{
+			{
+				indexType: "hnsw",
+				initial: hnsw.UserConfig{
+					SkipDefaultQuantization:  true,
+					TrackDefaultQuantization: true,
+				},
+				updated: *new(hnsw.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(hnsw.UserConfig).SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(hnsw.UserConfig).TrackDefaultQuantization
+				},
+			},
+			{
+				indexType: "flat",
+				initial: flat.UserConfig{
+					SkipDefaultQuantization:  true,
+					TrackDefaultQuantization: true,
+				},
+				updated: *new(flat.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(flat.UserConfig).SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(flat.UserConfig).TrackDefaultQuantization
+				},
+			},
+			{
+				indexType: "dynamic hnsw",
+				initial: dynamic.UserConfig{
+					HnswUC: hnsw.UserConfig{
+						SkipDefaultQuantization:  true,
+						TrackDefaultQuantization: true,
+					},
+				},
+				updated: *new(dynamic.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).HnswUC.SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).HnswUC.TrackDefaultQuantization
+				},
+			},
+			{
+				indexType: "dynamic flat",
+				initial: dynamic.UserConfig{
+					FlatUC: flat.UserConfig{
+						SkipDefaultQuantization:  true,
+						TrackDefaultQuantization: true,
+					},
+				},
+				updated: *new(dynamic.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).FlatUC.SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).FlatUC.TrackDefaultQuantization
+				},
+			},
+		} {
+			t.Run(tt.indexType, func(t *testing.T) {
+				initial := &models.Class{
+					Class: "Immutable",
+					ReplicationConfig: &models.ReplicationConfig{
+						Factor: 1,
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"example": {
+							VectorIndexType:   tt.indexType,
+							VectorIndexConfig: tt.initial,
+							Vectorizer: map[string]any{
+								"none": map[string]any{},
+							},
+						},
+					},
+				}
+
+				updated := deepCopy(t, initial)
+				updated.VectorConfig["example"] = models.VectorConfig{
+					VectorIndexType:   tt.indexType,
+					VectorIndexConfig: tt.updated,
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+				}
+
+				err := validateImmutableFields(initial, updated, nil)
+				require.NoError(t, err, "validate immutable fields")
+
+				assert.Equal(t,
+					tt.skipDefaultQuantization(updated.VectorConfig["example"].VectorIndexConfig),
+					tt.skipDefaultQuantization(initial.VectorConfig["example"].VectorIndexConfig),
+					"skipDefaultQuantization")
+
+				assert.Equal(t,
+					tt.trackDefaultQuantization(updated.VectorConfig["example"].VectorIndexConfig),
+					tt.trackDefaultQuantization(initial.VectorConfig["example"].VectorIndexConfig),
+					"trackDefaultQuantization")
+			})
+		}
 	})
 
 	t.Run("fields validation", func(t *testing.T) {
@@ -2293,6 +2420,8 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			t.Helper()
 
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 			store := NewFakeStore()
 			store.parser = handler.parser
 
@@ -2362,11 +2491,14 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				tc.reconfigure(updated)
 
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
 				store := NewFakeStore()
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				_, _, err := handler.AddClass(context.Background(), nil, initial)

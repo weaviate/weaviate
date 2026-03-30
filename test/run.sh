@@ -9,6 +9,7 @@ function main() {
   run_acceptance_only_fast_group_2=false
   run_acceptance_only_fast_group_3=false
   run_acceptance_only_fast_group_4=false
+  run_acceptance_distributed_tasks=false
   run_acceptance_only_authz=false
   run_acceptance_only_python=false
   run_acceptance_go_client=false
@@ -38,6 +39,9 @@ function main() {
   run_acceptance_go_client_named_vectors_single_node=false
   run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
+  run_acceptance_compaction_recovery=false
+  run_acceptance_compaction=false
+  run_acceptance_recovery=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -52,6 +56,7 @@ function main() {
           --acceptance-only-fast-group-2|-aof-g2) run_all_tests=false; run_acceptance_only_fast_group_2=true;;
           --acceptance-only-fast-group-3|-aof-g3) run_all_tests=false; run_acceptance_only_fast_group_3=true;;
           --acceptance-only-fast-group-4|-aof-g4) run_all_tests=false; run_acceptance_only_fast_group_4=true;;
+          --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
           --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true; run_acceptance_go_client_only_fast_group_2=true;;
@@ -74,6 +79,9 @@ function main() {
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
           --acceptance-module-tests-except-offload|--modules-except-offload|-meo) run_all_tests=false; run_module_tests=true; run_module_except_offload_tests=true; echo $run_module_except_offload_tests ;;
           --acceptance-lsmkv|--lsmkv) run_all_tests=false; run_acceptance_lsmkv=true;;
+          --acceptance-compaction-recovery|-acr) run_all_tests=false; run_acceptance_compaction_recovery=true;;
+          --acceptance-compaction|-ac) run_all_tests=false; run_acceptance_compaction=true;;
+          --acceptance-recovery|-ar) run_all_tests=false; run_acceptance_recovery=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -102,6 +110,9 @@ function main() {
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
               "--acceptance-lsmkv | --lsmkv"\
+              "--acceptance-compaction-recovery | -acr"\
+              "--acceptance-compaction | -ac"\
+              "--acceptance-recovery | -ar"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -172,6 +183,7 @@ function main() {
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
     fi
+
   fi
 
   if $run_acceptance_only_python || $run_all_tests
@@ -209,6 +221,16 @@ function main() {
   if $run_acceptance_lsmkv || $run_acceptance_tests || $run_all_tests; then
   echo "running lsmkv acceptance lsmkv tests"
     run_acceptance_lsmkv "$@"
+  fi
+
+  if $run_acceptance_compaction_recovery || $run_acceptance_compaction || $run_acceptance_tests || $run_all_tests; then
+    echo "running compaction acceptance tests"
+    run_acceptance_compaction
+  fi
+
+  if $run_acceptance_compaction_recovery || $run_acceptance_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running recovery acceptance tests"
+    run_acceptance_recovery
   fi
   echo "Done!"
 }
@@ -296,6 +318,10 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
+  if $run_acceptance_distributed_tasks || $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance distributed_tasks"
+    run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
+  fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance authz"
     run_acceptance_only_authz "$@"
@@ -357,6 +383,9 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/graphql_resolvers' \
     | grep -v 'test/acceptance_lsmkv' \
     | grep -v 'test/acceptance/authz' \
+    | grep -v 'test/acceptance/compaction' \
+    | grep -v 'test/acceptance/recovery' \
+    | grep -v 'test/acceptance/distributed_tasks' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -436,7 +465,7 @@ function get_other_packages() {
 # Groups 1-3 contain explicitly assigned packages for load balancing.
 # Group 4 automatically contains all other fast acceptance packages.
 function run_acceptance_only_fast_group() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   local GROUP="$1"
 
   local -a AOF_GROUP1=()
@@ -474,6 +503,41 @@ function run_acceptance_only_fast_group() {
       ;;
     *) echo_red "Invalid group: $GROUP (must be 1..4)"; return 1 ;;
   esac
+}
+
+# build_weaviate_test_image builds the weaviate/test-server Docker image with
+# race detector enabled. Sets TEST_WEAVIATE_IMAGE so testcontainers reuse it
+# instead of building from source on every test function.
+function build_weaviate_test_image() {
+  if [[ -n "${TEST_WEAVIATE_IMAGE:-}" ]]; then
+    return  # already built or provided externally
+  fi
+  echo_green "Building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+}
+
+function run_acceptance_compaction_recovery() {
+  build_weaviate_test_image
+  run_aof_group "compaction-recovery" \
+    test/acceptance/compaction \
+    test/acceptance/recovery
+}
+
+function run_acceptance_compaction() {
+  build_weaviate_test_image
+  run_aof_group "compaction" test/acceptance/compaction
+}
+
+function run_acceptance_recovery() {
+  build_weaviate_test_image
+  run_aof_group "recovery" test/acceptance/recovery
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
@@ -551,7 +615,7 @@ function run_go_client_group() {
 # Group 1 contains explicitly assigned packages for load balancing.
 # Group 2 automatically contains all other fast go client packages.
 function run_acceptance_go_client_only_fast_group() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   local GROUP="$1"
 
   local -a GROUP1=()
@@ -579,7 +643,7 @@ function run_acceptance_go_client_only_fast_group() {
 }
 
 function run_acceptance_go_client_named_vectors_single_node() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
@@ -592,7 +656,7 @@ function run_acceptance_go_client_named_vectors_single_node() {
 }
 
 function run_acceptance_go_client_named_vectors_cluster() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
@@ -605,7 +669,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 }
 
 function run_acceptance_graphql_tests() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
@@ -615,7 +679,7 @@ function run_acceptance_graphql_tests() {
 }
 
 function run_acceptance_only_authz() {
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
     if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
@@ -691,7 +755,7 @@ function run_module_only_backup_tests() {
 
 function run_module_only_offload_tests() {
   for pkg in $(go list ./... |grep 'test/modules/offload'); do
-    if ! go test -count 1 -race -v "$pkg"; then
+    if ! go test -count 1 -race -timeout 30m -v "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

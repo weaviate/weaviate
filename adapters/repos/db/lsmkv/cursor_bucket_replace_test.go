@@ -53,7 +53,6 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 				"key2": []byte("value2"),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableReplace(map[string][]byte{

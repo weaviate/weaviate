@@ -77,20 +77,23 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 
 	// pause indexing
 	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Pause()
-		return nil
+		return q.Pause(ctx)
 	})
-	// wait for ongoing indexing to finish
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Wait()
-		return nil
+	_ = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Pause(ctx)
 	})
-	// flush all the queue
+	// flush all the queues
 	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 		return q.Flush()
 	})
 	if err != nil {
 		return fmt.Errorf("flush vector index queues: %w", err)
+	}
+	err = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+		return q.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("flush geo index queues: %w", err)
 	}
 
 	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
@@ -172,46 +175,91 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	}, s.index.logger)
 }
 
+// CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
+// a staging directory, then immediately resumes compaction. This minimizes the
+// compaction pause to just the time needed for enumeration and hardlink creation
+// (typically 2-5s), rather than blocking for the entire upload duration.
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+		return nil, fmt.Errorf("halt for snapshot: %w", err)
+	}
+	defer s.resumeMaintenanceCycles(ctx)
+
+	files, err := s.ListBackupFiles(ctx, sd)
+	if err != nil {
+		return nil, fmt.Errorf("list backup files: %w", err)
+	}
+
+	for _, relPath := range files {
+		src := filepath.Join(s.index.Config.RootPath, relPath)
+		dst := filepath.Join(stagingRoot, relPath)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+		}
+		if err := os.Link(src, dst); err != nil {
+			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
+		}
+	}
+
+	return files, nil
+}
+
 // ListBackupFiles lists all files used to backup a shard
-func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
 	if s.haltForTransferCount == 0 {
-		return fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
+		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
 	s.mayResetInactivityTimer()
 
-	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
-		return err
+		return nil, err
 	}
 
-	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
-		return err
+	files, err := s.store.ListFiles(ctx, s.index.Config.RootPath)
+	if err != nil {
+		return nil, err
 	}
 
 	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
-		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
+		filesIdx, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
-		ret.Files = append(ret.Files, files...)
+		files = append(files, filesIdx...)
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		files, err := queue.ListFiles(ctx, s.index.Config.RootPath)
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		filesVq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
 		}
-		ret.Files = append(ret.Files, files...)
+		files = append(files, filesVq...)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		filesGq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of geo queue %q: %w", propName, err)
+		}
+		files = append(files, filesGq...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -258,6 +306,21 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	g.Go(func() error {
 		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 			q.Resume()
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+			q.Resume()
+			return nil
+		})
+	})
+
+	g.Go(func() error {
+		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
 			return nil
 		})
 	})

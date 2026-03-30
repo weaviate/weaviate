@@ -662,7 +662,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 }
 
 func (h *hnsw) distanceFromBytesToFloatNodeWithView(ctx context.Context, concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64, view common.BucketView) (float32, error) {
-	slice := h.pools.tempVectors.Get(int(h.dims))
+	slice := h.pools.tempVectors.Get(int(h.dims.Load()))
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
@@ -851,6 +851,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	if allowList != nil && useAcorn {
 		seeds := 10
 		it := allowList.Iterator()
+		defer it.Stop()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
 		for seeds > 0 {
@@ -969,7 +970,7 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	h.RUnlock()
 	var docVecs [][]float32
 	if h.compressed.Load() {
-		slice := h.pools.tempVectors.Get(int(h.dims))
+		slice := h.pools.tempVectors.Get(int(h.dims.Load()))
 		var err error
 		docVecs, err = h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
 		if err != nil {

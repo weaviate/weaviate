@@ -69,7 +69,7 @@ func (t *binarySearchTree) exists(key []byte) error {
 	return err
 }
 
-func (t *binarySearchTree) setTombstone(key, value []byte, secondaryKeys [][]byte) {
+func (t *binarySearchTree) setTombstone(key, value []byte, secondaryKeys [][]byte) [][]byte {
 	if t.root == nil {
 		// we need to actively insert a node with a tombstone, even if this node is
 		// not present because we still need to propagate the delete into the disk
@@ -82,14 +82,15 @@ func (t *binarySearchTree) setTombstone(key, value []byte, secondaryKeys [][]byt
 			secondaryKeys: secondaryKeys,
 			colourIsRed:   false, // root node is always black
 		}
-		return
+		return nil
 	}
 
-	newRoot := t.root.setTombstone(key, value, secondaryKeys)
+	newRoot, prevSecondaryKeys := t.root.setTombstone(key, value, secondaryKeys)
 	if newRoot != nil {
 		t.root = newRoot
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
+	return prevSecondaryKeys
 }
 
 func (t *binarySearchTree) flattenInOrder() []*binarySearchNode {
@@ -322,12 +323,13 @@ func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 	}
 }
 
-func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byte) *binarySearchNode {
+func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byte) (*binarySearchNode, [][]byte) {
 	if bytes.Equal(n.key, key) {
+		prevSecondaryKeys := n.secondaryKeys
 		n.value = value
 		n.tombstone = true
 		n.secondaryKeys = secondaryKeys
-		return nil
+		return nil, prevSecondaryKeys
 	}
 
 	if bytes.Compare(key, n.key) < 0 {
@@ -340,7 +342,7 @@ func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byt
 				parent:        n,
 				colourIsRed:   true,
 			}
-			return binarySearchNodeFromRB(rbtree.Rebalance(n.left))
+			return binarySearchNodeFromRB(rbtree.Rebalance(n.left)), nil
 
 		}
 		return n.left.setTombstone(key, value, secondaryKeys)
@@ -354,7 +356,7 @@ func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byt
 				parent:        n,
 				colourIsRed:   true,
 			}
-			return binarySearchNodeFromRB(rbtree.Rebalance(n.right))
+			return binarySearchNodeFromRB(rbtree.Rebalance(n.right)), nil
 		}
 		return n.right.setTombstone(key, value, secondaryKeys)
 	}

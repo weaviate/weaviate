@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type MuveraConfig struct {
@@ -211,17 +212,13 @@ func (e *MuveraEncoder) Dimensions() int {
 
 func MuveraBytesFromFloat32(vec []float32) []byte {
 	slice := make([]byte, len(vec)*4)
-	for i := range vec {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
-	}
+	byteops.CopySliceToBytes(slice, vec)
 	return slice
 }
 
 func MuveraFromBytes(bytes []byte) []float32 {
 	vec := make([]float32, len(bytes)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(bytes[i*4 : (i+1)*4]))
-	}
+	byteops.CopyBytesToSlice(vec, bytes)
 	return vec
 }
 

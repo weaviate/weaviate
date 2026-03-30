@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -75,6 +76,21 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
+	// Ensure tenant is active before read when AutoTenantActivation is enabled.
+	// Otherwise replicas with loading shards can fail QUORUM reads.
+	maxSchemaVersion := fetchedClass[cls].Version
+	if updates.Tenant != "" {
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, cls, updates.Tenant)
+		if err != nil {
+			return &Error{"repo.object", StatusInternalServerError, err}
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
+	}
+
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return &Error{"repo.object", StatusInternalServerError, err}
+	}
+
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch {
@@ -95,10 +111,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	maxSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
+	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClass, updates)
 	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
+	maxSchemaVersion = max(maxSchemaVersion, autoSchemaVersion)
 
 	var propertiesToDelete []string
 	if updates.Properties != nil {
@@ -167,15 +184,6 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 
 	if objWithVec.Additional != nil {
 		mergeDoc.AdditionalProperties = objWithVec.Additional
-	}
-
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
-		return &Error{
-			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", maxSchemaVersion),
-			Code: StatusInternalServerError,
-			Err:  err,
-		}
 	}
 
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, maxSchemaVersion); err != nil {

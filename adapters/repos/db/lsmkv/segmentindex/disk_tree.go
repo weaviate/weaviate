@@ -13,6 +13,7 @@ package segmentindex
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+const TREE_KEY_STORE_OVERHEAD = 36
 
 // DiskTree is a read-only wrapper around a marshalled index search tree, which
 // can be used for reading, but cannot change the underlying structure. It is
@@ -96,7 +99,7 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 	var out dtNode
 	// in buffer needs at least 36 bytes of data:
 	// 4bytes for key length, 32bytes for position and children
-	if len(in) < 36 {
+	if len(in) < TREE_KEY_STORE_OVERHEAD {
 		return out, 0, io.EOF
 	}
 
@@ -202,4 +205,38 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 
 func (t *DiskTree) Size() int {
 	return len(t.data)
+}
+
+// KeyCount returns the number of keys in the tree without allocating.
+// It walks through the serialized nodes, skipping over each one.
+func (t *DiskTree) KeyCount() int {
+	count := 0
+	bufferPos := 0
+	// each node: 4 (keyLen) + keyLen + 8 (start) + 8 (end) + 8 (left) + 8 (right)
+	for bufferPos+TREE_KEY_STORE_OVERHEAD <= len(t.data) {
+		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
+		nodeSize := keyLen + TREE_KEY_STORE_OVERHEAD
+		if bufferPos+nodeSize > len(t.data) {
+			break
+		}
+		bufferPos += nodeSize
+		count++
+	}
+	return count
+}
+
+// ForEachKey iterates over all keys in the tree without allocating a slice.
+// The key passed to fn is a subslice of the underlying data and must not
+// be retained or modified by the caller.
+func (t *DiskTree) ForEachKey(fn func(key []byte)) {
+	bufferPos := 0
+	for bufferPos+TREE_KEY_STORE_OVERHEAD <= len(t.data) {
+		keyLen := int(binary.LittleEndian.Uint32(t.data[bufferPos:]))
+		nodeSize := keyLen + TREE_KEY_STORE_OVERHEAD
+		if bufferPos+nodeSize > len(t.data) {
+			break
+		}
+		fn(t.data[bufferPos+4 : bufferPos+4+keyLen])
+		bufferPos += nodeSize
+	}
 }

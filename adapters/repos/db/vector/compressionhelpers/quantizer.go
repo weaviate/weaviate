@@ -12,7 +12,7 @@
 package compressionhelpers
 
 import (
-	"encoding/binary"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type quantizerDistancer[T byte | uint64] interface {
@@ -56,9 +56,7 @@ func (pq *ProductQuantizer) ReturnQuantizerDistancer(distancer quantizerDistance
 
 func (bq *BinaryQuantizer) CompressedBytes(compressed []uint64) []byte {
 	slice := make([]byte, len(compressed)*8)
-	for i := range compressed {
-		binary.LittleEndian.PutUint64(slice[i*8:], compressed[i])
-	}
+	byteops.CopySliceToBytes(slice, compressed)
 	return slice
 }
 
@@ -68,10 +66,7 @@ func (bq *BinaryQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
 		l++
 	}
 	slice := make([]uint64, l)
-
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 
@@ -93,13 +88,7 @@ func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []by
 	slice := (*buffer)[len(*buffer)-l:]
 	*buffer = (*buffer)[:len(*buffer)-l]
 
-	for i := range slice {
-		if len(compressed[i*8:]) < 8 {
-			break
-		}
-
-		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, compressed)
 	return slice
 }
 

@@ -11,6 +11,16 @@
 
 package backup
 
+import "io"
+
+// ReadCloserWithError extends io.ReadCloser with CloseWithError method.
+// CloseWithError closes the reader and signals the given error to the writer,
+// so the writer sees the actual error instead of a generic "closed pipe" error.
+type ReadCloserWithError interface {
+	io.ReadCloser
+	CloseWithError(error) error
+}
+
 type ErrUnprocessable struct {
 	err error
 }

@@ -87,11 +87,14 @@ func (f fakeClassConfig) Config() *config.Config {
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	texts, images, videos []string, config ent.VectorizationConfig,
+	texts, images, videos, audios []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	result := &ent.VectorizationResult{
 		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
 		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	}
+	if len(audios) > 0 {
+		result.AudioVectors = [][]float32{{100.0, 200.0, 300.0, 400.0, 500.0}}
 	}
 	return result, nil
 }

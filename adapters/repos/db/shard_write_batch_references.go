@@ -126,7 +126,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 		}
 
 		mergeDoc := mergeDocFromBatchReference(ref)
-		res, err := b.shard.mutableMergeObjectLSM(mergeDoc, idBytes)
+		res, err := b.shard.mutableMergeObjectLSM(ctx, mergeDoc, idBytes)
 		if err != nil {
 			errLock.Lock()
 			errs[i] = err

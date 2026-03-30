@@ -108,6 +108,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
 		it = allowList.Iterator()
+		defer it.Stop()
 	}
 
 	beforeObjects := time.Now()
@@ -253,6 +254,14 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, fmt.Errorf("resolve doc ids for prop/value pair: %w", err)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
+
+	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
+	if dbm.isDenyList {
+		universe, universeRelease := s.bitmapFactory.GetBitmap()
+		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
+		dbm.release()
+		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
+	}
 
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
@@ -957,6 +966,7 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 type docIDsIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 type sliceDocIDsIterator struct {
@@ -977,13 +987,18 @@ func (it *sliceDocIDsIterator) Next() (uint64, bool) {
 	return it.docIDs[pos], true
 }
 
+func (it *sliceDocIDsIterator) Stop() {
+	// No-op for slice iterator as there's no cleanup needed
+}
+
 func (it *sliceDocIDsIterator) Len() int {
 	return len(it.docIDs)
 }
 
 type docBitmap struct {
-	docIDs  *sroar.Bitmap
-	release func()
+	docIDs     *sroar.Bitmap
+	isDenyList bool
+	release    func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
@@ -993,7 +1008,7 @@ func newUninitializedDocBitmap() docBitmap {
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: false}
 }
 
 func (dbm *docBitmap) count() int {
@@ -1024,4 +1039,8 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
+}
+
+func (dbm *docBitmap) IsDenyList() bool {
+	return dbm.isDenyList
 }

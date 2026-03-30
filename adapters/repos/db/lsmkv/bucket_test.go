@@ -86,6 +86,14 @@ func TestBucket(t *testing.T) {
 				WithSecondaryIndices(1),
 			},
 		},
+		{
+			name: "bucket_SecondaryPrimaryMismatch",
+			f:    bucket_SecondaryPrimaryMismatch,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
 	}
 	tests.run(ctx, t)
 }
@@ -326,6 +334,224 @@ func TestBucketGetBySecondary(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBucketDelete(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	key := []byte("hello")
+	value := []byte("world")
+	secKey := []byte("bonjour")
+
+	initBucket := func(t *testing.T, customOpts ...BucketOption) *Bucket {
+		t.Helper()
+
+		dirName := t.TempDir()
+
+		opts := append([]BucketOption{
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+		}, customOpts...)
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			require.NoError(t, b.Shutdown(ctx))
+		})
+		return b
+	}
+
+	t.Run("delete without secondary key", func(t *testing.T) {
+		t.Run("put and delete in memtable", func(t *testing.T) {
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.Delete(key)
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				// not found, as memtable's node was overwritten by one without secondary key
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+		})
+
+		t.Run("put in segment, delete in memtable", func(t *testing.T) {
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+			err = bucket.Delete(key)
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+		})
+
+		t.Run("put and delete in same segment", func(t *testing.T) {
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.Delete(key)
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				// not found, as memtable's node was overwritten by one without secondary key
+				assert.ErrorIs(t, err, lsmkv.NotFound)
+				assert.Nil(t, val)
+			})
+		})
+
+		t.Run("put and delete in different segments", func(t *testing.T) {
+			bucket := initBucket(t, WithSkipSecondaryKeyCheck(true))
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+			err = bucket.Delete(key)
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+		})
+	})
+
+	t.Run("delete with secondary key", func(t *testing.T) {
+		t.Run("put and delete in memtable", func(t *testing.T) {
+			bucket := initBucket(t)
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+		})
+
+		t.Run("put in segment, delete in memtable", func(t *testing.T) {
+			bucket := initBucket(t)
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+		})
+
+		t.Run("put and delete in same segment", func(t *testing.T) {
+			bucket := initBucket(t)
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+		})
+
+		t.Run("put and delete in different segments", func(t *testing.T) {
+			bucket := initBucket(t)
+
+			err := bucket.Put(key, value, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+			err = bucket.Delete(key, WithSecondaryKey(0, secKey))
+			require.NoError(t, err)
+			err = bucket.FlushAndSwitch()
+			require.NoError(t, err)
+
+			t.Run("retrieve by primary key", func(t *testing.T) {
+				val, err := bucket.get(key)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+
+			t.Run("retrieve by secondary key", func(t *testing.T) {
+				val, _, err := bucket.getBySecondary(ctx, 0, secKey, nil)
+				assert.ErrorIs(t, err, lsmkv.Deleted)
+				assert.Nil(t, val)
+			})
+		})
+	})
+}
+
 func TestBucketInfoInFileName(t *testing.T) {
 	ctx := context.Background()
 
@@ -536,7 +762,6 @@ func TestBucketReplaceStrategyConsistentView(t *testing.T) {
 				"key1": []byte("value1"),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableReplace(map[string][]byte{
@@ -678,14 +903,14 @@ func TestBucketReplaceStrategyWriteVsFlush(t *testing.T) {
 			"key1": []byte("value1"),
 		}),
 		disk: &SegmentGroup{
-			strategy:         StrategyReplace,
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			strategy: StrategyReplace,
+			segments: []Segment{},
 		},
 		strategy: StrategyReplace,
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 
 	// perform first write in initial state
 	active.put([]byte("key2"), []byte("value2"), nil)
@@ -750,7 +975,6 @@ func TestBucketRoaringSetStrategyConsistentView(t *testing.T) {
 				"key1": bitmapFromSlice([]uint64{1}),
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableRoaringSet(map[string][]uint64{
@@ -856,13 +1080,13 @@ func TestBucketRoaringSetStrategyWriteVsFlush(t *testing.T) {
 			"key1": {1},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSet,
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 	require.NoError(t, active.roaringSetAddBitmap([]byte("key1"), bitmapFromSlice([]uint64{2})))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -930,7 +1154,6 @@ func TestBucketRoaringSetRangeStrategyConsistentViewUsingReader(t *testing.T) {
 				key1: roaringset.NewBitmap(1),
 			}, sroar.NewBitmap()),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableRoaringSetRange(map[uint64][]uint64{
@@ -1108,13 +1331,13 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlush(t *testing.T) {
 			key1: {1},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyRoaringSetRange,
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1181,7 +1404,6 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		}),
 		disk: &SegmentGroup{
 			segments:                       []Segment{},
-			segmentsWithRefs:               map[string]Segment{},
 			roaringSetRangeSegmentInMemory: roaringsetrange.NewSegmentInMemory(logger),
 		},
 		strategy:             StrategyRoaringSetRange,
@@ -1189,7 +1411,8 @@ func TestBucketRoaringSetRangeStrategyWriteVsFlushInMemo(t *testing.T) {
 		bitmapBufPool:        roaringset.NewBitmapBufPoolNoop(),
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
 	require.NoError(t, active.roaringSetRangeAdd(key1, 2))
 
 	// Simulate a FlushAndSwitch() running concurrently
@@ -1240,7 +1463,6 @@ func TestBucketSetStrategyConsistentView(t *testing.T) {
 				"key1": {[]byte("d1")},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableSet(map[string][][]byte{
@@ -1346,14 +1568,14 @@ func TestBucketSetStrategyWriteVsFlush(t *testing.T) {
 	b := Bucket{
 		active: newTestMemtableSet(map[string][][]byte{"key1": {[]byte("v1")}}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategySetCollection,
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
-	err := active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	err = active.append([]byte("key1"), newSetEncoder().Do([][]byte{[]byte("v2")}))
 	require.NoError(t, err)
 
 	switchDone := make(chan struct{})
@@ -1405,7 +1627,6 @@ func TestBucketMapStrategyConsistentView(t *testing.T) {
 				"key1": {{Key: []byte("dk1"), Value: []byte("dv1")}},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableMap(map[string][]MapPair{
@@ -1525,7 +1746,6 @@ func TestBucketMapStrategyDocPointersConsistentView(t *testing.T) {
 				"key1": {mapFromDocPointers(0, 1.0, 3)},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableMap(map[string][]MapPair{
@@ -1641,14 +1861,14 @@ func TestBucketMapStrategyWriteVsFlush(t *testing.T) {
 			{Key: []byte("k1"), Value: []byte("v1")},
 		}}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyMapCollection,
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
-	err := active.appendMapSorted([]byte("key1"), MapPair{
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	err = active.appendMapSorted([]byte("key1"), MapPair{
 		Key: []byte("k2"), Value: []byte("v2"),
 	})
 	require.NoError(t, err)
@@ -1709,7 +1929,6 @@ func TestBucketInvertedStrategyConsistentView(t *testing.T) {
 				"key1": {NewMapPairFromDocIdAndTf(0, 2, 1, false), NewMapPairFromDocIdAndTf(10, 10, 1, false)},
 			}),
 		},
-		segmentsWithRefs: map[string]Segment{},
 	}
 
 	initialMemtable := newTestMemtableInverted(map[string][]MapPair{
@@ -1814,14 +2033,14 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 			"key1": {NewMapPairFromDocIdAndTf(0, 3, 1, false)},
 		}),
 		disk: &SegmentGroup{
-			segments:         []Segment{},
-			segmentsWithRefs: map[string]Segment{},
+			segments: []Segment{},
 		},
 		strategy: StrategyInverted,
 	}
 
-	active, freeRefs := b.getActiveMemtableForWrite()
-	err := active.appendMapSorted([]byte("key1"),
+	active, freeRefs, err := b.getActiveMemtableForWrite()
+	require.NoError(t, err)
+	err = active.appendMapSorted([]byte("key1"),
 		NewMapPairFromDocIdAndTf(1, 2, 1, false),
 	)
 	require.NoError(t, err)
@@ -2003,11 +2222,12 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 	}
 
 	m := &Memtable{
-		strategy:   StrategyInverted,
-		keyMap:     &binarySearchTreeMap{},
-		commitlog:  newDummyCommitLogger(),
-		metrics:    metrics,
-		tombstones: sroar.NewBitmap(),
+		strategy:         StrategyInverted,
+		keyMap:           &binarySearchTreeMap{},
+		commitlog:        newDummyCommitLogger(),
+		metrics:          metrics,
+		tombstones:       sroar.NewBitmap(),
+		propLengthExists: sroar.NewBitmap(),
 	}
 
 	for k, v := range initialData {
@@ -2243,7 +2463,7 @@ func validateMapPairListVsBlockMaxSearchFromSegments(ctx context.Context, segmen
 		duplicateTextBoosts[0] = 1
 		diskTerms := make([][]*SegmentBlockMax, 0, len(segments))
 		for _, segment := range segments {
-			bmws := segment.newSegmentBlockMax(mapKey, 0, 1, 1, nil, nil, 3, bm25config)
+			bmws := segment.newSegmentBlockMax(mapKey, 0, 1, 1, nil, nil, nil, 3, bm25config)
 			diskTerms = append(diskTerms, []*SegmentBlockMax{bmws})
 		}
 
@@ -2460,5 +2680,196 @@ func bucket_Exists_TombstoneInMemtable(ctx context.Context, t *testing.T, opts [
 		// Both should return Deleted
 		assert.True(t, errors.Is(existsErr, lsmkv.Deleted))
 		assert.True(t, errors.Is(getErr, lsmkv.Deleted))
+	})
+}
+
+func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.Nil(t, err)
+
+	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+		WithSecondaryKey(0, []byte("bonjour"))))
+	require.Nil(t, b.FlushMemtable())
+
+	files, err := os.ReadDir(b.GetDir())
+	require.Nil(t, err)
+
+	_, ok := findFileWithExt(files, ".bloom")
+	assert.True(t, ok)
+
+	_, ok = findFileWithExt(files, "secondary.0.bloom")
+	assert.True(t, ok)
+
+	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+		WithSecondaryKey(0, []byte("olá"))))
+	require.Nil(t, b.FlushMemtable())
+
+	b.Shutdown(ctx)
+
+	b2, err := NewBucketCreator().NewBucket(ctx, b.GetDir(), "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
+
+	view := b2.GetConsistentView()
+	defer view.ReleaseView()
+
+	err = b2.existsWithConsistentView([]byte("hello"), view)
+	require.Nil(t, err)
+
+	// old secondary key should not be found in the new view, and the new secondary key should not be found in the old view, since they are in different segments
+	seckey := []byte("bonjour")
+	buffer := make([]byte, 100)
+	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	require.EqualError(t, err, lsmkv.NotFound.Error())
+
+	// new secondary key should be found in the new view, and should be in the same segment as the primary key
+	seckey = []byte("olá")
+	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	require.Nil(t, err)
+}
+
+func TestDeleteRequiresSecondaryKeys(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Delete without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 0")
+	})
+
+	t.Run("DeleteWith without secondary key is rejected", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithKeepTombstones(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.DeleteWith([]byte("key-00"), time.Now())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 0")
+	})
+
+	t.Run("Delete with secondary key succeeds", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"), WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		v, err := b.Get([]byte("key-00"))
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Delete without secondary key is allowed with skipSecondaryKeyCheck", func(t *testing.T) {
+		dirName := t.TempDir()
+		logger, _ := test.NewNullLogger()
+
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(1),
+			WithSkipSecondaryKeyCheck(true))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, b.Shutdown(ctx)) })
+
+		err = b.Put([]byte("key-00"), []byte("value-00"),
+			WithSecondaryKey(0, []byte("sec-00")))
+		require.NoError(t, err)
+
+		err = b.Delete([]byte("key-00"))
+		require.NoError(t, err)
+	})
+}
+
+func TestPutRequiresSecondaryKeys(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	initBucket := func(t *testing.T, customOpts ...BucketOption) *Bucket {
+		t.Helper()
+
+		dirName := t.TempDir()
+
+		opts := append([]BucketOption{
+			WithStrategy(StrategyReplace),
+			WithSecondaryIndices(2),
+		}, customOpts...)
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			require.NoError(t, b.Shutdown(ctx))
+		})
+		return b
+	}
+
+	t.Run("Put without secondary key is rejected", func(t *testing.T) {
+		b := initBucket(t)
+
+		err := b.Put([]byte("key-00"), []byte("value-00"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 0")
+
+		err = b.Put([]byte("key-01"), []byte("value-01"),
+			WithSecondaryKey(0, []byte("seckey-01")))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missing secondary key at index 1")
+	})
+
+	t.Run("Put with secondary key succeeds", func(t *testing.T) {
+		b := initBucket(t)
+
+		err := b.Put([]byte("key-02"), []byte("value-02"),
+			WithSecondaryKey(0, []byte("seckey-02")),
+			WithSecondaryKey(1, []byte("seckey-12")))
+		require.NoError(t, err)
+	})
+
+	t.Run("Put without secondary key is allowed with skipSecondaryKeyCheck", func(t *testing.T) {
+		b := initBucket(t, WithSkipSecondaryKeyCheck(true))
+
+		err := b.Put([]byte("key-03"), []byte("value-03"))
+		require.NoError(t, err)
 	})
 }

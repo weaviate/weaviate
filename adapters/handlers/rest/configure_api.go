@@ -150,6 +150,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	exportusecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -363,6 +364,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
+	appState.ObjectTTLLocalStatus = objectttl.NewLocalStatus()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -408,10 +410,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
-		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
+		EnableLazyLoadShards:                appState.ServerConfig.Config.EnableLazyLoadShards,
+		LazyLoadShardCountThreshold:         appState.ServerConfig.Config.LazyLoadShardCountThreshold,
+		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
+		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
+		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
 		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
@@ -447,6 +453,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AsyncIndexingEnabled:                         appState.ServerConfig.Config.AsyncIndexingEnabled,
 		HFreshEnabled:                                appState.ServerConfig.Config.HFreshEnabled,
 		OperationalMode:                              appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:                      appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -507,7 +514,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	nodeName := appState.Cluster.LocalName()
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization)
+	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
 	grpcConfig := appState.ServerConfig.Config.GRPC
 	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
@@ -550,10 +557,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 
 	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
-	grpcIddleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
+	grpcIdleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
 
-	appState.GRPCConnManager = grpcconn.NewConnManager(grpcMaxOpenConns, grpcIddleConnTimeout,
+	grpcConnManager, err := grpcconn.NewConnManager(grpcMaxOpenConns, grpcIdleConnTimeout,
 		metricsRegisterer, appState.Logger, opts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create gRPC connection manager")
+	}
+	appState.GRPCConnManager = grpcConnManager
 
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		clientConn, err := appState.GRPCConnManager.GetConn(address)
@@ -655,6 +668,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
+	repo.SetTenantsActivityManager(appState.SchemaManager)
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)
@@ -665,6 +679,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
+
+	// Create export participant early so the cluster API server can register it
+	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportParticipant = exportusecase.NewParticipant(
+		appState.DB, appState.Modules, appState.Logger,
+		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -682,12 +703,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
-	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
+	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
-	repo.WithReindexer(reindexer)
+	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -776,10 +797,21 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		providers := map[string]distributedtask.Provider{}
+
+		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
+			shardNoopProvider := distributedtask.NewShardNoopProvider(
+				appState.Cluster.LocalName(), appState.Logger, repo,
+				appState.ServerConfig.Config.Persistence.DataPath,
+			)
+			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+			setupShardNoopDebugHandler(appState, shardNoopProvider)
+		}
+
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,
 			TasksLister:        appState.ClusterService.Raft,
-			Providers:          map[string]distributedtask.Provider{},
+			Providers:          providers,
 			Logger:             appState.Logger,
 			MetricsRegisterer:  metricsRegisterer,
 			LocalNode:          appState.Cluster.LocalName(),
@@ -945,7 +977,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB, appState.Logger, appState.ClusterHttpClient, appState.Cluster)
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
@@ -962,17 +995,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
+	exportScheduler := startExportScheduler(appState)
+	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 	}
-
-	var grpcInstrument []grpc.ServerOption
-	if appState.ServerConfig.Config.Monitoring.Enabled {
-		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
-	}
-
-	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
 
 	telemeter := telemetry.New(
 		appState.DB,
@@ -981,6 +1009,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
 	)
+
+	var grpcInstrument []grpc.ServerOption
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
+	}
+
+	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
@@ -1004,6 +1039,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		// Reject new export requests and signal in-flight exports to stop
+		// early, while the server can still serve other requests. The actual
+		// wait for export drain happens in ServerShutdown.
+		exportScheduler.StartShutdown()
+		appState.ExportParticipant.StartShutdown()
 		batchDrain()
 	}
 
@@ -1012,6 +1052,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
+
+		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
+		exportDone := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(exportDone)
+			exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer exportCancel()
+			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+				appState.Logger.
+					WithError(err).
+					WithField("action", "shutdown export participant").
+					Errorf("failed to gracefully shutdown")
+			}
+		}, appState.Logger)
 
 		// drain any ongoing operations
 		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
@@ -1049,6 +1103,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
+
+		// Ensure export cleanup finished before closing the infrastructure
+		// it depends on (internal server, cluster service, modules).
+		<-exportDone
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -1096,6 +1154,20 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 		appState.SchemaManager,
 		appState.Logger)
 	return backupScheduler
+}
+
+func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
+	return exportusecase.NewScheduler(
+		appState.Authorizer,
+		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.DB,
+		appState.Modules,
+		appState.Logger,
+		clients.NewClusterExports(appState.ClusterHttpClient),
+		appState.Cluster,
+		appState.Cluster.LocalName(),
+		appState.ExportParticipant,
+	)
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
@@ -1177,6 +1249,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 		nonStorageNodes = parseVotersNames(cfg)
 	}
 
+	serverConfig.Config.Cluster.RaftBootstrapExpect = serverConfig.Config.Raft.BootstrapExpect
 	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.TimeoutsMultiplier.Get(), dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
@@ -2079,6 +2152,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
@@ -2086,6 +2160,8 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
 		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
 		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
+		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
+		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
 		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {

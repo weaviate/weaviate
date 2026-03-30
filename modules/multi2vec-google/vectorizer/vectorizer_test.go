@@ -69,6 +69,38 @@ func TestVectorizer(t *testing.T) {
 	})
 }
 
+func TestVectorizeAudio(t *testing.T) {
+	t.Run("should vectorize audio", func(t *testing.T) {
+		client := &fakeClient{}
+		vectorizer := New(client)
+		config := newConfigBuilder().addSetting("audioFields", []interface{}{"audio"}).build()
+
+		vector, err := vectorizer.VectorizeAudio(context.Background(), "base64-encoded-audio", config)
+
+		require.Nil(t, err)
+		assert.Equal(t, []float32{100.0, 200.0, 300.0, 400.0, 500.0}, vector)
+	})
+
+	t.Run("should vectorize object with audio field", func(t *testing.T) {
+		client := &fakeClient{}
+		vectorizer := New(client)
+		config := newConfigBuilder().addSetting("audioFields", []interface{}{"audio"}).build()
+
+		props := map[string]interface{}{
+			"audio": "base64-encoded-audio",
+		}
+		object := &models.Object{
+			ID:         "some-uuid",
+			Properties: props,
+		}
+
+		vector, _, err := vectorizer.Object(context.Background(), object, config)
+
+		require.Nil(t, err)
+		assert.NotNil(t, vector)
+	})
+}
+
 func TestVectorizerWithDiff(t *testing.T) {
 	type testCase struct {
 		name  string

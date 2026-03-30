@@ -72,6 +72,12 @@ type SchemaGetter interface {
 	ShardReplicas(class, shard string) ([]string, error)
 }
 
+type TenantsActivityManager interface {
+	ActivateTenants(ctx context.Context, class string, tenants ...string) error
+	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
+	TenantsStatus(class string, tenants ...string) (map[string]string, error)
+}
+
 type VectorizerValidator interface {
 	ValidateVectorizer(moduleName string) error
 }
@@ -258,11 +264,18 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
+	status, _, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+	return status, err
+}
+
+// TenantsShardsWithVersion returns tenant status and the schema version from any implicit activation.
+// Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
+func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	status, version, err := m.schemaManager.QueryTenantsShards(class, tenants...)
 	if !m.AllowImplicitTenantActivation(class) || err != nil {
-		return status, err
+		return status, version, err
 	}
 
 	return m.activateTenantIfInactive(ctx, class, status)
@@ -322,7 +335,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
-) (map[string]string, error) {
+) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, 0, len(status)),
 		ClusterNodes:          m.schemaManager.StorageCandidates(),
@@ -337,24 +350,24 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 
 	if len(req.Tenants) == 0 {
 		// nothing to do, all tenants are already HOT
-		return status, nil
+		return status, 0, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	schemaVersion, err := m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {
 			names[i] = t.Name
 		}
 
-		return nil, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
+		return nil, 0, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
 	}
 
 	for _, t := range req.Tenants {
 		status[t.Name] = models.TenantActivityStatusHOT
 	}
 
-	return status, nil
+	return status, schemaVersion, nil
 }
 
 func (m *Manager) AllowImplicitTenantActivation(class string) bool {
@@ -365,6 +378,52 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	})
 
 	return allow
+}
+
+func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
+	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	return tenantsMap, err
+}
+
+func (m *Manager) ActivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusHOT)
+}
+
+func (m *Manager) DeactivateTenants(ctx context.Context, class string, tenants ...string) error {
+	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusCOLD)
+}
+
+func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string, tenants []string, status string) error {
+	switch ln := len(tenants); ln {
+	case 0:
+		return nil
+	case 1:
+		// proceed
+	default:
+		slices.Sort(tenants)
+		tenants = slices.Compact(tenants)
+	}
+
+	req := &api.UpdateTenantsRequest{
+		Tenants:               make([]*api.Tenant, len(tenants)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
+	}
+	for i := range tenants {
+		req.Tenants[i] = &api.Tenant{Name: tenants[i], Status: status}
+	}
+
+	if _, err := m.schemaManager.UpdateTenants(ctx, class, req); err != nil {
+		return fmt.Errorf("change tenants %s status to %s: %w", tenants, status, err)
+	}
+	return nil
+}
+
+// EnsureTenantActiveForWrite activates COLD tenants when AutoTenantActivation is enabled.
+// Returns the schema version from activation. callers must pass this to WaitForUpdate
+func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
+	_, schemaVersion, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+	return schemaVersion, err
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {

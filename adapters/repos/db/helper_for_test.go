@@ -24,12 +24,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/loadlimiter"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -40,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -248,6 +250,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		return nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -260,6 +264,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
+		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -325,6 +330,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
 	}).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlyClass(mock.Anything).RunAndReturn(func(name string) *models.Class {
+		return &models.Class{Class: name}
+	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
@@ -338,6 +346,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
+		EnableLazyLoadShards:      boolPtr(true),
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
@@ -367,12 +376,45 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	metrics, err := NewMetrics(logger, nil, class.Class, "")
 	require.NoError(t, err)
 
+	localNodeName := "node1"
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.WriteReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, mock.Anything).Return(
+		types.ReadReplicaSet{
+			Replicas: []types.Replica{{NodeName: localNodeName, ShardName: "shard1", HostAddr: "127.0.0.1"}},
+		}, nil,
+	).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+
+	getDeletionStrategy := func() string {
+		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
+	repClient := &FakeReplicationClient{}
+	replicator, err := replica.NewReplicator(
+		class.Class,
+		mockRouter,
+		nodeResolver,
+		localNodeName,
+		getDeletionStrategy,
+		repClient,
+		monitoring.GetMetrics(),
+		logger,
+	)
+	require.NoError(t, err)
+
 	idx := &Index{
 		Config: IndexConfig{
-			RootPath:            tmpDir,
-			ClassName:           schema.ClassName(class.Class),
-			QueryMaximumResults: maxResults,
-			ReplicationFactor:   1,
+			EnableLazyLoadShards: true,
+			RootPath:             tmpDir,
+			ClassName:            schema.ClassName(class.Class),
+			QueryMaximumResults:  maxResults,
+			ReplicationFactor:    1,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
@@ -381,6 +423,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
 		logger:                 logger,
 		getSchema:              schemaGetter,
+		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
 		indexCheckpoints:       checkpts,
@@ -391,6 +434,8 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
 		HFreshEnabled:          true,
+		replicator:             replicator,
+		router:                 mockRouter,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -401,7 +446,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards, true)
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.EnableLazyLoadShards, true)
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)

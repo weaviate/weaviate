@@ -35,6 +35,7 @@ type VectorIndex interface {
 	Shutdown(ctx context.Context) error
 	Flush() error
 	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool

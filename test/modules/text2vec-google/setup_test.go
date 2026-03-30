@@ -21,6 +21,14 @@ import (
 )
 
 func TestText2VecGoogle_VertexAI_SingleNode(t *testing.T) {
+	text2vecGoogleTestSuite(t, false)
+}
+
+func TestText2VecGoogle_VertexAI_SingleNode_UseBatchSimpleLogic(t *testing.T) {
+	text2vecGoogleTestSuite(t, true)
+}
+
+func text2vecGoogleTestSuite(t *testing.T, useBatchSimple bool) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
@@ -30,7 +38,7 @@ func TestText2VecGoogle_VertexAI_SingleNode(t *testing.T) {
 		t.Skip("skipping, GOOGLE_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
-	compose, err := createSingleNodeEnvironment(ctx, googleApiKey)
+	compose, err := createSingleNodeEnvironment(ctx, googleApiKey, useBatchSimple)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
@@ -42,11 +50,16 @@ func TestText2VecGoogle_VertexAI_SingleNode(t *testing.T) {
 	t.Run("text2vec-palm", testText2VecGoogle(rest, grpc, gcpProject, "text2vec-palm"))
 }
 
-func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
+func createSingleNodeEnvironment(ctx context.Context, googleApiKey string, useBatchSimple bool,
 ) (compose *docker.DockerCompose, err error) {
+	useBatchSimpleLogic := "false"
+	if useBatchSimple {
+		useBatchSimpleLogic = "true"
+	}
 	compose, err = composeModules(googleApiKey).
 		WithWeaviate().
 		WithWeaviateWithGRPC().
+		WithWeaviateEnv("USE_T2V_GOOGLE_BATCH_SIMPLE_LOGIC", useBatchSimpleLogic).
 		Start(ctx)
 	return compose, err
 }

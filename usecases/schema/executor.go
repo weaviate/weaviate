@@ -76,7 +76,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
 				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
-				err := fmt.Errorf("failed to reload local index %q: %w", i, err)
+				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
 				errList = errors.Join(errList, err)
@@ -207,6 +207,19 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		"action": "add_property",
 		"class":  className,
 	}).Debug("adding property")
+	return nil
+}
+
+func (e *executor) UpdateProperty(className string, req api.UpdatePropertyRequest) error {
+	ctx := context.Background()
+	if err := e.migrator.UpdateProperty(ctx, className, req.Property); err != nil {
+		return err
+	}
+
+	e.logger.WithFields(logrus.Fields{
+		"action": "update_property",
+		"class":  className,
+	}).Debug("updating property")
 	return nil
 }
 

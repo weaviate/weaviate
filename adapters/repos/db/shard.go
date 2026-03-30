@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
@@ -71,6 +72,7 @@ type ShardLike interface {
 	Store() *lsmkv.Store                                                                           // Get the underlying store
 	NotifyReady()                                                                                  // Set shard status to ready
 	GetStatus() storagestate.Status                                                                // Return the shard status
+	GetStatusReason() string                                                                       // Return the reason for the current status
 	UpdateStatus(status, reason string) error                                                      // Set shard status
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
@@ -83,7 +85,7 @@ type ShardLike interface {
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
-	ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
 	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
@@ -93,12 +95,15 @@ type ShardLike interface {
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
+	ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
-	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
+	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
+	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
+	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
@@ -121,6 +126,7 @@ type ShardLike interface {
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -158,9 +164,9 @@ type ShardLike interface {
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
-	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
-	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
+	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
@@ -221,6 +227,8 @@ type Shard struct {
 	queue         *VectorIndexQueue
 	vectorIndexes map[string]VectorIndex
 	queues        map[string]*VectorIndexQueue
+
+	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
@@ -300,6 +308,11 @@ type Shard struct {
 	HFreshEnabled bool
 
 	lazySegmentLoadingEnabled bool
+
+	// metricsRegistered tracks whether this shard was registered with shard lifecycle metrics
+	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
+	// or incorrect metric updates during partial initialization cleanup.
+	metricsRegistered atomic.Bool
 }
 
 func (s *Shard) ID() string {
@@ -345,7 +358,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	reason := "UpdateVectorIndexConfig"
+	reason := statusReasonVectorIndexUpdate
 	err := s.SetStatusReadonly(reason)
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
@@ -367,8 +380,10 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	}
 
 	if err := newCompressedVectorsMigrator(s.index.logger).doUpdate(s, updated); err != nil {
-		s.index.logger.WithField("action", "update_vector_index_configs").
-			Errorf("failed to migrate vectors compressed folder: %v", err)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_target_vectors",
+			"shard_id": s.ID(),
+		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	i := 0

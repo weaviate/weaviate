@@ -127,6 +127,10 @@ func (r *FastRotation) UnRotate(rx []float32) []float32 {
 	x := make([]float32, len(rx))
 	copy(x, rx)
 
+	return r.UnRotateInPlace(x)
+}
+
+func (r *FastRotation) UnRotateInPlace(x []float32) []float32 {
 	// Apply rounds in REVERSE order
 	for i := int(r.Rounds) - 1; i >= 0; i-- {
 		// First: Inverse Walsh-Hadamard transforms (FWHT is self-inverse)

@@ -1,0 +1,104 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package export
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/parquet-go/parquet-go"
+)
+
+// ParquetRow represents a single row in the Parquet file
+type ParquetRow struct {
+	ID           string `parquet:"id,dict"`
+	CreationTime int64  `parquet:"creation_time"`
+	UpdateTime   int64  `parquet:"update_time"`
+	Vector       []byte `parquet:"vector,optional"`
+	NamedVectors []byte `parquet:"named_vectors,optional"`
+	MultiVectors []byte `parquet:"multi_vectors,optional"`
+	Properties   []byte `parquet:"properties,optional"`
+}
+
+const (
+	defaultBatchSize = 10000 // Buffer 10k rows before writing
+)
+
+// ParquetWriter writes Weaviate objects to Parquet format
+type ParquetWriter struct {
+	writer    *parquet.GenericWriter[ParquetRow]
+	buffer    []ParquetRow
+	batchSize int
+	onFlush   func(int64) // called after each successful flush with the number of rows flushed
+}
+
+// NewParquetWriter creates a new Parquet writer
+func NewParquetWriter(w io.Writer) (*ParquetWriter, error) {
+	schema := parquet.SchemaOf(ParquetRow{})
+
+	writer := parquet.NewGenericWriter[ParquetRow](w,
+		schema,
+		parquet.Compression(&parquet.Zstd),
+		parquet.PageBufferSize(8*1024*1024), // 8MB page buffer
+	)
+
+	return &ParquetWriter{
+		writer:    writer,
+		buffer:    make([]ParquetRow, 0, defaultBatchSize),
+		batchSize: defaultBatchSize,
+	}, nil
+}
+
+// WriteRow writes a pre-converted row to the Parquet file (buffered).
+// This is used by the parallel export path where conversion happens in
+// worker goroutines.
+func (pw *ParquetWriter) WriteRow(row ParquetRow) error {
+	pw.buffer = append(pw.buffer, row)
+
+	if len(pw.buffer) >= pw.batchSize {
+		return pw.Flush()
+	}
+
+	return nil
+}
+
+// Flush writes all buffered rows to the Parquet file
+func (pw *ParquetWriter) Flush() error {
+	if len(pw.buffer) == 0 {
+		return nil
+	}
+
+	n := int64(len(pw.buffer))
+	_, err := pw.writer.Write(pw.buffer)
+	if err != nil {
+		return fmt.Errorf("write batch to parquet: %w", err)
+	}
+
+	pw.buffer = pw.buffer[:0] // Reset buffer
+	if pw.onFlush != nil {
+		pw.onFlush(n)
+	}
+	return nil
+}
+
+// Close flushes remaining data and closes the writer
+func (pw *ParquetWriter) Close() error {
+	if err := pw.Flush(); err != nil {
+		return err
+	}
+	return pw.writer.Close()
+}
+
+// SetFileMetadata sets a key/value pair in the Parquet file metadata.
+func (pw *ParquetWriter) SetFileMetadata(key, value string) {
+	pw.writer.SetKeyValueMetadata(key, value)
+}

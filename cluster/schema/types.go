@@ -31,6 +31,7 @@ type Indexer interface {
 	UpdateClass(api.UpdateClassRequest) error
 	DeleteClass(className string, hasFrozen bool) error
 	AddProperty(class string, req api.AddPropertyRequest) error
+	UpdateProperty(class string, req api.UpdatePropertyRequest) error
 	AddTenants(class string, req *api.AddTenantsRequest) error
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
 	DeleteTenants(class string, tenants []*models.Tenant) error

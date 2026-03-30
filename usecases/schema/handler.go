@@ -49,6 +49,7 @@ type SchemaManager interface {
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
+	UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)
@@ -101,6 +102,7 @@ type SchemaReader interface {
 	ReadSchema(reader func(models.Class, uint64)) error
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
+	LocalActiveShardsCount(class string) (int, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias

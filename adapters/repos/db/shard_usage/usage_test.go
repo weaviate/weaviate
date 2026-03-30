@@ -326,3 +326,107 @@ func BenchmarkStorageCalculation(b *testing.B) {
 
 	}
 }
+
+func TestCalculateNonLSMStorage_NestedHFreshDirectories(t *testing.T) {
+	dirName := t.TempDir()
+	shardPath := filepath.Join(dirName, "shard1")
+	require.NoError(t, os.MkdirAll(shardPath, 0o777))
+
+	topLevelCommitLog := filepath.Join(shardPath, "main.hnsw.commitlog.d")
+	require.NoError(t, os.MkdirAll(topLevelCommitLog, 0o777))
+	topLevelCommitLogFile := filepath.Join(topLevelCommitLog, "file1")
+	require.NoError(t, os.WriteFile(topLevelCommitLogFile, make([]byte, 1000), 0o644))
+
+	topLevelSnapshot := filepath.Join(shardPath, "main.hnsw.snapshot.d")
+	require.NoError(t, os.MkdirAll(topLevelSnapshot, 0o777))
+	topLevelSnapshotFile := filepath.Join(topLevelSnapshot, "file2")
+	require.NoError(t, os.WriteFile(topLevelSnapshotFile, make([]byte, 2000), 0o644))
+
+	hfreshDir := filepath.Join(shardPath, "main.hfresh.d")
+	require.NoError(t, os.MkdirAll(hfreshDir, 0o777))
+
+	nestedCommitLog := filepath.Join(hfreshDir, "main_centroids.hnsw.commitlog.d")
+	require.NoError(t, os.MkdirAll(nestedCommitLog, 0o777))
+	nestedCommitLogFile := filepath.Join(nestedCommitLog, "file3")
+	require.NoError(t, os.WriteFile(nestedCommitLogFile, make([]byte, 3000), 0o644))
+
+	nestedSnapshot := filepath.Join(hfreshDir, "main_centroids.hnsw.snapshot.d")
+	require.NoError(t, os.MkdirAll(nestedSnapshot, 0o777))
+	nestedSnapshotFile := filepath.Join(nestedSnapshot, "file4")
+	require.NoError(t, os.WriteFile(nestedSnapshotFile, make([]byte, 4000), 0o644))
+
+	nestedQueue := filepath.Join(hfreshDir, "analyze.queue.d")
+	require.NoError(t, os.MkdirAll(nestedQueue, 0o777))
+	nestedQueueFile := filepath.Join(nestedQueue, "file5")
+	require.NoError(t, os.WriteFile(nestedQueueFile, make([]byte, 5000), 0o644))
+
+	otherDir := filepath.Join(hfreshDir, "other_dir")
+	require.NoError(t, os.MkdirAll(otherDir, 0o777))
+	otherDirFile := filepath.Join(otherDir, "file6")
+	require.NoError(t, os.WriteFile(otherDirFile, make([]byte, 6000), 0o644))
+
+	hfreshFile := filepath.Join(hfreshDir, "file7")
+	require.NoError(t, os.WriteFile(hfreshFile, make([]byte, 7000), 0o644))
+
+	otherTopLevel := filepath.Join(shardPath, "other_top_level")
+	require.NoError(t, os.MkdirAll(otherTopLevel, 0o777))
+	otherTopLevelFile := filepath.Join(otherTopLevel, "file8")
+	require.NoError(t, os.WriteFile(otherTopLevelFile, make([]byte, 8000), 0o644))
+
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
+	require.NoError(t, err)
+
+	// Expected commitlog storage:
+	// - topLevelCommitLog: 1000
+	// - topLevelSnapshot: 2000
+	// - nestedCommitLog: 3000
+	// - nestedSnapshot: 4000
+	// - nestedQueue: 5000
+	expectedCommitLogSize := uint64(1000 + 2000 + 3000 + 4000 + 5000)
+
+	// Expected other storage:
+	// - otherDir: 6000
+	// - hfreshFile: 7000
+	// - otherTopLevel: 8000
+	expectedOtherSize := uint64(6000 + 7000 + 8000)
+
+	assert.Equal(t, expectedCommitLogSize, vectorCommitLogsStorageSize, "commitlog/snapshot/queue storage should match")
+	assert.Equal(t, expectedOtherSize, otherNonLSMFoldersStorageSize, "other storage should match")
+}
+
+func TestCalculateNonLSMStorage_HFreshOneLevelDeep(t *testing.T) {
+	dirName := t.TempDir()
+	shardPath := filepath.Join(dirName, "shard1")
+	require.NoError(t, os.MkdirAll(shardPath, 0o777))
+
+	// Create hfresh.d directory
+	hfreshDir := filepath.Join(shardPath, "main.hfresh.d")
+	require.NoError(t, os.MkdirAll(hfreshDir, 0o777))
+
+	// Create nested commitlog.d (one level deep)
+	nestedCommitLog := filepath.Join(hfreshDir, "main_centroids.hnsw.commitlog.d")
+	require.NoError(t, os.MkdirAll(nestedCommitLog, 0o777))
+	nestedCommitLogFile := filepath.Join(nestedCommitLog, "file1")
+	require.NoError(t, os.WriteFile(nestedCommitLogFile, make([]byte, 1000), 0o644))
+
+	// Create nested snapshot.d (one level deep)
+	nestedSnapshot := filepath.Join(hfreshDir, "main_centroids.hnsw.snapshot.d")
+	require.NoError(t, os.MkdirAll(nestedSnapshot, 0o777))
+	nestedSnapshotFile := filepath.Join(nestedSnapshot, "file2")
+	require.NoError(t, os.WriteFile(nestedSnapshotFile, make([]byte, 2000), 0o644))
+
+	// Create nested queue.d (one level deep)
+	nestedQueue := filepath.Join(hfreshDir, "analyze.queue.d")
+	require.NoError(t, os.MkdirAll(nestedQueue, 0o777))
+	nestedQueueFile := filepath.Join(nestedQueue, "file3")
+	require.NoError(t, os.WriteFile(nestedQueueFile, make([]byte, 3000), 0o644))
+
+	// Calculate storage - nested directories should be counted
+	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
+	require.NoError(t, err)
+
+	// The nested commitlog.d, snapshot.d, and queue.d should be found and counted
+	expectedCommitLogSize := uint64(1000 + 2000 + 3000)
+	assert.Equal(t, expectedCommitLogSize, vectorCommitLogsStorageSize, "nested commitlog/snapshot/queue.d should be counted")
+	assert.Equal(t, uint64(0), otherNonLSMFoldersStorageSize, "no other storage expected")
+}

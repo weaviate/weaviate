@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -25,16 +26,16 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -91,7 +92,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to get gRPC port for source node: %w", err)
 	}
 
-	client, err := c.clientFactory(ctx, fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort))
+	client, err := c.clientFactory(ctx, net.JoinHostPort(sourceNodeAddress, fmt.Sprintf("%d", sourceNodeGRPCPort)))
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}
@@ -505,10 +506,11 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	if err != nil {
 		return fmt.Errorf("get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return fmt.Errorf("get shard %s: not found", shardName)
 	}
-	defer release()
 
 	return shard.SetAsyncReplicationState(ctx, index.AsyncReplicationConfig(), true)
 }
@@ -523,10 +525,11 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	if err != nil {
 		return fmt.Errorf("get shard %s err: %w", shardName, err)
 	}
+	defer release()
+
 	if shard == nil {
 		return fmt.Errorf("get shard %s: not found", shardName)
 	}
-	defer release()
 
 	return shard.SetAsyncReplicationState(ctx, index.AsyncReplicationConfig(), index.AsyncReplicationEnabled())
 }

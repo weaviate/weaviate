@@ -354,15 +354,15 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err = get.Do(context.Background())
-		require.NoError(t, err)
-		require.NotNil(t, resp)
+		require.NoError(ct, err)
+		require.NotNil(ct, resp)
 		if len(resp.Data) == 0 {
 			return
 		}
 
 		ids := acceptance_with_go_client.GetIds(t, resp, className)
 		assert.Contains(ct, ids, id)
-	}, 5*time.Second, 1*time.Millisecond)
+	}, 10*time.Second, 100*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }

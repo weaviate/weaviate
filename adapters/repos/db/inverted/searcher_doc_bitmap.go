@@ -91,22 +91,18 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
@@ -150,22 +146,18 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReader(b, pv.value, pv.operator, false)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
@@ -188,22 +180,18 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			release()
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	out.isDenyList = rr.isDenyList
 	if isEmpty {
 		return newDocBitmap(), nil
 	}

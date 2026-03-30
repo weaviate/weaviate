@@ -115,6 +115,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	if cls.ObjectTTLConfig != nil && cls.ObjectTTLConfig.Enabled {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(cls.Class)...); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
@@ -171,6 +177,11 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
 	compression := defaultQuantization.Get()
+
+	if compression == "" {
+		return
+	}
+
 	var err error
 	if !hasTargetVectors(class) || class.VectorIndexType != "" {
 		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
@@ -311,6 +322,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// Require DELETE permission on data when any TTL setting is being changed,
+	// but not when the user is updating other collection settings without
+	// touching TTL configuration.
+	initial := h.schemaReader.ReadOnlyClass(className)
+	var initialTTLConfig *models.ObjectTTLConfig
+	if initial != nil {
+		initialTTLConfig = initial.ObjectTTLConfig
+	}
+	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
+			return err
+		}
+	}
+
 	return UpdateClassInternal(h, ctx, className, updated)
 }
 
@@ -323,7 +348,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true); err != nil {
+	if ttlConfig, _, err := ttl.ValidateObjectTTLConfig(updated, true, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		updated.ObjectTTLConfig = ttlConfig
@@ -409,14 +434,14 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(m.config.Replication.MinimumFactor),
-			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 			AsyncEnabled:     false,
 		}
 		return nil
 	}
 
 	if class.ReplicationConfig.DeletionStrategy == "" {
-		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyTimeBasedResolution
 	}
 
 	return nil
@@ -773,7 +798,7 @@ func (h *Handler) validateClassInvariants(
 		return err
 	}
 
-	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false); err != nil {
+	if ttlConfig, needsInvertedIndexTimestamp, err := ttl.ValidateObjectTTLConfig(class, false, h.config); err != nil {
 		return fmt.Errorf("ObjectTTLConfig: %w", err)
 	} else {
 		class.ObjectTTLConfig = ttlConfig
@@ -1006,6 +1031,29 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		if _, ok := initial.VectorConfig[k]; !ok {
 			continue
 		}
+
+		// SkipDefaultQuantization and TrackDefaultQuantization must be effectively immutable
+		// without enforcing that on the client. We just set these fields to their initial values.
+		switch cfg := v.VectorIndexConfig.(type) {
+		case hnsw.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(hnsw.UserConfig)
+			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
+			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		case flat.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(flat.UserConfig)
+			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
+			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		case dynamic.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(dynamic.UserConfig)
+			cfg.HnswUC.SkipDefaultQuantization = cfgInitial.HnswUC.SkipDefaultQuantization
+			cfg.HnswUC.TrackDefaultQuantization = cfgInitial.HnswUC.TrackDefaultQuantization
+			cfg.FlatUC.SkipDefaultQuantization = cfgInitial.FlatUC.SkipDefaultQuantization
+			cfg.FlatUC.TrackDefaultQuantization = cfgInitial.FlatUC.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		}
+		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			// There might be module settings that need to be migrated to new names, for example

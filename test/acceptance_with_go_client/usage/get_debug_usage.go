@@ -17,64 +17,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 )
 
-// Structs matching the Python dataclasses
+// CollectionUsage is a type alias for backward compatibility with external callers.
+type CollectionUsage = usagetypes.CollectionUsage
 
-type Dimensionality struct {
-	Dimensions *int `json:"dimensionality,omitempty"`
-	Count      *int `json:"count,omitempty"`
-}
-
-type VectorUsage struct {
-	Name                   *string          `json:"name,omitempty"`
-	VectorIndexType        *string          `json:"vector_index_type,omitempty"`
-	IsDynamic              *bool            `json:"is_dynamic,omitempty"`
-	Compression            *string          `json:"compression,omitempty"`
-	VectorCompressionRatio *float64         `json:"vector_compression_ratio,omitempty"`
-	Bits                   *int             `json:"bits,omitempty"`
-	Dimensionalities       []Dimensionality `json:"dimensionalities,omitempty"`
-}
-
-type ShardUsage struct {
-	Name                *string       `json:"name,omitempty"`
-	Status              *string       `json:"status,omitempty"`
-	ObjectsCount        *int          `json:"objects_count,omitempty"`
-	ObjectsStorageBytes *int64        `json:"objects_storage_bytes,omitempty"`
-	VectorStorageBytes  *int64        `json:"vector_storage_bytes,omitempty"`
-	NamedVectors        []VectorUsage `json:"named_vectors,omitempty"`
-}
-
-type CollectionUsage struct {
-	Name              *string      `json:"name,omitempty"`
-	ReplicationFactor *int         `json:"replication_factor,omitempty"`
-	UniqueShardCount  *int         `json:"unique_shard_count,omitempty"`
-	Shards            []ShardUsage `json:"shards,omitempty"`
-}
-
-type BackupUsage struct {
-	ID             *string  `json:"id,omitempty"`
-	CompletionTime *string  `json:"completion_time,omitempty"`
-	SizeInGiB      *float64 `json:"size_in_gib,omitempty"`
-	Type           *string  `json:"type,omitempty"`
-	Collections    []string `json:"collections,omitempty"`
-}
-
-type Report struct {
-	Version        *string                `json:"version,omitempty"`
-	Node           *string                `json:"node,omitempty"`
-	Collections    []CollectionUsage      `json:"collections,omitempty"`
-	Backups        []BackupUsage          `json:"backups,omitempty"`
-	CollectingTime *string                `json:"collecting_time,omitempty"`
-	Schema         map[string]interface{} `json:"schema,omitempty"`
-}
-
-func getDebugUsage() (*Report, error) {
+func getDebugUsage() (*usagetypes.Report, error) {
 	return getDebugUsageWithPort("localhost:6060")
 }
 
 // Get the debug usage report from the endpoint
-func getDebugUsageWithPort(host string) (*Report, error) {
+func getDebugUsageWithPort(host string) (*usagetypes.Report, error) {
 	url := fmt.Sprintf("http://%s/debug/usage?exactObjectCount=true", host)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -92,53 +47,53 @@ func getDebugUsageWithPort(host string) (*Report, error) {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var report Report
+	var report usagetypes.Report
 	if err := json.Unmarshal(body, &report); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return &report, nil
 }
 
-func getDebugUsageWithPortAndCollection(host, collection string) (CollectionUsage, error) {
+func getDebugUsageWithPortAndCollection(host, collection string) (usagetypes.CollectionUsage, error) {
 	report, err := getDebugUsageWithPort(host)
 	if err != nil {
-		return CollectionUsage{}, err
+		return usagetypes.CollectionUsage{}, err
 	}
 	for _, col := range report.Collections {
-		if col.Name != nil && *col.Name == collection {
-			return col, nil
+		if col != nil && col.Name == collection {
+			return *col, nil
 		}
 	}
-	return CollectionUsage{}, fmt.Errorf("collection %s not found in debug usage report", collection)
+	return usagetypes.CollectionUsage{}, fmt.Errorf("collection %s not found in debug usage report", collection)
 }
 
 // Get a specific collection by name
-func GetDebugUsageForCollection(collection string) (*CollectionUsage, error) {
+func GetDebugUsageForCollection(collection string) (*usagetypes.CollectionUsage, error) {
 	report, err := getDebugUsage()
 	if err != nil {
 		return nil, err
 	}
 	for _, col := range report.Collections {
-		if col.Name != nil && *col.Name == collection {
-			return &col, nil
+		if col != nil && col.Name == collection {
+			return col, nil
 		}
 	}
 	return nil, fmt.Errorf("collection %s not found in debug usage report", collection)
 }
 
 // Compare two Reports by value, not pointer. Returns nil if equal, otherwise an error describing the difference.
-func ReportsDifference(a, b *Report) error {
+func ReportsDifference(a, b *usagetypes.Report) error {
 	if a == nil || b == nil {
 		if a != b {
 			return errors.New("one of the reports is nil while the other is not")
 		}
 		return nil
 	}
-	if valueStr(a.Version) != valueStr(b.Version) {
-		return errors.New("Version differs: '" + valueStr(a.Version) + "' vs '" + valueStr(b.Version) + "'")
+	if a.Version != b.Version {
+		return errors.New("Version differs: '" + a.Version + "' vs '" + b.Version + "'")
 	}
-	if valueStr(a.Node) != valueStr(b.Node) {
-		return errors.New("Node differs: '" + valueStr(a.Node) + "' vs '" + valueStr(b.Node) + "'")
+	if a.Node != b.Node {
+		return errors.New("Node differs: '" + a.Node + "' vs '" + b.Node + "'")
 	}
 	// CollectingTime is intentionally ignored
 	if err := collectionsDifference(a.Collections, b.Collections); err != nil {
@@ -153,27 +108,27 @@ func ReportsDifference(a, b *Report) error {
 	return nil
 }
 
-func collectionsDifference(a, b []CollectionUsage) error {
+func collectionsDifference(a, b usagetypes.CollectionsUsage) error {
 	if len(a) != len(b) {
 		return errors.New("Collections length differs")
 	}
 	for i := range a {
-		if err := CollectionUsageDifference(a[i], b[i]); err != nil {
+		if err := CollectionUsageDifference(*a[i], *b[i]); err != nil {
 			return errors.New("Collections[" + itoa(i) + "]: " + err.Error())
 		}
 	}
 	return nil
 }
 
-func CollectionUsageDifference(a, b CollectionUsage) error {
-	if valueStr(a.Name) != valueStr(b.Name) {
-		return errors.New("Name differs: '" + valueStr(a.Name) + "' vs '" + valueStr(b.Name) + "'")
+func CollectionUsageDifference(a, b usagetypes.CollectionUsage) error {
+	if a.Name != b.Name {
+		return errors.New("Name differs: '" + a.Name + "' vs '" + b.Name + "'")
 	}
-	if valueInt(a.ReplicationFactor) != valueInt(b.ReplicationFactor) {
-		return errors.New("ReplicationFactor differs: '" + itoa(valueInt(a.ReplicationFactor)) + "' vs '" + itoa(valueInt(b.ReplicationFactor)) + "'")
+	if a.ReplicationFactor != b.ReplicationFactor {
+		return errors.New("ReplicationFactor differs: '" + itoa(a.ReplicationFactor) + "' vs '" + itoa(b.ReplicationFactor) + "'")
 	}
-	if valueInt(a.UniqueShardCount) != valueInt(b.UniqueShardCount) {
-		return errors.New("UniqueShardCount differs: '" + itoa(valueInt(a.UniqueShardCount)) + "' vs '" + itoa(valueInt(b.UniqueShardCount)) + "'")
+	if a.UniqueShardCount != b.UniqueShardCount {
+		return errors.New("UniqueShardCount differs: '" + itoa(a.UniqueShardCount) + "' vs '" + itoa(b.UniqueShardCount) + "'")
 	}
 	if err := shardsDifference(a.Shards, b.Shards); err != nil {
 		return err
@@ -181,7 +136,7 @@ func CollectionUsageDifference(a, b CollectionUsage) error {
 	return nil
 }
 
-func shardsDifference(a, b []ShardUsage) error {
+func shardsDifference(a, b usagetypes.ShardsUsage) error {
 	if len(a) != len(b) {
 		return errors.New("Shards length differs")
 	}
@@ -193,23 +148,23 @@ func shardsDifference(a, b []ShardUsage) error {
 	return nil
 }
 
-func shardUsageDifference(a, b ShardUsage) error {
-	if valueStr(a.Name) != valueStr(b.Name) {
-		return errors.New("Shard Name differs: '" + valueStr(a.Name) + "' vs '" + valueStr(b.Name) + "'")
+func shardUsageDifference(a, b *usagetypes.ShardUsage) error {
+	if a.Name != b.Name {
+		return errors.New("Shard Name differs: '" + a.Name + "' vs '" + b.Name + "'")
 	}
-	if valueStr(a.Status) != valueStr(b.Status) {
-		return errors.New("Shard Status differs: '" + valueStr(a.Status) + "' vs '" + valueStr(b.Status) + "'")
+	if a.Status != b.Status {
+		return errors.New("Shard Status differs: '" + a.Status + "' vs '" + b.Status + "'")
 	}
-	if valueInt(a.ObjectsCount) != valueInt(b.ObjectsCount) {
-		return errors.New("ObjectsCount differs: '" + itoa(valueInt(a.ObjectsCount)) + "' vs '" + itoa(valueInt(b.ObjectsCount)) + "'")
+	if a.ObjectsCount != b.ObjectsCount {
+		return errors.New("ObjectsCount differs: '" + itoa64(a.ObjectsCount) + "' vs '" + itoa64(b.ObjectsCount) + "'")
 	}
 
 	// these calculations are currently not stable enough to compare
-	//if valueInt64(a.ObjectsStorageBytes) != valueInt64(b.ObjectsStorageBytes) {
-	//	return errors.New("ObjectsStorageBytes differs: '" + itoa64(valueInt64(a.ObjectsStorageBytes)) + "' vs '" + itoa64(valueInt64(b.ObjectsStorageBytes)) + "'")
+	//if a.ObjectsStorageBytes != b.ObjectsStorageBytes {
+	//	return errors.New("ObjectsStorageBytes differs: '" + itoa64(int64(a.ObjectsStorageBytes)) + "' vs '" + itoa64(int64(b.ObjectsStorageBytes)) + "'")
 	//}
-	//if valueInt64(a.VectorStorageBytes) != valueInt64(b.VectorStorageBytes) {
-	//	return errors.New("VectorStorageBytes differs: '" + itoa64(valueInt64(a.VectorStorageBytes)) + "' vs '" + itoa64(valueInt64(b.VectorStorageBytes)) + "'")
+	//if a.VectorStorageBytes != b.VectorStorageBytes {
+	//	return errors.New("VectorStorageBytes differs: '" + itoa64(int64(a.VectorStorageBytes)) + "' vs '" + itoa64(int64(b.VectorStorageBytes)) + "'")
 	//}
 	if err := vectorsDifference(a.NamedVectors, b.NamedVectors); err != nil {
 		return err
@@ -217,7 +172,7 @@ func shardUsageDifference(a, b ShardUsage) error {
 	return nil
 }
 
-func vectorsDifference(a, b []VectorUsage) error {
+func vectorsDifference(a, b usagetypes.VectorsUsage) error {
 	if len(a) != len(b) {
 		return errors.New("NamedVectors length differs")
 	}
@@ -229,24 +184,24 @@ func vectorsDifference(a, b []VectorUsage) error {
 	return nil
 }
 
-func vectorUsageDifference(a, b VectorUsage) error {
-	if valueStr(a.Name) != valueStr(b.Name) {
-		return errors.New("Vector Name differs: '" + valueStr(a.Name) + "' vs '" + valueStr(b.Name) + "'")
+func vectorUsageDifference(a, b *usagetypes.VectorUsage) error {
+	if a.Name != b.Name {
+		return errors.New("Vector Name differs: '" + a.Name + "' vs '" + b.Name + "'")
 	}
-	if valueStr(a.VectorIndexType) != valueStr(b.VectorIndexType) {
-		return errors.New("VectorIndexType differs: '" + valueStr(a.VectorIndexType) + "' vs '" + valueStr(b.VectorIndexType) + "'")
+	if a.VectorIndexType != b.VectorIndexType {
+		return errors.New("VectorIndexType differs: '" + a.VectorIndexType + "' vs '" + b.VectorIndexType + "'")
 	}
-	if valueBool(a.IsDynamic) != valueBool(b.IsDynamic) {
-		return errors.New("IsDynamic differs: '" + boolStr(valueBool(a.IsDynamic)) + "' vs '" + boolStr(valueBool(b.IsDynamic)) + "'")
+	if a.IsDynamic != b.IsDynamic {
+		return errors.New("IsDynamic differs: '" + boolStr(a.IsDynamic) + "' vs '" + boolStr(b.IsDynamic) + "'")
 	}
-	if valueStr(a.Compression) != valueStr(b.Compression) {
-		return errors.New("Compression differs: '" + valueStr(a.Compression) + "' vs '" + valueStr(b.Compression) + "'")
+	if a.Compression != b.Compression {
+		return errors.New("Compression differs: '" + a.Compression + "' vs '" + b.Compression + "'")
 	}
-	if valueFloat64(a.VectorCompressionRatio) != valueFloat64(b.VectorCompressionRatio) {
-		return errors.New("VectorCompressionRatio differs: '" + floatStr(valueFloat64(a.VectorCompressionRatio)) + "' vs '" + floatStr(valueFloat64(b.VectorCompressionRatio)) + "'")
+	if a.VectorCompressionRatio != b.VectorCompressionRatio {
+		return errors.New("VectorCompressionRatio differs: '" + floatStr(a.VectorCompressionRatio) + "' vs '" + floatStr(b.VectorCompressionRatio) + "'")
 	}
-	if valueInt(a.Bits) != valueInt(b.Bits) {
-		return errors.New("Bits differs: '" + itoa(valueInt(a.Bits)) + "' vs '" + itoa(valueInt(b.Bits)) + "'")
+	if a.Bits != b.Bits {
+		return errors.New("Bits differs: '" + itoa(int(a.Bits)) + "' vs '" + itoa(int(b.Bits)) + "'")
 	}
 	if err := dimensionalitiesDifference(a.Dimensionalities, b.Dimensionalities); err != nil {
 		return err
@@ -254,22 +209,22 @@ func vectorUsageDifference(a, b VectorUsage) error {
 	return nil
 }
 
-func dimensionalitiesDifference(a, b []Dimensionality) error {
+func dimensionalitiesDifference(a, b []*usagetypes.Dimensionality) error {
 	if len(a) != len(b) {
 		return errors.New("Dimensionalities length differs")
 	}
 	for i := range a {
-		if valueInt(a[i].Dimensions) != valueInt(b[i].Dimensions) {
-			return errors.New("Dimensionalities[" + itoa(i) + "] Dimensions differs: '" + itoa(valueInt(a[i].Dimensions)) + "' vs '" + itoa(valueInt(b[i].Dimensions)) + "'")
+		if a[i].Dimensions != b[i].Dimensions {
+			return errors.New("Dimensionalities[" + itoa(i) + "] Dimensions differs: '" + itoa(a[i].Dimensions) + "' vs '" + itoa(b[i].Dimensions) + "'")
 		}
-		if valueInt(a[i].Count) != valueInt(b[i].Count) {
-			return errors.New("Dimensionalities[" + itoa(i) + "] Count differs: '" + itoa(valueInt(a[i].Count)) + "' vs '" + itoa(valueInt(b[i].Count)) + "'")
+		if a[i].Count != b[i].Count {
+			return errors.New("Dimensionalities[" + itoa(i) + "] Count differs: '" + itoa(a[i].Count) + "' vs '" + itoa(b[i].Count) + "'")
 		}
 	}
 	return nil
 }
 
-func backupsDifference(a, b []BackupUsage) error {
+func backupsDifference(a, b []*usagetypes.BackupUsage) error {
 	if len(a) != len(b) {
 		return errors.New("Backups length differs")
 	}
@@ -281,18 +236,18 @@ func backupsDifference(a, b []BackupUsage) error {
 	return nil
 }
 
-func backupUsageDifference(a, b BackupUsage) error {
-	if valueStr(a.ID) != valueStr(b.ID) {
-		return errors.New("Backup ID differs: '" + valueStr(a.ID) + "' vs '" + valueStr(b.ID) + "'")
+func backupUsageDifference(a, b *usagetypes.BackupUsage) error {
+	if a.ID != b.ID {
+		return errors.New("Backup ID differs: '" + a.ID + "' vs '" + b.ID + "'")
 	}
-	if valueStr(a.CompletionTime) != valueStr(b.CompletionTime) {
-		return errors.New("CompletionTime differs: '" + valueStr(a.CompletionTime) + "' vs '" + valueStr(b.CompletionTime) + "'")
+	if a.CompletionTime != b.CompletionTime {
+		return errors.New("CompletionTime differs: '" + a.CompletionTime + "' vs '" + b.CompletionTime + "'")
 	}
-	if valueFloat64(a.SizeInGiB) != valueFloat64(b.SizeInGiB) {
-		return errors.New("SizeInGiB differs: '" + floatStr(valueFloat64(a.SizeInGiB)) + "' vs '" + floatStr(valueFloat64(b.SizeInGiB)) + "'")
+	if a.SizeInGib != b.SizeInGib {
+		return errors.New("SizeInGiB differs: '" + floatStr(a.SizeInGib) + "' vs '" + floatStr(b.SizeInGib) + "'")
 	}
-	if valueStr(a.Type) != valueStr(b.Type) {
-		return errors.New("Type differs: '" + valueStr(a.Type) + "' vs '" + valueStr(b.Type) + "'")
+	if a.Type != b.Type {
+		return errors.New("Type differs: '" + a.Type + "' vs '" + b.Type + "'")
 	}
 	if err := stringSlicesDifference(a.Collections, b.Collections); err != nil {
 		return err
@@ -312,47 +267,16 @@ func stringSlicesDifference(a, b []string) error {
 	return nil
 }
 
-func schemasDifference(a, b map[string]interface{}) error {
-	if len(a) != len(b) {
-		return errors.New("Schema map length differs")
+func schemasDifference(a, b interface{}) error {
+	aJSON, errA := json.Marshal(a)
+	bJSON, errB := json.Marshal(b)
+	if errA != nil || errB != nil {
+		return errors.New("Schema: failed to marshal for comparison")
 	}
-	for k, va := range a {
-		vb, ok := b[k]
-		if !ok {
-			return errors.New("Schema key '" + k + "' missing in second report")
-		}
-		if err := interfaceDifference(va, vb, "Schema['"+k+"']"); err != nil {
-			return err
-		}
+	if string(aJSON) != string(bJSON) {
+		return errors.New("Schema differs")
 	}
 	return nil
-}
-
-func interfaceDifference(a, b interface{}, path string) error {
-	switch va := a.(type) {
-	case map[string]interface{}:
-		vb, ok := b.(map[string]interface{})
-		if !ok {
-			return errors.New(path + " type mismatch: map vs non-map")
-		}
-		return schemasDifference(va, vb)
-	case []interface{}:
-		vb, ok := b.([]interface{})
-		if !ok || len(va) != len(vb) {
-			return errors.New(path + " slice length/type mismatch")
-		}
-		for i := range va {
-			if err := interfaceDifference(va[i], vb[i], path+"["+itoa(i)+"]"); err != nil {
-				return err
-			}
-		}
-		return nil
-	default:
-		if va != b {
-			return errors.New(path + " value differs: '" + toString(va) + "' vs '" + toString(b) + "'")
-		}
-		return nil
-	}
 }
 
 // Helper functions for string conversion
@@ -362,60 +286,6 @@ func floatStr(f float64) string { return fmt.Sprintf("%g", f) }
 func boolStr(b bool) string {
 	if b {
 		return "true"
-	} else {
-		return "false"
 	}
-}
-
-func toString(v interface{}) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case int:
-		return itoa(t)
-	case int64:
-		return itoa64(t)
-	case float64:
-		return floatStr(t)
-	case bool:
-		return boolStr(t)
-	default:
-		return fmt.Sprintf("%v", t)
-	}
-}
-
-// Helper functions to safely dereference pointers
-func valueStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func valueInt(i *int) int {
-	if i == nil {
-		return 0
-	}
-	return *i
-}
-
-func valueInt64(i *int64) int64 {
-	if i == nil {
-		return 0
-	}
-	return *i
-}
-
-func valueFloat64(f *float64) float64 {
-	if f == nil {
-		return 0
-	}
-	return *f
-}
-
-func valueBool(b *bool) bool {
-	if b == nil {
-		return false
-	}
-	return *b
+	return "false"
 }

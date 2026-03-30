@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -199,16 +198,20 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		},
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
+	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
+	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).
+		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
+	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant).
+		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
+	mockSchema.EXPECT().ShardOwner(className, hotTenant).Return(nodeName, nil).Maybe()
 
-	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class)
-	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil)
-	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant).Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, errors.New(""))
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
 		},
 	)
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(className).Return(len(shardingState.Physical), nil)
 
 	repo := createTestDb(t, mockSchema, shardingState, class, nodeName)
 	putObjectAndFlush(t, repo, className, hotTenant, map[string][]float32{vectorName: {0.1, 0.2, 0.3}}, map[string][]float32{vectorName: {0.4, 0.5, 0.6}})
@@ -216,10 +219,13 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	repo.SetSchemaReader(mockSchemaReader)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
+	logger, _ := logrus.NewNullLogger()
+	migrator := db.NewMigrator(repo, logger, nodeName)
+	require.NoError(t, migrator.LoadShard(context.Background(), class.Class, hotTenant))
+
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
-	logger, _ := logrus.NewNullLogger()
 	service := NewService(mockSchema, repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
@@ -601,6 +607,16 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 		return readFunc(class, shardingState)
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
+		names := make([]string, 0, len(shardingState.Physical))
+		for name := range shardingState.Physical {
+			names = append(names, name)
+		}
+		return names, nil
+	}).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).RunAndReturn(func(className string) (int, error) {
+		return len(shardingState.Physical), nil
+	}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
 	logger, _ := logrus.NewNullLogger()
 	repo, err := db.New(logger, nodeName, db.Config{
@@ -608,8 +624,8 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 		RootPath:                  t.TempDir(),
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		MaxReuseWalSize:           0, // disable to make count easier
-		DisableLazyLoadShards:     true,
+		MaxReuseWalSize:           0,   // disable to make count easier
+		EnableLazyLoadShards:      nil, // auto-detect; for this test non-MT collections never lazy-load
 	}, &db.FakeRemoteClient{}, mockNodeSelector, &db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)

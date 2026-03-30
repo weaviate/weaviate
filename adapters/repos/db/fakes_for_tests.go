@@ -437,6 +437,28 @@ func (f *FakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context,
 	return nil
 }
 
+type FakeNodeResolver struct{}
+
+func (f *FakeNodeResolver) AllHostnames() []string {
+	return nil
+}
+
+func (f *FakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
+	return nodeName, true
+}
+
+func (f *FakeNodeResolver) AllOtherClusterMembers(raftPort int) map[string]string {
+	return nil
+}
+
+func (f *FakeNodeResolver) NodeAddress(id string) string {
+	return ""
+}
+
+func (f *FakeNodeResolver) NodeCount() int {
+	return 0
+}
+
 type FakeRemoteNodeClient struct{}
 
 func (f *FakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {

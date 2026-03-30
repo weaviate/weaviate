@@ -23,18 +23,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -1130,15 +1129,7 @@ func (i *indices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
-			Digests: digests,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(resBytes)
+		writeDigestsInRangeResponse(w, r, digests)
 	})
 }
 

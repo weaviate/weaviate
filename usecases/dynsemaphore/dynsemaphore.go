@@ -156,6 +156,12 @@ func (s *DynamicWeighted) Release(n int64) {
 	}
 }
 
+func (s *DynamicWeighted) WaitersLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.waiters)
+}
+
 func (s *DynamicWeighted) releaseLocal(n int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

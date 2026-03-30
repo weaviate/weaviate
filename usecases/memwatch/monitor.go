@@ -13,7 +13,9 @@ package memwatch
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"runtime"
@@ -57,6 +59,7 @@ type Monitor struct {
 	reservedMappings       int64
 	reservedMappingsBuffer []int64
 	lastReservationsClear  time.Time
+	mappingsBuf            []byte
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -88,6 +91,7 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		maxMemoryMappings:      getMaxMemoryMappings(),
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m
@@ -175,42 +179,47 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
-	used := getCurrentMappings()
+	used := getCurrentMappings(m.mappingsBuf)
 	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used
 }
 
-func getCurrentMappings() int64 {
+func getCurrentMappings(buf []byte) int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsLinux()
+		filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+		return currentMappingsLinux(filePath, buf)
 	default:
 		return 0
 	}
 }
 
 // Counts the number of mappings by counting the number of lines within the maps file
-func currentMappingsLinux() int64 {
-	filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+// Optimized version that counts newlines in chunks without string allocation
+func currentMappingsLinux(filePath string, buf []byte) int64 {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return 0
 	}
 	defer file.Close()
 
-	var mappings int64
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		mappings++
+	var count int64
+
+	for {
+		n, err := file.Read(buf[:])
+		count += int64(bytes.Count(buf[:n], []byte{'\n'}))
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0
+		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return 0
-	}
-
-	return mappings
+	return count
 }
 
 func getMaxMemoryMappings() int64 {
@@ -289,6 +298,7 @@ func NewDummyMonitor() *Monitor {
 		maxMemoryMappings:      10000000,
 		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
+		mappingsBuf:            make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m

@@ -148,9 +148,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			}
 		}
 
-		if schemaVersion > maxSchemaVersion {
-			maxSchemaVersion = schemaVersion
-		}
+		maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
 	}
 	return maxSchemaVersion, nil
 }
@@ -538,7 +536,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 
 	totalTenants := 0
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
-	var maxSchemaVersion uint64
+	maxSchemaVersion := fetchedClasses[objects[0].Class].Version
 	for className, tenantNames := range classTenants {
 		vclass, exists := fetchedClasses[className]
 		if !exists || // invalid class
@@ -565,7 +563,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 		}
 
 		addStart := time.Now()
-		version, err := m.addTenants(ctx, principal, className, tenants)
+		autoTenantVersion, err := m.addTenants(ctx, principal, className, tenants)
 		if err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
 		}
@@ -574,9 +572,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 			"operation": "add",
 		}).Observe(time.Since(addStart).Seconds())
 
-		if version > maxSchemaVersion {
-			maxSchemaVersion = version
-		}
+		maxSchemaVersion = max(maxSchemaVersion, autoTenantVersion)
 	}
 
 	if totalTenants == 0 {

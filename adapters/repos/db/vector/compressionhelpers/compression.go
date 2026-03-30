@@ -83,6 +83,7 @@ type VectorCompressor interface {
 	PersistCompression(CommitLogger)
 	Stats() CompressionStats
 	Get(id uint64) ([]float32, error)
+	GetCompressed(id uint64) (any, error)
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -102,6 +103,10 @@ func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, erro
 		return nil, err
 	}
 	return compressor.quantizer.Decode(compressed), nil
+}
+
+func (compressor *quantizedVectorsCompressor[T]) GetCompressed(id uint64) (any, error) {
+	return compressor.cache.Get(context.Background(), id)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {

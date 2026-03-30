@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -39,6 +38,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -308,30 +308,22 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 }
 
 func byteSliceFromUint64Slice(vector []uint64, slice []byte) []byte {
-	for i := range vector {
-		binary.LittleEndian.PutUint64(slice[i*8:], vector[i])
-	}
+	byteops.CopySliceToBytes(slice[:len(vector)*8], vector)
 	return slice
 }
 
 func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
-	for i := range vector {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vector[i]))
-	}
+	byteops.CopySliceToBytes(slice[:len(vector)*4], vector)
 	return slice
 }
 
 func uint64SliceFromByteSlice(vector []byte, slice []uint64) []uint64 {
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(vector[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*8])
 	return slice
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
@@ -460,7 +452,12 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 func (index *flat) searchByVectorQuantized(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	// Ensure quantizer is initialized
 	if index.quantizer == nil {
-		return nil, nil, fmt.Errorf("quantizer not initialized")
+		dims := atomic.LoadInt32(&index.dims)
+		if dims == 0 {
+			return []uint64{}, []float32{}, nil
+		} else {
+			return nil, nil, fmt.Errorf("quantizer not initialized")
+		}
 	}
 
 	// TODO: pass context into inner methods, so it can be checked more granuarly
@@ -795,6 +792,10 @@ func (index *flat) Shutdown(ctx context.Context) error {
 }
 
 func (index *flat) PrepareForBackup(context.Context) error {
+	return nil
+}
+
+func (index *flat) ResumeAfterBackup(context.Context) error {
 	return nil
 }
 

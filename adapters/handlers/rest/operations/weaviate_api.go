@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -169,6 +170,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
+		}),
+		ExportExportCancelHandler: export.ExportCancelHandlerFunc(func(params export.ExportCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCancel has not yet been implemented")
+		}),
+		ExportExportCreateHandler: export.ExportCreateHandlerFunc(func(params export.ExportCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCreate has not yet been implemented")
+		}),
+		ExportExportStatusHandler: export.ExportStatusHandlerFunc(func(params export.ExportStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportStatus has not yet been implemented")
 		}),
 		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
@@ -326,6 +336,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
 		}),
+		SchemaSchemaObjectsPropertiesDeleteHandler: schema.SchemaObjectsPropertiesDeleteHandlerFunc(func(params schema.SchemaObjectsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesDelete has not yet been implemented")
+		}),
 		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
 		}),
@@ -480,6 +493,12 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
+	// ExportExportCancelHandler sets the operation handler for the export cancel operation
+	ExportExportCancelHandler export.ExportCancelHandler
+	// ExportExportCreateHandler sets the operation handler for the export create operation
+	ExportExportCreateHandler export.ExportCreateHandler
+	// ExportExportStatusHandler sets the operation handler for the export status operation
+	ExportExportStatusHandler export.ExportStatusHandler
 	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
@@ -584,6 +603,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
+	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
+	SchemaSchemaObjectsPropertiesDeleteHandler schema.SchemaObjectsPropertiesDeleteHandler
 	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
@@ -791,6 +812,15 @@ func (o *WeaviateAPI) Validate() error {
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
 	}
+	if o.ExportExportCancelHandler == nil {
+		unregistered = append(unregistered, "export.ExportCancelHandler")
+	}
+	if o.ExportExportCreateHandler == nil {
+		unregistered = append(unregistered, "export.ExportCreateHandler")
+	}
+	if o.ExportExportStatusHandler == nil {
+		unregistered = append(unregistered, "export.ExportStatusHandler")
+	}
 	if o.ReplicationForceDeleteReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
 	}
@@ -946,6 +976,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
+	}
+	if o.SchemaSchemaObjectsPropertiesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesDeleteHandler")
 	}
 	if o.SchemaSchemaObjectsShardsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
@@ -1215,6 +1248,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/export/{backend}/{id}"] = export.NewExportCancel(o.context, o.ExportExportCancelHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/export/{backend}"] = export.NewExportCreate(o.context, o.ExportExportCreateHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/export/{backend}/{id}"] = export.NewExportStatus(o.context, o.ExportExportStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1423,6 +1468,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

@@ -30,15 +30,24 @@ const (
 	postingSequenceKey = "posting_seq"
 )
 
+// The shared bucket is used to store various metadata. It is used by multiple stores
+// and the data is namespaced by using different prefixes for the keys.
+// The shared bucket format itself is versioned, so that we can make non-compatible changes in the future if needed.
+const (
+	sharedBucketVersionV1 = 1
+)
+
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
-const (
-	indexMetadataBucketPrefix  = 'm'
-	versionMapBucketPrefix     = 'v'
-	postingMapBucketPrefix     = 'p'
-	postingVersionBucketPrefix = 'l'
-	reassignBucketKey          = "pending_reassignments"
+var (
+	indexMetadataBucketPrefix  = []byte{sharedBucketVersionV1, 0}
+	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
+	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
+	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
 )
+
+// reassignBucketKey is used to track vectors that need to be reassigned to new postings.
+var reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
@@ -71,9 +80,9 @@ func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
 }
 
 func (i *IndexMetadataStore) key(suffix string) []byte {
-	buf := make([]byte, 1+len(suffix))
-	buf[0] = indexMetadataBucketPrefix
-	copy(buf[1:], suffix)
+	buf := make([]byte, len(indexMetadataBucketPrefix)+len(suffix))
+	copy(buf, indexMetadataBucketPrefix)
+	copy(buf[len(indexMetadataBucketPrefix):], suffix)
 	return buf
 }
 
@@ -151,8 +160,17 @@ func (h *HFresh) restoreMetadata() error {
 			err = h.restoreQuantizationData(&quantization.RQ)
 		}
 	})
+	if err != nil {
+		return err
+	}
 
-	err = h.restoreBackgroundMetrics()
+	// restore posting map
+	err = h.PostingMap.Restore(h.ctx)
+	if err != nil {
+		return err
+	}
+
+	err = h.restoreMetrics()
 	if err != nil {
 		return err
 	}
@@ -170,7 +188,7 @@ func (h *HFresh) persistQuantizationData() error {
 	})
 }
 
-func (h *HFresh) restoreBackgroundMetrics() error {
+func (h *HFresh) restoreMetrics() error {
 	splitCount := h.taskQueue.splitQueue.Size()
 	mergeCount := h.taskQueue.mergeQueue.Size()
 	reassignCount := h.taskQueue.reassignQueue.Size()
@@ -180,6 +198,10 @@ func (h *HFresh) restoreBackgroundMetrics() error {
 	h.metrics.SetMergeCount(mergeCount)
 	h.metrics.SetReassignCount(reassignCount)
 	h.metrics.SetAnalyzeCount(analyzeCount)
+
+	postingsCount := h.PostingMap.Size()
+	h.Centroids.counter.Store(int32(postingsCount))
+	h.metrics.AddPostings(postingsCount)
 
 	return nil
 }
@@ -202,10 +224,7 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 
 	h.quantizer = rq
 	h.Centroids.SetQuantizer(rq)
-	h.distancer = &Distancer{
-		quantizer: rq,
-		distancer: h.config.DistanceProvider,
-	}
+	h.distancer = NewDistancer(rq, h.config.DistanceProvider)
 
 	return nil
 }

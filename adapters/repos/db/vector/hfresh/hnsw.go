@@ -77,16 +77,21 @@ func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQ
 	i.quantizer = quantizer
 }
 
-func (i *HNSWIndex) Get(id uint64) *Centroid {
+func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
 	vec, err := i.hnsw.Get(id)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	cmp, err := hnsw.GetCompressedVector[byte](i.hnsw, id)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   i.quantizer.CompressedBytes(i.quantizer.Encode(vec)),
+		Compressed:   cmp,
 		Deleted:      false,
-	}
+	}, nil
 }
 
 func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
@@ -98,14 +103,16 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 	if err != nil {
 		return errors.Wrap(err, "add to hnsw")
 	}
-	i.metrics.SetPostings(int(i.counter.Add(1)))
+	i.counter.Add(1)
+	i.metrics.AddPostings(1)
 
 	return nil
 }
 
 func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 	if i.Exists(id) {
-		i.metrics.SetPostings(int(i.counter.Add(-1)))
+		i.counter.Add(-1)
+		i.metrics.AddPostings(-1)
 		return i.hnsw.Delete(id)
 	}
 	return nil

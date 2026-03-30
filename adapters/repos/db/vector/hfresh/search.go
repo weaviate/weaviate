@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"iter"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -24,12 +25,20 @@ import (
 const (
 	// minimum max distance to use when pruning
 	pruningMinMaxDistance = 0.1
+	flatSearchCutoff      = 5_000
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	if allowList != nil && allowList.Len() < flatSearchCutoff {
+		return h.flatSearch(ctx, vector, k, allowList)
+	}
+
 	rescoreLimit := int(h.rescoreLimit)
 	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
+		if atomic.LoadUint32(&h.dims) == 0 {
+			return nil, nil, nil
+		}
 		return nil, nil, errors.New("quantizer not initialized")
 	}
 	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
@@ -65,7 +74,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := h.PostingMap.CountVectorIDs(ctx, centroids.data[i].ID)
+		count, err := h.PostingMap.CountVectors(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}

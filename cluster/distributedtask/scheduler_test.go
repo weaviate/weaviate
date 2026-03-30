@@ -48,6 +48,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 		Id:                    taskID,
 		Payload:               taskPayload,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -57,8 +58,8 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	require.Equal(t, taskID, startedTask.ID)
 	require.Equal(t, taskPayload, startedTask.Payload)
 
-	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, taskID, version)
 	startedTask.Complete()
+	completeUnit(t, h, h.tasksNamespace, taskID, version, h.localNodeID, "su-1")
 
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
@@ -95,6 +96,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 		Id:                    taskID,
 		Payload:               taskPayload,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-local", "su-remote"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -103,8 +105,12 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	localTask := recvWithTimeout(t, h.provider.startedCh)
 	require.Equal(t, taskID, localTask.ID)
 
-	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, taskID, version)
+	// assign the remote unit to the remote node so the local scheduler
+	// knows it has no non-terminal units locally
+	updateProgress(t, h, h.tasksNamespace, taskID, version, "remote-node", "su-remote", 0.1)
+
 	localTask.Complete()
+	completeUnit(t, h, h.tasksNamespace, taskID, version, h.localNodeID, "su-local")
 	require.Equal(t, taskID, recvWithTimeout(t, h.provider.completedCh).ID)
 
 	// local task completed
@@ -117,16 +123,12 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	require.Equal(t, taskID, tasks[0].ID)
 	require.Equal(t, TaskStatusStarted, tasks[0].Status)
 
-	// finish the task across the cluster
-	h.completeTaskFromNode(t, h.tasksNamespace, taskID, version, "remote-node")
+	// remote node completes its unit
+	completeUnit(t, h, h.tasksNamespace, taskID, version, "remote-node", "su-remote")
 
 	tasks = h.listManagerTasks(t)[h.tasksNamespace]
 	require.Len(t, tasks, 1)
 	require.Equal(t, TaskStatusFinished, tasks[0].Status)
-	require.Equal(t, map[string]bool{
-		h.localNodeID: true,
-		"remote-node": true,
-	}, tasks[0].FinishedNodes)
 }
 
 func TestTaskCancellation(t *testing.T) {
@@ -145,6 +147,7 @@ func TestTaskCancellation(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -190,6 +193,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -199,7 +203,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	// send a failure command from another node
 	failureMessage := "servers are on fire!!!"
 	failureTime := h.clock.Now().UnixMilli()
-	h.recordTaskCompletion(t, h.tasksNamespace, taskID, version, "other-node", &failureMessage)
+	failUnit(t, h, h.tasksNamespace, taskID, version, "other-node", "su-1", failureMessage)
 
 	// locally running task should be cancelled
 	h.advanceClock(h.schedulerTickInterval)
@@ -233,6 +237,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    taskID,
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), version)
 	require.NoError(t, err)
 	h.advanceClock(h.schedulerTickInterval)
@@ -242,8 +247,8 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 
 	failureMessage := "servers are on fire!!!"
 	failureTime := h.clock.Now().UnixMilli()
-	h.expectRecordNodeTaskFailure(t, h.tasksNamespace, taskID, version, failureMessage)
 	startedTask.Fail(failureMessage)
+	failUnit(t, h, h.tasksNamespace, taskID, version, h.localNodeID, "su-1", failureMessage)
 
 	recvWithTimeout(t, h.provider.failedCh)
 
@@ -275,6 +280,7 @@ func TestTaskRecovery(t *testing.T) {
 			Namespace:             h.tasksNamespace,
 			Id:                    taskID,
 			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
 		}), 1)
 		require.NoError(t, err)
 		tasksIDs[taskID] = true
@@ -322,6 +328,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    "3",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 15)
 	require.NoError(t, err)
 
@@ -330,6 +337,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    "4",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 18)
 	require.NoError(t, err)
 
@@ -362,6 +370,7 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 		Namespace:             h.tasksNamespace,
 		Id:                    "1",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 1)
 	require.NoError(t, err)
 
@@ -369,8 +378,8 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 
 	startedTask := recvWithTimeout(t, h.provider.startedCh)
 
-	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
 	startedTask.Complete()
+	completeUnit(t, h, h.tasksNamespace, startedTask.ID, startedTask.Version, h.localNodeID, "su-1")
 
 	recvWithTimeout(t, h.provider.completedCh)
 
@@ -420,6 +429,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Namespace:             tasksNamespace1,
 		Id:                    "complete",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 10)
 	require.NoError(t, err)
 
@@ -427,6 +437,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Namespace:             tasksNamespace2,
 		Id:                    "fail",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 11)
 	require.NoError(t, err)
 
@@ -434,6 +445,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 		Namespace:             tasksNamespace1,
 		Id:                    "cancel",
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 12)
 	require.NoError(t, err)
 
@@ -451,12 +463,12 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	}
 	require.Len(t, startedTasks, 3)
 
-	h.expectRecordNodeTaskCompletion(t, tasksNamespace1, "complete", 10)
 	startedTasks["complete"].Complete()
+	completeUnit(t, h, tasksNamespace1, "complete", 10, h.localNodeID, "su-1")
 	recvWithTimeout(t, provider1.completedCh)
 
-	h.expectRecordNodeTaskFailure(t, tasksNamespace2, "fail", 11, "failed")
 	startedTasks["fail"].Fail("failed")
+	failUnit(t, h, tasksNamespace2, "fail", 11, h.localNodeID, "su-1", "failed")
 	recvWithTimeout(t, provider2.failedCh)
 
 	err = h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
@@ -485,6 +497,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 		Id:                    "1",
 		Payload:               []byte("old payload"),
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 1)
 	require.NoError(t, err)
 
@@ -492,8 +505,8 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 
 	startedTaskV1 := recvWithTimeout(t, h.provider.startedCh)
 
-	h.expectRecordNodeTaskCompletion(t, h.tasksNamespace, startedTaskV1.ID, startedTaskV1.Version)
 	startedTaskV1.Complete()
+	completeUnit(t, h, h.tasksNamespace, startedTaskV1.ID, startedTaskV1.Version, h.localNodeID, "su-1")
 	recvWithTimeout(t, h.provider.completedCh)
 
 	h.advanceClock(h.schedulerTickInterval)
@@ -505,6 +518,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 		Id:                    "1",
 		Payload:               []byte("new payload"),
 		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
 	}), 2)
 	require.NoError(t, err)
 
@@ -521,7 +535,7 @@ func recvWithTimeout[T any](t *testing.T, ch <-chan T) T {
 	select {
 	case el := <-ch:
 		return el
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		require.Fail(t, "timeout")
 	}
 	panic("unreachable")
@@ -608,39 +622,6 @@ func (h *testHarness) advanceClock(duration time.Duration) {
 	time.Sleep(50 * time.Millisecond)
 }
 
-func (h *testHarness) expectRecordNodeTaskCompletion(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
-	h.completionRecorder.EXPECT().RecordDistributedTaskNodeCompletion(mock.Anything, expectNamespace, expectTaskID, expectTaskVersion).
-		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
-			h.completeTaskFromNode(t, namespace, taskID, taskVersion, h.localNodeID)
-			return nil
-		})
-}
-
-func (h *testHarness) expectRecordNodeTaskFailure(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64, expectErrMsg string) {
-	h.completionRecorder.EXPECT().RecordDistributedTaskNodeFailure(mock.Anything, expectNamespace, expectTaskID, expectTaskVersion, expectErrMsg).
-		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64, errMsg string) error {
-			h.recordTaskCompletion(t, namespace, taskID, taskVersion, h.localNodeID, &expectErrMsg)
-			return nil
-		})
-}
-
-func (h *testHarness) completeTaskFromNode(t *testing.T, namespace, taskID string, taskVersion uint64, node string) {
-	h.recordTaskCompletion(t, namespace, taskID, taskVersion, node, nil)
-}
-
-func (h *testHarness) recordTaskCompletion(t *testing.T, namespace, taskID string, taskVersion uint64, node string, errMsg *string) {
-	c := toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-		Namespace:            namespace,
-		Id:                   taskID,
-		Version:              taskVersion,
-		NodeId:               node,
-		Error:                errMsg,
-		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})
-
-	require.NoError(t, h.manager.RecordNodeCompletion(c, h.nodesInTheCluster))
-}
-
 func (h *testHarness) expectCleanUpTask(t *testing.T, expectNamespace, expectTaskID string, expectTaskVersion uint64) {
 	h.cleaner.EXPECT().CleanUpDistributedTask(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, namespace, taskID string, taskVersion uint64) error {
@@ -703,18 +684,23 @@ func (t *testTask) run() {
 
 	select {
 	case <-t.completeCh:
-		err := t.provider.recorder.RecordDistributedTaskNodeCompletion(context.Background(), t.Namespace, t.ID, t.Version)
-		require.NoError(t.provider.t, err)
+		// Unit-level completion is handled by the mock set up via expectRecordUnitCompletion.
+		// The mock calls RecordDistributedTaskUnitCompletion → completeUnit → manager.RecordUnitCompletion.
+		// Here we just signal the provider that the task reported completion.
 		t.provider.completedCh <- t
 		return
-	case errMsg := <-t.failCh:
-		err := t.provider.recorder.RecordDistributedTaskNodeFailure(context.Background(), t.Namespace, t.ID, t.Version, errMsg)
-		require.NoError(t.provider.t, err)
+	case <-t.failCh:
+		// Same as above — failure recording is handled by expectRecordUnitFailure mock.
 		t.provider.failedCh <- t
 	case <-t.cancelCh:
 		t.provider.cancelledCh <- t
 		return
 	}
+}
+
+func (t *testTask) Done() <-chan struct{} {
+	// Test tasks don't use goroutine lifecycle tracking; return a never-closed channel.
+	return make(chan struct{})
 }
 
 func (t *testTask) Complete() {

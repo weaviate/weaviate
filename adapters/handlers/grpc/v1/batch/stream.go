@@ -214,21 +214,12 @@ func (h *StreamHandler) handleRecvErr(recvErr error, stream pb.Weaviate_BatchStr
 	}
 }
 
-func (h *StreamHandler) handleRecvClosed(streamId string, stream pb.Weaviate_BatchStreamServer, logger *logrus.Entry) error {
+func (h *StreamHandler) handleRecvClosed(streamId string, logger *logrus.Entry) error {
 	if h.shuttingDown.Load() && !h.isStopping(streamId) {
-		// The server must be shutting down on its own, so return an error saying so provided that the client
-		// hasn't indicated that it has stopped the stream itself. This avoids telling a client that has already stopped
-		// of a shutting down server; it shouldn't care
-		logger.Info("stream closed due to server shutdown")
-		if err := stream.Send(newBatchShutdownMessage()); err != nil {
-			logger.Errorf("failed to send shutdown message: %s", err)
-			return err
-		}
+		logger.Info("stream closed gracefully due to server shutdown")
 		return nil
 	}
-	// otherwise, the client must be closing its side of the stream, so close gracefully
-	// client has closed its side of the stream, so close gracefully
-	logger.Info("stream closed by client gracefully")
+	logger.Info("stream closed gracefully by client")
 	return nil
 }
 
@@ -262,13 +253,11 @@ func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchR
 		h.metrics.OnStreamError(len(report.Errors))
 	}
 	batchResults.add(report.Successes, report.Errors)
-	if batchResults.shouldSend() {
-		if innerErr := batchResults.send(stream); innerErr != nil {
-			logger.Errorf("failed to send results message: %s", innerErr)
-			return
-		}
-		batchResults.reset()
+	if innerErr := batchResults.send(stream); innerErr != nil {
+		logger.Errorf("failed to send results message: %s", innerErr)
+		return
 	}
+	batchResults.reset()
 }
 
 func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.Weaviate_BatchStreamServer, recvErrCh chan error) error {
@@ -279,7 +268,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 	shuttingDownDone := h.shuttingDownCtx.Done()
 	if err := stream.Send(newBatchStartedMessage()); err != nil {
 		log.Errorf("failed to send started message: %s", err)
-		return err
+		return fmt.Errorf("send started message: %w", err)
 	}
 	batchResults := newBatchResults(h.workerStats(streamId).getBatchSize())
 	timer := time.NewTicker(5 * time.Second)
@@ -307,7 +296,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 			if !open {
 				log.Debug("recvErrCh closed, closing stream")
 				// channel closed, client must have closed its side of the stream
-				return h.handleRecvClosed(streamId, stream, log)
+				return h.handleRecvClosed(streamId, log)
 			}
 			// receiver errored, return the error to close the stream
 			return h.handleRecvErr(recvErr, stream, log)
@@ -326,10 +315,10 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 				if recvErr != nil {
 					return h.handleRecvErr(recvErr, stream, log)
 				}
-				return h.handleRecvClosed(streamId, stream, log)
+				return h.handleRecvClosed(streamId, log)
 			}
 			if err := h.handleWorkerReport(report, batchResults, streamId, stream, log); err != nil {
-				return err
+				return fmt.Errorf("handle worker report: %w", err)
 			}
 		case <-timer.C:
 			// Periodically send the current batchSizeEma to the client to adjust its sending rate
@@ -338,7 +327,7 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 			log.WithField("batchSize", batchSize).Debug("sending backoff message to client")
 			if err := stream.Send(newBatchBackoffMessage(batchSize)); err != nil {
 				log.Errorf("failed to send backoff message: %s", err)
-				return err
+				return fmt.Errorf("send backoff message: %w", err)
 			}
 		}
 	}
@@ -404,7 +393,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				// if we're still looping after the grace period has expired then force close
 				log.Warn("grace period expired, closing recv stream")
 				cancel()
-				return ctx.Err()
+				return fmt.Errorf("server is shutting down, recv stream closed after grace period: %w", ctx.Err())
 			default:
 				// otherwise continue as normal
 			}
@@ -436,7 +425,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 			// if we block waiting for stream.Recv() until the grace period expires then force close
 			log.Warn("grace period expired, closing recv stream")
 			cancel()
-			return ctx.Err()
+			return fmt.Errorf("server is shutting down, recv stream closed after grace period: %w", ctx.Err())
 		}
 
 		if errors.Is(err, io.EOF) {
@@ -446,7 +435,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 		if err != nil {
 			log.Errorf("failed to receive batch stream request: %s", err)
 			// Tell the sender to stop processing this stream because of a client hangup error
-			return err
+			return fmt.Errorf("failed to receive batch stream request: %w", err)
 		}
 		if request.GetData() != nil {
 			objs := request.GetData().GetObjects().GetValues()
@@ -600,10 +589,6 @@ func (r *batchResults) add(successes []*pb.BatchStreamReply_Results_Success, err
 func (r *batchResults) reset() {
 	r.successes = r.successes[:0]
 	r.errors = r.errors[:0]
-}
-
-func (r *batchResults) shouldSend() bool {
-	return len(r.successes)+len(r.errors) > r.batchSize
 }
 
 func (r *batchResults) send(stream pb.Weaviate_BatchStreamServer) error {

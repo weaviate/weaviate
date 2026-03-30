@@ -434,32 +434,102 @@ func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, erro
 	return out, nil
 }
 
-func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
-	var out []*objects.VObject
+// MarshalV2 encodes each VObject using the compact binary format (MarshalBinaryV2)
+// instead of the JSON-wrapped format used by Marshal. The framing (8-byte length
+// prefix per object) is identical so the same reader loop works for both.
+func (p versionedObjectListPayload) MarshalV2(in []*objects.VObject) ([]byte, error) {
+	out := make([]byte, 0, 1024*len(in))
 
 	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinaryV2()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+// UnmarshalV2 decodes a payload produced by MarshalV2 (binary V2 per-object encoding).
+func (p versionedObjectListPayload) UnmarshalV2(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	lenBuf := make([]byte, 8)
 	r := bytes.NewReader(in)
 
 	for {
-		_, err := r.Read(reusableLengthBuf)
+		_, err := io.ReadFull(r, lenBuf)
+		if errors.Is(err, io.EOF) {
+			// Reader was already empty before we started — clean end of stream.
+			break
+		}
+		if err != nil {
+			// io.ErrUnexpectedEOF: stream ended mid-prefix (truncated length field).
+			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
+		}
+
+		ln := binary.LittleEndian.Uint64(lenBuf)
+		if ln > uint64(r.Len()) {
+			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
+		}
+		if ln > math.MaxInt {
+			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
+		}
+
+		payloadBytes := make([]byte, int(ln))
+		if _, err = io.ReadFull(r, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
+		}
+
+		var vobj objects.VObject
+		if err = vobj.UnmarshalBinaryV2(payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
+		}
+
+		out = append(out, &vobj)
+	}
+
+	return out, nil
+}
+
+func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	lenBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := io.ReadFull(r, lenBuf)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
 		}
 
-		ln := binary.LittleEndian.Uint64(reusableLengthBuf)
-		payloadBytes := make([]byte, ln)
-		_, err = r.Read(payloadBytes)
-		if err != nil {
-			return nil, err
+		ln := binary.LittleEndian.Uint64(lenBuf)
+		if ln > uint64(r.Len()) {
+			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
+		}
+		if ln > math.MaxInt {
+			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
+		}
+
+		payloadBytes := make([]byte, int(ln))
+		if _, err = io.ReadFull(r, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
 		}
 
 		var vobj objects.VObject
-		err = vobj.UnmarshalBinary(payloadBytes)
-		if err != nil {
-			return nil, err
+		if err = vobj.UnmarshalBinary(payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
 		}
 
 		out = append(out, &vobj)
@@ -548,10 +618,7 @@ func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
 	read += 8
 
 	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return dists, nil
 }
@@ -560,9 +627,8 @@ func (p vectorDistanceResultsPayload) Marshal(dists []float32) ([]byte, error) {
 	buf := byteops.NewReadWriter(make([]byte, 8+len(dists)*4))
 	buf.WriteUint64(uint64(len(dists)))
 
-	for _, dist := range dists {
-		buf.WriteUint32(math.Float32bits(dist))
-	}
+	byteops.CopySliceToBytes(buf.Buffer[buf.Position:buf.Position+uint64(len(dists))*byteops.Uint32Len], dists)
+	buf.MoveBufferPositionForward(uint64(len(dists)) * byteops.Uint32Len)
 
 	return buf.Buffer, nil
 }
@@ -713,10 +779,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	read += 8
 
 	dists := make([]float32, distsLength)
-	for i := range dists {
-		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
-		read += 4
-	}
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
 	return objs, dists, nil
 }
@@ -742,10 +805,7 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 	out = append(out, reusableLengthBuf...)
 
 	distsBuf := make([]byte, distsLength*4)
-	for i, dist := range dists {
-		distUint32 := math.Float32bits(dist)
-		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
-	}
+	byteops.CopySliceToBytes(distsBuf, dists)
 	out = append(out, distsBuf...)
 
 	return out, nil
@@ -775,10 +835,7 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 	out = append(out, reusableLengthBuf...)
 
 	distsBuf := make([]byte, distsLength*4)
-	for i, dist := range dists {
-		distUint32 := math.Float32bits(dist)
-		binary.LittleEndian.PutUint32(distsBuf[(i*4):((i+1)*4)], distUint32)
-	}
+	byteops.CopySliceToBytes(distsBuf, dists)
 	out = append(out, distsBuf...)
 
 	return out, nil

@@ -504,47 +504,6 @@
         "$ref": "#/definitions/Vector"
       }
     },
-    "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of collection names (classes), properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classVectors": {
-            "description": "Vectorized collection (class) name.",
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "float"
-            },
-            "minItems": 300,
-            "maxItems": 300
-          },
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            },
-            "minItems": 300,
-            "maxItems": 300
-          }
-        }
-      }
-    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -617,6 +576,168 @@
         }
       },
       "type": "object"
+    },
+    "ExportCreateRequest": {
+      "description": "Request to create a new export operation",
+      "type": "object",
+      "required": ["id", "file_format"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this export. Must be URL-safe."
+        },
+        "file_format": {
+          "type": "string",
+          "description": "Output file format for the export.",
+          "enum": ["parquet"]
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collection names to include in the export. Cannot be used with 'exclude'."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collection names to exclude from the export. Cannot be used with 'include'."
+        },
+        "config": {
+          "type": "object",
+          "description": "Backend-specific configuration",
+          "properties": {
+            "bucket": {
+              "type": "string",
+              "description": "Bucket, container, or volume name for cloud storage backends"
+            },
+            "path": {
+              "type": "string",
+              "description": "Path prefix within the bucket or filesystem"
+            }
+          }
+        }
+      }
+    },
+    "ExportCreateResponse": {
+      "description": "Response from creating an export operation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this export"
+        },
+        "backend": {
+          "type": "string",
+          "description": "The backend storage system used"
+        },
+        "path": {
+          "type": "string",
+          "description": "Full path where the export is being written"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status of the export",
+          "enum": ["STARTED"]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export started"
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collections being exported"
+        }
+      }
+    },
+    "ExportStatusResponse": {
+      "description": "Current status of an export operation",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this export"
+        },
+        "backend": {
+          "type": "string",
+          "description": "The backend storage system used"
+        },
+        "path": {
+          "type": "string",
+          "description": "Full path where the export is stored"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current status of the export",
+          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "CANCELED"]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export started"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the export completed (successfully, with failure, or was canceled)"
+        },
+        "tookInMs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Duration of the export in milliseconds"
+        },
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of collections in this export"
+        },
+        "shardStatus": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
+          },
+          "description": "Per-shard progress: className -> shardName -> status"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if export failed"
+        }
+      }
+    },
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Status of this shard's export",
+          "enum": ["TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
+        },
+        "objectsExported": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of objects exported from this shard"
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message if this shard's export failed"
+        },
+        "skipReason": {
+          "type": "string",
+          "description": "Reason why this shard was skipped (e.g. tenant status)"
+        }
+      }
     },
     "GraphQLError": {
       "description": "An error response caused by a GraphQL query.",
@@ -861,10 +982,10 @@
         }
       }
     },
-    "ObjectTtlConfig":{
+    "ObjectTtlConfig": {
       "description": "Configuration of objects' time-to-live",
       "properties": {
-         "enabled": {
+        "enabled": {
           "description": "Whether or not object ttl is enabled for this collection (default: `false`).",
           "type": "boolean",
           "x-omitempty": false
@@ -919,78 +1040,6 @@
         "$ref": "#/definitions/SingleRef"
       },
       "type": "array"
-    },
-    "PatchDocumentObject": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        }
-      },
-      "required": [
-        "op",
-        "path"
-      ]
-    },
-    "PatchDocumentAction": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        }
-      },
-      "required": [
-        "op",
-        "path"
-      ]
     },
     "ReplicationReplicateReplicaRequest": {
       "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.",
@@ -1130,52 +1179,6 @@
         "operationIds",
         "planId",
         "collection"
-      ]
-    },
-    "ReplicationDisableReplicaRequest": {
-      "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
-      "properties": {
-        "node": {
-          "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
-          "type": "string"
-        },
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be disabled.",
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ]
-    },
-    "ReplicationDeleteReplicaRequest": {
-      "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
-      "properties": {
-        "node": {
-          "description": "The name of the Weaviate node from which the shard replica will be deleted.",
-          "type": "string"
-        },
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be deleted.",
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
       ]
     },
     "ReplicationShardReplicas": {
@@ -1396,23 +1399,12 @@
         }
       }
     },
-    "PeerUpdateList": {
-      "description": "List of known peers.",
-      "items": {
-        "$ref": "#/definitions/PeerUpdate"
-      },
-      "type": "array"
-    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. `pancake`: `7` will set the weight for the word pancake to 7 in the vectorization, whereas `w * 3` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "PropertySchema": {
       "description": "Names and values of an individual property. A returned response may also contain additional metadata, such as from classification or feature projection.",
-      "type": "object"
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
     "Schema": {
@@ -1433,36 +1425,6 @@
         "name": {
           "description": "Name of the schema.",
           "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "SchemaClusterStatus": {
-      "description": "Indicates the health of the schema in a cluster.",
-      "properties": {
-        "healthy": {
-          "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "error": {
-          "description": "Contains the sync check error if one occurred",
-          "type": "string",
-          "x-omitempty": true
-        },
-        "hostname": {
-          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
-          "type": "string"
-        },
-        "nodeCount": {
-          "description": "Number of nodes that participated in the sync check",
-          "type": "number",
-          "format": "int"
-        },
-        "ignoreSchemaSync": {
-          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
-          "type": "boolean",
-          "x-omitempty": false
         }
       },
       "type": "object"
@@ -1589,6 +1551,12 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "x-nullable": true,
+          "default": true
         }
       },
       "type": "object"
@@ -1722,8 +1690,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         },
@@ -1771,8 +1741,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -1894,6 +1866,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
+          "type": "string",
+          "x-nullable": true,
+          "default": null
         }
       }
     },
@@ -1935,8 +1913,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -1966,8 +1946,10 @@
               "STARTED",
               "TRANSFERRING",
               "TRANSFERRED",
+              "FINALIZING",
               "SUCCESS",
               "FAILED",
+              "CANCELLING",
               "CANCELED"
             ]
           },
@@ -2058,8 +2040,10 @@
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -2398,6 +2382,52 @@
         "payload": {
           "description": "The payload of the task.",
           "type": "object"
+        },
+        "units": {
+          "description": "Units of the task. Only present for tasks that use unit tracking.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "$ref": "#/definitions/DistributedTaskUnit"
+          }
+        }
+      }
+    },
+    "DistributedTaskUnit": {
+      "description": "A unit of a distributed task.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The ID of the unit.",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "The node that owns this unit.",
+          "type": "string"
+        },
+        "status": {
+          "description": "The status of the unit.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "The progress of the unit (0.0 to 1.0).",
+          "type": "number",
+          "format": "float"
+        },
+        "error": {
+          "description": "The error message if the unit failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "updatedAt": {
+          "description": "The time when the unit was last updated.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "description": "The time when the unit finished.",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -3339,7 +3369,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.36.0-dev"
+    "version": "1.37.0-dev"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -7895,6 +7925,73 @@
         }
       }
     },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "delete": {
+        "summary": "Delete a property's inverted index",
+        "description": "Deletes an inverted index of a specific property within a collection (`className`). The index to delete is identified by `indexName` and must be one of `filterable`, `searchable`, or `rangeFilters`.",
+        "operationId": "schema.objects.properties.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class) containing the property.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "propertyName",
+            "description": "The name of the property whose inverted index should be deleted.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "indexName",
+            "description": "The name of the inverted index to delete from the property.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid index, property or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "summary": "Get the shards status of a collection",
@@ -9126,6 +9223,228 @@
         }
       }
     },
+    "/export/{backend}": {
+      "post": {
+        "summary": "Start a new export",
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
+        "operationId": "export.create",
+        "x-serviceIds": [
+          "weaviate.local.export.create"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system to use for the export (e.g., `filesystem`, `gcs`, `s3`, `azure`)."
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ExportCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully started export operation",
+            "schema": {
+              "$ref": "#/definitions/ExportCreateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid export request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while starting export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/export/{backend}/{id}": {
+      "get": {
+        "summary": "Get export status",
+        "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
+        "operationId": "export.status",
+        "x-serviceIds": [
+          "weaviate.local.export.status"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system where the export is stored."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The unique identifier of the export."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved export status",
+            "schema": {
+              "$ref": "#/definitions/ExportStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while retrieving export status",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel an export",
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "operationId": "export.cancel",
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
+        ],
+        "tags": [
+          "export"
+        ],
+        "parameters": [
+          {
+            "name": "backend",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The backend storage system where the export is stored."
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The unique identifier of the export to cancel."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional bucket name where the export is stored."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Optional path prefix within the bucket."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/cluster/statistics": {
       "get": {
         "summary": "Get cluster statistics",
@@ -9464,6 +9783,10 @@
     {
       "name": "backups",
       "description": "Operations related to creating and managing backups of Weaviate data. This feature allows you to create snapshots of your collections and store them on external storage backends such as cloud object storage (S3, GCS, Azure) or a shared filesystem. These endpoints enable you to initiate backup and restore processes, monitor their status, list available backups on a backend, and delete unwanted backups. Backups are essential for disaster recovery, data migration, and maintaining point-in-time copies of your vector database."
+    },
+    {
+      "name": "exports",
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata."
     },
     {
       "name": "users",

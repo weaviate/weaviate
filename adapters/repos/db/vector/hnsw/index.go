@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -113,7 +114,7 @@ type hnsw struct {
 	trackDimensionsOnce               sync.Once
 	trackMuveraOnce                   sync.Once
 	trackRQOnce                       sync.Once
-	dims                              int32
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -185,7 +186,7 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 	rqConfig   ent.RQConfig
-	rqActive   bool
+	rqActive   atomic.Bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -199,8 +200,9 @@ type hnsw struct {
 	shardedNodeLocks      *common.ShardedRWLocks
 	store                 *lsmkv.Store
 
-	allocChecker            memwatch.AllocChecker
-	tombstoneCleanupRunning atomic.Bool
+	allocChecker              memwatch.AllocChecker
+	tombstoneMemCheckInterval time.Duration
+	tombstoneCleanupRunning   atomic.Bool
 
 	visitedListPoolMaxSize int
 
@@ -223,6 +225,21 @@ func (h *hnsw) Get(id uint64) ([]float32, error) {
 		return h.cache.Get(context.Background(), id)
 	}
 	return h.compressor.Get(id)
+}
+
+// GetCompressedVector retrieves the compressed vector for a given ID.
+// The index must be compressed, otherwise an error is returned.
+func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
+	if !h.compressed.Load() {
+		return nil, errors.New("index is not compressed")
+	}
+
+	v, err := h.compressor.GetCompressed(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.([]T), nil
 }
 
 type CommitLogger interface {
@@ -351,7 +368,7 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
 		shardName: cfg.ShardName,
 
 		randFunc:                          rand.Float64,
@@ -370,10 +387,11 @@ func New(cfg Config, uc ent.UserConfig,
 		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
-		store:                  store,
-		allocChecker:           cfg.AllocChecker,
-		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
-		asyncIndexingEnabled:   cfg.AsyncIndexingEnabled,
+		store:                     store,
+		allocChecker:              cfg.AllocChecker,
+		tombstoneMemCheckInterval: 500 * time.Millisecond,
+		visitedListPoolMaxSize:    cfg.VisitedListPoolMaxSize,
+		asyncIndexingEnabled:      cfg.AsyncIndexingEnabled,
 
 		docIDVectors:      make(map[uint64][]uint64),
 		muveraEncoder:     muveraEncoder,
@@ -410,7 +428,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.RQ.Enabled {
-		index.rqActive = true
+		index.rqActive.Store(true)
 	}
 
 	if uc.Multivector.Enabled {
@@ -1053,7 +1071,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	}
 
 	stats := HnswStats{
-		Dimensions:         h.dims,
+		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),

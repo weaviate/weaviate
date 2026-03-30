@@ -23,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
 
-var defaultAveragePropLength = float64(40.0)
-
 func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	out := sroar.NewBitmap()
 	values := make([]MapPair, 0, len(nodes))

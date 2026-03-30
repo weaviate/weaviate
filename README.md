@@ -5,7 +5,6 @@
 [![Build Status](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=main)](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/main/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
-[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
 
 **Weaviate** is an open-source, cloud-native vector database that stores both objects and vectors, enabling semantic search at scale. It combines vector similarity search with keyword filtering, retrieval-augmented generation (RAG), and reranking in a single query interface. Common use cases include RAG systems, semantic and image search, recommendation engines, chatbots, and content classification.
 
@@ -34,7 +33,7 @@ Create a `docker-compose.yml` file:
 ```yml
 services:
   weaviate:
-    image: cr.weaviate.io/semitechnologies/weaviate:1.32.2
+    image: cr.weaviate.io/semitechnologies/weaviate:1.36.0
     ports:
       - "8080:8080"
       - "50051:50051"
@@ -103,7 +102,7 @@ Weaviate provides client libraries for several programming languages:
 - [JavaScript/TypeScript](https://docs.weaviate.io/weaviate/client-libraries/typescript)
 - [Java](https://docs.weaviate.io/weaviate/client-libraries/java)
 - [Go](https://docs.weaviate.io/weaviate/client-libraries/go)
-- C# (🚧 Coming soon 🚧)
+- [C#/.NET](https://docs.weaviate.io/weaviate/client-libraries/csharp)
 
 There are also additional [community-maintained libraries](https://docs.weaviate.io/weaviate/client-libraries/community).
 
@@ -125,9 +124,21 @@ These features enable you to build AI-powered applications:
 
 - **💰 Cost-Efficient Operations**: Radically lower resource consumption and operational costs with built-in [vector compression](https://docs.weaviate.io/weaviate/configuration/compression). Vector quantization and multi-vector encoding reduce memory usage with minimal impact on search performance.
 
+- **⏱️ Object TTL**: Automatically expire and remove stale data with configurable [time-to-live](https://docs.weaviate.io/weaviate/manage-collections/time-to-live) settings per collection, with full RBAC and multi-tenancy support.
+
 For a complete list of all functionalities, visit the [official Weaviate documentation](https://docs.weaviate.io).
 
 ## Useful resources
+
+### AI Agent Skills
+
+[Weaviate Agent Skills](https://github.com/weaviate/agent-skills) is a collection of skills for AI coding agents (Claude Code, Cursor, GitHub Copilot, and others) that enable them to work with Weaviate more accurately and efficiently. Skills cover searching, querying, collection management, data import, and full application blueprints (RAG, agentic RAG, chatbots, and more).
+
+Install with:
+
+```bash
+npx skills add weaviate/agent-skills
+```
 
 ### Demo projects & recipes
 
@@ -173,7 +184,7 @@ Weaviate integrates with many external services:
 
 We welcome and appreciate contributions! Please see our [Contributor guide](https://docs.weaviate.io/contributor-guide) for the development setup, code style guidelines, testing requirements and the pull request process.
 
-Join our [Slack community](https://weaviate.io/slack) or [Community forum](https://forum.weaviate.io/) to discuss ideas and get help.
+Join our [Community forum](https://forum.weaviate.io/) to discuss ideas and get help.
 
 ## License
 

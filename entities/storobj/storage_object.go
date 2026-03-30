@@ -12,12 +12,10 @@
 package storobj
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"runtime"
 
@@ -172,11 +170,7 @@ func FromBinaryOptional(data []byte,
 	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
 		ko.Object.Vector = make([]float32, vectorLength)
-		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
-		for i := 0; i < int(vectorLength); i++ {
-			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
-			ko.Object.Vector[i] = math.Float32frombits(bits)
-		}
+		byteops.CopyBytesToSlice(ko.Object.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 	} else {
 		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
 		ko.Object.Vector = nil
@@ -313,14 +307,31 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequential(bucket, ids, additional, properties)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
 	}
 
-	return objectsByDocIDParallel(bucket, ids, additional, properties, logger)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
+}
+
+func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
+	}
+
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+}
+
+func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
+	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -346,7 +357,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp, properties)
+			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
 			if err != nil {
 				return err
 			}
@@ -357,6 +368,11 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 
 	if err := eg.Wait(); err != nil {
 		return nil, err
+	}
+
+	if includeEmpty {
+		// Positions are meaningful: nils indicate missing objects; do not compact.
+		return out, nil
 	}
 
 	// fix gaps in the output array
@@ -373,6 +389,13 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
+) ([]*Object, error) {
+	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+}
+
+func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
+	additional additional.Properties, properties []string,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -418,6 +441,9 @@ func objectsByDocIDSequential(bucket bucket, ids []uint64,
 		// The user has already been alerted about ppossible data loss when the WAL recovery happened.
 		// TODO: consider deleting these entries from the inverted index and alerting the user
 		if res == nil {
+			if includeEmpty {
+				i++
+			}
 			continue
 		}
 
@@ -681,39 +707,20 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 	if len(in) < 9 {
 		return 0, errors.Errorf("binary data too short")
 	}
-	// first by is kind, then 8 bytes for the docID
+	// byte 0 is the marshaller version; bytes 1-8 are the docID (little-endian uint64)
 	return binary.LittleEndian.Uint64(in[1:9]), nil
 }
 
-func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
-	r := bytes.NewReader(in)
-
-	var version uint8
-
-	le := binary.LittleEndian
-
-	if err := binary.Read(r, le, &version); err != nil {
-		return 0, 0, err
+func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
+	// Additional fields may follow after the header and are ignored.
+	if len(in) < marshallerV1HeaderLen {
+		return 0, 0, errors.Errorf("binary data too short")
 	}
-
-	if version != 1 {
-		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", version)
+	if in[0] != 1 {
+		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", in[0])
 	}
-
-	err = binary.Read(r, le, &docID)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	var buf [1 + 16 + 8 + 8]byte // kind uuid createtime updatetime
-
-	_, err = io.ReadFull(r, buf[:])
-	if err != nil {
-		return 0, 0, err
-	}
-
-	updateTime = int64(binary.LittleEndian.Uint64(buf[1+16+8:]))
-
+	docID := binary.LittleEndian.Uint64(in[1:9])
+	updateTime := int64(binary.LittleEndian.Uint64(in[marshallerV1UpdateTimeOffset:marshallerV1HeaderLen]))
 	return docID, updateTime, nil
 }
 
@@ -749,6 +756,13 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // 4             | uint32                   | length of multivectors segment (in bytes)
 // 4 + (2 + n*4) | uint32 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 // TODO vec lengths immediately following num vecs so you can jump straight to specific vec?
+
+// Binary header layout (version 1):
+// version(1) + docID(8) + kind(1) + uuid(16) + createTime(8) + updateTime(8) = 42 bytes
+const (
+	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8 // 42
+	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
+)
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -969,9 +983,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	rw.WriteUint16(uint16(vectorLength))
 
 	if addProps.Vector {
-		for j := uint32(0); j < vectorLength; j++ {
-			rw.WriteUint32(math.Float32bits(ko.Vector[j]))
-		}
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vectorLength)*byteops.Uint32Len], ko.Vector)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * byteops.Uint32Len)
 	}
 
 	rw.WriteUint16(uint16(classNameLength))
@@ -1014,9 +1027,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		vecLen := len(vec)
 
 		rw.WriteUint16(uint16(vecLen))
-		for j := 0; j < vecLen; j++ {
-			rw.WriteUint32(math.Float32bits(vec[j]))
-		}
+		byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+		rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 	}
 
 	rw.WriteUint32(multiVectorsOffsetsLength)
@@ -1034,9 +1046,8 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		for _, vec := range vecs {
 			vecLen := len(vec)
 			rw.WriteUint16(uint16(vecLen))
-			for j := 0; j < vecLen; j++ {
-				rw.WriteUint32(math.Float32bits(vec[j]))
-			}
+			byteops.CopySliceToBytes(rw.Buffer[rw.Position:rw.Position+uint64(vecLen)*byteops.Uint32Len], vec)
+			rw.MoveBufferPositionForward(uint64(vecLen) * byteops.Uint32Len)
 		}
 	}
 
@@ -1206,9 +1217,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	vectorLength := rw.ReadUint16()
 	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
-	for j := 0; j < int(vectorLength); j++ {
-		ko.Vector[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
 	classNameLength := uint64(rw.ReadUint16())
 	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
@@ -1277,9 +1286,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				vecLen := rw.ReadUint16()
 				vec := make([]float32, vecLen)
-				for j := uint16(0); j < vecLen; j++ {
-					vec[j] = math.Float32frombits(rw.ReadUint32())
-				}
+				byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 				targetVectors[name] = vec
 			}
 
@@ -1314,7 +1321,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 	offset, ok := tvOffsets[targetVector]
 	if !ok {
 		rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
-		return nil, fmt.Errorf("target vector %q not found", targetVector)
+		return nil, ErrTargetVectorNotFound{TargetVector: targetVector}
 	}
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
@@ -1327,9 +1334,7 @@ func unmarshalSingleTargetVector(rw *byteops.ReadWriter, targetVector string, bu
 		out = make([]float32, vecLen)
 	}
 
-	for j := uint16(0); j < vecLen; j++ {
-		out[j] = math.Float32frombits(rw.ReadUint32())
-	}
+	byteops.CopyBytesToSlice(out, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 
 	rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
 	return out, nil
@@ -1372,9 +1377,7 @@ func unmarshalMultiVectors(
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
 					vec := make([]float32, vecLen)
-					for j := uint16(0); j < vecLen; j++ {
-						vec[j] = math.Float32frombits(rw.ReadUint32())
-					}
+					byteops.CopyBytesToSlice(vec, rw.ReadBytesFromBuffer(uint64(vecLen)*byteops.Uint32Len))
 					vecs = append(vecs, vec)
 				}
 				multiVectors[name] = vecs
@@ -1423,7 +1426,10 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	if vecLen == 0 {
+		return nil, fmt.Errorf("vector length is 0")
+	}
 
 	var out []float32
 	if cap(buffer) >= int(vecLen) {
@@ -1434,12 +1440,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
-	}
+	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 
 	return out, nil
 }
@@ -1474,22 +1475,19 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[42:44])
+	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
 
 	var out []float32
-	if cap(buffer) >= int(vecLen) {
-		out = buffer[:vecLen]
-	} else {
-		out = make([]float32, vecLen)
-	}
 	vecStart := 44
 	vecEnd := vecStart + int(vecLen*4)
 
-	i := 0
-	for start := vecStart; start < vecEnd; start += 4 {
-		asUint := binary.LittleEndian.Uint32(in[start : start+4])
-		out[i] = math.Float32frombits(asUint)
-		i++
+	if vecLen > 0 {
+		if cap(buffer) >= int(vecLen) {
+			out = buffer[:vecLen]
+		} else {
+			out = make([]float32, vecLen)
+		}
+		byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
 	}
 
 	pos := vecEnd

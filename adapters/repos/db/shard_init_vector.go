@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -176,6 +177,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				vectorIndexUserConfig)
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
@@ -263,6 +265,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
+					HFreshMode:                        true,
 					TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 					GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
 					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
@@ -324,8 +327,10 @@ func (s *Shard) initTargetVectors(ctx context.Context, lazyLoadSegments bool) er
 	defer s.vectorIndexMu.Unlock()
 
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s); err != nil {
-		s.index.logger.WithField("action", "init_target_vectors").
-			Errorf("failed to migrate vectors compressed folder: %v", err)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_target_vectors",
+			"shard_id": s.ID(),
+		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
 
 	s.vectorIndexes = make(map[string]VectorIndex, len(s.index.vectorIndexUserConfigs))

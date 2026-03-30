@@ -76,7 +76,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 		reassignList: reassignList,
 	}
 
-	// create queue for split operations
+	// create queue for analyze operations
 	tq.analyzeQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_analyze_queue_%s_%s", index.config.ShardName, index.config.ID),
@@ -164,25 +164,29 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	return &tq, nil
 }
 
-func (tq *TaskQueue) Close() error {
+func (tq *TaskQueue) Close(ctx context.Context) error {
 	var errs []error
 	if err := tq.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
 	}
 
-	if err := tq.analyzeQueue.Close(); err != nil {
+	if err := tq.reassignList.flush(); err != nil {
+		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
+	}
+
+	if err := tq.analyzeQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close analyze queue"))
 	}
 
-	if err := tq.splitQueue.Close(); err != nil {
+	if err := tq.splitQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
 	}
 
-	if err := tq.reassignQueue.Close(); err != nil {
+	if err := tq.reassignQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close reassign queue"))
 	}
 
-	if err := tq.mergeQueue.Close(); err != nil {
+	if err := tq.mergeQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 
@@ -191,10 +195,6 @@ func (tq *TaskQueue) Close() error {
 
 func (tq *TaskQueue) Flush() error {
 	var errs []error
-
-	if err := tq.reassignList.flush(); err != nil {
-		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
-	}
 
 	if err := tq.analyzeQueue.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush analyze queue"))

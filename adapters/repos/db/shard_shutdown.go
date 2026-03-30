@@ -79,6 +79,13 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
+	// Track shard unloading: loaded -> unloading
+	// Only update metrics if the shard was properly registered (prevents double-counting
+	// during partial initialization cleanup)
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.StartUnloadingShard()
+	}
+
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
@@ -114,12 +121,29 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 		}
 
-		if err = queue.Close(); err != nil {
+		if err = queue.Close(ctx); err != nil {
 			ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 		}
 
 		return nil
 	})
+
+	_ = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			ec.Add(fmt.Errorf("flush geo index queue commitlog of prop %q: %w", propName, err))
+		}
+
+		if err = queue.Close(ctx); err != nil {
+			ec.Add(fmt.Errorf("shut down geo index queue of prop %q: %w", propName, err))
+		}
+
+		return nil
+	})
+
+	s.propertyIndicesLock.RLock()
+	err = s.propertyIndices.ShutdownGeoIndices(ctx)
+	s.propertyIndicesLock.RUnlock()
+	ec.AddWrapf(err, "shutdown geo property indices")
 
 	_ = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// to ensure that all commitlog entries are written to disk.
@@ -139,7 +163,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	})
 
 	if s.store != nil {
-		s.UpdateStatus(storagestate.StatusShutdown.String(), "shutdown")
+		s.UpdateStatus(storagestate.StatusShutdown.String(), statusReasonShutdown)
 
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
@@ -150,6 +174,11 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	if s.dynamicVectorIndexDB != nil {
 		err = s.dynamicVectorIndexDB.Close()
 		ec.AddWrapf(err, "stop dynamic vector index db")
+	}
+
+	// Track shard unloaded: unloading -> unloaded
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.FinishUnloadingShard()
 	}
 
 	return ec.ToError()

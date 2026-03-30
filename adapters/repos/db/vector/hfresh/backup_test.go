@@ -97,7 +97,7 @@ func TestHFreshBackupListFiles(t *testing.T) {
 		for index.taskQueue.Size() > 0 {
 			fmt.Println("background tasks: ", index.taskQueue.Size())
 
-			err = index.stopTaskQueues()
+			err = index.PrepareForBackup(t.Context())
 			require.NoError(t, err)
 			if index.taskQueue.Size() > 0 {
 				hasAtLeastOneQueueFile := false
@@ -113,18 +113,14 @@ func TestHFreshBackupListFiles(t *testing.T) {
 				// queue files should be present, but the number is not deterministic
 				require.True(t, hasAtLeastOneQueueFile)
 			}
-			index.resumeTaskQueues()
+			index.ResumeAfterBackup(t.Context())
 			time.Sleep(500 * time.Millisecond)
 		}
 		fmt.Println("all background tasks done, took: ", time.Since(before))
 	})
 
 	t.Run("test list files after backup preparation", func(t *testing.T) {
-		err := index.Flush()
-		require.NoError(t, err)
-		err = index.Shutdown(t.Context())
-		require.NoError(t, err)
-		err = index.PrepareForBackup(t.Context())
+		err := index.PrepareForBackup(t.Context())
 		require.NoError(t, err)
 		files, err := index.ListFiles(t.Context(), cfg.RootPath)
 		require.NoError(t, err)

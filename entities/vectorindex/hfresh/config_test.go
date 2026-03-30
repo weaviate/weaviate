@@ -309,6 +309,22 @@ func Test_UserConfig(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "hfresh only supports rq",
 		},
+		{
+			name: "with too large replicas",
+			input: map[string]interface{}{
+				"replicas": json.Number("11"),
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hfresh config: replicas is '11' but must be less than 10",
+		},
+		{
+			name: "with too large maxPostingSizeKB",
+			input: map[string]interface{}{
+				"maxPostingSizeKB": json.Number("1025"),
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hfresh config: maxPostingSizeKB is '1025' but must be less than 1024",
+		},
 	}
 
 	for _, test := range tests {

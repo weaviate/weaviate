@@ -17,13 +17,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -54,21 +53,26 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	m.metrics.DeleteObjectInc()
 	defer m.metrics.DeleteObjectDec()
 
-	if className == "" { // deprecated
-		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()))
-	}
-
 	// we only use the schemaVersion in this endpoint
 	fetchedClasses, err := m.schemaManager.GetCachedClassNoAuth(ctx, className)
 	if err != nil {
 		return fmt.Errorf("could not get class %s: %w", className, err)
 	}
 
-	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, fetchedClasses[className].Version); err != nil {
-		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", fetchedClasses[className].Version, err)
+	maxSchemaVersion := fetchedClasses[className].Version
+	if tenant != "" {
+		tenantSchemaVersion, err := m.schemaManager.EnsureTenantActiveForWrite(ctx, className, tenant)
+		if err != nil {
+			return fmt.Errorf("error ensuring tenant active for write: %w", err)
+		}
+		maxSchemaVersion = max(maxSchemaVersion, tenantSchemaVersion)
 	}
-	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, fetchedClasses[className].Version); err != nil {
+
+	if className == "" { // deprecated
+		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()), maxSchemaVersion)
+	}
+
+	if err = m.vectorRepo.DeleteObject(ctx, className, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, maxSchemaVersion); err != nil {
 		var e1 ErrMultiTenancy
 		if errors.As(err, &e1) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
@@ -90,11 +94,15 @@ func (m *Manager) DeleteObject(ctx context.Context,
 // deleteObjectFromRepo deletes objects with same id and different classes.
 //
 // Deprecated
-func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, deletionTime time.Time, maxSchemaVersion uint64) error {
 	// There might be a situation to have UUIDs which are not unique across classes.
 	// Added loop in order to delete all of the objects with given UUID across all classes.
 	// This change is added in response to this issue:
 	// https://github.com/weaviate/weaviate/issues/1836
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+
 	deleteCounter := 0
 	for {
 		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, "")
@@ -109,7 +117,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, dele
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, deletionTime, nil, "", 0)
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, deletionTime, nil, "", maxSchemaVersion)
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

@@ -89,6 +89,22 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestDeleteUnprocessableEntitySelf(t *testing.T) {
+	user := "myself"
+	principal := &models.Principal{Username: user}
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users(user)[0]).Return(nil)
+
+	h := dynUserHandler{
+		authorizer:    authorizer,
+		dbUserEnabled: true,
+	}
+
+	res := h.deleteUser(users.DeleteUserParams{UserID: user, HTTPRequest: req}, principal)
+	_, ok := res.(*users.DeleteUserUnprocessableEntity)
+	assert.True(t, ok)
+}
+
 func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)

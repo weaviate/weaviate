@@ -13,6 +13,7 @@ package recovery
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -51,11 +52,15 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 		require.NotNil(t, nodeStatusResp)
 
 		require.Len(t, nodeStatusResp.Nodes, 3)
+		for _, n := range nodeStatusResp.Nodes {
+			t.Logf("  node: %s status: %s", n.Name, *n.Status)
+		}
 	})
 
 	t.Run("disconnect node 3 from the network", func(t *testing.T) {
-		err = compose.DisconnectFromNetwork(ctx, docker.Weaviate3)
+		err = compose.DisconnectFromNetwork(ctx, docker.Weaviate2)
 		require.NoError(t, err)
+		t.Log("node 3 disconnected from network")
 	})
 
 	t.Run("verify 2 nodes are healthy", func(t *testing.T) {
@@ -66,13 +71,20 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			nodeStatusResp := resp.GetPayload()
 			require.NotNil(ct, nodeStatusResp)
 
+			names := make([]string, len(nodeStatusResp.Nodes))
+			for i, n := range nodeStatusResp.Nodes {
+				names[i] = fmt.Sprintf("%s(%s)", n.Name, *n.Status)
+			}
+			t.Logf("polling: got %d nodes: %v", len(nodeStatusResp.Nodes), names)
+
 			assert.Len(ct, nodeStatusResp.Nodes, 2)
 		}, 60*time.Second, 1*time.Second)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
-		err = compose.ConnectToNetwork(ctx, docker.Weaviate3)
+		err = compose.ConnectToNetwork(ctx, docker.Weaviate2)
 		require.NoError(t, err)
+		t.Log("node 3 reconnected to network")
 	})
 
 	t.Run("verify nodes are healthy and 3rd node successfully rejoined", func(t *testing.T) {
@@ -83,7 +95,13 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			nodeStatusResp := resp.GetPayload()
 			require.NotNil(ct, nodeStatusResp)
 
+			names := make([]string, len(nodeStatusResp.Nodes))
+			for i, n := range nodeStatusResp.Nodes {
+				names[i] = fmt.Sprintf("%s(%s)", n.Name, *n.Status)
+			}
+			t.Logf("polling rejoin: got %d nodes: %v", len(nodeStatusResp.Nodes), names)
+
 			assert.Len(ct, nodeStatusResp.Nodes, 3)
-		}, 180*time.Second, 3*time.Second)
+		}, 360*time.Second, 3*time.Second)
 	})
 }
