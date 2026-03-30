@@ -347,6 +347,7 @@ func (sg *SegmentGroup) initPrependedSegments(dbFiles []string) ([]Segment, erro
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         false, // auxiliary files were already copied
 				enableChecksumValidation: sg.enableChecksumValidation,
+				sequentialAccess:         sg.sequentialAccess,
 				MinMMapSize:              sg.MinMMapSize,
 				allocChecker:             sg.allocChecker,
 				writeMetadata:            sg.writeMetadata,

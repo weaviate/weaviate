@@ -206,6 +206,10 @@ type Bucket struct {
 	// from the shard-level read-only status (storagestate.StatusReadOnly)
 	// checked by isReadOnly().
 	immutable bool
+
+	// sequentialAccess hints the kernel (via fadvise) that segment files will
+	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
+	sequentialAccess bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -313,6 +317,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {
