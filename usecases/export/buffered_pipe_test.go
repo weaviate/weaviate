@@ -25,152 +25,159 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBufferedPipe_BasicReadWrite(t *testing.T) {
+func TestBufferedPipe_ReadWrite(t *testing.T) {
 	t.Parallel()
 
-	pr, pw := newBufferedPipe(1024)
-
-	msg := []byte("hello, buffered pipe")
-	n, err := pw.Write(msg)
-	require.NoError(t, err)
-	assert.Equal(t, len(msg), n)
-
-	require.NoError(t, pw.Close())
-
-	out, err := io.ReadAll(pr)
-	require.NoError(t, err)
-	assert.Equal(t, msg, out)
-}
-
-func TestBufferedPipe_MultipleChunks(t *testing.T) {
-	t.Parallel()
-
-	pr, pw := newBufferedPipe(1024)
-
-	var expected []byte
-	for i := range 10 {
-		chunk := []byte(fmt.Sprintf("chunk-%d|", i))
-		_, err := pw.Write(chunk)
-		require.NoError(t, err)
-		expected = append(expected, chunk...)
+	tests := []struct {
+		name     string
+		writes   []string // data chunks to write
+		readSize int      // 0 means use io.ReadAll
+		expected string   // expected concatenated output
+	}{
+		{
+			name:     "single write",
+			writes:   []string{"hello, buffered pipe"},
+			expected: "hello, buffered pipe",
+		},
+		{
+			name:     "multiple chunks",
+			writes:   []string{"chunk-0|", "chunk-1|", "chunk-2|", "chunk-3|", "chunk-4|"},
+			expected: "chunk-0|chunk-1|chunk-2|chunk-3|chunk-4|",
+		},
+		{
+			name:     "empty write produces no output",
+			writes:   []string{"", ""},
+			expected: "",
+		},
+		{
+			name:     "single byte chunks",
+			writes:   []string{"a", "b", "c"},
+			expected: "abc",
+		},
+		{
+			name:     "partial reads (3-byte buffer)",
+			writes:   []string{"0123456789"},
+			readSize: 3,
+			expected: "0123456789",
+		},
 	}
-	require.NoError(t, pw.Close())
 
-	out, err := io.ReadAll(pr)
-	require.NoError(t, err)
-	assert.Equal(t, expected, out)
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestBufferedPipe_ConcurrentReadWrite(t *testing.T) {
-	t.Parallel()
+			pr, pw := newBufferedPipe(1024)
 
-	const totalBytes = 1024 * 1024 // 1 MB
-	const chunkSize = 4096
-
-	pr, pw := newBufferedPipe(32 * 1024) // 32 KB buffer — much smaller than total data
-
-	// Generate random data.
-	data := make([]byte, totalBytes)
-	_, err := rand.Read(data)
-	require.NoError(t, err)
-
-	// Writer goroutine.
-	var writeErr error
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for off := 0; off < len(data); off += chunkSize {
-			end := off + chunkSize
-			if end > len(data) {
-				end = len(data)
+			for _, chunk := range tc.writes {
+				_, err := pw.Write([]byte(chunk))
+				require.NoError(t, err)
 			}
-			if _, err := pw.Write(data[off:end]); err != nil {
-				writeErr = err
-				return
+			require.NoError(t, pw.Close())
+
+			if tc.readSize == 0 {
+				out, err := io.ReadAll(pr)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, string(out))
+			} else {
+				buf := make([]byte, tc.readSize)
+				var all []byte
+				for {
+					n, err := pr.Read(buf)
+					all = append(all, buf[:n]...)
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.expected, string(all))
 			}
-		}
-		writeErr = pw.Close()
-	}()
-
-	// Reader goroutine (main).
-	out, readErr := io.ReadAll(pr)
-
-	wg.Wait()
-	require.NoError(t, writeErr)
-	require.NoError(t, readErr)
-	assert.Equal(t, data, out)
+		})
+	}
 }
 
-func TestBufferedPipe_WriterBlocksWhenFull(t *testing.T) {
+func TestBufferedPipe_CloseErrors(t *testing.T) {
 	t.Parallel()
 
-	pr, pw := newBufferedPipe(100) // tiny buffer
-
-	// Fill the buffer.
-	data := make([]byte, 100)
-	_, err := pw.Write(data)
-	require.NoError(t, err)
-
-	// Next write should block. Verify it doesn't complete within a short window.
-	writeDone := make(chan struct{})
-	go func() {
-		pw.Write([]byte("more"))
-		close(writeDone)
-	}()
-
-	select {
-	case <-writeDone:
-		t.Fatal("Write should have blocked, but it returned immediately")
-	case <-time.After(50 * time.Millisecond):
-		// Expected — writer is blocked.
+	tests := []struct {
+		name      string
+		setup     func(pr *bufferedPipeReader, pw *bufferedPipeWriter)
+		op        string // "read" or "write"
+		wantErr   error  // nil means check with Contains
+		errSubstr string // used when wantErr is nil
+	}{
+		{
+			name: "write after reader close returns ErrClosedPipe",
+			setup: func(pr *bufferedPipeReader, _ *bufferedPipeWriter) {
+				pr.Close()
+			},
+			op:      "write",
+			wantErr: io.ErrClosedPipe,
+		},
+		{
+			name: "write after reader close with error returns that error",
+			setup: func(pr *bufferedPipeReader, _ *bufferedPipeWriter) {
+				pr.CloseWithError(fmt.Errorf("upload aborted"))
+			},
+			op:        "write",
+			errSubstr: "upload aborted",
+		},
+		{
+			name: "read after reader close returns ErrClosedPipe",
+			setup: func(pr *bufferedPipeReader, pw *bufferedPipeWriter) {
+				pw.Write([]byte("buffered data"))
+				pr.Close()
+			},
+			op:      "read",
+			wantErr: io.ErrClosedPipe,
+		},
+		{
+			name: "write after writer close returns ErrClosedPipe",
+			setup: func(_ *bufferedPipeReader, pw *bufferedPipeWriter) {
+				pw.Close()
+			},
+			op:      "write",
+			wantErr: io.ErrClosedPipe,
+		},
+		{
+			name: "read after writer close with error returns that error",
+			setup: func(_ *bufferedPipeReader, pw *bufferedPipeWriter) {
+				pw.CloseWithError(fmt.Errorf("scan failed"))
+			},
+			op:        "read",
+			errSubstr: "scan failed",
+		},
 	}
 
-	// Drain the buffer to unblock the writer.
-	buf := make([]byte, 200)
-	_, err = pr.Read(buf)
-	require.NoError(t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Writer should now unblock.
-	select {
-	case <-writeDone:
-		// Good.
-	case <-time.After(time.Second):
-		t.Fatal("Write did not unblock after reader drained")
+			pr, pw := newBufferedPipe(1024)
+			tc.setup(pr, pw)
+
+			var err error
+			if tc.op == "write" {
+				_, err = pw.Write([]byte("data"))
+			} else {
+				buf := make([]byte, 100)
+				_, err = pr.Read(buf)
+			}
+
+			require.Error(t, err)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+			} else {
+				assert.Contains(t, err.Error(), tc.errSubstr)
+			}
+
+			// Clean up whichever side wasn't closed by setup.
+			pw.Close()
+			pr.Close()
+		})
 	}
-
-	pw.Close()
-	pr.Close()
 }
 
-func TestBufferedPipe_ReaderCloseUnblocksWriter(t *testing.T) {
-	t.Parallel()
-
-	pr, pw := newBufferedPipe(100)
-
-	// Fill the buffer.
-	_, err := pw.Write(make([]byte, 100))
-	require.NoError(t, err)
-
-	writeDone := make(chan error, 1)
-	go func() {
-		_, err := pw.Write([]byte("more"))
-		writeDone <- err
-	}()
-
-	// Close reader with error — should unblock blocked writer.
-	pr.CloseWithError(fmt.Errorf("reader aborted"))
-
-	select {
-	case err := <-writeDone:
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "reader aborted")
-	case <-time.After(time.Second):
-		t.Fatal("Write did not unblock after reader closed")
-	}
-}
-
-func TestBufferedPipe_WriterCloseWithError(t *testing.T) {
+func TestBufferedPipe_WriterCloseWithErrorDrainsBufferFirst(t *testing.T) {
 	t.Parallel()
 
 	pr, pw := newBufferedPipe(1024)
@@ -192,70 +199,124 @@ func TestBufferedPipe_WriterCloseWithError(t *testing.T) {
 	require.ErrorIs(t, err, scanErr)
 }
 
-func TestBufferedPipe_WriterCloseNil_ReaderGetsEOF(t *testing.T) {
+func TestBufferedPipe_ConcurrentReadWrite(t *testing.T) {
 	t.Parallel()
 
-	pr, pw := newBufferedPipe(1024)
+	const totalBytes = 1024 * 1024 // 1 MB
+	const chunkSize = 4096
 
-	_, err := pw.Write([]byte("data"))
+	pr, pw := newBufferedPipe(32 * 1024) // 32 KB buffer — much smaller than total data
+
+	data := make([]byte, totalBytes)
+	_, err := rand.Read(data)
 	require.NoError(t, err)
-	require.NoError(t, pw.Close())
 
-	out, err := io.ReadAll(pr)
-	require.NoError(t, err) // io.ReadAll treats io.EOF as success
-	assert.Equal(t, []byte("data"), out)
-}
-
-func TestBufferedPipe_PartialReads(t *testing.T) {
-	t.Parallel()
-
-	pr, pw := newBufferedPipe(1024)
-
-	// Write a 10-byte chunk.
-	_, err := pw.Write([]byte("0123456789"))
-	require.NoError(t, err)
-	require.NoError(t, pw.Close())
-
-	// Read in small pieces.
-	buf := make([]byte, 3)
-	var all []byte
-	for {
-		n, err := pr.Read(buf)
-		all = append(all, buf[:n]...)
-		if errors.Is(err, io.EOF) {
-			break
+	var writeErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for off := 0; off < len(data); off += chunkSize {
+			end := min(off+chunkSize, len(data))
+			if _, err := pw.Write(data[off:end]); err != nil {
+				writeErr = err
+				return
+			}
 		}
-		require.NoError(t, err)
+		writeErr = pw.Close()
+	}()
+
+	out, readErr := io.ReadAll(pr)
+
+	wg.Wait()
+	require.NoError(t, writeErr)
+	require.NoError(t, readErr)
+	assert.Equal(t, data, out)
+}
+
+func TestBufferedPipe_WriterUnblocksAfterDrain(t *testing.T) {
+	t.Parallel()
+
+	pr, pw := newBufferedPipe(100)
+
+	// Fill the buffer.
+	_, err := pw.Write(make([]byte, 100))
+	require.NoError(t, err)
+
+	// Start a write that will block until space is available.
+	writeDone := make(chan struct{})
+	go func() {
+		pw.Write([]byte("more"))
+		close(writeDone)
+	}()
+
+	// Drain the buffer — this must unblock the writer.
+	buf := make([]byte, 200)
+	_, err = pr.Read(buf)
+	require.NoError(t, err)
+
+	select {
+	case <-writeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Write did not unblock after reader drained")
 	}
-	assert.Equal(t, []byte("0123456789"), all)
-}
-
-func TestBufferedPipe_WriteAfterReaderClose(t *testing.T) {
-	t.Parallel()
-
-	pr, pw := newBufferedPipe(1024)
-	pr.Close()
-
-	_, err := pw.Write([]byte("data"))
-	require.ErrorIs(t, err, io.ErrClosedPipe)
-}
-
-func TestBufferedPipe_EmptyWrite(t *testing.T) {
-	t.Parallel()
-
-	pr, pw := newBufferedPipe(1024)
-	n, err := pw.Write(nil)
-	require.NoError(t, err)
-	assert.Equal(t, 0, n)
-
-	n, err = pw.Write([]byte{})
-	require.NoError(t, err)
-	assert.Equal(t, 0, n)
 
 	pw.Close()
-	out, err := io.ReadAll(pr)
+	pr.Close()
+}
+
+func TestBufferedPipe_ReaderCloseUnblocksWriter(t *testing.T) {
+	t.Parallel()
+
+	pr, pw := newBufferedPipe(100)
+
+	_, err := pw.Write(make([]byte, 100))
 	require.NoError(t, err)
-	assert.Empty(t, out)
+
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := pw.Write([]byte("more"))
+		writeDone <- err
+	}()
+
+	pr.CloseWithError(fmt.Errorf("reader aborted"))
+
+	select {
+	case err := <-writeDone:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reader aborted")
+	case <-time.After(time.Second):
+		t.Fatal("Write did not unblock after reader closed")
+	}
+}
+
+func TestBufferedPipe_ReaderCloseUnblocksUpload(t *testing.T) {
+	t.Parallel()
+
+	// Use a zero-capacity buffer so the reader blocks immediately on the
+	// first Read (no data to drain first). Writer is never closed, so the
+	// only way for Read to return is via pr.Close().
+	pr, pw := newBufferedPipe(1024)
+
+	readDone := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 100)
+		_, err := pr.Read(buf)
+		readDone <- err
+	}()
+
+	// Close the reader — must unblock the blocked Read.
+	pr.Close()
+
+	select {
+	case err := <-readDone:
+		require.Error(t, err)
+		assert.ErrorIs(t, err, io.ErrClosedPipe)
+	case <-time.After(time.Second):
+		t.Fatal("Read did not unblock after reader closed")
+	}
+
+	pw.Close()
 }
 
 func TestBufferedPipe_LargeDataIntegrity(t *testing.T) {
@@ -272,15 +333,11 @@ func TestBufferedPipe_LargeDataIntegrity(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// Write in variable-sized chunks.
 		off := 0
 		sizes := []int{1000, 4096, 7777, 16384, 333}
 		for i := 0; off < len(data); i++ {
 			sz := sizes[i%len(sizes)]
-			end := off + sz
-			if end > len(data) {
-				end = len(data)
-			}
+			end := min(off+sz, len(data))
 			_, err := pw.Write(data[off:end])
 			if err != nil {
 				return

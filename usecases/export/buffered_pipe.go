@@ -142,7 +142,9 @@ func (w *bufferedPipeWriter) CloseWithError(err error) error {
 }
 
 // Read dequeues data from the buffer. It blocks when the buffer is empty
-// and the writer has not yet closed.
+// and the writer has not yet closed. After the reader has been closed via
+// Close or CloseWithError, Read returns io.ErrClosedPipe (matching
+// io.PipeReader behavior).
 func (r *bufferedPipeReader) Read(b []byte) (int, error) {
 	if v := r.active.Add(1); v != 1 {
 		r.active.Add(-1)
@@ -154,6 +156,20 @@ func (r *bufferedPipeReader) Read(b []byte) (int, error) {
 		return 0, nil
 	}
 
+	p := r.p
+	p.mu.Lock()
+
+	// After the reader is closed, discard any buffered data and return
+	// immediately. This matches io.PipeReader: closing the reader aborts
+	// in-progress reads.
+	if p.readerClosed {
+		p.mu.Unlock()
+		r.partial = nil
+		return 0, io.ErrClosedPipe
+	}
+
+	p.mu.Unlock()
+
 	// Serve leftover bytes from a previous partial read first.
 	if len(r.partial) > 0 {
 		n := copy(b, r.partial)
@@ -164,11 +180,13 @@ func (r *bufferedPipeReader) Read(b []byte) (int, error) {
 		return n, nil
 	}
 
-	p := r.p
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	for len(p.chunks) == 0 {
+		if p.readerClosed {
+			return 0, io.ErrClosedPipe
+		}
 		if p.writerClosed {
 			if p.writerErr != nil {
 				return 0, p.writerErr
