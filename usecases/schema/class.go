@@ -938,6 +938,10 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", prop.Name, dt)
 	}
 
+	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%v and IndexFilterable=%v", prop.Name, prop.IndexSearchable, prop.IndexFilterable)
+	}
+
 	return nil
 }
 
