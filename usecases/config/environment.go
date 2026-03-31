@@ -1919,10 +1919,12 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 }
 
 func (c *Config) parseExportConfig() {
-	if entcfg.Enabled(os.Getenv("EXPORT_ENABLED")) {
-		c.Export.Enabled = true
-	}
+	c.Export.Enabled = configRuntime.NewDynamicValue(
+		entcfg.Enabled(os.Getenv("EXPORT_ENABLED")))
+
+	exportBucket := ""
 	if v := os.Getenv("EXPORT_BUCKET"); v != "" {
-		c.Export.Bucket = strings.TrimSpace(v)
+		exportBucket = strings.TrimSpace(v)
 	}
+	c.Export.Bucket = configRuntime.NewDynamicValue(exportBucket)
 }

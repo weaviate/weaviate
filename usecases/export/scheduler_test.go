@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // errorBackend embeds fakeBackend but overrides GetObject to always return
@@ -102,9 +103,12 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 func TestScheduler_ExportIDValidation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	s := &Scheduler{
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		exportConfig: config.Export{Enabled: true},
+		logger:     logger,
+		authorizer: mocks.NewMockAuthorizer(),
+		exportConfig: config.Export{
+			Enabled: configRuntime.NewDynamicValue(true),
+			Bucket:  configRuntime.NewDynamicValue(""),
+		},
 		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
