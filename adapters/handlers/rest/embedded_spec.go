@@ -2526,12 +2526,6 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket.",
-            "name": "bucket",
-            "in": "query"
-          },
-          {
-            "type": "string",
             "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path.",
             "name": "path",
             "in": "query"
@@ -2597,12 +2591,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional bucket name where the export is stored.",
-            "name": "bucket",
-            "in": "query"
           },
           {
             "type": "string",
@@ -7567,10 +7555,6 @@ func init() {
           "description": "Backend-specific configuration",
           "type": "object",
           "properties": {
-            "bucket": {
-              "description": "Bucket, container, or volume name for cloud storage backends",
-              "type": "string"
-            },
             "path": {
               "description": "Path prefix within the bucket or filesystem",
               "type": "string"
@@ -12497,12 +12481,6 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket.",
-            "name": "bucket",
-            "in": "query"
-          },
-          {
-            "type": "string",
             "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path.",
             "name": "path",
             "in": "query"
@@ -12568,12 +12546,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional bucket name where the export is stored.",
-            "name": "bucket",
-            "in": "query"
           },
           {
             "type": "string",
@@ -17800,10 +17772,6 @@ func init() {
           "description": "Backend-specific configuration",
           "type": "object",
           "properties": {
-            "bucket": {
-              "description": "Bucket, container, or volume name for cloud storage backends",
-              "type": "string"
-            },
             "path": {
               "description": "Path prefix within the bucket or filesystem",
               "type": "string"
@@ -17841,10 +17809,6 @@ func init() {
       "description": "Backend-specific configuration",
       "type": "object",
       "properties": {
-        "bucket": {
-          "description": "Bucket, container, or volume name for cloud storage backends",
-          "type": "string"
-        },
         "path": {
           "description": "Path prefix within the bucket or filesystem",
           "type": "string"

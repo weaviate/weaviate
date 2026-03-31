@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const exportIDMaxLength = 128
@@ -60,6 +61,9 @@ var (
 	// ErrExportShuttingDown is returned when a new export is rejected because
 	// the node is shutting down.
 	ErrExportShuttingDown = errors.New("server is shutting down")
+
+	// ErrExportDisabled is returned when the export feature is not enabled.
+	ErrExportDisabled = errors.New("export API is disabled; enable it via EXPORT_ENABLED=true or the runtime config")
 )
 
 const exportMetadataFile = "export_metadata.json"
@@ -71,6 +75,7 @@ type Scheduler struct {
 	logger       logrus.FieldLogger
 	authorizer   authorization.Authorizer
 	rbacConfig   rbacconf.Config
+	exportConfig config.Export
 	selector     Selector
 	backends     BackendProvider
 	client       ExportClient
@@ -84,6 +89,7 @@ type Scheduler struct {
 func NewScheduler(
 	authorizer authorization.Authorizer,
 	rbacConfig rbacconf.Config,
+	exportConfig config.Export,
 	selector Selector,
 	backends BackendProvider,
 	logger logrus.FieldLogger,
@@ -105,6 +111,7 @@ func NewScheduler(
 		logger:       logger,
 		authorizer:   authorizer,
 		rbacConfig:   rbacConfig,
+		exportConfig: exportConfig,
 		selector:     selector,
 		backends:     backends,
 		client:       client,
@@ -121,7 +128,10 @@ func (s *Scheduler) StartShutdown() {
 }
 
 // Export starts a new export operation.
-func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, bucket, path string) (*models.ExportCreateResponse, error) {
+func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, path string) (*models.ExportCreateResponse, error) {
+	if !s.exportConfig.Enabled.Get() {
+		return nil, ErrExportDisabled
+	}
 	if s.shuttingDown.Load() {
 		return nil, ErrExportShuttingDown
 	}
@@ -130,6 +140,11 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	}
 	if backend == "" {
 		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
+	}
+
+	bucket := s.exportConfig.Bucket.Get()
+	if bucket == "" && requiresBucket(backend) {
+		return nil, fmt.Errorf("%w: EXPORT_BUCKET is required for backend %q", ErrExportValidation, backend)
 	}
 
 	classes, err := s.resolveClasses(ctx, include, exclude)
@@ -211,10 +226,14 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 // Status retrieves the status of an export.
 // Assembles status from metadata's NodeAssignments + per-node status files.
-func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) (*models.ExportStatusResponse, error) {
+func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, path string) (*models.ExportStatusResponse, error) {
+	if !s.exportConfig.Enabled.Get() {
+		return nil, ErrExportDisabled
+	}
 	if err := validateExportID(id); err != nil {
 		return nil, err
 	}
+	bucket := s.exportConfig.Bucket.Get()
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
@@ -287,10 +306,14 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // is kept so operators can inspect what was exported before the cancellation
 // and to avoid the complexity of distributed garbage collection across
 // storage backends. The same applies to failed exports.
-func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, bucket, path string) error {
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, path string) error {
+	if !s.exportConfig.Enabled.Get() {
+		return ErrExportDisabled
+	}
 	if err := validateExportID(id); err != nil {
 		return err
 	}
+	bucket := s.exportConfig.Bucket.Get()
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
@@ -875,6 +898,17 @@ func validateExportID(id string) error {
 		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
 	}
 	return nil
+}
+
+// requiresBucket returns true for backends that need an explicit bucket
+// to avoid silently falling back to the backup module's default bucket.
+func requiresBucket(backend string) bool {
+	switch backend {
+	case "s3", "gcs", "azure":
+		return true
+	default:
+		return false
+	}
 }
 
 // resolveClasses determines which classes to export.

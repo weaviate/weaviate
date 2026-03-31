@@ -1219,7 +1219,6 @@ func TestExport_ExcludeFilter(t *testing.T) {
 func TestExport_CustomConfig(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-	customBucket := "custom-export-bucket"
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -1239,31 +1238,24 @@ func TestExport_CustomConfig(t *testing.T) {
 	objects := makeObjects(className, "", 10)
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	// Create a custom bucket in MinIO
-	_, err := s3Client.CreateBucket(context.Background(), &s3.CreateBucketInput{
-		Bucket: aws.String(customBucket),
-	})
-	require.NoError(t, err)
-
-	// Export with both a custom bucket and a custom path prefix
+	// Export with a custom path prefix
 	fileFormat := models.ExportCreateRequestFileFormatParquet
-	_, err = exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
+	_, err := exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
 		ID:         &exportID,
 		Include:    []string{className},
 		FileFormat: &fileFormat,
 		Config: &models.ExportCreateRequestConfig{
-			Bucket: customBucket,
-			Path:   "custom/prefix",
+			Path: "custom/prefix",
 		},
 	})
 	require.NoError(t, err)
 
-	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, customBucket, "custom/prefix")
+	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, "custom/prefix")
 
-	// Verify files landed in the custom bucket under the custom prefix
+	// Verify files landed under the custom prefix in the configured bucket
 	prefix := fmt.Sprintf("custom/prefix/%s/%s", exportID, className)
 	listResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(customBucket),
+		Bucket: aws.String(s3Bucket),
 		Prefix: aws.String(prefix),
 	})
 	require.NoError(t, err)
@@ -1275,15 +1267,7 @@ func TestExport_CustomConfig(t *testing.T) {
 			keys = append(keys, key)
 		}
 	}
-	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, customBucket)
-
-	// Default bucket should have no files for this export
-	defaultResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(s3Bucket),
-		Prefix: aws.String(fmt.Sprintf("%s/%s", exportID, className)),
-	})
-	require.NoError(t, err)
-	require.Empty(t, defaultResp.Contents, "default bucket should have no files for this export")
+	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, s3Bucket)
 }
 
 func TestExport_DuplicateID(t *testing.T) {

@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // fakeNodeResolver resolves node names to hostnames from a static map.
@@ -381,5 +383,14 @@ func (b *writeBlockingBackend) waitForParquetWrite(t *testing.T) {
 	case <-b.parquetReady:
 	case <-time.After(10 * time.Second):
 		t.Fatal("no parquet write attempted within timeout")
+	}
+}
+
+// testExportConfig returns an Export config with export enabled and a test bucket,
+// suitable for unit tests that need a non-nil exportConfig.
+func testExportConfig() config.Export {
+	return config.Export{
+		Enabled: configRuntime.NewDynamicValue(true),
+		Bucket:  configRuntime.NewDynamicValue("test-bucket"),
 	}
 }

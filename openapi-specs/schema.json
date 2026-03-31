@@ -609,10 +609,6 @@
           "type": "object",
           "description": "Backend-specific configuration",
           "properties": {
-            "bucket": {
-              "type": "string",
-              "description": "Bucket, container, or volume name for cloud storage backends"
-            },
             "path": {
               "type": "string",
               "description": "Path prefix within the bucket or filesystem"
@@ -9518,13 +9514,6 @@
             "description": "The unique identifier of the export."
           },
           {
-            "name": "bucket",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket."
-          },
-          {
             "name": "path",
             "in": "query",
             "required": false,
@@ -9592,13 +9581,6 @@
             "required": true,
             "type": "string",
             "description": "The unique identifier of the export to cancel."
-          },
-          {
-            "name": "bucket",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional bucket name where the export is stored."
           },
           {
             "name": "path",

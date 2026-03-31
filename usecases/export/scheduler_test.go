@@ -98,11 +98,29 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 	})
 }
 
+func TestScheduler_ExportDisabled(t *testing.T) {
+	s := &Scheduler{} // zero-value: Enabled defaults to false
+
+	t.Run("Export", func(t *testing.T) {
+		_, err := s.Export(context.Background(), nil, "test", "s3", nil, nil, "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+	t.Run("Status", func(t *testing.T) {
+		_, err := s.Status(context.Background(), nil, "s3", "test", "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+	t.Run("Cancel", func(t *testing.T) {
+		err := s.Cancel(context.Background(), nil, "s3", "test", "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+}
+
 func TestScheduler_ExportIDValidation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	s := &Scheduler{
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: testExportConfig(),
 		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
@@ -131,11 +149,11 @@ func TestScheduler_ExportIDValidation(t *testing.T) {
 					var err error
 					switch method {
 					case "export":
-						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil, "", "")
+						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil, "")
 					case "status":
-						_, err = s.Status(context.Background(), nil, "s3", tc.id, "", "")
+						_, err = s.Status(context.Background(), nil, "s3", tc.id, "")
 					case "cancel":
-						err = s.Cancel(context.Background(), nil, "s3", tc.id, "", "")
+						err = s.Cancel(context.Background(), nil, "s3", tc.id, "")
 					}
 					if tc.wantErr {
 						require.Error(t, err)
@@ -205,6 +223,7 @@ func TestScheduler_ErrorPaths(t *testing.T) {
 			s := &Scheduler{
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				backends:     &fakeBackendProvider{backend: tc.backend},
 				client:       &fakeExportClient{},
 				nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
@@ -213,9 +232,9 @@ func TestScheduler_ErrorPaths(t *testing.T) {
 			var err error
 			switch tc.method {
 			case "status":
-				_, err = s.Status(context.Background(), nil, "s3", "test-export", "", "")
+				_, err = s.Status(context.Background(), nil, "s3", "test-export", "")
 			case "cancel":
-				err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+				err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
 			}
 
 			require.Error(t, err)
@@ -271,21 +290,22 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 	}
 
 	s := &Scheduler{
-		logger:     logger,
-		authorizer: mocks.NewMockAuthorizer(),
-		backends:   &fakeBackendProvider{backend: backend},
-		client:     &fakeExportClient{},
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: testExportConfig(),
+		backends:     &fakeBackendProvider{backend: backend},
+		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{
 			"node1": "host1:8080",
 			"node2": "host2:8080",
 		}},
 	}
 
-	err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+	err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
 	require.ErrorIs(t, err, ErrExportAlreadyFinished)
 
 	// Verify the status is still FAILED, not overwritten with CANCELED.
-	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "")
 	require.NoError(t, err)
 	assert.Equal(t, string(export.Failed), resp.Status)
 }
@@ -349,12 +369,13 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 			s := &Scheduler{
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				backends:     &fakeBackendProvider{backend: backend},
 				client:       client,
 				nodeResolver: resolver,
 			}
 
-			status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+			status, err := s.Status(context.Background(), nil, "s3", "test-export", "")
 			require.NoError(t, err)
 			assert.Equal(t, string(tc.expectedStatus), status.Status)
 
