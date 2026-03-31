@@ -184,7 +184,7 @@ class TestPropertyTokenize:
             f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/count/tokenize",
             {"text": "hello"},
         )
-        assert status == 400
+        assert status == 422
 
     def test_missing_text(self) -> None:
         status, _ = post_json(
