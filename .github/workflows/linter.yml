@@ -11,34 +11,36 @@ jobs:
     name: golangci
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: '1.25'
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
   protolint:
     name: protolint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: yoheimuta/action-protolint@v1
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: yoheimuta/action-protolint@e62319541dc5107df5e3a5010acb8987004d3d25 # v1
   python:
     name: python checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: psf/black@stable
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: psf/black@35ea67920b7f6ac8e09be1c47278752b1e827f76 # stable
         with:
           version: "24.2.0"
   custom:
     name: custom checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Error groups checks
         run: ./tools/linter_error_groups.sh
       - name: goroutine checks
         run: ./tools/linter_go_routines.sh
       - name: waitgroups checks
         run: ./tools/linter_waitgroups_done.sh
+      - name: GitHub Actions pinned to SHA
+        run: ./tools/linter_actions_pinned.sh
