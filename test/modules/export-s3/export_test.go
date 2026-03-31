@@ -1635,6 +1635,106 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 		"export without async replication should be rejected with 422, got: %v", err)
 }
 
+// TestExport_SequentialSnapshots verifies that successive exports capture
+// point-in-time snapshots: inserts and deletes between exports are reflected
+// only in the export that follows them.
+func TestExport_SequentialSnapshots(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class:      className,
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig: &models.ReplicationConfig{
+			AsyncEnabled: true,
+			Factor:       3,
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": float64(1),
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	// Step 1: Insert 20 objects.
+	batch1 := makeObjects(className, "", 20)
+	helper.CreateObjectsBatchCL(t, batch1, types.ConsistencyLevelAll)
+
+	// Step 2: First export — should capture 20 objects.
+	firstID := "tc003-first"
+	_, err := exporttest.CreateExport(t, "s3", firstID, []string{className})
+	require.NoError(t, err)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", firstID)
+
+	// Step 3: Insert 10 more objects.
+	batch2 := makeObjects(className, "", 10)
+	helper.CreateObjectsBatchCL(t, batch2, types.ConsistencyLevelAll)
+
+	// Step 4: Second export — should capture 30 objects.
+	secondID := "tc003-second"
+	_, err = exporttest.CreateExport(t, "s3", secondID, []string{className})
+	require.NoError(t, err)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", secondID)
+
+	// Step 5: Delete the original 20 objects.
+	for _, obj := range batch1 {
+		helper.DeleteObject(t, obj)
+	}
+
+	// Step 6: Third export — should capture only the 10 remaining objects.
+	thirdID := "tc003-third"
+	_, err = exporttest.CreateExport(t, "s3", thirdID, []string{className})
+	require.NoError(t, err)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", thirdID)
+
+	// Step 7: Verify all exports succeeded.
+	for _, id := range []string{firstID, secondID, thirdID} {
+		resp, err := exporttest.ExportStatus(t, "s3", id)
+		require.NoError(t, err)
+		require.Equal(t, "SUCCESS", resp.Payload.Status, "export %s should be SUCCESS", id)
+	}
+
+	// Step 8: Verify row counts and object identity for each snapshot.
+	batch1IDs := objectIDSet(batch1)
+	batch2IDs := objectIDSet(batch2)
+	allIDs := objectIDSet(append(batch1, batch2...))
+
+	// First export: exactly batch1 (20 objects).
+	firstRows := fetchParquetRows(t, firstID, className)
+	require.Len(t, firstRows, 20, "first export should have 20 rows")
+	firstExportedIDs := rowIDSet(firstRows)
+	assert.Equal(t, batch1IDs, firstExportedIDs, "first export should contain exactly batch1")
+
+	// Second export: batch1 + batch2 (30 objects).
+	secondRows := fetchParquetRows(t, secondID, className)
+	require.Len(t, secondRows, 30, "second export should have 30 rows")
+	secondExportedIDs := rowIDSet(secondRows)
+	assert.Equal(t, allIDs, secondExportedIDs, "second export should contain batch1 + batch2")
+
+	// Third export: only batch2 (10 objects) — batch1 was deleted.
+	thirdRows := fetchParquetRows(t, thirdID, className)
+	require.Len(t, thirdRows, 10, "third export should have 10 rows")
+	thirdExportedIDs := rowIDSet(thirdRows)
+	assert.Equal(t, batch2IDs, thirdExportedIDs, "third export should contain exactly batch2")
+}
+
+func objectIDSet(objects []*models.Object) map[string]struct{} {
+	s := make(map[string]struct{}, len(objects))
+	for _, obj := range objects {
+		s[string(obj.ID)] = struct{}{}
+	}
+	return s
+}
+
+func rowIDSet(rows []pqexport.ParquetRow) map[string]struct{} {
+	s := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		s[row.ID] = struct{}{}
+	}
+	return s
+}
+
 // verifyConcurrentExport checks the point-in-time semantics of an export
 // that ran concurrently with object imports:
 //   - duringObjects MAY or may not be present (race with snapshot)
