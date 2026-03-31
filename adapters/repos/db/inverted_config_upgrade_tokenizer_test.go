@@ -183,7 +183,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 		t.Run("bm25f Aviate "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "Aviate"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Additional)
@@ -203,7 +203,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 		t.Run("bm25f Weaviate "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "Weaviate"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Additional)
@@ -223,7 +223,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 		t.Run("bm25f We Aviate "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "We Aviate"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Additional)
@@ -262,7 +262,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "Aviate"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Additional)
@@ -283,7 +283,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "Weaviate"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Additional)
@@ -304,7 +304,7 @@ func TestBM25FUserDictTest(t *testing.T) {
 			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "We Aviate"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Additional)

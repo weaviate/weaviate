@@ -160,7 +160,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -214,7 +214,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props, nil)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)

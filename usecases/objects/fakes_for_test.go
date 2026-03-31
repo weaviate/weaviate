@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/versioned"
 )
@@ -252,7 +253,7 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
 }
 
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, additional additional.Properties, tenant string,
+	sort []filters.Sort, additional additional.Properties, tenant string, selection *searchparams.Selection,
 ) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)

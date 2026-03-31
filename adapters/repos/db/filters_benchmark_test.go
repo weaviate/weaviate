@@ -698,6 +698,7 @@ func TestFiltersBenchmark(t *testing.T) {
 									"",
 									0,
 									props,
+									nil,
 								)
 								require.NoError(t, err)
 								require.NotNil(t, res)
@@ -864,6 +865,7 @@ func TestFiltersDelete(t *testing.T) {
 								"",
 								0,
 								props,
+								nil,
 							)
 							require.NoError(t, err)
 							require.NotNil(t, res)

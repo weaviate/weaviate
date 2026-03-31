@@ -104,7 +104,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 
 	res, scores, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut, params.Properties.GetPropertyNames())
+		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut, params.Properties.GetPropertyNames(), params.Selection)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -297,7 +297,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil)
+		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil, nil)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -313,7 +313,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 // Deprecated by Query which searches a specific index
 func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant string, selection *searchparams.Selection,
 ) (search.Results, error) {
 	start := time.Now()
 	defer func() {
@@ -327,12 +327,12 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 			"sort":    sort,
 		}).Debugf("object search completed in %s", took)
 	}()
-	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
+	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant, selection)
 }
 
 func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, tenant string, selection *searchparams.Selection,
 ) (search.Results, error) {
 	var found []*storobj.Object
 
@@ -358,7 +358,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			}
 
 			res, _, err := index.objectSearch(ctx, totalLimit,
-				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
+				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames, selection)
 			if err != nil {
 				// Multi tenancy specific errors
 				if errors.As(err, &objects.ErrMultiTenancy{}) {
