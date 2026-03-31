@@ -870,8 +870,8 @@ func (x *SearchReply) GetProfile() *QueryProfile {
 // QueryProfile contains per-shard profiling data for a search query.
 // Only populated when MetadataRequest.profile is true.
 type QueryProfile struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Shards        []*ShardProfile        `protobuf:"bytes,1,rep,name=shards,proto3" json:"shards,omitempty"`
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	Shards        []*QueryProfile_ShardProfile `protobuf:"bytes,1,rep,name=shards,proto3" json:"shards,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -906,119 +906,9 @@ func (*QueryProfile) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *QueryProfile) GetShards() []*ShardProfile {
+func (x *QueryProfile) GetShards() []*QueryProfile_ShardProfile {
 	if x != nil {
 		return x.Shards
-	}
-	return nil
-}
-
-// ShardProfile holds profiling data for a single shard's contribution to a search query.
-type ShardProfile struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// name is the identifier of the shard that was searched.
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// node is the name of the cluster node that executed this shard search.
-	Node string `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
-	// searches maps search type (e.g., "vector", "keyword") to its profiling details.
-	Searches      map[string]*SearchProfile `protobuf:"bytes,3,rep,name=searches,proto3" json:"searches,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ShardProfile) Reset() {
-	*x = ShardProfile{}
-	mi := &file_v1_search_get_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ShardProfile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ShardProfile) ProtoMessage() {}
-
-func (x *ShardProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ShardProfile.ProtoReflect.Descriptor instead.
-func (*ShardProfile) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *ShardProfile) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *ShardProfile) GetNode() string {
-	if x != nil {
-		return x.Node
-	}
-	return ""
-}
-
-func (x *ShardProfile) GetSearches() map[string]*SearchProfile {
-	if x != nil {
-		return x.Searches
-	}
-	return nil
-}
-
-// SearchProfile holds the profiling details for a single search type within a shard.
-type SearchProfile struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// details contains human-readable profiling metrics keyed by metric name.
-	Details       map[string]string `protobuf:"bytes,1,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SearchProfile) Reset() {
-	*x = SearchProfile{}
-	mi := &file_v1_search_get_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SearchProfile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SearchProfile) ProtoMessage() {}
-
-func (x *SearchProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SearchProfile.ProtoReflect.Descriptor instead.
-func (*SearchProfile) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *SearchProfile) GetDetails() map[string]string {
-	if x != nil {
-		return x.Details
 	}
 	return nil
 }
@@ -1032,7 +922,7 @@ type RerankReply struct {
 
 func (x *RerankReply) Reset() {
 	*x = RerankReply{}
-	mi := &file_v1_search_get_proto_msgTypes[12]
+	mi := &file_v1_search_get_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1044,7 +934,7 @@ func (x *RerankReply) String() string {
 func (*RerankReply) ProtoMessage() {}
 
 func (x *RerankReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[12]
+	mi := &file_v1_search_get_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1057,7 +947,7 @@ func (x *RerankReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerankReply.ProtoReflect.Descriptor instead.
 func (*RerankReply) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{12}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RerankReply) GetScore() float64 {
@@ -1084,7 +974,7 @@ type GroupByResult struct {
 
 func (x *GroupByResult) Reset() {
 	*x = GroupByResult{}
-	mi := &file_v1_search_get_proto_msgTypes[13]
+	mi := &file_v1_search_get_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1096,7 +986,7 @@ func (x *GroupByResult) String() string {
 func (*GroupByResult) ProtoMessage() {}
 
 func (x *GroupByResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[13]
+	mi := &file_v1_search_get_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1109,7 +999,7 @@ func (x *GroupByResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupByResult.ProtoReflect.Descriptor instead.
 func (*GroupByResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GroupByResult) GetName() string {
@@ -1180,7 +1070,7 @@ type SearchResult struct {
 
 func (x *SearchResult) Reset() {
 	*x = SearchResult{}
-	mi := &file_v1_search_get_proto_msgTypes[14]
+	mi := &file_v1_search_get_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1192,7 +1082,7 @@ func (x *SearchResult) String() string {
 func (*SearchResult) ProtoMessage() {}
 
 func (x *SearchResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[14]
+	mi := &file_v1_search_get_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1205,7 +1095,7 @@ func (x *SearchResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchResult.ProtoReflect.Descriptor instead.
 func (*SearchResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{14}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SearchResult) GetProperties() *PropertiesResult {
@@ -1265,7 +1155,7 @@ type MetadataResult struct {
 
 func (x *MetadataResult) Reset() {
 	*x = MetadataResult{}
-	mi := &file_v1_search_get_proto_msgTypes[15]
+	mi := &file_v1_search_get_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1277,7 +1167,7 @@ func (x *MetadataResult) String() string {
 func (*MetadataResult) ProtoMessage() {}
 
 func (x *MetadataResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[15]
+	mi := &file_v1_search_get_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1290,7 +1180,7 @@ func (x *MetadataResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataResult.ProtoReflect.Descriptor instead.
 func (*MetadataResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{15}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MetadataResult) GetId() string {
@@ -1470,7 +1360,7 @@ type PropertiesResult struct {
 
 func (x *PropertiesResult) Reset() {
 	*x = PropertiesResult{}
-	mi := &file_v1_search_get_proto_msgTypes[16]
+	mi := &file_v1_search_get_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1482,7 +1372,7 @@ func (x *PropertiesResult) String() string {
 func (*PropertiesResult) ProtoMessage() {}
 
 func (x *PropertiesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[16]
+	mi := &file_v1_search_get_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1495,7 +1385,7 @@ func (x *PropertiesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertiesResult.ProtoReflect.Descriptor instead.
 func (*PropertiesResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{16}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *PropertiesResult) GetRefProps() []*RefPropertiesResult {
@@ -1543,7 +1433,7 @@ type RefPropertiesResult struct {
 
 func (x *RefPropertiesResult) Reset() {
 	*x = RefPropertiesResult{}
-	mi := &file_v1_search_get_proto_msgTypes[17]
+	mi := &file_v1_search_get_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1555,7 +1445,7 @@ func (x *RefPropertiesResult) String() string {
 func (*RefPropertiesResult) ProtoMessage() {}
 
 func (x *RefPropertiesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[17]
+	mi := &file_v1_search_get_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1458,7 @@ func (x *RefPropertiesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefPropertiesResult.ProtoReflect.Descriptor instead.
 func (*RefPropertiesResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RefPropertiesResult) GetProperties() []*PropertiesResult {
@@ -1583,6 +1473,116 @@ func (x *RefPropertiesResult) GetPropName() string {
 		return x.PropName
 	}
 	return ""
+}
+
+// SearchProfile holds the profiling details for a single search type within a shard.
+type QueryProfile_SearchProfile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// details contains human-readable profiling metrics keyed by metric name.
+	Details       map[string]string `protobuf:"bytes,1,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryProfile_SearchProfile) Reset() {
+	*x = QueryProfile_SearchProfile{}
+	mi := &file_v1_search_get_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryProfile_SearchProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryProfile_SearchProfile) ProtoMessage() {}
+
+func (x *QueryProfile_SearchProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_search_get_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryProfile_SearchProfile.ProtoReflect.Descriptor instead.
+func (*QueryProfile_SearchProfile) Descriptor() ([]byte, []int) {
+	return file_v1_search_get_proto_rawDescGZIP(), []int{9, 0}
+}
+
+func (x *QueryProfile_SearchProfile) GetDetails() map[string]string {
+	if x != nil {
+		return x.Details
+	}
+	return nil
+}
+
+// ShardProfile holds profiling data for a single shard's contribution to a search query.
+type QueryProfile_ShardProfile struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the identifier of the shard that was searched.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// node is the name of the cluster node that executed this shard search.
+	Node string `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
+	// searches maps search type (e.g., "vector", "keyword") to its profiling details.
+	Searches      map[string]*QueryProfile_SearchProfile `protobuf:"bytes,3,rep,name=searches,proto3" json:"searches,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *QueryProfile_ShardProfile) Reset() {
+	*x = QueryProfile_ShardProfile{}
+	mi := &file_v1_search_get_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *QueryProfile_ShardProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*QueryProfile_ShardProfile) ProtoMessage() {}
+
+func (x *QueryProfile_ShardProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_search_get_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use QueryProfile_ShardProfile.ProtoReflect.Descriptor instead.
+func (*QueryProfile_ShardProfile) Descriptor() ([]byte, []int) {
+	return file_v1_search_get_proto_rawDescGZIP(), []int{9, 1}
+}
+
+func (x *QueryProfile_ShardProfile) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *QueryProfile_ShardProfile) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *QueryProfile_ShardProfile) GetSearches() map[string]*QueryProfile_SearchProfile {
+	if x != nil {
+		return x.Searches
+	}
+	return nil
 }
 
 var File_v1_search_get_proto protoreflect.FileDescriptor
@@ -1707,21 +1707,21 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x1a_generative_grouped_resultB\x1d\n" +
 	"\x1b_generative_grouped_resultsB\n" +
 	"\n" +
-	"\b_profile\"A\n" +
-	"\fQueryProfile\x121\n" +
-	"\x06shards\x18\x01 \x03(\v2\x19.weaviate.v1.ShardProfileR\x06shards\"\xd4\x01\n" +
-	"\fShardProfile\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04node\x18\x02 \x01(\tR\x04node\x12C\n" +
-	"\bsearches\x18\x03 \x03(\v2'.weaviate.v1.ShardProfile.SearchesEntryR\bsearches\x1aW\n" +
-	"\rSearchesEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x05value\x18\x02 \x01(\v2\x1a.weaviate.v1.SearchProfileR\x05value:\x028\x01\"\x8e\x01\n" +
-	"\rSearchProfile\x12A\n" +
-	"\adetails\x18\x01 \x03(\v2'.weaviate.v1.SearchProfile.DetailsEntryR\adetails\x1a:\n" +
+	"\b_profile\"\xdd\x03\n" +
+	"\fQueryProfile\x12>\n" +
+	"\x06shards\x18\x01 \x03(\v2&.weaviate.v1.QueryProfile.ShardProfileR\x06shards\x1a\x9b\x01\n" +
+	"\rSearchProfile\x12N\n" +
+	"\adetails\x18\x01 \x03(\v24.weaviate.v1.QueryProfile.SearchProfile.DetailsEntryR\adetails\x1a:\n" +
 	"\fDetailsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"#\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a\xee\x01\n" +
+	"\fShardProfile\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04node\x18\x02 \x01(\tR\x04node\x12P\n" +
+	"\bsearches\x18\x03 \x03(\v24.weaviate.v1.QueryProfile.ShardProfile.SearchesEntryR\bsearches\x1ad\n" +
+	"\rSearchesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12=\n" +
+	"\x05value\x18\x02 \x01(\v2'.weaviate.v1.QueryProfile.SearchProfileR\x05value:\x028\x01\"#\n" +
 	"\vRerankReply\x12\x14\n" +
 	"\x05score\x18\x01 \x01(\x01R\x05score\"\xc9\x03\n" +
 	"\rGroupByResult\x12\x12\n" +
@@ -1804,44 +1804,44 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 
 var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_v1_search_get_proto_goTypes = []any{
-	(*SearchRequest)(nil),           // 0: weaviate.v1.SearchRequest
-	(*GroupBy)(nil),                 // 1: weaviate.v1.GroupBy
-	(*SortBy)(nil),                  // 2: weaviate.v1.SortBy
-	(*MetadataRequest)(nil),         // 3: weaviate.v1.MetadataRequest
-	(*PropertiesRequest)(nil),       // 4: weaviate.v1.PropertiesRequest
-	(*ObjectPropertiesRequest)(nil), // 5: weaviate.v1.ObjectPropertiesRequest
-	(*RefPropertiesRequest)(nil),    // 6: weaviate.v1.RefPropertiesRequest
-	(*Rerank)(nil),                  // 7: weaviate.v1.Rerank
-	(*SearchReply)(nil),             // 8: weaviate.v1.SearchReply
-	(*QueryProfile)(nil),            // 9: weaviate.v1.QueryProfile
-	(*ShardProfile)(nil),            // 10: weaviate.v1.ShardProfile
-	(*SearchProfile)(nil),           // 11: weaviate.v1.SearchProfile
-	(*RerankReply)(nil),             // 12: weaviate.v1.RerankReply
-	(*GroupByResult)(nil),           // 13: weaviate.v1.GroupByResult
-	(*SearchResult)(nil),            // 14: weaviate.v1.SearchResult
-	(*MetadataResult)(nil),          // 15: weaviate.v1.MetadataResult
-	(*PropertiesResult)(nil),        // 16: weaviate.v1.PropertiesResult
-	(*RefPropertiesResult)(nil),     // 17: weaviate.v1.RefPropertiesResult
-	nil,                             // 18: weaviate.v1.ShardProfile.SearchesEntry
-	nil,                             // 19: weaviate.v1.SearchProfile.DetailsEntry
-	(ConsistencyLevel)(0),           // 20: weaviate.v1.ConsistencyLevel
-	(*Filters)(nil),                 // 21: weaviate.v1.Filters
-	(*Hybrid)(nil),                  // 22: weaviate.v1.Hybrid
-	(*BM25)(nil),                    // 23: weaviate.v1.BM25
-	(*NearVector)(nil),              // 24: weaviate.v1.NearVector
-	(*NearObject)(nil),              // 25: weaviate.v1.NearObject
-	(*NearTextSearch)(nil),          // 26: weaviate.v1.NearTextSearch
-	(*NearImageSearch)(nil),         // 27: weaviate.v1.NearImageSearch
-	(*NearAudioSearch)(nil),         // 28: weaviate.v1.NearAudioSearch
-	(*NearVideoSearch)(nil),         // 29: weaviate.v1.NearVideoSearch
-	(*NearDepthSearch)(nil),         // 30: weaviate.v1.NearDepthSearch
-	(*NearThermalSearch)(nil),       // 31: weaviate.v1.NearThermalSearch
-	(*NearIMUSearch)(nil),           // 32: weaviate.v1.NearIMUSearch
-	(*GenerativeSearch)(nil),        // 33: weaviate.v1.GenerativeSearch
-	(*GenerativeResult)(nil),        // 34: weaviate.v1.GenerativeResult
-	(*GenerativeReply)(nil),         // 35: weaviate.v1.GenerativeReply
-	(*Vectors)(nil),                 // 36: weaviate.v1.Vectors
-	(*Properties)(nil),              // 37: weaviate.v1.Properties
+	(*SearchRequest)(nil),              // 0: weaviate.v1.SearchRequest
+	(*GroupBy)(nil),                    // 1: weaviate.v1.GroupBy
+	(*SortBy)(nil),                     // 2: weaviate.v1.SortBy
+	(*MetadataRequest)(nil),            // 3: weaviate.v1.MetadataRequest
+	(*PropertiesRequest)(nil),          // 4: weaviate.v1.PropertiesRequest
+	(*ObjectPropertiesRequest)(nil),    // 5: weaviate.v1.ObjectPropertiesRequest
+	(*RefPropertiesRequest)(nil),       // 6: weaviate.v1.RefPropertiesRequest
+	(*Rerank)(nil),                     // 7: weaviate.v1.Rerank
+	(*SearchReply)(nil),                // 8: weaviate.v1.SearchReply
+	(*QueryProfile)(nil),               // 9: weaviate.v1.QueryProfile
+	(*RerankReply)(nil),                // 10: weaviate.v1.RerankReply
+	(*GroupByResult)(nil),              // 11: weaviate.v1.GroupByResult
+	(*SearchResult)(nil),               // 12: weaviate.v1.SearchResult
+	(*MetadataResult)(nil),             // 13: weaviate.v1.MetadataResult
+	(*PropertiesResult)(nil),           // 14: weaviate.v1.PropertiesResult
+	(*RefPropertiesResult)(nil),        // 15: weaviate.v1.RefPropertiesResult
+	(*QueryProfile_SearchProfile)(nil), // 16: weaviate.v1.QueryProfile.SearchProfile
+	(*QueryProfile_ShardProfile)(nil),  // 17: weaviate.v1.QueryProfile.ShardProfile
+	nil,                                // 18: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
+	nil,                                // 19: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
+	(ConsistencyLevel)(0),              // 20: weaviate.v1.ConsistencyLevel
+	(*Filters)(nil),                    // 21: weaviate.v1.Filters
+	(*Hybrid)(nil),                     // 22: weaviate.v1.Hybrid
+	(*BM25)(nil),                       // 23: weaviate.v1.BM25
+	(*NearVector)(nil),                 // 24: weaviate.v1.NearVector
+	(*NearObject)(nil),                 // 25: weaviate.v1.NearObject
+	(*NearTextSearch)(nil),             // 26: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),            // 27: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),            // 28: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),            // 29: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),            // 30: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),          // 31: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),              // 32: weaviate.v1.NearIMUSearch
+	(*GenerativeSearch)(nil),           // 33: weaviate.v1.GenerativeSearch
+	(*GenerativeResult)(nil),           // 34: weaviate.v1.GenerativeResult
+	(*GenerativeReply)(nil),            // 35: weaviate.v1.GenerativeReply
+	(*Vectors)(nil),                    // 36: weaviate.v1.Vectors
+	(*Properties)(nil),                 // 37: weaviate.v1.Properties
 }
 var file_v1_search_get_proto_depIdxs = []int32{
 	20, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
@@ -1868,26 +1868,26 @@ var file_v1_search_get_proto_depIdxs = []int32{
 	5,  // 21: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
 	4,  // 22: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
 	3,  // 23: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
-	14, // 24: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
-	13, // 25: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
+	12, // 24: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
+	11, // 25: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
 	34, // 26: weaviate.v1.SearchReply.generative_grouped_results:type_name -> weaviate.v1.GenerativeResult
 	9,  // 27: weaviate.v1.SearchReply.profile:type_name -> weaviate.v1.QueryProfile
-	10, // 28: weaviate.v1.QueryProfile.shards:type_name -> weaviate.v1.ShardProfile
-	18, // 29: weaviate.v1.ShardProfile.searches:type_name -> weaviate.v1.ShardProfile.SearchesEntry
-	19, // 30: weaviate.v1.SearchProfile.details:type_name -> weaviate.v1.SearchProfile.DetailsEntry
-	14, // 31: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
-	12, // 32: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
-	35, // 33: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
-	34, // 34: weaviate.v1.GroupByResult.generative_result:type_name -> weaviate.v1.GenerativeResult
-	16, // 35: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
-	15, // 36: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
-	34, // 37: weaviate.v1.SearchResult.generative:type_name -> weaviate.v1.GenerativeResult
-	36, // 38: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
-	17, // 39: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
-	15, // 40: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
-	37, // 41: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
-	16, // 42: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
-	11, // 43: weaviate.v1.ShardProfile.SearchesEntry.value:type_name -> weaviate.v1.SearchProfile
+	17, // 28: weaviate.v1.QueryProfile.shards:type_name -> weaviate.v1.QueryProfile.ShardProfile
+	12, // 29: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
+	10, // 30: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
+	35, // 31: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
+	34, // 32: weaviate.v1.GroupByResult.generative_result:type_name -> weaviate.v1.GenerativeResult
+	14, // 33: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
+	13, // 34: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
+	34, // 35: weaviate.v1.SearchResult.generative:type_name -> weaviate.v1.GenerativeResult
+	36, // 36: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
+	15, // 37: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
+	13, // 38: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
+	37, // 39: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
+	14, // 40: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
+	18, // 41: weaviate.v1.QueryProfile.SearchProfile.details:type_name -> weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
+	19, // 42: weaviate.v1.QueryProfile.ShardProfile.searches:type_name -> weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
+	16, // 43: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry.value:type_name -> weaviate.v1.QueryProfile.SearchProfile
 	44, // [44:44] is the sub-list for method output_type
 	44, // [44:44] is the sub-list for method input_type
 	44, // [44:44] is the sub-list for extension type_name
@@ -1907,9 +1907,9 @@ func file_v1_search_get_proto_init() {
 	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[7].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[12].OneofWrappers = []any{}
 	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
