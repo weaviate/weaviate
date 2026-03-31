@@ -428,7 +428,15 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 // entry in a property map so that it is excluded from immutability checks.
 func stripASCIIFoldIgnore(m map[string]any) {
 	ta, ok := m["textAnalyser"]
-	if !ok || ta == nil {
+	if !ok {
+		return
+	}
+
+	// Normalize explicit nulls: treat `"textAnalyser": null` the same as
+	// an absent textAnalyser by deleting the key so DeepEqual does not
+	// see a difference between the two.
+	if ta == nil {
+		delete(m, "textAnalyser")
 		return
 	}
 
@@ -438,6 +446,15 @@ func stripASCIIFoldIgnore(m map[string]any) {
 	if cfg, ok := ta.(*models.TextAnalyserConfig); ok && cfg != nil {
 		copyCfg := *cfg
 		copyCfg.ASCIIFoldIgnore = nil
+
+		// After clearing ASCIIFoldIgnore, an entirely zero-valued config
+		// is semantically equivalent to "no textAnalyser" at all. Normalize
+		// such empty configs by removing the key so that {} and null behave
+		// the same in immutability checks.
+		if reflect.ValueOf(copyCfg).IsZero() {
+			delete(m, "textAnalyser")
+			return
+		}
 		m["textAnalyser"] = &copyCfg
 	}
 }
