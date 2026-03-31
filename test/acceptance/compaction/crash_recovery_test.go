@@ -172,9 +172,12 @@ func TestAsyncDeletion_CrashRecovery(t *testing.T) {
 	// Re-point the helper client at the potentially-remapped port.
 	helper.SetupClient(compose.GetWeaviate().URI())
 
-	// After restart, the startup cleanup in segment_group.go must have removed
-	// all .deleteme files.
-	deletemeAfter := countDeletemeSegments(ctx, container, collection, shardName, "objects")
-	assert.Equal(t, 0, deletemeAfter,
-		"startup cleanup must remove all .deleteme files")
+	// After restart, the startup cleanup in segment_group.go must remove
+	// all .deleteme files. Use Eventually because the cleanup runs asynchronously
+	// and may not have completed immediately after the node becomes ready.
+	require.Eventually(t, func() bool {
+		deletemeAfter := countDeletemeSegments(ctx, container, collection, shardName, "objects")
+		fmt.Printf("  [poll] post-restart deleteme=%d\n", deletemeAfter)
+		return deletemeAfter == 0
+	}, 60*time.Second, 2*time.Second, "startup cleanup must remove all .deleteme files")
 }
