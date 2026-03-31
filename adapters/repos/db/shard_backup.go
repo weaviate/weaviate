@@ -75,19 +75,12 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 
-	// pause indexing
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Pause()
+	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
+	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
+		if err = q.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
+		}
 		return nil
-	})
-	// wait for ongoing indexing to finish
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Wait()
-		return nil
-	})
-	// flush all the queue
-	err = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		return q.Flush()
 	})
 	if err != nil {
 		return fmt.Errorf("flush vector index queues: %w", err)
@@ -261,7 +254,9 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	g.Go(func() error {
 		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-			q.Resume()
+			if err := q.DisableMaintenanceMode(); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
 			return nil
 		})
 	})
