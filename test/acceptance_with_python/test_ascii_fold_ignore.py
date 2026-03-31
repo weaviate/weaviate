@@ -8,11 +8,12 @@ import json
 import urllib.request
 from typing import Generator
 
+import os
 import pytest
 import weaviate.classes as wvc
 
 
-BASE_URL = "http://localhost:8080"
+BASE_URL = os.environ.get("WEAVIATE_URL", "http://localhost:8080")
 
 
 def _sanitize_collection_name(name: str) -> str:
