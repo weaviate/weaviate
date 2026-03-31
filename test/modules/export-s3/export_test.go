@@ -1662,7 +1662,7 @@ func TestExport_SequentialSnapshots(t *testing.T) {
 	helper.CreateObjectsBatchCL(t, batch1, types.ConsistencyLevelAll)
 
 	// Step 2: First export — should capture 20 objects.
-	firstID := "tc003-first"
+	firstID := strings.ToLower(sanitizeClassName(t.Name())) + "-first"
 	_, err := exporttest.CreateExport(t, "s3", firstID, []string{className})
 	require.NoError(t, err)
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", firstID)
@@ -1672,18 +1672,18 @@ func TestExport_SequentialSnapshots(t *testing.T) {
 	helper.CreateObjectsBatchCL(t, batch2, types.ConsistencyLevelAll)
 
 	// Step 4: Second export — should capture 30 objects.
-	secondID := "tc003-second"
+	secondID := strings.ToLower(sanitizeClassName(t.Name())) + "-second"
 	_, err = exporttest.CreateExport(t, "s3", secondID, []string{className})
 	require.NoError(t, err)
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", secondID)
 
 	// Step 5: Delete the original 20 objects.
 	for _, obj := range batch1 {
-		helper.DeleteObject(t, obj)
+		helper.DeleteObjectCL(t, obj.Class, obj.ID, types.ConsistencyLevelAll)
 	}
 
 	// Step 6: Third export — should capture only the 10 remaining objects.
-	thirdID := "tc003-third"
+	thirdID := strings.ToLower(sanitizeClassName(t.Name())) + "-third"
 	_, err = exporttest.CreateExport(t, "s3", thirdID, []string{className})
 	require.NoError(t, err)
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", thirdID)
