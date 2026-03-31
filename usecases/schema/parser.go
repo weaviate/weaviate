@@ -431,8 +431,14 @@ func stripASCIIFoldIgnore(m map[string]any) {
 	if !ok || ta == nil {
 		return
 	}
+
+	// Avoid mutating the original TextAnalyserConfig pointer that may be shared
+	// with the underlying Property/NestedProperty. Instead, create a shallow copy
+	// with ASCIIFoldIgnore cleared and store that copy back into the map.
 	if cfg, ok := ta.(*models.TextAnalyserConfig); ok && cfg != nil {
-		cfg.ASCIIFoldIgnore = nil
+		copyCfg := *cfg
+		copyCfg.ASCIIFoldIgnore = nil
+		m["textAnalyser"] = &copyCfg
 	}
 }
 
