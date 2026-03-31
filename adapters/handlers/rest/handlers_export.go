@@ -44,20 +44,21 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 	include := params.Body.Include
 	exclude := params.Body.Exclude
 
-	bucket := ""
 	path := ""
 	if params.Body.Config != nil {
-		bucket = params.Body.Config.Bucket
 		path = params.Body.Config.Path
 	}
 
 	// Start export
-	resp, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, bucket, path)
+	resp, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, path)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, ucexport.ErrExportDisabled):
+			return export.NewExportCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.Is(err, ucexport.ErrExportAlreadyExists),
 			errors.Is(err, ucexport.ErrExportAlreadyActive):
@@ -80,21 +81,19 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// Extract optional bucket and path parameters
-	bucket := ""
-	if params.Bucket != nil {
-		bucket = *params.Bucket
-	}
 	path := ""
 	if params.Path != nil {
 		path = *params.Path
 	}
 
 	status, err := h.scheduler.Status(params.HTTPRequest.Context(), principal,
-		params.Backend, params.ID, bucket, path)
+		params.Backend, params.ID, path)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
+		case errors.Is(err, ucexport.ErrExportDisabled):
+			return export.NewExportStatusUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -118,20 +117,19 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 func (h *exportHandlers) cancelExport(params export.ExportCancelParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	bucket := ""
-	if params.Bucket != nil {
-		bucket = *params.Bucket
-	}
 	path := ""
 	if params.Path != nil {
 		path = *params.Path
 	}
 
 	err := h.scheduler.Cancel(params.HTTPRequest.Context(), principal,
-		params.Backend, params.ID, bucket, path)
+		params.Backend, params.ID, path)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
+		case errors.Is(err, ucexport.ErrExportDisabled):
+			return export.NewExportCancelUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCancelForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -191,7 +189,8 @@ func (e *exportRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &authzerrors.Forbidden{}),
 		errors.Is(err, ucexport.ErrExportValidation),
 		errors.Is(err, ucexport.ErrExportAlreadyExists),
-		errors.Is(err, ucexport.ErrExportAlreadyActive):
+		errors.Is(err, ucexport.ErrExportAlreadyActive),
+		errors.Is(err, ucexport.ErrExportDisabled):
 		e.logUserError(className)
 	default:
 		e.logServerError(className, err)

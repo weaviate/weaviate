@@ -39,11 +39,9 @@ type anyscale struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *anyscale {
 	return &anyscale{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
+		logger:     logger,
 	}
 }
 
@@ -130,7 +128,7 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {

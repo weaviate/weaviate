@@ -58,7 +58,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	})
 
 	t.Run("disconnect node 3 from the network", func(t *testing.T) {
-		err = compose.DisconnectFromNetwork(ctx, docker.Weaviate3)
+		err = compose.DisconnectFromNetwork(ctx, docker.Weaviate2)
 		require.NoError(t, err)
 		t.Log("node 3 disconnected from network")
 	})
@@ -82,7 +82,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
-		err = compose.ConnectToNetwork(ctx, docker.Weaviate3)
+		err = compose.ConnectToNetwork(ctx, docker.Weaviate2)
 		require.NoError(t, err)
 		t.Log("node 3 reconnected to network")
 	})

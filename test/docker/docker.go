@@ -13,7 +13,10 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"time"
 
@@ -90,15 +93,70 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 	if nodeIndex >= len(d.containers) {
 		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
 	}
-	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
+	stoppedNode := d.containers[nodeIndex]
+	if err := stoppedNode.container.Stop(ctx, timeout); err != nil {
 		return err
 	}
 
-	// sleep to make sure that the off node is detected by memberlist and marked failed
-	// it shall be used with combination of "MEMBERLIST_FAST_FAILURE_DETECTION" env flag
-	time.Sleep(3 * time.Second)
+	// Poll a surviving node's /v1/nodes endpoint until the stopped node is no
+	// longer reported as HEALTHY. This replaces a hardcoded 3s sleep and adapts
+	// to the actual memberlist failure detection speed.
+	stoppedHostname := stoppedNode.name
+	var survivorURI string
+	for i, c := range d.containers {
+		if i != nodeIndex {
+			if uri, ok := c.endpoints[HTTP]; ok {
+				survivorURI = uri.uri
+				break
+			}
+		}
+	}
+	if survivorURI != "" {
+		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		for {
+			if pollCtx.Err() != nil {
+				return fmt.Errorf("StopAt[%s]: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %w)",
+					stoppedHostname, survivorURI, pollCtx.Err())
+			}
+			if !isNodeHealthy(survivorURI, stoppedHostname) {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
 
 	return nil
+}
+
+// isNodeHealthy checks whether a node is reported as HEALTHY via /v1/nodes on
+// a surviving node. Returns false if the node is missing, unhealthy, or the
+// request fails.
+func isNodeHealthy(survivorURI, nodeName string) bool {
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes", survivorURI))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	var result struct {
+		Nodes []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	for _, n := range result.Nodes {
+		if n.Name == nodeName {
+			return n.Status == "HEALTHY"
+		}
+	}
+	return false // node not in list = not healthy
 }
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
@@ -125,7 +183,8 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 		}
 		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
-			return err
+			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
+				c.name, err)
 		}
 	}
 	c.endpoints = endPoints
@@ -162,7 +221,7 @@ func (d *DockerCompose) GetAzurite() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
-	return d.getContainerByName(Weaviate1)
+	return d.getContainerByName(Weaviate0)
 }
 
 func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
@@ -170,18 +229,15 @@ func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
-	return d.getContainerByName(Weaviate2)
+	return d.getContainerByName(Weaviate1)
 }
 
 func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
-	return d.getContainerByName(Weaviate3)
+	return d.getContainerByName(Weaviate2)
 }
 
 func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
-	if n == 1 {
-		return d.GetWeaviate()
-	}
-	return d.getContainerByName(fmt.Sprintf("%s%d", Weaviate, n))
+	return d.getContainerByName(fmt.Sprintf("weaviate-%d", n-1))
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
@@ -263,8 +319,15 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 	// Get the container ID
 	containerID := container.container.GetContainerID()
 
-	// Execute docker network connect command
-	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, containerID)
+	// Execute docker network connect command. If the container has a static IP,
+	// pass --ip to preserve it — otherwise Docker assigns a new IP and Raft/memberlist
+	// can't resolve the rejoining node.
+	args := []string{"network", "connect"}
+	if ip := container.StaticIP(); ip != "" {
+		args = append(args, "--ip", ip)
+	}
+	args = append(args, networkName, containerID)
+	cmd := exec.CommandContext(ctx, "docker", args...)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to connect container %s (id: %s) to network: %w", container.name, containerID, err)
 	}

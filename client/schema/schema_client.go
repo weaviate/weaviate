@@ -63,6 +63,8 @@ type ClientService interface {
 
 	SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesDeleteOK, error)
 
+	SchemaObjectsPropertiesTokenize(params *SchemaObjectsPropertiesTokenizeParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesTokenizeOK, error)
+
 	SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsGetOK, error)
 
 	SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error)
@@ -532,6 +534,47 @@ func (a *Client) SchemaObjectsPropertiesDelete(params *SchemaObjectsPropertiesDe
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SchemaObjectsPropertiesTokenize tokenizes text using a property s configuration
+
+Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.
+*/
+func (a *Client) SchemaObjectsPropertiesTokenize(params *SchemaObjectsPropertiesTokenizeParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesTokenizeOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSchemaObjectsPropertiesTokenizeParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "schema.objects.properties.tokenize",
+		Method:             "POST",
+		PathPattern:        "/schema/{className}/properties/{propertyName}/tokenize",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SchemaObjectsPropertiesTokenizeReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SchemaObjectsPropertiesTokenizeOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.tokenize: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -267,7 +267,7 @@ func tokenizetrigram(in string) []string {
 	return trigrams
 }
 
-// tokenizeGSE uses the gse tokenizer to tokenise Japanese
+// tokenizeGSE uses the gse tokenizer to tokenize Japanese
 func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
@@ -285,7 +285,7 @@ func tokenizeGSE(in string) []string {
 	return ret
 }
 
-// tokenizeGSE uses the gse tokenizer to tokenise Chinese
+// tokenizeGSE uses the gse tokenizer to tokenize Chinese
 func tokenizeGseCh(in string) []string {
 	if !UseGseCh {
 		return []string{}
