@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/file"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -765,7 +766,7 @@ func (p searchParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
 
 type searchResultsPayload struct{}
 
-func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, error) {
+func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	read := uint64(0)
 
 	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
@@ -773,7 +774,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 
 	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read:read+objsLength], MethodGet)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	read += objsLength
 
@@ -783,7 +784,22 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	dists := make([]float32, distsLength)
 	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
 
-	return objs, dists, nil
+	// Parse optional query profile data appended after dists.
+	var queryProfiles []helpers.ShardQueryProfile
+	if read+8 <= uint64(len(in)) {
+		profilesLength := binary.LittleEndian.Uint64(in[read : read+8])
+		read += 8
+		if profilesLength > 0 {
+			if read+profilesLength > uint64(len(in)) {
+				return nil, nil, nil, fmt.Errorf("query profiles data truncated: need %d bytes, have %d", profilesLength, uint64(len(in))-read)
+			}
+			if err := json.Unmarshal(in[read:read+profilesLength], &queryProfiles); err != nil {
+				return nil, nil, nil, fmt.Errorf("unmarshal query profiles: %w", err)
+			}
+		}
+	}
+
+	return objs, dists, queryProfiles, nil
 }
 
 func (p searchResultsPayload) Marshal(objs []*storobj.Object,
@@ -817,7 +833,7 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 // include vectors and properties based on the additional.Properties parameter.
 // This reduces network bandwidth by not transmitting vectors when they are not requested.
 func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
-	dists []float32, addProps additional.Properties,
+	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardQueryProfile,
 ) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
@@ -839,6 +855,18 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 	distsBuf := make([]byte, distsLength*4)
 	byteops.CopySliceToBytes(distsBuf, dists)
 	out = append(out, distsBuf...)
+
+	// Append optional profile data.
+	var profilesBytes []byte
+	if len(queryProfiles) > 0 {
+		profilesBytes, err = json.Marshal(queryProfiles)
+		if err != nil {
+			return nil, fmt.Errorf("marshal query profiles: %w", err)
+		}
+	}
+	binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(len(profilesBytes)))
+	out = append(out, reusableLengthBuf...)
+	out = append(out, profilesBytes...)
 
 	return out, nil
 }
