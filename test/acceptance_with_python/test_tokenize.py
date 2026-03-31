@@ -5,7 +5,6 @@ from typing import Any
 import os
 
 import pytest
-import weaviate
 import weaviate.classes as wvc
 from weaviate.collections.classes.config import Property, DataType, Configure
 
@@ -104,36 +103,22 @@ class TestGenericTokenize:
 class TestPropertyTokenize:
     """Tests for POST /v1/schema/{className}/properties/{propertyName}/tokenize."""
 
-    COLLECTION_NAME = "TokenizeTestCollection"
-
-    @pytest.fixture(autouse=True, scope="class")
-    def setup_collection(self) -> None:
-        client = weaviate.connect_to_local()
-        try:
-            client.collections.delete(self.COLLECTION_NAME)
-            client.collections.create(
-                self.COLLECTION_NAME,
-                vectorizer_config=Configure.Vectorizer.none(),
-                properties=[
-                    Property(name="title", data_type=DataType.TEXT, tokenization=wvc.config.Tokenization.WORD),
-                    Property(name="tag", data_type=DataType.TEXT, tokenization=wvc.config.Tokenization.FIELD),
-                    Property(name="count", data_type=DataType.INT),
-                ],
-            )
-        finally:
-            client.close()
-
-        yield
-
-        client = weaviate.connect_to_local()
-        try:
-            client.collections.delete(self.COLLECTION_NAME)
-        finally:
-            client.close()
+    @pytest.fixture(autouse=True)
+    def setup_collection(self, collection_factory, weaviate_client) -> None:
+        self.client = weaviate_client()
+        self.collection = collection_factory(
+            properties=[
+                Property(name="title", data_type=DataType.TEXT, tokenization=wvc.config.Tokenization.WORD),
+                Property(name="tag", data_type=DataType.TEXT, tokenization=wvc.config.Tokenization.FIELD),
+                Property(name="count", data_type=DataType.INT),
+            ],
+            vectorizer_config=Configure.Vectorizer.none(),
+        )
+        self.collection_name = self.collection.name
 
     def test_word_property(self) -> None:
         status, body = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/title/tokenize",
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
             {"text": "The quick brown fox"},
         )
         assert status == 200
@@ -142,7 +127,7 @@ class TestPropertyTokenize:
 
     def test_field_property(self) -> None:
         status, body = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/tag/tokenize",
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/tag/tokenize",
             {"text": "  Hello World  "},
         )
         assert status == 200
@@ -151,7 +136,7 @@ class TestPropertyTokenize:
 
     def test_lowercase_first_letter_class_name(self) -> None:
         """UppercaseClassName only capitalizes the first letter, so 'tokenizeTestCollection' should work."""
-        lowered = self.COLLECTION_NAME[0].lower() + self.COLLECTION_NAME[1:]
+        lowered = self.collection_name[0].lower() + self.collection_name[1:]
         status, _ = post_json(
             f"{WEAVIATE_URL}/v1/schema/{lowered}/properties/title/tokenize",
             {"text": "hello world"},
@@ -160,7 +145,7 @@ class TestPropertyTokenize:
 
     def test_case_insensitive_property_name(self) -> None:
         status, _ = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/Title/tokenize",
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/Title/tokenize",
             {"text": "hello world"},
         )
         assert status == 200
@@ -174,21 +159,21 @@ class TestPropertyTokenize:
 
     def test_property_not_found(self) -> None:
         status, _ = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/nonexistent/tokenize",
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/nonexistent/tokenize",
             {"text": "hello"},
         )
         assert status == 404
 
     def test_non_text_property(self) -> None:
         status, _ = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/count/tokenize",
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/count/tokenize",
             {"text": "hello"},
         )
         assert status == 422
 
     def test_missing_text(self) -> None:
         status, _ = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.COLLECTION_NAME}/properties/title/tokenize",
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
             {},
         )
         assert status == 422
