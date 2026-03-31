@@ -118,7 +118,7 @@ func TestDoExport(t *testing.T) {
 				}
 			}
 
-			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 			req := &ExportRequest{
 				ID:       "test-export",
 				Backend:  "fake",
@@ -176,7 +176,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -228,7 +228,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -272,7 +272,7 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", nil)
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",

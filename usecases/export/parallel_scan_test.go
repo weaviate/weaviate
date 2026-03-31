@@ -548,13 +548,13 @@ func TestScanFieldRoundTrip(t *testing.T) {
 	}
 }
 
-// newTestPipeline creates a rangePipeline backed by a real io.Pipe and
+// newTestPipeline creates a rangePipeline backed by a buffered pipe and
 // ParquetWriter. The upload goroutine drains the pipe reader and sends
-// uploadErr to the done channel. The PipeReader is returned so callers
-// can break the pipe for error-path tests.
-func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *io.PipeReader) {
+// uploadErr to the done channel. The bufferedPipeReader is returned so
+// callers can break the pipe for error-path tests.
+func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *bufferedPipeReader) {
 	t.Helper()
-	pr, pw := io.Pipe()
+	pr, pw := newBufferedPipe(defaultPipeBufferSize)
 	uploadDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(io.Discard, pr)

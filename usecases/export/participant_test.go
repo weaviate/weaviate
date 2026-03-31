@@ -34,7 +34,7 @@ func TestParticipant_PrepareValidation(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	t.Run("nil request", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	req1 := &ExportRequest{
@@ -95,7 +95,7 @@ func TestParticipant_IsRunning(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	// Nothing running yet
@@ -128,7 +128,7 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	const n = 50
@@ -178,7 +178,7 @@ func TestParticipant_PrepareAfterAbort(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	req1 := &ExportRequest{
@@ -221,7 +221,7 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	req1 := &ExportRequest{
@@ -313,7 +313,7 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	req := &ExportRequest{
@@ -365,7 +365,7 @@ func TestParticipant_CommitErrors(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: &fakeBackend{}},
 				logger,
-				&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 			)
 
 			if tc.prepareID != "" {
@@ -409,7 +409,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", nil,
 	)
 
 	req := &ExportRequest{
@@ -508,7 +508,7 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 			}
 
 			p := NewParticipant(sel, &fakeBackendProvider{backend: backend}, logger,
-				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1")
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", nil)
 
 			shards := map[string][]string{"TestClass": {"shard0"}}
 			if !tc.failExport {
@@ -724,7 +724,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,
-				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1",
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", nil,
 			)
 
 			if tc.siblingStatus != nil {
