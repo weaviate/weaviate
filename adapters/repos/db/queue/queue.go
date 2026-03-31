@@ -472,6 +472,7 @@ func (q *DiskQueue) Wait() {
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	q.Pause()
 	defer q.Resume()
+	q.Wait()
 
 	err := q.Flush()
 	if err != nil {
