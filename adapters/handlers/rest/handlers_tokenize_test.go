@@ -48,10 +48,8 @@ func TestHandleGenericTokenize(t *testing.T) {
 			body: &models.TokenizeRequest{
 				Text:         strPtr("The quick brown fox jumps over the lazy dog"),
 				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TokenizeAnalyzerConfig{
-					Stopwords: &models.StopwordConfig{
-						Preset: "en",
-					},
+				AnalyzerConfig: &models.TextAnalyserConfig{
+					StopwordPreset: "en",
 				},
 			},
 			wantOK:      true,
@@ -111,10 +109,8 @@ func TestHandleGenericTokenize(t *testing.T) {
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello"),
 				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TokenizeAnalyzerConfig{
-					Stopwords: &models.StopwordConfig{
-						Preset: "invalid",
-					},
+				AnalyzerConfig: &models.TextAnalyserConfig{
+					StopwordPreset: "invalid",
 				},
 			},
 			wantOK: false,

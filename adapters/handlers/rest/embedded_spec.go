@@ -9520,27 +9520,9 @@ func init() {
           "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
           "type": "string",
           "x-omitempty": true
-        },
-        "tokenizerOverrides": {
-          "description": "User-defined dictionary for tokenization.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/TokenizerUserDictConfig"
-          },
-          "x-omitempty": true
         }
       },
       "x-omitempty": true
-    },
-    "TokenizeAnalyzerConfig": {
-      "description": "Analyzer configuration for the tokenize endpoint.",
-      "type": "object",
-      "properties": {
-        "stopwords": {
-          "description": "Stopword configuration to apply during tokenization.",
-          "$ref": "#/definitions/StopwordConfig"
-        }
-      }
     },
     "TokenizeRequest": {
       "description": "Request body for the generic tokenize endpoint.",
@@ -9552,7 +9534,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -9581,7 +9563,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -19994,27 +19976,9 @@ func init() {
           "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
           "type": "string",
           "x-omitempty": true
-        },
-        "tokenizerOverrides": {
-          "description": "User-defined dictionary for tokenization.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/TokenizerUserDictConfig"
-          },
-          "x-omitempty": true
         }
       },
       "x-omitempty": true
-    },
-    "TokenizeAnalyzerConfig": {
-      "description": "Analyzer configuration for the tokenize endpoint.",
-      "type": "object",
-      "properties": {
-        "stopwords": {
-          "description": "Stopword configuration to apply during tokenization.",
-          "$ref": "#/definitions/StopwordConfig"
-        }
-      }
     },
     "TokenizeRequest": {
       "description": "Request body for the generic tokenize endpoint.",
@@ -20026,7 +19990,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -20055,7 +20019,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",

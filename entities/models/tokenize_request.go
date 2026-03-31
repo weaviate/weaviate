@@ -32,7 +32,7 @@ import (
 type TokenizeRequest struct {
 
 	// Optional analyzer configuration, such as stopword settings.
-	AnalyzerConfig *TokenizeAnalyzerConfig `json:"analyzerConfig,omitempty"`
+	AnalyzerConfig *TextAnalyserConfig `json:"analyzerConfig,omitempty"`
 
 	// The text to tokenize.
 	// Required: true

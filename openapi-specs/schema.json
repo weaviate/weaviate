@@ -984,17 +984,7 @@
         },
         "analyzerConfig": {
           "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
-        }
-      }
-    },
-    "TokenizeAnalyzerConfig": {
-      "description": "Analyzer configuration for the tokenize endpoint.",
-      "type": "object",
-      "properties": {
-        "stopwords": {
-          "description": "Stopword configuration to apply during tokenization.",
-          "$ref": "#/definitions/StopwordConfig"
+          "$ref": "#/definitions/TextAnalyserConfig"
         }
       }
     },
@@ -1008,7 +998,7 @@
         },
         "analyzerConfig": {
           "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "$ref": "#/definitions/TextAnalyserConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -1658,14 +1648,6 @@
           "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
           "type": "string",
           "x-omitempty": true
-        },
-        "tokenizerOverrides" : {
-          "description": "User-defined dictionary for tokenization.",
-          "type": "array",
-          "x-omitempty": true,
-          "items": {
-            "$ref": "#/definitions/TokenizerUserDictConfig"
-          }
         }
       },
       "x-omitempty": true,

@@ -204,10 +204,9 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 	n.Name = m.Name
 	if m.TextAnalyser != nil {
 		n.Processing = PropertyAnalyser{
-			ASCIIFold:          m.TextAnalyser.ASCIIFold,
-			ASCIIFoldIgnore:    m.TextAnalyser.ASCIIFoldIgnore,
-			StopwordPreset:     m.TextAnalyser.StopwordPreset,
-			TokenizerOverrides: m.TextAnalyser.TokenizerOverrides,
+			ASCIIFold:       m.TextAnalyser.ASCIIFold,
+			ASCIIFoldIgnore: m.TextAnalyser.ASCIIFoldIgnore,
+			StopwordPreset:  m.TextAnalyser.StopwordPreset,
 		}
 	}
 	n.Tokenization = m.Tokenization
@@ -238,10 +237,9 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
 	m.TextAnalyser = &models.TextAnalyserConfig{
-		ASCIIFold:          n.Processing.ASCIIFold,
-		ASCIIFoldIgnore:    n.Processing.ASCIIFoldIgnore,
-		StopwordPreset:     n.Processing.StopwordPreset,
-		TokenizerOverrides: n.Processing.TokenizerOverrides,
+		ASCIIFold:       n.Processing.ASCIIFold,
+		ASCIIFoldIgnore: n.Processing.ASCIIFoldIgnore,
+		StopwordPreset:  n.Processing.StopwordPreset,
 	}
 	m.Tokenization = n.Tokenization
 	if len(n.NestedProperties) > 0 {
@@ -288,10 +286,9 @@ func PropertyFromModel(m models.Property) Property {
 	p.Tokenization = m.Tokenization
 	if m.TextAnalyser != nil {
 		p.Analyser = PropertyAnalyser{
-			ASCIIFold:          m.TextAnalyser.ASCIIFold,
-			ASCIIFoldIgnore:    m.TextAnalyser.ASCIIFoldIgnore,
-			StopwordPreset:     m.TextAnalyser.StopwordPreset,
-			TokenizerOverrides: m.TextAnalyser.TokenizerOverrides,
+			ASCIIFold:       m.TextAnalyser.ASCIIFold,
+			ASCIIFoldIgnore: m.TextAnalyser.ASCIIFoldIgnore,
+			StopwordPreset:  m.TextAnalyser.StopwordPreset,
 		}
 	}
 	if len(m.NestedProperties) > 0 {
@@ -324,10 +321,9 @@ func PropertyToModel(p Property) models.Property {
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
 	m.TextAnalyser = &models.TextAnalyserConfig{
-		ASCIIFold:          p.Analyser.ASCIIFold,
-		ASCIIFoldIgnore:    p.Analyser.ASCIIFoldIgnore,
-		StopwordPreset:     p.Analyser.StopwordPreset,
-		TokenizerOverrides: p.Analyser.TokenizerOverrides,
+		ASCIIFold:       p.Analyser.ASCIIFold,
+		ASCIIFoldIgnore: p.Analyser.ASCIIFoldIgnore,
+		StopwordPreset:  p.Analyser.StopwordPreset,
 	}
 	m.Tokenization = p.Tokenization
 	if len(p.NestedProperties) > 0 {

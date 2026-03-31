@@ -18,9 +18,7 @@ package models
 
 import (
 	"context"
-	"strconv"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -38,82 +36,15 @@ type TextAnalyserConfig struct {
 
 	// If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.
 	StopwordPreset string `json:"stopwordPreset,omitempty"`
-
-	// User-defined dictionary for tokenization.
-	TokenizerOverrides []*TokenizerUserDictConfig `json:"tokenizerOverrides,omitempty"`
 }
 
 // Validate validates this text analyser config
 func (m *TextAnalyserConfig) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateTokenizerOverrides(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 
-func (m *TextAnalyserConfig) validateTokenizerOverrides(formats strfmt.Registry) error {
-	if swag.IsZero(m.TokenizerOverrides) { // not required
-		return nil
-	}
-
-	for i := 0; i < len(m.TokenizerOverrides); i++ {
-		if swag.IsZero(m.TokenizerOverrides[i]) { // not required
-			continue
-		}
-
-		if m.TokenizerOverrides[i] != nil {
-			if err := m.TokenizerOverrides[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
-	return nil
-}
-
-// ContextValidate validate this text analyser config based on the context it is used
+// ContextValidate validates this text analyser config based on context it is used
 func (m *TextAnalyserConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateTokenizerOverrides(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *TextAnalyserConfig) contextValidateTokenizerOverrides(ctx context.Context, formats strfmt.Registry) error {
-
-	for i := 0; i < len(m.TokenizerOverrides); i++ {
-
-		if m.TokenizerOverrides[i] != nil {
-			if err := m.TokenizerOverrides[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("tokenizerOverrides" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 
