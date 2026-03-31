@@ -235,10 +235,14 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	indexRangeFilters := n.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
-	m.TextAnalyser = &models.TextAnalyserConfig{
-		ASCIIFold:       n.Processing.ASCIIFold,
-		ASCIIFoldIgnore: n.Processing.ASCIIFoldIgnore,
-		StopwordPreset:  n.Processing.StopwordPreset,
+	if n.Processing.ASCIIFold ||
+		len(n.Processing.ASCIIFoldIgnore) > 0 ||
+		n.Processing.StopwordPreset != "" {
+		m.TextAnalyser = &models.TextAnalyserConfig{
+			ASCIIFold:       n.Processing.ASCIIFold,
+			ASCIIFoldIgnore: n.Processing.ASCIIFoldIgnore,
+			StopwordPreset:  n.Processing.StopwordPreset,
+		}
 	}
 	m.Tokenization = n.Tokenization
 	if len(n.NestedProperties) > 0 {
@@ -319,10 +323,14 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
-	m.TextAnalyser = &models.TextAnalyserConfig{
-		ASCIIFold:       p.Analyser.ASCIIFold,
-		ASCIIFoldIgnore: p.Analyser.ASCIIFoldIgnore,
-		StopwordPreset:  p.Analyser.StopwordPreset,
+	if p.Analyser.ASCIIFold ||
+		len(p.Analyser.ASCIIFoldIgnore) > 0 ||
+		p.Analyser.StopwordPreset != "" {
+		m.TextAnalyser = &models.TextAnalyserConfig{
+			ASCIIFold:       p.Analyser.ASCIIFold,
+			ASCIIFoldIgnore: p.Analyser.ASCIIFoldIgnore,
+			StopwordPreset:  p.Analyser.StopwordPreset,
+		}
 	}
 	m.Tokenization = p.Tokenization
 	if len(p.NestedProperties) > 0 {
