@@ -221,6 +221,8 @@ type RClient interface {
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 }
 
 // FinderClient extends RClient with consistency checks

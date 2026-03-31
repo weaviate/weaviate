@@ -45,6 +45,8 @@ func NewReplicationService(server replicaTypes.Replicator) *ReplicationService {
 	return &ReplicationService{server: server}
 }
 
+var _ pb.ReplicationServiceServer = (*ReplicationService)(nil)
+
 // ── Write operations ─────────────────────────────────────────────────────────
 
 func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
@@ -246,6 +248,14 @@ func (s *ReplicationService) HashTreeLevel(ctx context.Context, req *pb.HashTree
 		return nil, status.Errorf(codes.Internal, "marshal digests: %v", err)
 	}
 	return &pb.HashTreeLevelResponse{DigestsData: data}, nil
+}
+
+func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObjectsRequest) (*pb.CountObjectsResponse, error) {
+	count, err := s.server.CountObjects(ctx, req.GetIndex(), req.GetShard())
+	if err != nil {
+		return nil, replicationErrorToGRPC(err)
+	}
+	return &pb.CountObjectsResponse{Count: int32(count)}, nil
 }
 
 func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse {

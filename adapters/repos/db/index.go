@@ -2572,16 +2572,20 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
-	params aggregation.Params, modules *modules.Provider, tenant string,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	cl := i.consistencyLevel(replProps)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	results := make([]*aggregation.Result, len(readPlan.Shards()))
-	for j, shardName := range readPlan.Shards() {
+	shards := readPlan.Shards()
+	if aggregation.IsCountStar(&params) {
+		return i.aggregateCount(ctx, shards)
+	}
+
+	results := make([]*aggregation.Result, len(shards))
+	for j, shardName := range shards {
 		var err error
 		var res *aggregation.Result
 
@@ -2589,7 +2593,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		var release func()
 		// anonymous func is here to ensure release is executed after each loop iteration
 		func() {
-			shard, release, err = i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
+			shard, release, err = i.getShardForDirectLocalOperation(ctx, params.Tenant, shardName, localShardOperationRead, 0)
 			defer release()
 			if err == nil {
 				if shard != nil {
@@ -2608,6 +2612,31 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 
 	return aggregator.NewShardCombiner().Do(results), nil
+}
+
+func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
+	var total atomic.Int32
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(min(len(shards), runtime.GOMAXPROCS(0)*4))
+
+	for si := range shards {
+		shard := shards[si]
+		eg.Go(func() error {
+			count, err := i.replicator.CountObjects(ctx, shard, routerTypes.ConsistencyLevelAll)
+			if err != nil {
+				return err
+			}
+			total.Add(int32(count))
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return &aggregation.Result{Groups: []aggregation.Group{{Count: int(total.Load())}}}, nil
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,

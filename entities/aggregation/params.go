@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -75,6 +76,25 @@ func (p *Params) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return fmt.Errorf("searchVector: cannot unmarshal into either []float32 or [][]float32: %v", aux.SearchVector)
+}
+
+// IsCountStart returns true if the user requests the object count and nothing else.
+func IsCountStar(p *Params) bool {
+	noVector, err := dto.IsVectorEmpty(p.SearchVector)
+	noVector = noVector || err != nil // unknown vector type counts as no vector
+
+	return p.IncludeMetaCount &&
+		p.Filters == nil &&
+		len(p.Properties) == 0 &&
+		p.Limit == nil &&
+		p.ObjectLimit == nil &&
+		noVector &&
+		p.TargetVector == "" &&
+		len(p.ModuleParams) == 0 &&
+		p.NearVector == nil &&
+		p.NearObject == nil &&
+		p.Hybrid == nil &&
+		p.GroupBy == nil
 }
 
 type ParamProperty struct {

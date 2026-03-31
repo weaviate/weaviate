@@ -52,6 +52,8 @@ const (
 
 type replicationClient retryClient
 
+var _ (replica.Client) = (*replicationClient)(nil)
+
 func NewReplicationClient(httpClient *http.Client) *replicationClient {
 	return &replicationClient{
 		client:  httpClient,
@@ -153,6 +155,19 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	req.Header.Set("X-Request-Compression", "zstd")
 
 	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, bodyBytes, &resp, MAX_RETRIES)
+	return resp, err
+}
+
+func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	var resp int
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodGet, host, index, shard,
+		"", "_count", nil, 0,
+	)
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, &resp, MAX_RETRIES)
 	return resp, err
 }
 

@@ -58,7 +58,7 @@ func (db *DB) Aggregate(ctx context.Context,
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, nil, params, modules, params.Tenant)
+	return idx.aggregate(ctx, nil, params, modules)
 }
 
 func (db *DB) GetQueryMaximumResults() int {

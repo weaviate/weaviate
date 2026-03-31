@@ -23,6 +23,7 @@ service ReplicationService {
   rpc OverwriteObjects (OverwriteObjectsRequest) returns (OverwriteObjectsResponse);
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
+  rpc CountObjects (CountObjectsRequest) returns (CountObjectsResponse);
 }
 
 // ── Shared messages ──────────────────────────────────────────────────────────
@@ -239,4 +240,15 @@ message HashTreeLevelRequest {
 // HashTreeLevelResponse carries digests as opaque binary (JSON-encoded []hashtree.Digest).
 message HashTreeLevelResponse {
   bytes digests_data = 1; // JSON-encoded []hashtree.Digest
+}
+
+// CountObjects fetches hash tree level digests.
+message CountObjectsRequest {
+  string index = 1;
+  string shard = 2;
+}
+
+// CountObjectsResponse carries object count.
+message CountObjectsResponse {
+  int32 count = 1;
 }

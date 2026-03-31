@@ -473,6 +473,10 @@ type FakeReplicationClient struct{}
 
 var _ replica.Client = (*FakeReplicationClient)(nil)
 
+func (f *FakeReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	return 0, nil
+}
+
 func (f *FakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {

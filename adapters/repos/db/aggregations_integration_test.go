@@ -16,6 +16,10 @@ package db
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -26,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/clients"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -37,7 +42,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+var objectCount int
+
 func Test_Aggregations(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strconv.Itoa(objectCount))
+	}))
+	t.Cleanup(srv.Close)
+
 	dirName := t.TempDir()
 
 	shardState := singleShardState()
@@ -59,13 +71,13 @@ func Test_Aggregations(t *testing.T) {
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(srv.URL[7:], true).Maybe()
 	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, clients.NewReplicationClient(&http.Client{}), nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -79,7 +91,7 @@ func Test_Aggregations(t *testing.T) {
 		testNumericalAggregationsWithGrouping(repo, true))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo, true))
+		testNumericalAggregationsWithoutGrouping(repo, true, 1))
 
 	t.Run("numerical aggregations with filters",
 		testNumericalAggregationsWithFilters(repo))
@@ -98,6 +110,11 @@ func Test_Aggregations(t *testing.T) {
 }
 
 func Test_Aggregations_MultiShard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strconv.Itoa(objectCount))
+	}))
+	t.Cleanup(srv.Close)
+
 	dirName := t.TempDir()
 
 	shardState := fixedMultiShardState()
@@ -107,7 +124,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		shardState: shardState,
 	}
 	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
+	physicalShards := shardState.AllPhysicalShards()
+	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(physicalShards, nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
@@ -119,13 +137,13 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(srv.URL[7:], true).Maybe()
 	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, clients.NewReplicationClient(&http.Client{}), nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -139,7 +157,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		testNumericalAggregationsWithGrouping(repo, false))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo, false))
+		testNumericalAggregationsWithoutGrouping(repo, false, len(physicalShards)))
 
 	t.Run("numerical aggregations with filters",
 		testNumericalAggregationsWithFilters(repo))
@@ -1323,10 +1341,11 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 }
 
 func testNumericalAggregationsWithoutGrouping(repo *DB,
-	exact bool,
+	exact bool, countShards int,
 ) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
+			objectCount = 90
 			params := aggregation.Params{
 				ClassName:        schema.ClassName(companyClass.Class),
 				IncludeMetaCount: true,
@@ -1340,7 +1359,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				Groups: []aggregation.Group{
 					{
 						GroupedBy: nil,
-						Count:     90,
+						Count:     90 * countShards,
 					},
 				},
 			}
@@ -2006,6 +2025,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 		})
 
 		t.Run("array types, only meta count, no other aggregations", func(t *testing.T) {
+			objectCount = 2
 			params := aggregation.Params{
 				ClassName:        schema.ClassName(arrayTypesClass.Class),
 				IncludeMetaCount: true,
@@ -2019,7 +2039,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				Groups: []aggregation.Group{
 					{
 						GroupedBy: nil,
-						Count:     2,
+						Count:     2 * countShards,
 					},
 				},
 			}

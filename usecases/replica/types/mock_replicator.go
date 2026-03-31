@@ -149,6 +149,64 @@ func (_c *MockReplicator_CommitReplication_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// CountObjects provides a mock function with given fields: ctx, indexName, shardName
+func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
+	ret := _m.Called(ctx, indexName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountObjects")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (int, error)); ok {
+		return rf(ctx, indexName, shardName)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) int); ok {
+		r0 = rf(ctx, indexName, shardName)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, indexName, shardName)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_CountObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountObjects'
+type MockReplicator_CountObjects_Call struct {
+	*mock.Call
+}
+
+// CountObjects is a helper method to define mock.On call
+//   - ctx context.Context
+//   - indexName string
+//   - shardName string
+func (_e *MockReplicator_Expecter) CountObjects(ctx interface{}, indexName interface{}, shardName interface{}) *MockReplicator_CountObjects_Call {
+	return &MockReplicator_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, indexName, shardName)}
+}
+
+func (_c *MockReplicator_CountObjects_Call) Run(run func(ctx context.Context, indexName string, shardName string)) *MockReplicator_CountObjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_CountObjects_Call) Return(_a0 int, _a1 error) *MockReplicator_CountObjects_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicator_CountObjects_Call) RunAndReturn(run func(context.Context, string, string) (int, error)) *MockReplicator_CountObjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DigestObjects provides a mock function with given fields: ctx, className, shardName, ids
 func (_m *MockReplicator) DigestObjects(ctx context.Context, className string, shardName string, ids []strfmt.UUID) ([]routertypes.RepairResponse, error) {
 	ret := _m.Called(ctx, className, shardName, ids)

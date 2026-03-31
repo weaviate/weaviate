@@ -45,4 +45,5 @@ type Replicator interface {
 	HashTreeLevel(ctx context.Context, className, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
+	CountObjects(ctx context.Context, indexName, shardName string) (int, error)
 }
