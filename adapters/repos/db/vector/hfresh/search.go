@@ -329,7 +329,7 @@ func (h *HFresh) SearchByMultiVector(ctx context.Context, vectors [][]float32, k
 	}
 
 	queryFlat := h.muveraEncoder.EncodeQuery(vectors)
-	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, 2*k, allow)
+	candidateIDs, _, err := h.SearchByVector(ctx, queryFlat, int(h.rescoreLimit), allow)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "muvera candidate search")
 	}
@@ -405,7 +405,7 @@ func (h *HFresh) QueryMultiVectorDistancer(queryVectors [][]float32) common.Quer
 	}
 
 	distFunc := func(id uint64) (float32, error) {
-		docVectors, err := h.multivectorForId(h.ctx, id)
+		docVectors, err := h.multivectorForIdThunk(h.ctx, id)
 		if err != nil {
 			return 0, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
@@ -419,7 +419,7 @@ func (h *HFresh) computeLateInteraction(ctx context.Context, queryVectors [][]fl
 	results := NewResultSet(k)
 
 	for _, id := range candidateIDs {
-		docVectors, err := h.multivectorForId(ctx, id)
+		docVectors, err := h.multivectorForIdThunk(ctx, id)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "get multi-vector for id %d", id)
 		}
