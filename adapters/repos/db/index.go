@@ -1886,7 +1886,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		localCtx := helpers.InitSlowQueryDetails(ctx)
 		helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 		var shardStart time.Time
-		if addlProps.Profile {
+		if addlProps.QueryProfile {
 			shardStart = time.Now()
 		}
 		objs, scores, err := shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
@@ -1895,7 +1895,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				"local shard object search %s: %w", shard.ID(), err)
 		}
 		nodeName := i.getSchema.NodeName()
-		if addlProps.Profile {
+		if addlProps.QueryProfile {
 			searchType := "keyword"
 			if keywordRanking == nil {
 				searchType = "object"
@@ -2010,7 +2010,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	var shardStart time.Time
-	if additional.Profile {
+	if additional.QueryProfile {
 		shardStart = time.Now()
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
@@ -2018,7 +2018,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
-	if additional.Profile {
+	if additional.QueryProfile {
 		helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 	return res, resDists, nil
@@ -2041,7 +2041,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	localCtx := helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 	var shardStart time.Time
-	if additionalProps.Profile {
+	if additionalProps.QueryProfile {
 		shardStart = time.Now()
 	}
 	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
@@ -2049,7 +2049,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
-	if additionalProps.Profile {
+	if additionalProps.QueryProfile {
 		helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 	}
 	// Append result to out
@@ -2089,7 +2089,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 			}
 			outObjects = append(outObjects, remoteShardResult.Objects...)
 			outScores = append(outScores, remoteShardResult.Scores...)
-			helpers.AddRemoteProfiles(ctx, remoteShardResult.Profiles)
+			helpers.AddRemoteProfiles(ctx, remoteShardResult.QueryProfiles)
 		}
 	} else {
 		// Search only what is necessary
@@ -2290,20 +2290,20 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
-	if additional.Profile {
+	if additional.QueryProfile {
 		ctx = helpers.InitProfileCollector(ctx)
 	}
 
 	if len(searchVectors) == 0 {
 		var shardStart time.Time
-		if additional.Profile {
+		if additional.QueryProfile {
 			shardStart = time.Now()
 		}
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if additional.Profile {
+		if additional.QueryProfile {
 			searchType := "keyword"
 			if keywordRanking == nil {
 				searchType = "object"
@@ -2315,7 +2315,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	var shardStart time.Time
-	if additional.Profile {
+	if additional.QueryProfile {
 		shardStart = time.Now()
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
@@ -2323,7 +2323,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
-	if additional.Profile {
+	if additional.QueryProfile {
 		helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 

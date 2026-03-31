@@ -83,9 +83,9 @@ message MetadataRequest {
   bool explain_score = 8;
   bool is_consistent = 9;
   repeated string vectors = 10;
-  // profile enables per-shard query profiling. When true, the response includes
+  // query_profile enables per-shard query profiling. When true, the response includes
   // timing breakdowns for each shard and search type.
-  bool profile = 11;
+  bool query_profile = 11;
 }
 
 message PropertiesRequest {

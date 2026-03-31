@@ -41,8 +41,8 @@ type Properties struct {
 	ExplainScore            bool                   `json:"explainScore"`
 	IsConsistent            bool                   `json:"isConsistent"`
 	Group                   bool                   `json:"group"`
-	// Profile enables per-shard query profiling data collection and return.
-	Profile bool `json:"profile"`
+	// QueryProfile enables per-shard query profiling data collection and return.
+	QueryProfile bool `json:"queryProfile"`
 
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.

@@ -271,9 +271,9 @@ type ReplicasSearchResult struct {
 	Objects []*storobj.Object
 	Scores  []float32
 	Node    string
-	// Profiles contains per-shard profiling data returned from the remote node.
-	// Only populated when additional.Profile is true.
-	Profiles []helpers.ShardProfile
+	// QueryProfiles contains per-shard profiling data returned from the remote node.
+	// Only populated when additional.QueryProfile is true.
+	QueryProfiles []helpers.ShardProfile
 }
 
 func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
@@ -299,7 +299,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 		if err != nil {
 			return ReplicasSearchResult{}, err
 		}
-		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node, Profiles: profiles}, nil
+		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node, QueryProfiles: profiles}, nil
 	}
 	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
 }

@@ -99,7 +99,7 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
-	if searchParams.AdditionalProperties.Profile {
+	if searchParams.AdditionalProperties.QueryProfile {
 		out.QueryProfile = r.extractQueryProfile(res)
 	}
 	return out, nil
@@ -119,7 +119,7 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 	if !ok {
 		return nil
 	}
-	profiles, ok := additional["profileRaw"].([]helpers.ShardProfile)
+	profiles, ok := additional["queryProfileRaw"].([]helpers.ShardProfile)
 	if !ok {
 		return nil
 	}

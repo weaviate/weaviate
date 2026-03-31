@@ -187,7 +187,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
-	additionalProperties["profile"] = b.additionalProfileField()
+	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
@@ -285,9 +285,9 @@ func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
 	}
 }
 
-// additionalProfileField returns the GraphQL field definition for per-query
+// additionalQueryProfileField returns the GraphQL field definition for per-query
 // profiling data, returned as a JSON string.
-func (b *classBuilder) additionalProfileField() *graphql.Field {
+func (b *classBuilder) additionalQueryProfileField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
 	}

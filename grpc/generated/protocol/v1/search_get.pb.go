@@ -419,9 +419,9 @@ type MetadataRequest struct {
 	ExplainScore       bool                   `protobuf:"varint,8,opt,name=explain_score,json=explainScore,proto3" json:"explain_score,omitempty"`
 	IsConsistent       bool                   `protobuf:"varint,9,opt,name=is_consistent,json=isConsistent,proto3" json:"is_consistent,omitempty"`
 	Vectors            []string               `protobuf:"bytes,10,rep,name=vectors,proto3" json:"vectors,omitempty"`
-	// profile enables per-shard query profiling. When true, the response includes
+	// query_profile enables per-shard query profiling. When true, the response includes
 	// timing breakdowns for each shard and search type.
-	Profile       bool `protobuf:"varint,11,opt,name=profile,proto3" json:"profile,omitempty"`
+	QueryProfile  bool `protobuf:"varint,11,opt,name=query_profile,json=queryProfile,proto3" json:"query_profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -526,9 +526,9 @@ func (x *MetadataRequest) GetVectors() []string {
 	return nil
 }
 
-func (x *MetadataRequest) GetProfile() bool {
+func (x *MetadataRequest) GetQueryProfile() bool {
 	if x != nil {
-		return x.Profile
+		return x.QueryProfile
 	}
 	return false
 }
@@ -1663,7 +1663,7 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x11objects_per_group\x18\x03 \x01(\x05R\x0fobjectsPerGroup\":\n" +
 	"\x06SortBy\x12\x1c\n" +
 	"\tascending\x18\x01 \x01(\bR\tascending\x12\x12\n" +
-	"\x04path\x18\x02 \x03(\tR\x04path\"\xec\x02\n" +
+	"\x04path\x18\x02 \x03(\tR\x04path\"\xf7\x02\n" +
 	"\x0fMetadataRequest\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\bR\x04uuid\x12\x16\n" +
 	"\x06vector\x18\x02 \x01(\bR\x06vector\x12,\n" +
@@ -1675,8 +1675,8 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\rexplain_score\x18\b \x01(\bR\fexplainScore\x12#\n" +
 	"\ris_consistent\x18\t \x01(\bR\fisConsistent\x12\x18\n" +
 	"\avectors\x18\n" +
-	" \x03(\tR\avectors\x12\x18\n" +
-	"\aprofile\x18\v \x01(\bR\aprofile\"\x9f\x02\n" +
+	" \x03(\tR\avectors\x12#\n" +
+	"\rquery_profile\x18\v \x01(\bR\fqueryProfile\"\x9f\x02\n" +
 	"\x11PropertiesRequest\x12,\n" +
 	"\x12non_ref_properties\x18\x01 \x03(\tR\x10nonRefProperties\x12H\n" +
 	"\x0eref_properties\x18\x02 \x03(\v2!.weaviate.v1.RefPropertiesRequestR\rrefProperties\x12Q\n" +

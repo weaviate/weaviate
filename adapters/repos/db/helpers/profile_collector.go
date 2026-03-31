@@ -174,8 +174,8 @@ func AddRemoteProfiles(ctx context.Context, profiles []ShardProfile) {
 // AttachProfileToResults calls [ExtractProfiles] and attaches the collected
 // [ShardProfile] entries to the first search result's AdditionalProperties.
 // Profile data is per-query (not per-object), so it is only attached to results[0].
-// The data is stored in two formats: "profileRaw" ([][ShardProfile] for gRPC)
-// and "profile" (JSON string for GraphQL).
+// The data is stored in two formats: "queryProfileRaw" ([][ShardProfile] for gRPC)
+// and "queryProfile" (JSON string for GraphQL).
 func AttachProfileToResults(ctx context.Context, results search.Results) search.Results {
 	profiles := ExtractProfiles(ctx)
 	if len(profiles) == 0 || len(results) == 0 {
@@ -185,10 +185,10 @@ func AttachProfileToResults(ctx context.Context, results search.Results) search.
 		results[0].AdditionalProperties = make(models.AdditionalProperties)
 	}
 	// Store raw profiles for gRPC consumption.
-	results[0].AdditionalProperties["profileRaw"] = profiles
+	results[0].AdditionalProperties["queryProfileRaw"] = profiles
 	// Store JSON string for GraphQL consumption.
 	if b, err := json.Marshal(profiles); err == nil {
-		results[0].AdditionalProperties["profile"] = string(b)
+		results[0].AdditionalProperties["queryProfile"] = string(b)
 	}
 	return results
 }

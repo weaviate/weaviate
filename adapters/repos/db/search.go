@@ -82,7 +82,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		}).Debugf("sparse object search query completed in %s", took)
 	}()
 
-	if params.AdditionalProperties.Profile {
+	if params.AdditionalProperties.QueryProfile {
 		ctx = helpers.InitProfileCollector(ctx)
 	}
 
@@ -132,7 +132,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
-	if params.AdditionalProperties.Profile {
+	if params.AdditionalProperties.QueryProfile {
 		ctx = helpers.InitProfileCollector(ctx)
 	}
 
@@ -148,7 +148,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 	if err != nil {
 		return nil, err
 	}
-	if params.AdditionalProperties.Profile {
+	if params.AdditionalProperties.QueryProfile {
 		results = helpers.AttachProfileToResults(ctx, results)
 	}
 	return results, nil
@@ -172,7 +172,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 		return results, err
 	}
 
-	if params.AdditionalProperties.Profile {
+	if params.AdditionalProperties.QueryProfile {
 		ctx = helpers.InitProfileCollector(ctx)
 	}
 
@@ -205,7 +205,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if params.AdditionalProperties.Profile {
+	if params.AdditionalProperties.QueryProfile {
 		results = helpers.AttachProfileToResults(ctx, results)
 	}
 	return results, nil

@@ -82,7 +82,7 @@ func TestQueryProfiling(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: className,
 			Limit:      5,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, Profile: true},
+			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, QueryProfile: true},
 			NearVector: &pb.NearVector{
 				Vectors: []*pb.Vectors{{
 					VectorBytes: vecBytes,
@@ -111,7 +111,7 @@ func TestQueryProfiling(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: className,
 			Limit:      5,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, Profile: true},
+			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
 			Bm25Search: &pb.BM25{
 				Query:      "hello world document",
 				Properties: []string{"text"},
@@ -137,7 +137,7 @@ func TestQueryProfiling(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: className,
 			Limit:      5,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, Profile: true},
+			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
 			HybridSearch: &pb.Hybrid{
 				Query:      "hello world document",
 				Alpha:      0.5,
@@ -189,7 +189,7 @@ func TestQueryProfiling(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: className,
 			Limit:      5,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, Profile: true},
+			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, QueryProfile: true},
 			NearVector: &pb.NearVector{
 				Vectors: []*pb.Vectors{{
 					VectorBytes: vecBytes,
@@ -226,7 +226,7 @@ func TestQueryProfiling(t *testing.T) {
 				resp, err := nodeGrpcClient.Search(ctx, &pb.SearchRequest{
 					Collection: className,
 					Limit:      5,
-					Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, Profile: true},
+					Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, QueryProfile: true},
 					NearVector: &pb.NearVector{
 						Vectors: []*pb.Vectors{{
 							VectorBytes: vecBytes,
@@ -260,7 +260,7 @@ func TestQueryProfiling(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
 			Collection: className,
 			Limit:      5,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, Profile: true},
+			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, QueryProfile: true},
 			NearVector: &pb.NearVector{
 				Vectors: []*pb.Vectors{{
 					VectorBytes: vecBytes,

@@ -193,7 +193,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	if params.AdditionalProperties.Profile {
+	if params.AdditionalProperties.QueryProfile {
 		ctx = helpers.InitProfileCollector(ctx)
 	}
 
@@ -437,7 +437,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		out = []search.Result{}
 	}
 
-	if origParams.AdditionalProperties.Profile {
+	if origParams.AdditionalProperties.QueryProfile {
 		out = helpers.AttachProfileToResults(ctx, out)
 	}
 

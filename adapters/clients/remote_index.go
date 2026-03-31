@@ -395,17 +395,17 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
-	return resp.Objects, resp.Distributions, resp.Profiles, err
+	return resp.Objects, resp.Distributions, resp.QueryProfiles, err
 }
 
 type searchShardResp struct {
 	Objects       []*storobj.Object
 	Distributions []float32
-	Profiles      []helpers.ShardProfile
+	QueryProfiles []helpers.ShardProfile
 }
 
 func (r *searchShardResp) decode(data []byte) (err error) {
-	r.Objects, r.Distributions, r.Profiles, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
+	r.Objects, r.Distributions, r.QueryProfiles, err = clusterapi.IndicesPayloads.SearchResults.Unmarshal(data)
 	return err
 }
 

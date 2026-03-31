@@ -287,13 +287,13 @@ func TestAttachProfileToResults(t *testing.T) {
 
 	require.NotNil(t, results[0].AdditionalProperties)
 	// GraphQL: JSON string
-	profileStr, ok := results[0].AdditionalProperties["profile"].(string)
+	profileStr, ok := results[0].AdditionalProperties["queryProfile"].(string)
 	require.True(t, ok)
 	assert.Contains(t, profileStr, "shard-1")
 	assert.Contains(t, profileStr, "vector")
 
 	// gRPC: raw profiles
-	profiles, ok := results[0].AdditionalProperties["profileRaw"].([]ShardProfile)
+	profiles, ok := results[0].AdditionalProperties["queryProfileRaw"].([]ShardProfile)
 	require.True(t, ok)
 	require.Len(t, profiles, 1)
 	assert.Equal(t, "shard-1", profiles[0].Name)
@@ -336,7 +336,7 @@ func TestAttachProfileToResults_ExistingAdditionalProperties(t *testing.T) {
 
 	results = AttachProfileToResults(ctx, results)
 	assert.Equal(t, "value", results[0].AdditionalProperties["existing"])
-	profiles, ok := results[0].AdditionalProperties["profileRaw"].([]ShardProfile)
+	profiles, ok := results[0].AdditionalProperties["queryProfileRaw"].([]ShardProfile)
 	require.True(t, ok)
 	require.Len(t, profiles, 1)
 }
