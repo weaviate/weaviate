@@ -500,6 +500,14 @@ func (s *BackupTestSuite) RestoreBackup(t *testing.T, backupID string) {
 
 	// Start restore
 	resp, err := helper.RestoreBackup(t, cfg, s.config.ClassName, s.config.BackendType, backupID, nil, false)
+	if err != nil {
+		var uerr *backups.BackupsRestoreUnprocessableEntity
+		if errors.As(err, &uerr) && uerr.Payload != nil {
+			for _, item := range uerr.Payload.Error {
+				t.Logf("restore 422 error: %s", item.Message)
+			}
+		}
+	}
 	require.NoError(t, err, "restore backup should succeed")
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)

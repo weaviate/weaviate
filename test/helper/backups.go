@@ -235,6 +235,9 @@ func ExpectBackupEventuallyRestored(t *testing.T, backupID, backend string, auth
 		require.NotNil(c, resp.Payload, "empty response")
 
 		status := *resp.Payload.Status
-		require.Equal(c, "SUCCESS", status, "backup restore status")
+		if status == "FAILED" {
+			t.Logf("backup %s restore failed: %s", backupID, resp.Payload.Error)
+		}
+		require.Equal(c, "SUCCESS", status, "backup restore status: %s", resp.Payload.Error)
 	}, opt.Deadline, opt.Interval, "backup %s not restored after %s", backupID, opt.Deadline)
 }

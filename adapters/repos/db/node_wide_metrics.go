@@ -373,6 +373,9 @@ func (o *nodeWideMetricsObserver) observeDimensionMetrics() {
 }
 
 func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
+	if o.db.config.DisableDimensionMetrics.Get() {
+		return
+	}
 	var indices map[string]*Index
 	// We're a low-priority process, copy the index map to avoid blocking others.
 	// No new indices can be added while we're holding the lock anyways.

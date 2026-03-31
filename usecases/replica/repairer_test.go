@@ -893,7 +893,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 					repl(ids[2], 3, false),
 					repl(ids[4], 3, false),
 				}
-				want = setObjectsConsistency(result, true)
+				// CheckConsistency no longer replaces objects in xs with newer versions
+				// from replicas — xs always retains the original objects returned by the
+				// local search. Only IsConsistent is updated.
+				want = setObjectsConsistency(xs, true)
 			)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).Return(digestR2, nil)
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, ids, anyVal).Return(digestR3, nil)
@@ -1218,8 +1221,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				}
 			)
 
+			// CheckConsistency no longer replaces objects in xs with newer versions
+			// from replicas — xs always retains the original objects returned by the
+			// local search. Only IsConsistent is updated.
 			want := setObjectsConsistency(xs, true)
-			want[2].Object.LastUpdateTimeUnix = 4
 
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, ids, anyVal).
 				Return(digestR2, nil).

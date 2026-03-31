@@ -60,6 +60,12 @@ const (
 var DefaultUsingBlockMaxWAND = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
 
 const (
+	// Lazy load shard auto-detection thresholds
+	DefaultLazyLoadShardCountThreshold  = 1000
+	DefaultLazyLoadShardSizeThresholdGB = 100.0 // 100GB
+)
+
+const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 
 	DefaultDiskUseWarningPercentage  = uint64(80)
@@ -112,68 +118,73 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Backup                              Backup                   `json:"backup" yaml:"backup"`
-	Name                                string                   `json:"name" yaml:"name"`
-	Debug                               bool                     `json:"debug" yaml:"debug"`
-	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
-	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
-	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
-	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
-	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
-	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
-	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
-	Origin                              string                   `json:"origin" yaml:"origin"`
-	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
-	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules               bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
-	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
-	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
-	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
-	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
-	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
-	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
-	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
-	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
-	MaximumConcurrentBucketLoads        int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
-	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
-	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	EnableLazyLoadShards                bool                     `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
-	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
-	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
-	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
-	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig     `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
-	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
-	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
-	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
-	CORS                                CORS                     `json:"cors" yaml:"cors"`
-	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
-	TelemetryURL                        string                   `json:"telemetry_url" yaml:"telemetry_url"`
-	TelemetryPushInterval               time.Duration            `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
-	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
-	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
-	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
-	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
-	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
-	AsyncIndexingEnabled                bool                     `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
-	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
-	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
-	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
-	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
-	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
-	ReplicationEngineFileCopyChunkSize  int                      `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
+	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	Name                             string                   `json:"name" yaml:"name"`
+	Debug                            bool                     `json:"debug" yaml:"debug"`
+	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
+	QueryNestedCrossReferenceLimit   int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit    int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
+	Contextionary                    Contextionary            `json:"contextionary" yaml:"contextionary"`
+	Authentication                   Authentication           `json:"authentication" yaml:"authentication"`
+	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
+	Origin                           string                   `json:"origin" yaml:"origin"`
+	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
+	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
+	ModulesPath                      string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout          time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
+	AutoSchema                       AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                          cluster.Config           `json:"cluster" yaml:"cluster"`
+	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
+	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
+	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`
+	Profiling                        Profiling                `json:"profiling" yaml:"profiling"`
+	ResourceUsage                    ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor        float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests     int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	MaximumConcurrentShardLoads      int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
+	MaximumConcurrentBucketLoads     int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
+	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
+	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.
+	EnableLazyLoadShards                *bool                  `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold         int                    `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB        float64                `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	ForceFullReplicasSearch             bool                   `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	TransferInactivityTimeout           time.Duration          `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
+	RecountPropertiesAtStartup          bool                   `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
+	ReindexSetToRoaringsetAtStartup     bool                   `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	ReindexerGoroutinesFactor           float64                `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
+	ReindexMapToBlockmaxAtStartup       bool                   `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
+	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig   `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
+	IndexMissingTextFilterableAtStartup bool                   `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
+	DisableGraphQL                      bool                   `json:"disable_graphql" yaml:"disable_graphql"`
+	AvoidMmap                           bool                   `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                   `json:"cors" yaml:"cors"`
+	DisableTelemetry                    bool                   `json:"disable_telemetry" yaml:"disable_telemetry"`
+	TelemetryURL                        string                 `json:"telemetry_url" yaml:"telemetry_url"`
+	TelemetryPushInterval               time.Duration          `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
+	HNSWStartupWaitForVectorCache       bool                   `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	HNSWVisitedListPoolMaxSize          int                    `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                    `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	HNSWAcornFilterRatio                float64                `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	HNSWGeoIndexEF                      int                    `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
+	AsyncIndexingEnabled                bool                   `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
+	Sentry                              *entsentry.ConfigOpts  `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
+	SchemaHandlerConfig                 SchemaHandlerConfig    `json:"schema" yaml:"schema"`
+	DistributedTasks                    DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
+	ReplicationEngineMaxWorkers         int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
+	ReplicationEngineFileCopyWorkers    int                    `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
+	HFreshEnabled                       bool                   `json:"hfresh_enabled" yaml:"hfresh_enabled"`
+	ReplicationEngineFileCopyChunkSize  int                    `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -220,6 +231,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this shard count instead of the cluster node count.
+	// A value of 0 means use the cluster node count (default behavior).
+	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
+
 	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
 	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
 
@@ -252,6 +267,9 @@ type Config struct {
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
+	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -377,10 +395,14 @@ const DefaultBackupMinChunkSize = 1024 * 1024 // 1MB
 // DefaultBackupChunkTargetSize is the default target size for packing small files into chunks
 const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
 
+// DefaultBackupSplitFileSize is the default size for splitting large files during backup
+const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
+
 // Backup contains backup-related configuration
 type Backup struct {
 	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
 	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
+	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

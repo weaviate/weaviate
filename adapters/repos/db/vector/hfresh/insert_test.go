@@ -70,7 +70,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 			name:                   "max posting size kb large vector",
 			maxPostingSizeKB:       8,
 			vectorDim:              4096,
-			expectedMaxPostingSize: 16,
+			expectedMaxPostingSize: 192,
 		},
 	}
 

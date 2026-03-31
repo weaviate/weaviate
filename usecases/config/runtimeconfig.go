@@ -51,6 +51,7 @@ type WeaviateRuntimeConfig struct {
 	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
 	OperationalMode                      *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
 	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
+	DefaultShardingCount                 *runtime.DynamicValue[int]           `yaml:"default_sharding_count" json:"default_sharding_count"`
 
 	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
@@ -71,6 +72,7 @@ type WeaviateRuntimeConfig struct {
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"authentication_oidc_scopes" json:"authentication_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
+	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

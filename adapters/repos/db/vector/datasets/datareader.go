@@ -46,7 +46,7 @@ func validateColumns(columnIndices map[string]int, requiredColumns ...string) er
 // TODO: Can be consolidated with the DataReader into a single struct.
 type parquetRowReader struct {
 	osFile        *os.File
-	pqReader      *parquet.Reader //nolint:staticcheck
+	pqReader      *parquet.Reader
 	columnIndices map[string]int
 	startRow      int
 	fileRows      int

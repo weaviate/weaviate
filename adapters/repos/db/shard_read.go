@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -42,27 +43,32 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
+	s.activityTrackerRead.Add(1)
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
-		return nil, err
+		return types.RepairResponse{}, err
 	}
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrDeleted(idBytes)
 	if err != nil {
-		return nil, err
+		return types.RepairResponse{}, err
 	}
 
-	if bytes == nil {
-		return nil, nil
-	}
-
-	obj, err := storobj.FromBinary(bytes)
+	_, updateTime, err := storobj.DocIDAndTimeFromBinary(bytes)
 	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal object")
+		return types.RepairResponse{}, fmt.Errorf("cannot extract updateTime from binary header for id %s: %w", id.String(), err)
 	}
 
-	return obj, nil
+	replicaObj := types.RepairResponse{
+		ID:         id.String(),
+		UpdateTime: updateTime,
+		// TODO: use version when supported
+		Version: 0,
+	}
+
+	return replicaObj, nil
 }
 
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
@@ -124,6 +130,41 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
+func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
+	s.activityTrackerRead.Add(1)
+
+	objects := make([]types.RepairResponse, len(query))
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	for i, q := range query {
+		idBytes, err := uuid.MustParse(q.ID).MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		data, err := bucket.Get(idBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if data == nil {
+			continue
+		}
+
+		_, updateTime, err := storobj.DocIDAndTimeFromBinary(data)
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot extract docID/updateTime from binary header")
+		}
+
+		objects[i] = types.RepairResponse{
+			ID:         q.ID,
+			UpdateTime: updateTime,
+		}
+	}
+
+	return objects, nil
+}
+
 func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
 	objs []types.RepairResponse, err error,
@@ -150,14 +191,19 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			return objs, ctx.Err()
 		}
 
-		obj, err := storobj.FromBinaryUUIDOnly(v)
+		_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
 		if err != nil {
-			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+			return objs, fmt.Errorf("cannot extract docID/updateTime from binary header: %w", err)
+		}
+
+		uuidParsed, err := uuid.FromBytes(k)
+		if err != nil {
+			return objs, fmt.Errorf("cannot parse object uuid: %w", err)
 		}
 
 		replicaObj := types.RepairResponse{
-			ID:         obj.ID().String(),
-			UpdateTime: obj.LastUpdateTimeUnix(),
+			ID:         uuidParsed.String(),
+			UpdateTime: updateTime,
 			// TODO: use version when supported
 			Version: 0,
 		}
@@ -246,7 +292,15 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	return vecs, nil
 }
 
 // GetObjectsBucketView returns a consistent view of the objects bucket that can
@@ -275,7 +329,15 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	}
 
 	container.Buff = newBuff
-	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
+	vec, err := storobj.VectorFromBinary(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	return vec, nil
 }
 
 func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
@@ -297,7 +359,15 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	return vecs, nil
 }
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
@@ -763,10 +833,13 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	withSecondary := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
 	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes)
+		err = bucket.Delete(idBytes, withSecondary)
 	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime)
+		err = bucket.DeleteWith(idBytes, deletionTime, withSecondary)
 	}
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")

@@ -47,7 +47,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
@@ -68,7 +68,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
-	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil)
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil, nil)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
@@ -240,6 +240,10 @@ func (f *fakeModuleConfig) IsReranker(moduleName string) bool {
 
 func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
 	return strings.Contains(moduleName, "colbert")
+}
+
+func (f *fakeModuleConfig) HasModule(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert") || strings.Contains(moduleName, "text2vec") || strings.Contains(moduleName, "multi2vec")
 }
 
 type fakeVectorizerValidator struct {

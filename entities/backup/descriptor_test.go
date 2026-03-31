@@ -475,6 +475,49 @@ func TestShardDescriptorClear(t *testing.T) {
 	assert.Equal(t, want, s)
 }
 
+func TestShardDescriptorTrackBigFileChunk(t *testing.T) {
+	t.Run("initialises map on first call", func(t *testing.T) {
+		sd := ShardDescriptor{Name: "shard1"}
+		now := time.Now().Truncate(time.Second)
+
+		sd.TrackBigFileChunk("file.db", 1000, now, "chunk-1")
+
+		require.NotNil(t, sd.BigFilesChunk)
+		info, ok := sd.BigFilesChunk["file.db"]
+		require.True(t, ok)
+		assert.Equal(t, int64(1000), info.Size)
+		assert.Equal(t, now, info.ModifiedAt)
+		assert.Equal(t, []string{"chunk-1"}, info.ChunkKeys)
+	})
+
+	t.Run("appends chunk keys for same file", func(t *testing.T) {
+		sd := ShardDescriptor{Name: "shard1"}
+		now := time.Now().Truncate(time.Second)
+
+		sd.TrackBigFileChunk("big.db", 5000, now, "chunk-1")
+		sd.TrackBigFileChunk("big.db", 5000, now, "chunk-2")
+		sd.TrackBigFileChunk("big.db", 5000, now, "chunk-3")
+
+		info := sd.BigFilesChunk["big.db"]
+		assert.Equal(t, int64(5000), info.Size)
+		assert.Equal(t, now, info.ModifiedAt)
+		assert.Equal(t, []string{"chunk-1", "chunk-2", "chunk-3"}, info.ChunkKeys)
+	})
+
+	t.Run("tracks multiple files independently", func(t *testing.T) {
+		sd := ShardDescriptor{Name: "shard1"}
+		now := time.Now().Truncate(time.Second)
+
+		sd.TrackBigFileChunk("a.db", 100, now, "chunk-1")
+		sd.TrackBigFileChunk("b.db", 200, now, "chunk-2")
+		sd.TrackBigFileChunk("a.db", 100, now, "chunk-3")
+
+		assert.Len(t, sd.BigFilesChunk, 2)
+		assert.Equal(t, []string{"chunk-1", "chunk-3"}, sd.BigFilesChunk["a.db"].ChunkKeys)
+		assert.Equal(t, []string{"chunk-2"}, sd.BigFilesChunk["b.db"].ChunkKeys)
+	})
+}
+
 func TestShardDescriptorFillFileInfo(t *testing.T) {
 	// Setup: create a temporary directory with test files
 	tempDir := t.TempDir()

@@ -1813,6 +1813,33 @@ func genFakeBucket(t testing.TB, maxSize uint64) *fakeBucket {
 	return bucket
 }
 
+func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
+	t.Run("input too short returns error", func(t *testing.T) {
+		for _, length := range []int{0, 1, 10, 41} {
+			input := make([]byte, length)
+			_, _, err := DocIDAndTimeFromBinary(input)
+			require.Error(t, err, "expected error for input length %d", length)
+			assert.Contains(t, err.Error(), "binary data too short")
+		}
+	})
+
+	t.Run("unsupported marshaller version returns error", func(t *testing.T) {
+		input := make([]byte, 42)
+		input[0] = 2 // version 2 is unsupported
+		_, _, err := DocIDAndTimeFromBinary(input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported binary marshaller version 2")
+	})
+
+	t.Run("version 0 returns error", func(t *testing.T) {
+		input := make([]byte, 42)
+		input[0] = 0
+		_, _, err := DocIDAndTimeFromBinary(input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported binary marshaller version 0")
+	})
+}
+
 func pickRandomIDsBetween(start, end uint64, count int) []uint64 {
 	ids := make([]uint64, count)
 	for i := 0; i < count; i++ {
