@@ -144,7 +144,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	bucket := s.exportConfig.Bucket.Get()
 	if bucket == "" && requiresBucket(backend) {
-		return nil, fmt.Errorf("%w: EXPORT_BUCKET is required for backend %q", ErrExportValidation, backend)
+		return nil, fmt.Errorf("%w: EXPORT_DEFAULT_BUCKET is required for backend %q", ErrExportValidation, backend)
 	}
 
 	classes, err := s.resolveClasses(ctx, include, exclude)

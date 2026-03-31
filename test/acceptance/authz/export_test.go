@@ -45,7 +45,7 @@ func TestExportRBAC(t *testing.T) {
 		WithRBAC().WithRbacRoots(adminUser).WithDbUsers().
 		WithBackendS3(s3Bucket, "eu-west-1").
 		WithWeaviateEnv("EXPORT_ENABLED", "true").
-		WithWeaviateEnv("EXPORT_BUCKET", s3Bucket).
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", s3Bucket).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

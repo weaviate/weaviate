@@ -1925,7 +1925,7 @@ func (c *Config) parseExportConfig() {
 		c.Export.Enabled = configRuntime.NewDynamicValue(false)
 	}
 
-	if v, ok := os.LookupEnv("EXPORT_BUCKET"); ok {
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
 		c.Export.Bucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.Bucket == nil {
 		c.Export.Bucket = configRuntime.NewDynamicValue("")
