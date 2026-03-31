@@ -88,8 +88,13 @@ func growToUint64SliceLen(slc []uint64, need uint64) []uint64 {
 	if newLen > uint64(math.MaxInt) {
 		panic("growToUint64SliceLen: requested length over MaxInt")
 	}
-	extra := int(newLen - uint64(len(slc)))
-	return append(slc, make([]uint64, extra)...)
+	if uint64(cap(slc)) >= newLen {
+		return slc[:newLen]
+	}
+
+	newSlice := make([]uint64, newLen)
+	copy(newSlice, slc)
+	return newSlice
 }
 
 func growToSegmentSliceLen(slc []segment, need uint64) []segment {
@@ -106,8 +111,13 @@ func growToSegmentSliceLen(slc []segment, need uint64) []segment {
 	if newLen > uint64(math.MaxInt) {
 		panic("growToSegmentSliceLen: requested length over MaxInt")
 	}
-	extra := int(newLen - uint64(len(slc)))
-	return append(slc, make([]segment, extra)...)
+	if uint64(cap(slc)) >= newLen {
+		return slc[:newLen]
+	}
+
+	newSlice := make([]segment, newLen)
+	copy(newSlice, slc)
+	return newSlice
 }
 
 func (s *SparseSet) grow(node uint64) {

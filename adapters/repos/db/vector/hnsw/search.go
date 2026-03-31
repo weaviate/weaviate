@@ -373,7 +373,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							// skip if we've already visited this neighbor
 							continue
 						}
-						if !visitedExp.CheckAndVisit(nodeId) {
+						if !visitedExp.Visited(nodeId) {
 							if !isMultivec {
 								if allowList.Contains(nodeId) {
 									connectionsReusable[realLen] = nodeId
