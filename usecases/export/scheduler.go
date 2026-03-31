@@ -655,6 +655,7 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 	}
 
 	// Phase 1: Prepare all nodes concurrently.
+	prepareStart := time.Now()
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
 	for _, ni := range nodes {
@@ -670,6 +671,11 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 		s.abortAll(exportID, nodes)
 		return err
 	}
+	s.logger.WithField("action", "export").
+		WithField("export_id", exportID).
+		WithField("duration_ms", time.Since(prepareStart).Milliseconds()).
+		WithField("nodes", len(nodes)).
+		Info("prepare phase completed")
 
 	// Write initial metadata to the backend after all nodes are prepared.
 	initialMeta := &ExportMetadata{
@@ -686,6 +692,7 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 	}
 
 	// Phase 2: Commit all nodes concurrently.
+	commitStart := time.Now()
 	eg, egCtx = enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
 	for _, ni := range nodes {
@@ -713,6 +720,8 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
 		WithField("nodes", len(nodes)).
+		WithField("prepare_ms", time.Since(prepareStart).Milliseconds()).
+		WithField("commit_ms", time.Since(commitStart).Milliseconds()).
 		Info("multi-node export committed on all nodes")
 
 	return nil

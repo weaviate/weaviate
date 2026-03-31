@@ -245,6 +245,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 	// Wait for the snapshot goroutine started during Prepare. The mutex
 	// is NOT held here so that Abort can cancel the snapshot if needed.
+	snapshotWaitStart := time.Now()
 	var snapshots []shardSnapshot
 	var skipped []skippedShard
 	var snapshotErr error
@@ -258,7 +259,12 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	case <-ctx.Done():
 		snapshotErr = ctx.Err()
 	}
+	snapshotDuration := time.Since(snapshotWaitStart)
 	if snapshotErr != nil {
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", exportID).
+			WithField("duration_ms", snapshotDuration.Milliseconds()).
+			Errorf("snapshot phase failed: %v", snapshotErr)
 		p.cleanupSnapshots(snapshots)
 		func() {
 			p.mu.Lock()
@@ -267,6 +273,13 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		}()
 		return snapshotErr
 	}
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", exportID).
+		WithField("node", req.NodeName).
+		WithField("duration_ms", snapshotDuration.Milliseconds()).
+		WithField("snapshots", len(snapshots)).
+		WithField("skipped", len(skipped)).
+		Info("snapshot phase completed")
 
 	var exportCtx context.Context
 	f := func() (errRet error) {
@@ -477,6 +490,7 @@ func (p *Participant) abortSiblings(exportID string, req *ExportRequest) {
 }
 
 func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, snapshots []shardSnapshot, skipped []skippedShard) {
+	exportStart := time.Now()
 	defer func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -494,6 +508,7 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
+			WithField("duration_ms", time.Since(exportStart).Milliseconds()).
 			Error(err)
 		// Best-effort: notify sibling nodes to abort so they stop quickly
 		// instead of waiting for the next periodic sibling-health check.
@@ -502,6 +517,7 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
+			WithField("duration_ms", time.Since(exportStart).Milliseconds()).
 			Info("participant export completed successfully")
 	}
 
@@ -828,6 +844,15 @@ func (p *Participant) submitShardJobs(
 	}
 
 	ranges := computeRanges(snapshotBucket, parallelism)
+	shardScanStart := time.Now()
+
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", req.ID).
+		WithField("class", snap.className).
+		WithField("shard", snap.shardName).
+		WithField("ranges", len(ranges)).
+		WithField("estimated_objects", snapshotBucket.CountAsync()).
+		Info("starting shard scan")
 
 	writerCfg := &rangeWriterConfig{
 		backend:   backend,
@@ -894,16 +919,26 @@ rangeloop:
 		}
 		os.RemoveAll(snap.dir)
 
+		shardDuration := time.Since(shardScanStart)
 		if shardErr != nil {
+			p.logger.WithField("action", "export_participant").
+				WithField("export_id", req.ID).
+				WithField("class", snap.className).
+				WithField("shard", snap.shardName).
+				WithField("duration_ms", shardDuration.Milliseconds()).
+				Errorf("shard scan failed: %v", shardErr)
 			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardFailed, shardErr.Error(), "")
 			return
 		}
 
 		written := nodeStatus.GetShardWritten(snap.className, snap.shardName)
 
-		p.logger.WithField("class", snap.className).
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", req.ID).
+			WithField("class", snap.className).
 			WithField("shard", snap.shardName).
 			WithField("objects", written).
+			WithField("duration_ms", shardDuration.Milliseconds()).
 			Info("shard export completed")
 
 		if written == 0 {
