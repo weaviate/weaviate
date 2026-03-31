@@ -924,7 +924,6 @@ func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error)
 		return 0, nil
 	}
 
-	// TODO(dyma): should we use ObjectCountAsync which is advertised to be cheaper?
 	return shard.ObjectCount(ctx)
 }
 
