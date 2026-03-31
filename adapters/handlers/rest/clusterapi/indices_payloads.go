@@ -789,8 +789,8 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 		read += 4
 	}
 
-	// Parse optional profile data appended after dists.
-	var profiles []helpers.ShardProfile
+	// Parse optional query profile data appended after dists.
+	var queryProfiles []helpers.ShardProfile
 	if read+8 <= uint64(len(in)) {
 		profilesLength := binary.LittleEndian.Uint64(in[read : read+8])
 		read += 8
@@ -798,13 +798,13 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 			if read+profilesLength > uint64(len(in)) {
 				return nil, nil, nil, fmt.Errorf("profiles data truncated: need %d bytes, have %d", profilesLength, uint64(len(in))-read)
 			}
-			if err := json.Unmarshal(in[read:read+profilesLength], &profiles); err != nil {
+			if err := json.Unmarshal(in[read:read+profilesLength], &queryProfiles); err != nil {
 				return nil, nil, nil, fmt.Errorf("unmarshal profiles: %w", err)
 			}
 		}
 	}
 
-	return objs, dists, profiles, nil
+	return objs, dists, queryProfiles, nil
 }
 
 func (p searchResultsPayload) Marshal(objs []*storobj.Object,
@@ -841,7 +841,7 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 // include vectors and properties based on the additional.Properties parameter.
 // This reduces network bandwidth by not transmitting vectors when they are not requested.
 func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
-	dists []float32, addProps additional.Properties, profiles []helpers.ShardProfile,
+	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardProfile,
 ) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
@@ -869,8 +869,8 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 
 	// Append optional profile data.
 	var profilesBytes []byte
-	if len(profiles) > 0 {
-		profilesBytes, err = json.Marshal(profiles)
+	if len(queryProfiles) > 0 {
+		profilesBytes, err = json.Marshal(queryProfiles)
 		if err != nil {
 			return nil, fmt.Errorf("marshal profiles: %w", err)
 		}

@@ -810,7 +810,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
-		results, dists, profiles, err := i.shards.Search(r.Context(), index, shard,
+		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
@@ -821,7 +821,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		resBytes, err := IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional, profiles)
+		resBytes, err := IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional, queryProfiles)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
