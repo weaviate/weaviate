@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -505,6 +506,12 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 	}
 
 	if err := p.doExport(ctx, backend, req, nodeStatus, snapshots, skipped); err != nil {
+		monitoring.GetMetrics().ExportDuration.Observe(time.Since(exportStart).Seconds())
+		if ctx.Err() != nil {
+			monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("canceled").Inc()
+		} else {
+			monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("failed").Inc()
+		}
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
@@ -514,6 +521,8 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		// instead of waiting for the next periodic sibling-health check.
 		p.abortSiblings(req.ID, req)
 	} else {
+		monitoring.GetMetrics().ExportDuration.Observe(time.Since(exportStart).Seconds())
+		monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("success").Inc()
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
@@ -863,6 +872,7 @@ func (p *Participant) submitShardJobs(
 		logger:    p.logger,
 		onFlush: func(n int64) {
 			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
+			monitoring.GetMetrics().ExportObjectsTotal.Add(float64(n))
 		},
 	}
 

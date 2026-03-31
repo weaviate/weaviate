@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const exportIDMaxLength = 128
@@ -590,6 +591,11 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
+	coordinationStart := time.Now()
+	defer func() {
+		monitoring.GetMetrics().ExportCoordinationDuration.Observe(time.Since(coordinationStart).Seconds())
+	}()
+
 	// Bound the entire 2PC-like flow (Prepare all + metadata write + Commit all) so the
 	// coordinator doesn't hang indefinitely if a participant is unreachable.
 	// The budget is 2× the participant reservation timeout: one window for
