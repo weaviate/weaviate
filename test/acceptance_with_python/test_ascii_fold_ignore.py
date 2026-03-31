@@ -6,12 +6,26 @@ Requires a running Weaviate instance (e.g. via `make local`).
 
 import json
 import urllib.request
+from typing import Generator
 
-import weaviate
+import pytest
+import weaviate.classes as wvc
+
 
 BASE_URL = "http://localhost:8080"
-COLLECTION_NAME = "ASCIIFoldIgnoreTest"
-COLLECTION_NAME_TOKENIZATIONS = "ASCIIFoldTokenizationsTest"
+
+
+def _sanitize_collection_name(name: str) -> str:
+    name = (
+        name.replace("[", "")
+        .replace("]", "")
+        .replace("-", "")
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("{", "")
+        .replace("}", "")
+    )
+    return name[0].upper() + name[1:]
 
 
 def _rest_get(path: str) -> dict:
@@ -33,13 +47,62 @@ def _rest_put(path: str, body: dict) -> None:
         resp.read()
 
 
-def test_ascii_fold_ignore_config() -> None:
-    """Verify collection config reflects textAnalyser settings."""
-    with weaviate.connect_to_local() as client:
-        client.collections.delete(COLLECTION_NAME)
-        client.collections.create_from_dict(
+def _create_and_populate(client, collection_name: str) -> None:
+    """Helper: create the test collection and insert test data."""
+    client.collections.delete(collection_name)
+    client.collections.create_from_dict(
+        {
+            "class": collection_name,
+            "vectorizer": "none",
+            "properties": [
+                {
+                    "name": "title",
+                    "dataType": ["text"],
+                    "tokenization": "word",
+                    "textAnalyser": {
+                        "asciiFold": True,
+                        "asciiFoldIgnore": ["é"],
+                    },
+                },
+                {
+                    "name": "body",
+                    "dataType": ["text"],
+                    "tokenization": "word",
+                    "textAnalyser": {
+                        "asciiFold": True,
+                        "asciiFoldIgnore": [],
+                    },
+                },
+            ],
+        }
+    )
+    collection = client.collections.get(collection_name)
+    collection.data.insert_many(
+        [
+            {"title": "L'école est fermée", "body": "L'école est fermée"},
+            {"title": "cafe résumé", "body": "cafe résumé"},
+            {"title": "São Paulo café", "body": "São Paulo café"},
+        ]
+    )
+
+
+class TestASCIIFoldConfig:
+    """Tests for asciiFold configuration."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, request, weaviate_client) -> Generator[None, None, None]:
+        self.client = weaviate_client()
+        self.collection_name = _sanitize_collection_name(request.node.name)
+        self.client.collections.delete(self.collection_name)
+        yield
+        self.client.collections.delete(self.collection_name)
+        self.client.close()
+
+    def test_ascii_fold_ignore_config(self) -> None:
+        """Verify collection config reflects textAnalyser settings."""
+        self.client.collections.create_from_dict(
             {
-                "class": COLLECTION_NAME,
+                "class": self.collection_name,
                 "vectorizer": "none",
                 "properties": [
                     {
@@ -64,7 +127,7 @@ def test_ascii_fold_ignore_config() -> None:
             }
         )
 
-        schema = _rest_get(f"/v1/schema/{COLLECTION_NAME}")
+        schema = _rest_get(f"/v1/schema/{self.collection_name}")
         raw_props = {p["name"]: p for p in schema["properties"]}
 
         title_analyser = raw_props["title"].get("textAnalyser", {})
@@ -78,170 +141,140 @@ def test_ascii_fold_ignore_config() -> None:
             or body_analyser.get("asciiFoldIgnore") == []
         )
 
-        client.collections.delete(COLLECTION_NAME)
 
+class TestASCIIFoldBM25:
+    """Tests for BM25 searches with accent folding."""
 
-def _create_and_populate(client: weaviate.WeaviateClient) -> None:
-    """Helper: create the test collection and insert test data."""
-    client.collections.delete(COLLECTION_NAME)
-    client.collections.create_from_dict(
-        {
-            "class": COLLECTION_NAME,
-            "vectorizer": "none",
-            "properties": [
-                {
-                    "name": "title",
-                    "dataType": ["text"],
-                    "tokenization": "word",
-                    "textAnalyser": {
-                        "asciiFold": True,
-                        "asciiFoldIgnore": ["é"],
-                    },
-                },
-                {
-                    "name": "body",
-                    "dataType": ["text"],
-                    "tokenization": "word",
-                    "textAnalyser": {
-                        "asciiFold": True,
-                        "asciiFoldIgnore": [],
-                    },
-                },
-            ],
-        }
-    )
-    collection = client.collections.get(COLLECTION_NAME)
-    collection.data.insert_many(
-        [
-            {"title": "L'école est fermée", "body": "L'école est fermée"},
-            {"title": "cafe résumé", "body": "cafe résumé"},
-            {"title": "São Paulo café", "body": "São Paulo café"},
-        ]
-    )
+    @pytest.fixture(autouse=True)
+    def setup(self, request, weaviate_client) -> Generator[None, None, None]:
+        self.client = weaviate_client()
+        self.collection_name = _sanitize_collection_name(request.node.name)
+        _create_and_populate(self.client, self.collection_name)
+        self.collection = self.client.collections.get(self.collection_name)
+        yield
+        self.client.collections.delete(self.collection_name)
+        self.client.close()
 
-
-def test_bm25_single_property() -> None:
-    """Single-property BM25 searches with accent folding."""
-    with weaviate.connect_to_local() as client:
-        _create_and_populate(client)
-        collection = client.collections.get(COLLECTION_NAME)
-
+    def test_bm25_single_property(self) -> None:
+        """Single-property BM25 searches with accent folding."""
         # body (full fold, no ignore): "ecole" matches "école"
-        r = collection.query.bm25(query="ecole", query_properties=["body"], limit=5)
+        r = self.collection.query.bm25(query="ecole", query_properties=["body"], limit=5)
         assert len(r.objects) == 1
 
         # title (ignore é): "ecole" does NOT match
-        r = collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
         assert len(r.objects) == 0
 
         # title: "école" matches (é preserved)
-        r = collection.query.bm25(query="école", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
         assert len(r.objects) == 1
 
         # body: "cafe" matches both "café" and "cafe"
-        r = collection.query.bm25(query="cafe", query_properties=["body"], limit=5)
+        r = self.collection.query.bm25(query="cafe", query_properties=["body"], limit=5)
         assert len(r.objects) == 2
 
-        client.collections.delete(COLLECTION_NAME)
-
-
-def test_bm25f_multi_property() -> None:
-    """Multi-property BM25F searches with mixed ignore lists."""
-    with weaviate.connect_to_local() as client:
-        _create_and_populate(client)
-        collection = client.collections.get(COLLECTION_NAME)
-
+    def test_bm25f_multi_property(self) -> None:
+        """Multi-property BM25F searches with mixed ignore lists."""
         # "ecole" across [title, body]: matches via body only
-        r = collection.query.bm25(
+        r = self.collection.query.bm25(
             query="ecole", query_properties=["title", "body"], limit=5
         )
         assert len(r.objects) == 1
 
         # "école" across [title, body]: matches via both properties
-        r = collection.query.bm25(
+        r = self.collection.query.bm25(
             query="école", query_properties=["title", "body"], limit=5
         )
         assert len(r.objects) == 1
 
         # "cafe" across both: 2 docs
-        r = collection.query.bm25(
+        r = self.collection.query.bm25(
             query="cafe", query_properties=["title", "body"], limit=5
         )
         assert len(r.objects) == 2
 
         # "café" across both: 2 docs
-        r = collection.query.bm25(
+        r = self.collection.query.bm25(
             query="café", query_properties=["title", "body"], limit=5
         )
         assert len(r.objects) == 2
 
         # "resume" across both: 1 doc (via body only)
-        r = collection.query.bm25(
+        r = self.collection.query.bm25(
             query="resume", query_properties=["title", "body"], limit=5
         )
         assert len(r.objects) == 1
 
         # "résumé" across both: 1 doc
-        r = collection.query.bm25(
+        r = self.collection.query.bm25(
             query="résumé", query_properties=["title", "body"], limit=5
         )
         assert len(r.objects) == 1
 
-        client.collections.delete(COLLECTION_NAME)
 
+class TestASCIIFoldUpdateIgnoreList:
+    """Tests for updating asciiFoldIgnore."""
 
-def test_update_ignore_list() -> None:
-    """Updating asciiFoldIgnore does not re-index existing documents."""
-    with weaviate.connect_to_local() as client:
-        _create_and_populate(client)
-        collection = client.collections.get(COLLECTION_NAME)
+    @pytest.fixture(autouse=True)
+    def setup(self, request, weaviate_client) -> Generator[None, None, None]:
+        self.client = weaviate_client()
+        self.collection_name = _sanitize_collection_name(request.node.name)
+        _create_and_populate(self.client, self.collection_name)
+        self.collection = self.client.collections.get(self.collection_name)
+        yield
+        self.client.collections.delete(self.collection_name)
+        self.client.close()
 
+    def test_update_ignore_list(self) -> None:
+        """Updating asciiFoldIgnore does not re-index existing documents."""
         # Baseline: é preserved in title index
-        r = collection.query.bm25(query="école", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
         assert len(r.objects) == 1
 
-        r = collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
         assert len(r.objects) == 0
 
         # Update schema: remove é from ignore list
-        class_schema = _rest_get(f"/v1/schema/{COLLECTION_NAME}")
+        class_schema = _rest_get(f"/v1/schema/{self.collection_name}")
         for prop in class_schema["properties"]:
             if prop["name"] == "title":
                 prop["textAnalyser"]["asciiFoldIgnore"] = []
-        _rest_put(f"/v1/schema/{COLLECTION_NAME}", class_schema)
+        _rest_put(f"/v1/schema/{self.collection_name}", class_schema)
 
         # Verify config updated
-        updated = _rest_get(f"/v1/schema/{COLLECTION_NAME}")
+        updated = _rest_get(f"/v1/schema/{self.collection_name}")
         updated_props = {p["name"]: p for p in updated["properties"]}
         ignore = updated_props["title"].get("textAnalyser", {}).get("asciiFoldIgnore")
         assert ignore is None or ignore == []
 
         # Old docs NOT re-indexed: query now folds é→e, but old index has "école"
-        r = collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
         assert len(r.objects) == 0, "old docs still have 'école' in index"
 
-        r = collection.query.bm25(query="école", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
         assert len(r.objects) == 0, "query 'école' now folded to 'ecole', mismatches old index"
 
         # New documents use updated config
-        collection.data.insert({"title": "nouvelle école", "body": "nouvelle école"})
+        self.collection.data.insert({"title": "nouvelle école", "body": "nouvelle école"})
 
-        r = collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
         assert len(r.objects) == 1, "new doc indexed as 'ecole'"
 
-        r = collection.query.bm25(query="école", query_properties=["title"], limit=5)
+        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
         assert len(r.objects) == 1, "query 'école'→'ecole' matches new doc"
 
-        client.collections.delete(COLLECTION_NAME)
 
-
-def test_tokenization_variants() -> None:
+class TestASCIIFoldTokenizationVariants:
     """asciiFold + ignore across word, lowercase, whitespace, field, trigram."""
-    with weaviate.connect_to_local() as client:
-        client.collections.delete(COLLECTION_NAME_TOKENIZATIONS)
-        client.collections.create_from_dict(
+
+    @pytest.fixture(autouse=True)
+    def setup(self, request, weaviate_client) -> Generator[None, None, None]:
+        self.client = weaviate_client()
+        self.collection_name = _sanitize_collection_name(request.node.name)
+        self.client.collections.delete(self.collection_name)
+        self.client.collections.create_from_dict(
             {
-                "class": COLLECTION_NAME_TOKENIZATIONS,
+                "class": self.collection_name,
                 "vectorizer": "none",
                 "properties": [
                     {
@@ -309,8 +342,8 @@ def test_tokenization_variants() -> None:
         )
 
         text = "L'école est fermée"
-        collection = client.collections.get(COLLECTION_NAME_TOKENIZATIONS)
-        collection.data.insert_many(
+        self.collection = self.client.collections.get(self.collection_name)
+        self.collection.data.insert_many(
             [
                 {
                     "wordProp": text,
@@ -326,67 +359,76 @@ def test_tokenization_variants() -> None:
                 },
             ]
         )
+        yield
+        self.client.collections.delete(self.collection_name)
+        self.client.close()
 
-        def bm25(q, props):
-            return collection.query.bm25(query=q, query_properties=props, limit=5)
+    def _bm25(self, q, props):
+        return self.collection.query.bm25(query=q, query_properties=props, limit=5)
 
-        # --- word: splits on non-alphanumeric, lowercased ---
-        # Tokens: ["l", "école", "est", "fermée"]
-        assert len(bm25("école", ["wordProp"]).objects) == 1
-        assert len(bm25("ecole", ["wordProp"]).objects) == 0, "é preserved"
-        assert len(bm25("fermee", ["wordProp"]).objects) == 0, "é preserved"
-        assert len(bm25("école", ["wordNoIgnore"]).objects) == 1
-        assert len(bm25("ecole", ["wordNoIgnore"]).objects) == 1
-        assert len(bm25("fermee", ["wordNoIgnore"]).objects) == 1
+    def test_word_tokenization(self) -> None:
+        """word: splits on non-alphanumeric, lowercased."""
+        assert len(self._bm25("école", ["wordProp"]).objects) == 1
+        assert len(self._bm25("ecole", ["wordProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("fermee", ["wordProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("école", ["wordNoIgnore"]).objects) == 1
+        assert len(self._bm25("ecole", ["wordNoIgnore"]).objects) == 1
+        assert len(self._bm25("fermee", ["wordNoIgnore"]).objects) == 1
 
-        # --- lowercase: splits on whitespace, lowercased ---
-        # Tokens: ["l'école", "est", "fermée"]
-        assert len(bm25("l'école", ["lowercaseProp"]).objects) == 1
-        assert len(bm25("l'ecole", ["lowercaseProp"]).objects) == 0, "é preserved"
-        assert len(bm25("fermée", ["lowercaseProp"]).objects) == 1
-        assert len(bm25("fermee", ["lowercaseProp"]).objects) == 0, "é preserved"
-        assert len(bm25("l'ecole", ["lowercaseNoIgnore"]).objects) == 1
-        assert len(bm25("l'école", ["lowercaseNoIgnore"]).objects) == 1
-        assert len(bm25("fermee", ["lowercaseNoIgnore"]).objects) == 1
+    def test_lowercase_tokenization(self) -> None:
+        """lowercase: splits on whitespace, lowercased."""
+        assert len(self._bm25("l'école", ["lowercaseProp"]).objects) == 1
+        assert len(self._bm25("l'ecole", ["lowercaseProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("fermée", ["lowercaseProp"]).objects) == 1
+        assert len(self._bm25("fermee", ["lowercaseProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("l'ecole", ["lowercaseNoIgnore"]).objects) == 1
+        assert len(self._bm25("l'école", ["lowercaseNoIgnore"]).objects) == 1
+        assert len(self._bm25("fermee", ["lowercaseNoIgnore"]).objects) == 1
 
-        # --- whitespace: splits on whitespace, case-preserved ---
-        # Tokens: ["L'école", "est", "fermée"]
-        assert len(bm25("L'école", ["whitespaceProp"]).objects) == 1
-        assert len(bm25("L'ecole", ["whitespaceProp"]).objects) == 0, "é preserved"
-        assert len(bm25("L'ecole", ["whitespaceNoIgnore"]).objects) == 1
-        assert len(bm25("L'école", ["whitespaceNoIgnore"]).objects) == 1
+    def test_whitespace_tokenization(self) -> None:
+        """whitespace: splits on whitespace, case-preserved."""
+        assert len(self._bm25("L'école", ["whitespaceProp"]).objects) == 1
+        assert len(self._bm25("L'ecole", ["whitespaceProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("L'ecole", ["whitespaceNoIgnore"]).objects) == 1
+        assert len(self._bm25("L'école", ["whitespaceNoIgnore"]).objects) == 1
 
-        # --- field: entire value as one token, case-preserved ---
-        assert len(bm25("L'école est fermée", ["fieldProp"]).objects) == 1
-        assert len(bm25("L'ecole est fermee", ["fieldProp"]).objects) == 0, "é preserved"
-        assert len(bm25("L'ecole est fermee", ["fieldNoIgnore"]).objects) == 1
-        assert len(bm25("L'école est fermée", ["fieldNoIgnore"]).objects) == 1
+    def test_field_tokenization(self) -> None:
+        """field: entire value as one token, case-preserved."""
+        assert len(self._bm25("L'école est fermée", ["fieldProp"]).objects) == 1
+        assert len(self._bm25("L'ecole est fermee", ["fieldProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("L'ecole est fermee", ["fieldNoIgnore"]).objects) == 1
+        assert len(self._bm25("L'école est fermée", ["fieldNoIgnore"]).objects) == 1
 
-        # --- trigram: 3-char sliding windows ---
-        assert len(bm25("éco", ["trigramProp"]).objects) == 1
-        assert len(bm25("eco", ["trigramProp"]).objects) == 0, "é preserved"
-        assert len(bm25("eco", ["trigramNoIgnore"]).objects) == 1
-        assert len(bm25("éco", ["trigramNoIgnore"]).objects) == 1
+    def test_trigram_tokenization(self) -> None:
+        """trigram: 3-char sliding windows."""
+        assert len(self._bm25("éco", ["trigramProp"]).objects) == 1
+        assert len(self._bm25("eco", ["trigramProp"]).objects) == 0, "é preserved"
+        assert len(self._bm25("eco", ["trigramNoIgnore"]).objects) == 1
+        assert len(self._bm25("éco", ["trigramNoIgnore"]).objects) == 1
 
-        # --- Cross-tokenization BM25F ---
-        assert len(bm25("ecole", ["wordProp", "wordNoIgnore"]).objects) == 1
-        assert len(bm25("école", ["wordProp", "wordNoIgnore"]).objects) == 1
-        assert len(bm25("eco", ["trigramProp", "trigramNoIgnore"]).objects) == 1
+    def test_cross_tokenization_bm25f(self) -> None:
+        """Cross-tokenization BM25F."""
+        assert len(self._bm25("ecole", ["wordProp", "wordNoIgnore"]).objects) == 1
+        assert len(self._bm25("école", ["wordProp", "wordNoIgnore"]).objects) == 1
+        assert len(self._bm25("eco", ["trigramProp", "trigramNoIgnore"]).objects) == 1
 
-        client.collections.delete(COLLECTION_NAME_TOKENIZATIONS)
 
-
-def test_filters_with_ascii_fold() -> None:
+class TestASCIIFoldFilters:
     """Filters (Equal, Like) respect asciiFold and asciiFoldIgnore."""
-    import weaviate.classes as wvc
 
-    with weaviate.connect_to_local() as client:
-        _create_and_populate(client)
-        collection = client.collections.get(COLLECTION_NAME)
+    @pytest.fixture(autouse=True)
+    def setup(self, request, weaviate_client) -> Generator[None, None, None]:
+        self.client = weaviate_client()
+        self.collection_name = _sanitize_collection_name(request.node.name)
+        _create_and_populate(self.client, self.collection_name)
+        self.collection = self.client.collections.get(self.collection_name)
+        yield
+        self.client.collections.delete(self.collection_name)
+        self.client.close()
 
-        # --- Equal filter on body (full fold, no ignore) ---
-        # Indexed: "école" → "ecole". Filter "ecole" should match.
-        r = collection.query.fetch_objects(
+    def test_equal_filter_body_full_fold(self) -> None:
+        """Equal filter on body (full fold, no ignore)."""
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("body").equal("ecole"),
             limit=5,
         )
@@ -394,8 +436,7 @@ def test_filters_with_ascii_fold() -> None:
             f"body Equal 'ecole': expected 1, got {len(r.objects)}"
         )
 
-        # Filter "école" should also match (folded to "ecole")
-        r = collection.query.fetch_objects(
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("body").equal("école"),
             limit=5,
         )
@@ -403,9 +444,9 @@ def test_filters_with_ascii_fold() -> None:
             f"body Equal 'école': expected 1, got {len(r.objects)}"
         )
 
-        # --- Equal filter on title (ignore é) ---
-        # Indexed: "école" stays "école". Filter "école" should match.
-        r = collection.query.fetch_objects(
+    def test_equal_filter_title_ignore_e_accent(self) -> None:
+        """Equal filter on title (ignore é)."""
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("title").equal("école"),
             limit=5,
         )
@@ -413,8 +454,7 @@ def test_filters_with_ascii_fold() -> None:
             f"title Equal 'école': expected 1, got {len(r.objects)}"
         )
 
-        # Filter "ecole" should NOT match (é preserved in index)
-        r = collection.query.fetch_objects(
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("title").equal("ecole"),
             limit=5,
         )
@@ -423,8 +463,9 @@ def test_filters_with_ascii_fold() -> None:
             f"got {len(r.objects)}"
         )
 
-        # --- Like filter on body (full fold) ---
-        r = collection.query.fetch_objects(
+    def test_like_filter_body_full_fold(self) -> None:
+        """Like filter on body (full fold)."""
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("body").like("ecol*"),
             limit=5,
         )
@@ -432,8 +473,9 @@ def test_filters_with_ascii_fold() -> None:
             f"body Like 'ecol*': expected 1, got {len(r.objects)}"
         )
 
-        # --- Like filter on title (ignore é) ---
-        r = collection.query.fetch_objects(
+    def test_like_filter_title_ignore_e_accent(self) -> None:
+        """Like filter on title (ignore é)."""
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("title").like("écol*"),
             limit=5,
         )
@@ -441,7 +483,7 @@ def test_filters_with_ascii_fold() -> None:
             f"title Like 'écol*': expected 1, got {len(r.objects)}"
         )
 
-        r = collection.query.fetch_objects(
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("title").like("ecol*"),
             limit=5,
         )
@@ -450,9 +492,9 @@ def test_filters_with_ascii_fold() -> None:
             f"got {len(r.objects)}"
         )
 
-        # --- Equal filter for "cafe" on body (full fold) ---
-        # Both "café" and "cafe" fold to "cafe"
-        r = collection.query.fetch_objects(
+    def test_equal_filter_cafe_body_full_fold(self) -> None:
+        """Equal filter for "cafe" on body (full fold)."""
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("body").equal("cafe"),
             limit=5,
         )
@@ -461,14 +503,12 @@ def test_filters_with_ascii_fold() -> None:
             f"got {len(r.objects)}"
         )
 
-        # --- Equal filter for "café" on title (ignore é) ---
-        # é preserved: "café" stays "café" in both index and query
-        r = collection.query.fetch_objects(
+    def test_equal_filter_cafe_title_ignore_e_accent(self) -> None:
+        """Equal filter for "café" on title (ignore é)."""
+        r = self.collection.query.fetch_objects(
             filters=wvc.query.Filter.by_property("title").equal("café"),
             limit=5,
         )
         assert len(r.objects) == 1, (
             f"title Equal 'café': expected 1, got {len(r.objects)}"
         )
-
-        client.collections.delete(COLLECTION_NAME)
