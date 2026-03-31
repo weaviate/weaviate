@@ -109,10 +109,9 @@ type ShardingConfig struct {
 // ASCIIFold is immutable after creation; ASCIIFoldIgnore can change, but will not be applied to already indexed data.
 // Stopwords and TokenizerOverrides are not being used at the moment, but are included for future use.
 type PropertyAnalyser struct {
-	ASCIIFold          bool                              `json:"asciiFold,omitempty"`
-	ASCIIFoldIgnore    []string                          `json:"asciiFoldIgnore,omitempty"`
-	StopwordPreset     string                            `json:"stopwordPreset,omitempty"`
-	TokenizerOverrides []*models.TokenizerUserDictConfig `json:"tokenizerOverrides,omitempty"`
+	ASCIIFold       bool     `json:"asciiFold,omitempty"`
+	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
+	StopwordPreset  string   `json:"stopwordPreset,omitempty"`
 }
 
 type Property struct {
