@@ -347,7 +347,6 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		return false, err
 	}
 
-	scratchSpacePath := rightPath + "compaction.scratch.d"
 	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
@@ -357,8 +356,8 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
-		c := newCompactorReplace(f, left.newCursor(), right.newCursor(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
+		c := newCompactorReplace(f, left.newReplaceCursorReusable(), right.newReplaceCursorReusable(),
+			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if err := c.do(); err != nil {
@@ -366,7 +365,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
+			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.shouldSkipKey)
 
 		if err := c.do(); err != nil {
@@ -374,7 +373,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones,
+			level, secondaryIndices, sg.mapRequiresSorting, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if err := c.do(); err != nil {
@@ -382,7 +381,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
-			level, scratchSpacePath, cleanupTombstones,
+			level, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
 		if err := c.Do(); err != nil {
@@ -406,7 +405,7 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		}
 
 		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones,
+			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
 		if err := c.do(); err != nil {
