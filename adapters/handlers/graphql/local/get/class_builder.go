@@ -188,6 +188,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
+	additionalProperties["highlight"] = b.additionalHighlightField(class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
 	}
@@ -293,6 +294,18 @@ func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
 func (b *classBuilder) isConsistentField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Boolean,
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", class.Class),
+			Fields: graphql.Fields{
+				"property":  &graphql.Field{Type: graphql.String},
+				"fragments": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
 	}
 }
 
