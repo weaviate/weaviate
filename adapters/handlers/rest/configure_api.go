@@ -682,9 +682,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportMetrics = exportusecase.NewExportMetrics(prometheus.DefaultRegisterer)
 	appState.ExportParticipant = exportusecase.NewParticipant(
 		appState.DB, appState.Modules, appState.Logger,
 		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+		appState.ExportMetrics,
 	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
@@ -1169,6 +1171,7 @@ func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
 		appState.Cluster,
 		appState.Cluster.LocalName(),
 		appState.ExportParticipant,
+		appState.ExportMetrics,
 	)
 }
 

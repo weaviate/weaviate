@@ -28,7 +28,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestParticipant_PrepareValidation(t *testing.T) {
@@ -38,7 +37,7 @@ func TestParticipant_PrepareValidation(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	t.Run("nil request", func(t *testing.T) {
@@ -61,7 +60,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	req1 := &ExportRequest{
@@ -99,7 +98,7 @@ func TestParticipant_IsRunning(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	// Nothing running yet
@@ -132,7 +131,7 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	const n = 50
@@ -182,7 +181,7 @@ func TestParticipant_PrepareAfterAbort(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	req1 := &ExportRequest{
@@ -225,7 +224,7 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	req1 := &ExportRequest{
@@ -236,9 +235,6 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	successBefore := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("success"))
-	durationCountBefore := histogramCount(t, monitoring.GetMetrics().ExportDuration)
-
 	require.NoError(t, p.Prepare(context.Background(), req1))
 	require.NoError(t, p.Commit(context.Background(), "export-1"))
 
@@ -247,11 +243,8 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 		return !p.IsRunning("export-1")
 	}, 5*time.Second, 10*time.Millisecond)
 
-	successAfter := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("success"))
-	assert.Equal(t, float64(1), successAfter-successBefore, "ExportOperationsTotal success delta")
-
-	durationCountAfter := histogramCount(t, monitoring.GetMetrics().ExportDuration)
-	assert.Equal(t, uint64(1), durationCountAfter-durationCountBefore, "ExportDuration should have a new observation")
+	assert.Equal(t, float64(1), testutil.ToFloat64(p.metrics.OperationsTotal.WithLabelValues("success")), "ExportOperationsTotal success")
+	assert.Equal(t, uint64(1), histogramCount(t, p.metrics.Duration), "ExportDuration should have one observation")
 
 	// Now a new Prepare should succeed
 	req2 := &ExportRequest{
@@ -278,6 +271,7 @@ func TestParticipant_ReservationTimeoutReleasesSlot(t *testing.T) {
 		logger:       logger,
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{},
+		metrics:      testMetrics(),
 	}
 
 	req := &ExportRequest{
@@ -326,7 +320,7 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	req := &ExportRequest{
@@ -378,7 +372,7 @@ func TestParticipant_CommitErrors(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: &fakeBackend{}},
 				logger,
-				&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 			)
 
 			if tc.prepareID != "" {
@@ -422,7 +416,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1",
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
 	)
 
 	req := &ExportRequest{
@@ -432,8 +426,6 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 		Shards:   map[string][]string{"TestClass": {"shard0"}},
 		NodeName: "node1",
 	}
-
-	canceledBefore := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("canceled"))
 
 	require.NoError(t, p.Prepare(context.Background(), req))
 	require.NoError(t, p.Commit(context.Background(), "export-1"))
@@ -457,8 +449,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
 	assert.Equal(t, export.Failed, nodeStatus.Status)
 
-	canceledAfter := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("canceled"))
-	assert.Equal(t, float64(1), canceledAfter-canceledBefore, "ExportOperationsTotal canceled delta")
+	assert.Equal(t, float64(1), testutil.ToFloat64(p.metrics.OperationsTotal.WithLabelValues("canceled")), "ExportOperationsTotal canceled")
 }
 
 func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
@@ -526,7 +517,7 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 			}
 
 			p := NewParticipant(sel, &fakeBackendProvider{backend: backend}, logger,
-				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1")
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics())
 
 			shards := map[string][]string{"TestClass": {"shard0"}}
 			if !tc.failExport {
@@ -601,6 +592,7 @@ func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
 		client:               &fakeExportClient{},
 		nodeResolver:         &fakeNodeResolver{},
 		siblingCheckInterval: 50 * time.Millisecond,
+		metrics:              testMetrics(),
 	}
 
 	// Write a Failed status for the sibling node
@@ -742,7 +734,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,
-				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1",
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics(),
 			)
 
 			if tc.siblingStatus != nil {

@@ -84,12 +84,6 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred        *prometheus.CounterVec
 	RestorePhaseDurations             *prometheus.HistogramVec
 
-	// Export metrics
-	ExportObjectsTotal         prometheus.Counter
-	ExportOperationsTotal      *prometheus.CounterVec
-	ExportCoordinationDuration prometheus.Histogram
-	ExportDuration             prometheus.Histogram
-
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
 	QueueDiskUsage                   *prometheus.GaugeVec
@@ -757,26 +751,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Duration of restore phases (prepare, object_storage_download, schema_apply)",
 			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600},
 		}, []string{"phase"}),
-
-		// Export metrics
-		ExportObjectsTotal: promauto.NewCounter(prometheus.CounterOpts{
-			Name: "weaviate_export_objects_total",
-			Help: "Total number of objects exported.",
-		}),
-		ExportOperationsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "weaviate_export_operations_total",
-			Help: "Total number of export operations by terminal status.",
-		}, []string{"status"}),
-		ExportCoordinationDuration: promauto.NewHistogram(prometheus.HistogramOpts{
-			Name:    "weaviate_export_coordination_duration_seconds",
-			Help:    "Duration of the export two-phase commit coordination (prepare all nodes, write metadata, commit all nodes). Does not include the scan and upload phase.",
-			Buckets: []float64{1, 5, 10, 15, 30, 45, 60},
-		}),
-		ExportDuration: promauto.NewHistogram(prometheus.HistogramOpts{
-			Name:    "weaviate_export_duration_seconds",
-			Help:    "Duration of the export scan and upload phase on a participant node.",
-			Buckets: []float64{10, 30, 60, 300, 600, 1800, 3600, 7200, 14400, 28800, 86400},
-		}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGauge(prometheus.GaugeOpts{

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -28,6 +29,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
+
+// testMetrics creates a fresh ExportMetrics registered on an isolated
+// Prometheus registry so parallel tests don't interfere.
+func testMetrics() *ExportMetrics {
+	return NewExportMetrics(prometheus.NewRegistry())
+}
 
 // fakeNodeResolver resolves node names to hostnames from a static map.
 type fakeNodeResolver struct {

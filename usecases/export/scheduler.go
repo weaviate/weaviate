@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const exportIDMaxLength = 128
@@ -83,6 +82,7 @@ type Scheduler struct {
 	nodeResolver NodeResolver
 	localNode    string
 	participant  *Participant
+	metrics      *ExportMetrics
 	shuttingDown atomic.Bool
 }
 
@@ -98,6 +98,7 @@ func NewScheduler(
 	nodeResolver NodeResolver,
 	localNode string,
 	participant *Participant,
+	metrics *ExportMetrics,
 ) *Scheduler {
 	if participant == nil {
 		panic("export: scheduler requires a non-nil participant")
@@ -119,6 +120,7 @@ func NewScheduler(
 		nodeResolver: nodeResolver,
 		localNode:    localNode,
 		participant:  participant,
+		metrics:      metrics,
 	}
 }
 
@@ -593,7 +595,7 @@ func (s *Scheduler) assembleStatusFromMetadata(
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
 	coordinationStart := time.Now()
 	defer func() {
-		monitoring.GetMetrics().ExportCoordinationDuration.Observe(time.Since(coordinationStart).Seconds())
+		s.metrics.CoordinationDuration.Observe(time.Since(coordinationStart).Seconds())
 	}()
 
 	// Bound the entire 2PC-like flow (Prepare all + metadata write + Commit all) so the

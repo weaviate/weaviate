@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/export"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestDoExport(t *testing.T) {
@@ -122,7 +121,7 @@ func TestDoExport(t *testing.T) {
 				}
 			}
 
-			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 			req := &ExportRequest{
 				ID:       "test-export",
 				Backend:  "fake",
@@ -136,13 +135,10 @@ func TestDoExport(t *testing.T) {
 			snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
 			require.NoError(t, snapErr)
 
-			objectsBefore := testutil.ToFloat64(monitoring.GetMetrics().ExportObjectsTotal)
-
 			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 			require.NoError(t, err)
 
-			objectsAfter := testutil.ToFloat64(monitoring.GetMetrics().ExportObjectsTotal)
-			assert.GreaterOrEqual(t, objectsAfter-objectsBefore, float64(expectedObjects), "ExportObjectsTotal delta")
+			assert.Equal(t, float64(expectedObjects), testutil.ToFloat64(p.metrics.ObjectsTotal), "ExportObjectsTotal")
 
 			for _, ef := range tc.expected {
 				data := backend.getWritten(ef.key)
@@ -185,7 +181,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -237,7 +233,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -281,7 +277,7 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",

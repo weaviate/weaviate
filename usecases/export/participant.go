@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -62,6 +61,7 @@ type Participant struct {
 	client       ExportClient
 	nodeResolver NodeResolver
 	localNode    string
+	metrics      *ExportMetrics
 
 	// exportWg tracks in-flight export goroutines so Shutdown can wait for
 	// them to finish their cleanup (final status flush, sibling abort, metadata
@@ -90,6 +90,7 @@ func NewParticipant(
 	client ExportClient,
 	nodeResolver NodeResolver,
 	localNode string,
+	metrics *ExportMetrics,
 ) *Participant {
 	if client == nil {
 		panic("export: participant requires a non-nil client")
@@ -107,6 +108,7 @@ func NewParticipant(
 		client:         client,
 		nodeResolver:   nodeResolver,
 		localNode:      localNode,
+		metrics:        metrics,
 	}
 }
 
@@ -506,11 +508,11 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 	}
 
 	if err := p.doExport(ctx, backend, req, nodeStatus, snapshots, skipped); err != nil {
-		monitoring.GetMetrics().ExportDuration.Observe(time.Since(exportStart).Seconds())
+		p.metrics.Duration.Observe(time.Since(exportStart).Seconds())
 		if ctx.Err() != nil {
-			monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("canceled").Inc()
+			p.metrics.OperationsTotal.WithLabelValues("canceled").Inc()
 		} else {
-			monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("failed").Inc()
+			p.metrics.OperationsTotal.WithLabelValues("failed").Inc()
 		}
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
@@ -521,8 +523,8 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 		// instead of waiting for the next periodic sibling-health check.
 		p.abortSiblings(req.ID, req)
 	} else {
-		monitoring.GetMetrics().ExportDuration.Observe(time.Since(exportStart).Seconds())
-		monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("success").Inc()
+		p.metrics.Duration.Observe(time.Since(exportStart).Seconds())
+		p.metrics.OperationsTotal.WithLabelValues("success").Inc()
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
@@ -872,7 +874,7 @@ func (p *Participant) submitShardJobs(
 		logger:    p.logger,
 		onFlush: func(n int64) {
 			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
-			monitoring.GetMetrics().ExportObjectsTotal.Add(float64(n))
+			p.metrics.ObjectsTotal.Add(float64(n))
 		},
 	}
 
