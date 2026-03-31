@@ -1734,7 +1734,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
-	properties []string,
+	properties []string, selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
@@ -1765,7 +1765,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	outObjects, outScores, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties)
+	outObjects, outScores, err := i.objectSearchByShard(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan, properties, selection)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1848,7 +1848,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
+	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string, selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, readPlan.Shards())
 
@@ -1862,7 +1862,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
-		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties, nil)
+		objs, scores, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties, selection)
 		if err != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err)
