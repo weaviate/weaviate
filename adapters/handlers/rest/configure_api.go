@@ -1160,6 +1160,7 @@ func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
 	return exportusecase.NewScheduler(
 		appState.Authorizer,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Export,
 		appState.DB,
 		appState.Modules,
 		appState.Logger,

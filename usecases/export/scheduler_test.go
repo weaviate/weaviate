@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // errorBackend embeds fakeBackend but overrides GetObject to always return
@@ -103,6 +104,7 @@ func TestScheduler_ExportIDValidation(t *testing.T) {
 	s := &Scheduler{
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: config.Export{Enabled: true},
 		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
@@ -131,11 +133,11 @@ func TestScheduler_ExportIDValidation(t *testing.T) {
 					var err error
 					switch method {
 					case "export":
-						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil, "", "")
+						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil, "")
 					case "status":
-						_, err = s.Status(context.Background(), nil, "s3", tc.id, "", "")
+						_, err = s.Status(context.Background(), nil, "s3", tc.id, "")
 					case "cancel":
-						err = s.Cancel(context.Background(), nil, "s3", tc.id, "", "")
+						err = s.Cancel(context.Background(), nil, "s3", tc.id, "")
 					}
 					if tc.wantErr {
 						require.Error(t, err)
@@ -213,9 +215,9 @@ func TestScheduler_ErrorPaths(t *testing.T) {
 			var err error
 			switch tc.method {
 			case "status":
-				_, err = s.Status(context.Background(), nil, "s3", "test-export", "", "")
+				_, err = s.Status(context.Background(), nil, "s3", "test-export", "")
 			case "cancel":
-				err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+				err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
 			}
 
 			require.Error(t, err)
@@ -281,11 +283,11 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 		}},
 	}
 
-	err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+	err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
 	require.ErrorIs(t, err, ErrExportAlreadyFinished)
 
 	// Verify the status is still FAILED, not overwritten with CANCELED.
-	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "")
 	require.NoError(t, err)
 	assert.Equal(t, string(export.Failed), resp.Status)
 }
@@ -354,7 +356,7 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 				nodeResolver: resolver,
 			}
 
-			status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+			status, err := s.Status(context.Background(), nil, "s3", "test-export", "")
 			require.NoError(t, err)
 			assert.Equal(t, string(tc.expectedStatus), status.Status)
 

@@ -251,6 +251,9 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// Export controls which S3 buckets may be used for data exports.
+	Export Export `json:"export" yaml:"export"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -572,6 +575,16 @@ type CORS struct {
 	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
 	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+// Export holds operator-level configuration for data exports.
+type Export struct {
+	// Enabled controls whether the export API is available. Defaults to false.
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// Bucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// Not required for backends that do not use buckets (e.g. filesystem).
+	Bucket string `json:"bucket" yaml:"bucket"`
 }
 
 const (

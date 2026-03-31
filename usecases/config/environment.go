@@ -660,6 +660,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.parseExportConfig()
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -1914,4 +1916,13 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if entcfg.Enabled(os.Getenv("EXPORT_ENABLED")) {
+		c.Export.Enabled = true
+	}
+	if v := os.Getenv("EXPORT_BUCKET"); v != "" {
+		c.Export.Bucket = strings.TrimSpace(v)
+	}
 }

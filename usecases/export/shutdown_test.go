@@ -541,7 +541,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 			require.NoError(t, participant.Commit(context.Background(), "test-export"))
 
 			// Fire Cancel concurrently.
-			cancelErr := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+			cancelErr := s.Cancel(context.Background(), nil, "s3", "test-export", "")
 
 			// Wait for the export goroutine to finish
 			require.Eventually(t, func() bool {
