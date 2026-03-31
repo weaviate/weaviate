@@ -60,8 +60,8 @@ type WeaviateRuntimeConfig struct {
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
 	// Export settings
-	ExportEnabled *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
-	ExportBucket  *runtime.DynamicValue[string] `json:"export_bucket" yaml:"export_bucket"`
+	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
+	ExportDefaultBucket *runtime.DynamicValue[string] `json:"export_default_bucket" yaml:"export_default_bucket"`
 
 	// RAFT specific configs
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`

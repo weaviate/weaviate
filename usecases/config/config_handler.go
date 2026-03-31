@@ -579,14 +579,14 @@ type CORS struct {
 
 // Export holds operator-level configuration for data exports.
 // Both fields support runtime overrides via the runtime config YAML
-// (using flat keys export_enabled / export_bucket).
+// (using flat keys export_enabled / export_default_bucket).
 type Export struct {
 	// Enabled controls whether the export API is available. Defaults to false.
 	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
 
 	// Bucket is the storage bucket used for exports (e.g. S3 bucket name).
 	// Not required for backends that do not use buckets (e.g. filesystem).
-	Bucket *runtime.DynamicValue[string] `json:"bucket" yaml:"bucket"`
+	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
 }
 
 const (

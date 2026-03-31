@@ -2166,7 +2166,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
 		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
-		registered.ExportBucket = appState.ServerConfig.Config.Export.Bucket
+		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
