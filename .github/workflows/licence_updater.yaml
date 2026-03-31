@@ -17,10 +17,10 @@ jobs:
       - name: Get current year
         id: date
         run: echo "year=$(date +'%Y')" >> "$GITHUB_OUTPUT"
-      - name: Install Go 1.24
+      - name: Install Go 1.25
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
       - name: Run license header update (go run)
         run: go run ./tools/license_headers/main.go
       - name: Create PR

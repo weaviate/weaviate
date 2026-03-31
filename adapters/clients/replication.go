@@ -15,13 +15,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
@@ -39,12 +44,16 @@ import (
 
 // ReplicationClient is to coordinate operations among replicas
 
-type replicationClient retryClient
+type replicationClient struct {
+	retryClient
+}
 
 func NewReplicationClient(httpClient *http.Client) replica.Client {
 	return &replicationClient{
-		client:  httpClient,
-		retryer: newRetryer(),
+		retryClient: retryClient{
+			client:  httpClient,
+			retryer: newRetryer(),
+		},
 	}
 }
 
@@ -82,7 +91,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 
 func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []types.RepairResponse, err error) {
+) ([]types.RepairResponse, error) {
 	body, err := json.Marshal(replica.DigestObjectsInRangeReq{
 		InitialUUID: initialUUID,
 		FinalUUID:   finalUUID,
@@ -92,6 +101,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 		return nil, fmt.Errorf("marshal digest objects in range input: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
+	defer cancel()
+
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
 		"", "digestsInRange", bytes.NewReader(body), 0)
@@ -99,69 +111,140 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
 
+	req.Header.Set("X-Accept-Response-Encoding", "binary")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+
+	if res.Header.Get("X-Response-Encoding") == "binary" {
+		return readDigestsInRangeBinaryStream(res.Body, res.ContentLength)
+	}
+
+	// Legacy JSON fallback for older nodes.
 	var resp replica.DigestObjectsInRangeResp
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
-	return resp.Digests, err
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return resp.Digests, nil
+}
+
+// readDigestsInRangeBinaryStream decodes a fixed-size binary stream produced
+// by writeDigestsInRangeResponse. Each record is
+// replica.DigestObjectsInRangeRecordLength bytes: 16-byte UUID (RFC-4122
+// binary form) + 8-byte UpdateTime (int64 big-endian).
+func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.RepairResponse, error) {
+	var results []types.RepairResponse
+	if contentLength > 0 {
+		if recordCount := contentLength / int64(replica.DigestObjectsInRangeRecordLength); recordCount <= int64(math.MaxInt) {
+			results = make([]types.RepairResponse, 0, int(recordCount))
+		}
+	}
+	var buf [replica.DigestObjectsInRangeRecordLength]byte
+	for {
+		_, err := io.ReadFull(r, buf[:])
+		if stderrors.Is(err, io.EOF) {
+			return results, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read digest in range record: %w", err)
+		}
+		id, err := uuid.FromBytes(buf[:16])
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid from binary record: %w", err)
+		}
+		updateTime := int64(binary.BigEndian.Uint64(buf[16:]))
+		results = append(results, types.RepairResponse{
+			ID:         id.String(),
+			UpdateTime: updateTime,
+		})
+	}
 }
 
 // HashTreeLevel fetches hash tree level digests
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
-) (digests []hashtree.Digest, err error) {
-	var resp []hashtree.Digest
+) ([]hashtree.Digest, error) {
 	body, err := discriminant.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}
 
-	// Compress the body
-	var buf bytes.Buffer
-
-	zstdw, err := zstd.NewWriter(&buf, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	enc, err := zstd.NewWriter(nil)
 	if err != nil {
-		return nil, fmt.Errorf("create zstd writer: %w", err)
+		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}
-	if _, err := zstdw.Write(body); err != nil {
-		return nil, fmt.Errorf("compress body: %w", err)
-	}
-	if err := zstdw.Close(); err != nil {
-		return nil, fmt.Errorf("close zstd writer: %w", err)
-	}
+	defer enc.Close()
+	bodyBytes := enc.EncodeAll(body, make([]byte, 0, len(body)))
 
-	bodyBytes := buf.Bytes()
-	bodyReader := bytes.NewReader(bodyBytes)
+	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
+	defer cancel()
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/level/%d", level), bodyReader, 0)
+		"", fmt.Sprintf("hashtree/level/%d", level), bytes.NewReader(bodyBytes), 0)
 	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
+		return nil, fmt.Errorf("create http request: %w", err)
 	}
 
-	// Add compression header
 	req.Header.Set("X-Request-Compression", "zstd")
+	req.Header.Set("X-Accept-Response-Encoding", "binary")
 
-	err = c.do(c.timeoutUnit*20, req, bodyBytes, &resp, 9)
-	return resp, err
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if code := res.StatusCode; !successCode(code) {
+		errBody, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", code, errBody)
+	}
+
+	if res.Header.Get("X-Response-Encoding") == "binary" {
+		return readDigestsBinaryStream(res.Body, res.ContentLength)
+	}
+
+	// Legacy JSON fallback for older nodes.
+	var result []hashtree.Digest
+	err = json.NewDecoder(res.Body).Decode(&result)
+	return result, err
 }
 
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
-	var resp []types.RepairResponse
-	body, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
+	body, err := clusterapi.IndicesPayloads.VersionedObjectList.MarshalV2(vobjects)
 	if err != nil {
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
+
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	}
+	defer enc.Close()
+	bodyCompressed := enc.EncodeAll(body, make([]byte, 0, len(body)))
+
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,
-		"", "_overwrite", bytes.NewReader(body), 0)
+		"", "_overwrite", bytes.NewReader(bodyCompressed), 0)
 	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
+		return nil, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.doRetry(req, body, &resp, 3)
+	req.Header.Set("X-Request-Compression", "zstd")
+	req.Header.Set("X-Request-Encoding", "binary")
 
+	var resp []types.RepairResponse
+	err = c.doRetry(req, bodyCompressed, &resp, 3)
 	return resp, err
 }
 
@@ -424,7 +507,7 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
+	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
 }
 
 // backOff return a new random duration in the interval [d, 3d].
@@ -437,4 +520,31 @@ func shouldRetry(code int) bool {
 	return code == http.StatusInternalServerError ||
 		code == http.StatusTooManyRequests ||
 		code == http.StatusServiceUnavailable
+}
+
+// readDigestsBinaryStream reads fixed-size digest records directly from r
+// without buffering the whole body. contentLength is used only to pre-allocate
+// the result slice; pass -1 when unknown.
+func readDigestsBinaryStream(r io.Reader, contentLength int64) ([]hashtree.Digest, error) {
+	var digests []hashtree.Digest
+	if contentLength > 0 {
+		if recordCount := contentLength / int64(hashtree.DigestLength); recordCount <= int64(math.MaxInt) {
+			digests = make([]hashtree.Digest, 0, int(recordCount))
+		}
+	}
+	var buf [hashtree.DigestLength]byte
+	for {
+		_, err := io.ReadFull(r, buf[:])
+		if stderrors.Is(err, io.EOF) {
+			return digests, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read digest: %w", err)
+		}
+		var d hashtree.Digest
+		if err := d.UnmarshalBinary(buf[:]); err != nil {
+			return nil, fmt.Errorf("unmarshal digest: %w", err)
+		}
+		digests = append(digests, d)
+	}
 }

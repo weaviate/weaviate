@@ -66,10 +66,8 @@ type vectorizer struct {
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilder: newWeaviateEmbedUrlBuilder(),
 		logger:     logger,
 	}
@@ -146,7 +144,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, 0, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if len(resBody.Embeddings) == 0 {

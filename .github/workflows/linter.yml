@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
       - uses: actions/checkout@v5
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8

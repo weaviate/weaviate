@@ -43,6 +43,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
 	parentCommitLoggerCycle := cyclemanager.NewManager(
+		"commit-logger",
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
@@ -52,6 +53,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	parentTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("parentTombstoneCleanup", logger, 1)
 	parentTombstoneCleanupCycle := cyclemanager.NewManager(
+		"tombstone-cleanup",
 		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		parentTombstoneCleanupCallbacks.CycleCallback, logger)
 	parentTombstoneCleanupCycle.Start()
