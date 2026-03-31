@@ -19,12 +19,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestParticipant_PrepareValidation(t *testing.T) {
@@ -232,6 +236,9 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 		NodeName: "node1",
 	}
 
+	successBefore := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("success"))
+	durationCountBefore := histogramCount(t, monitoring.GetMetrics().ExportDuration)
+
 	require.NoError(t, p.Prepare(context.Background(), req1))
 	require.NoError(t, p.Commit(context.Background(), "export-1"))
 
@@ -239,6 +246,12 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return !p.IsRunning("export-1")
 	}, 5*time.Second, 10*time.Millisecond)
+
+	successAfter := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("success"))
+	assert.Equal(t, float64(1), successAfter-successBefore, "ExportOperationsTotal success delta")
+
+	durationCountAfter := histogramCount(t, monitoring.GetMetrics().ExportDuration)
+	assert.Equal(t, uint64(1), durationCountAfter-durationCountBefore, "ExportDuration should have a new observation")
 
 	// Now a new Prepare should succeed
 	req2 := &ExportRequest{
@@ -420,6 +433,8 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 		NodeName: "node1",
 	}
 
+	canceledBefore := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("canceled"))
+
 	require.NoError(t, p.Prepare(context.Background(), req))
 	require.NoError(t, p.Commit(context.Background(), "export-1"))
 
@@ -441,6 +456,9 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	var nodeStatus NodeStatus
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
 	assert.Equal(t, export.Failed, nodeStatus.Status)
+
+	canceledAfter := testutil.ToFloat64(monitoring.GetMetrics().ExportOperationsTotal.WithLabelValues("canceled"))
+	assert.Equal(t, float64(1), canceledAfter-canceledBefore, "ExportOperationsTotal canceled delta")
 }
 
 func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
@@ -753,4 +771,12 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			assert.Equal(t, tc.expectFailed, failed)
 		})
 	}
+}
+
+// histogramCount extracts the sample_count from a prometheus.Histogram.
+func histogramCount(t *testing.T, h prometheus.Histogram) uint64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, h.(prometheus.Metric).Write(&m))
+	return m.GetHistogram().GetSampleCount()
 }

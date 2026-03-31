@@ -16,10 +16,12 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestDoExport(t *testing.T) {
@@ -107,6 +109,7 @@ func TestDoExport(t *testing.T) {
 			reqShards := make(map[string][]string)
 			var classNames []string
 
+			var expectedObjects int
 			for className, specs := range tc.classes {
 				classNames = append(classNames, className)
 				sel.shards[className] = make(map[string]*testShard)
@@ -115,6 +118,7 @@ func TestDoExport(t *testing.T) {
 					t.Cleanup(func() { store.Shutdown(context.Background()) })
 					sel.shards[className][spec.name] = &testShard{store: store, name: spec.name}
 					reqShards[className] = append(reqShards[className], spec.name)
+					expectedObjects += spec.numObjects
 				}
 			}
 
@@ -132,8 +136,13 @@ func TestDoExport(t *testing.T) {
 			snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
 			require.NoError(t, snapErr)
 
+			objectsBefore := testutil.ToFloat64(monitoring.GetMetrics().ExportObjectsTotal)
+
 			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 			require.NoError(t, err)
+
+			objectsAfter := testutil.ToFloat64(monitoring.GetMetrics().ExportObjectsTotal)
+			assert.GreaterOrEqual(t, objectsAfter-objectsBefore, float64(expectedObjects), "ExportObjectsTotal delta")
 
 			for _, ef := range tc.expected {
 				data := backend.getWritten(ef.key)
