@@ -142,9 +142,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
 	}
 
-	bucket := s.exportConfig.Bucket.Get()
+	bucket := s.exportConfig.DefaultBucket.Get()
 	if bucket == "" && requiresBucket(backend) {
-		return nil, fmt.Errorf("%w: EXPORT_BUCKET is required for backend %q", ErrExportValidation, backend)
+		return nil, fmt.Errorf("%w: EXPORT_DEFAULT_BUCKET is required for backend %q", ErrExportValidation, backend)
 	}
 
 	classes, err := s.resolveClasses(ctx, include, exclude)
@@ -233,7 +233,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	if err := validateExportID(id); err != nil {
 		return nil, err
 	}
-	bucket := s.exportConfig.Bucket.Get()
+	bucket := s.exportConfig.DefaultBucket.Get()
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
@@ -313,7 +313,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	if err := validateExportID(id); err != nil {
 		return err
 	}
-	bucket := s.exportConfig.Bucket.Get()
+	bucket := s.exportConfig.DefaultBucket.Get()
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
