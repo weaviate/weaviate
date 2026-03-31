@@ -783,6 +783,7 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 
 	dists := make([]float32, distsLength)
 	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
+	read += distsLength * 4
 
 	// Parse optional query profile data appended after dists.
 	var queryProfiles []helpers.ShardQueryProfile
