@@ -133,8 +133,8 @@ func TestHandleGenericTokenize(t *testing.T) {
 				assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
 				assert.Equal(t, tt.wantQuery, okResp.Payload.Query)
 			} else {
-				_, ok := resp.(*tokenizeops.TokenizeBadRequest)
-				assert.True(t, ok, "expected TokenizeBadRequest response")
+				_, ok := resp.(*tokenizeops.TokenizeUnprocessableEntity)
+				assert.True(t, ok, "expected TokenizeUnprocessableEntity response")
 			}
 		})
 	}
