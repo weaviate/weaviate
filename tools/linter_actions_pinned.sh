@@ -15,7 +15,8 @@ for file in .github/workflows/*.yaml .github/workflows/*.yml; do
 
     # Match 'uses:' lines with external actions (skip local actions starting with ./)
     while IFS= read -r line; do
-        # Extract the action reference after 'uses:'
+        # Extract line number and action reference
+        lineno=$(echo "$line" | cut -d: -f1)
         ref=$(echo "$line" | sed -n 's/.*uses:[[:space:]]*//p' | sed 's/[[:space:]]*#.*//')
 
         # Skip local actions
@@ -28,10 +29,10 @@ for file in .github/workflows/*.yaml .github/workflows/*.yml; do
 
         # A valid SHA pin is 40 hex characters
         if ! echo "$version" | grep -qE '^[0-9a-f]{40}$'; then
-            echo "Error: $file: action not pinned to commit SHA: $ref"
+            echo "Error: $file:$lineno: action not pinned to commit SHA: $ref"
             found_error=true
         fi
-    done < <(grep -n 'uses:' "$file" | grep -v '\./')
+    done < <(grep -n 'uses:' "$file" | grep -v '\./' || true)
 done
 
 if [ "$found_error" = true ]; then
