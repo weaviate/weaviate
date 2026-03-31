@@ -143,6 +143,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	}
 
 	bucket := s.exportConfig.Bucket.Get()
+	if bucket == "" && requiresBucket(backend) {
+		return nil, fmt.Errorf("%w: EXPORT_BUCKET is required for backend %q", ErrExportValidation, backend)
+	}
 
 	classes, err := s.resolveClasses(ctx, include, exclude)
 	if err != nil {
@@ -895,6 +898,17 @@ func validateExportID(id string) error {
 		return fmt.Errorf("%w: invalid export id: '%v' allowed characters are lowercase, 0-9, _, -", ErrExportValidation, id)
 	}
 	return nil
+}
+
+// requiresBucket returns true for backends that need an explicit bucket
+// to avoid silently falling back to the backup module's default bucket.
+func requiresBucket(backend string) bool {
+	switch backend {
+	case "s3", "gcs", "azure":
+		return true
+	default:
+		return false
+	}
 }
 
 // resolveClasses determines which classes to export.

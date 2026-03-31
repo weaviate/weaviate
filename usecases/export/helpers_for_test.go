@@ -386,11 +386,11 @@ func (b *writeBlockingBackend) waitForParquetWrite(t *testing.T) {
 	}
 }
 
-// testExportConfig returns an Export config with export enabled and an empty bucket,
+// testExportConfig returns an Export config with export enabled and a test bucket,
 // suitable for unit tests that need a non-nil exportConfig.
 func testExportConfig() config.Export {
 	return config.Export{
 		Enabled: configRuntime.NewDynamicValue(true),
-		Bucket:  configRuntime.NewDynamicValue(""),
+		Bucket:  configRuntime.NewDynamicValue("test-bucket"),
 	}
 }
