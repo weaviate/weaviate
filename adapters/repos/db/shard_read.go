@@ -609,6 +609,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				if err != nil {
 					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
 				}
+				limit = int(selection.MMR.Limit)
 			}
 
 			idss[i] = ids
