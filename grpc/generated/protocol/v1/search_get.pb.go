@@ -789,7 +789,7 @@ type SearchReply struct {
 	GenerativeGroupedResult  *string           `protobuf:"bytes,3,opt,name=generative_grouped_result,json=generativeGroupedResult,proto3,oneof" json:"generative_grouped_result,omitempty"`
 	GroupByResults           []*GroupByResult  `protobuf:"bytes,4,rep,name=group_by_results,json=groupByResults,proto3" json:"group_by_results,omitempty"`
 	GenerativeGroupedResults *GenerativeResult `protobuf:"bytes,5,opt,name=generative_grouped_results,json=generativeGroupedResults,proto3,oneof" json:"generative_grouped_results,omitempty"`
-	Profile                  *QueryProfile     `protobuf:"bytes,6,opt,name=profile,proto3,oneof" json:"profile,omitempty"`
+	QueryProfile             *QueryProfile     `protobuf:"bytes,6,opt,name=query_profile,json=queryProfile,proto3,oneof" json:"query_profile,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -860,9 +860,9 @@ func (x *SearchReply) GetGenerativeGroupedResults() *GenerativeResult {
 	return nil
 }
 
-func (x *SearchReply) GetProfile() *QueryProfile {
+func (x *SearchReply) GetQueryProfile() *QueryProfile {
 	if x != nil {
-		return x.Profile
+		return x.QueryProfile
 	}
 	return nil
 }
@@ -1696,18 +1696,17 @@ const file_v1_search_get_proto_rawDesc = "" +
 	"\x06Rerank\x12\x1a\n" +
 	"\bproperty\x18\x01 \x01(\tR\bproperty\x12\x19\n" +
 	"\x05query\x18\x02 \x01(\tH\x00R\x05query\x88\x01\x01B\b\n" +
-	"\x06_query\"\xc6\x03\n" +
+	"\x06_query\"\xd7\x03\n" +
 	"\vSearchReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x123\n" +
 	"\aresults\x18\x02 \x03(\v2\x19.weaviate.v1.SearchResultR\aresults\x12C\n" +
 	"\x19generative_grouped_result\x18\x03 \x01(\tB\x02\x18\x01H\x00R\x17generativeGroupedResult\x88\x01\x01\x12D\n" +
 	"\x10group_by_results\x18\x04 \x03(\v2\x1a.weaviate.v1.GroupByResultR\x0egroupByResults\x12`\n" +
-	"\x1agenerative_grouped_results\x18\x05 \x01(\v2\x1d.weaviate.v1.GenerativeResultH\x01R\x18generativeGroupedResults\x88\x01\x01\x128\n" +
-	"\aprofile\x18\x06 \x01(\v2\x19.weaviate.v1.QueryProfileH\x02R\aprofile\x88\x01\x01B\x1c\n" +
+	"\x1agenerative_grouped_results\x18\x05 \x01(\v2\x1d.weaviate.v1.GenerativeResultH\x01R\x18generativeGroupedResults\x88\x01\x01\x12C\n" +
+	"\rquery_profile\x18\x06 \x01(\v2\x19.weaviate.v1.QueryProfileH\x02R\fqueryProfile\x88\x01\x01B\x1c\n" +
 	"\x1a_generative_grouped_resultB\x1d\n" +
-	"\x1b_generative_grouped_resultsB\n" +
-	"\n" +
-	"\b_profile\"\xdd\x03\n" +
+	"\x1b_generative_grouped_resultsB\x10\n" +
+	"\x0e_query_profile\"\xdd\x03\n" +
 	"\fQueryProfile\x12>\n" +
 	"\x06shards\x18\x01 \x03(\v2&.weaviate.v1.QueryProfile.ShardProfileR\x06shards\x1a\x9b\x01\n" +
 	"\rSearchProfile\x12N\n" +
@@ -1871,7 +1870,7 @@ var file_v1_search_get_proto_depIdxs = []int32{
 	12, // 24: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
 	11, // 25: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
 	34, // 26: weaviate.v1.SearchReply.generative_grouped_results:type_name -> weaviate.v1.GenerativeResult
-	9,  // 27: weaviate.v1.SearchReply.profile:type_name -> weaviate.v1.QueryProfile
+	9,  // 27: weaviate.v1.SearchReply.query_profile:type_name -> weaviate.v1.QueryProfile
 	17, // 28: weaviate.v1.QueryProfile.shards:type_name -> weaviate.v1.QueryProfile.ShardProfile
 	12, // 29: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
 	10, // 30: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply

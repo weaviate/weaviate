@@ -119,7 +119,7 @@ message SearchReply {
   optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
-  optional QueryProfile profile = 6;
+  optional QueryProfile query_profile = 6;
 }
 
 // QueryProfile contains per-shard profiling data for a search query.

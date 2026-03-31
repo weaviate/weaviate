@@ -100,7 +100,7 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.Results = objects
 	}
 	if searchParams.AdditionalProperties.Profile {
-		out.Profile = r.extractQueryProfile(res)
+		out.QueryProfile = r.extractQueryProfile(res)
 	}
 	return out, nil
 }

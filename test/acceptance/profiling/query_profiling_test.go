@@ -93,10 +93,10 @@ func TestQueryProfiling(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Results)
-		require.NotNil(t, resp.Profile, "profile should be present when requested")
-		require.NotEmpty(t, resp.Profile.Shards)
+		require.NotNil(t, resp.QueryProfile, "profile should be present when requested")
+		require.NotEmpty(t, resp.QueryProfile.Shards)
 
-		for _, shard := range resp.Profile.Shards {
+		for _, shard := range resp.QueryProfile.Shards {
 			assert.NotEmpty(t, shard.Name, "shard name should be set")
 			assert.NotEmpty(t, shard.Node, "node name should be set")
 
@@ -120,10 +120,10 @@ func TestQueryProfiling(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Results)
-		require.NotNil(t, resp.Profile)
-		require.NotEmpty(t, resp.Profile.Shards)
+		require.NotNil(t, resp.QueryProfile)
+		require.NotEmpty(t, resp.QueryProfile.Shards)
 
-		for _, shard := range resp.Profile.Shards {
+		for _, shard := range resp.QueryProfile.Shards {
 			assert.NotEmpty(t, shard.Name)
 			assert.NotEmpty(t, shard.Node)
 
@@ -153,10 +153,10 @@ func TestQueryProfiling(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Results)
-		require.NotNil(t, resp.Profile)
-		require.NotEmpty(t, resp.Profile.Shards)
+		require.NotNil(t, resp.QueryProfile)
+		require.NotEmpty(t, resp.QueryProfile.Shards)
 
-		for _, shard := range resp.Profile.Shards {
+		for _, shard := range resp.QueryProfile.Shards {
 			assert.NotEmpty(t, shard.Name)
 			assert.NotEmpty(t, shard.Node)
 
@@ -182,7 +182,7 @@ func TestQueryProfiling(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Results)
-		assert.Nil(t, resp.Profile, "profile should be nil when not requested")
+		assert.Nil(t, resp.QueryProfile, "profile should be nil when not requested")
 	})
 
 	t.Run("multi-node profiles include different node names", func(t *testing.T) {
@@ -199,11 +199,11 @@ func TestQueryProfiling(t *testing.T) {
 			Uses_127Api: true,
 		})
 		require.NoError(t, err)
-		require.NotNil(t, resp.Profile)
-		require.NotEmpty(t, resp.Profile.Shards)
+		require.NotNil(t, resp.QueryProfile)
+		require.NotEmpty(t, resp.QueryProfile.Shards)
 
 		nodes := make(map[string]bool)
-		for _, shard := range resp.Profile.Shards {
+		for _, shard := range resp.QueryProfile.Shards {
 			require.NotEmpty(t, shard.Node)
 			nodes[shard.Node] = true
 		}
@@ -236,12 +236,12 @@ func TestQueryProfiling(t *testing.T) {
 					Uses_127Api: true,
 				})
 				require.NoError(t, err)
-				require.NotNil(t, resp.Profile, "profile should be present when queried via node %d", nodeIdx)
-				require.Len(t, resp.Profile.Shards, 3,
+				require.NotNil(t, resp.QueryProfile, "profile should be present when queried via node %d", nodeIdx)
+				require.Len(t, resp.QueryProfile.Shards, 3,
 					"should get profiles from all 3 shards when queried via node %d", nodeIdx)
 
 				nodes := make(map[string]bool)
-				for _, shard := range resp.Profile.Shards {
+				for _, shard := range resp.QueryProfile.Shards {
 					assert.NotEmpty(t, shard.Name)
 					assert.NotEmpty(t, shard.Node)
 					nodes[shard.Node] = true
@@ -276,9 +276,9 @@ func TestQueryProfiling(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Results)
-		require.NotNil(t, resp.Profile)
+		require.NotNil(t, resp.QueryProfile)
 
-		for _, shard := range resp.Profile.Shards {
+		for _, shard := range resp.QueryProfile.Shards {
 			vecSearch := shard.Searches["vector"]
 			assert.NotEmpty(t, vecSearch.Details["total_took"])
 			assert.NotEmpty(t, vecSearch.Details["filters_build_allow_list_took"],
