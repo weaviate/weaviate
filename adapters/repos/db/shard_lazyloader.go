@@ -463,25 +463,49 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
 		}
 		return nil
 	})
+}
+
+func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	if l.isLoaded() {
+		return l.shard.DropVectorIndex(ctx, targetVector)
+	} else {
+		return l.dropUnloadedVectorIndex(targetVector)
+	}
+}
+
+func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
+	// Shard is not loaded — remove files directly from disk. Delegate to the
+	// shared helper so file path logic is defined in one place.
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+		return err
+	}
+
+	// Remove the index checkpoint entry for this vector.
+	if l.shardOpts.indexCheckpoints != nil {
+		if err := l.shardOpts.indexCheckpoints.Delete(l.ID(), targetVector); err != nil {
+			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+		}
+	}
+	return nil
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {

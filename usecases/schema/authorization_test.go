@@ -93,6 +93,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
+			methodName:        "DeleteClassVectorIndex",
+			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", "somevector"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.CollectionsMetadata("classname"),
+		},
+		{
 			methodName:        "UpdateShardStatus",
 			additionalArgs:    []any{"className", "shardName", "targetStatus"},
 			expectedVerb:      authorization.UPDATE,

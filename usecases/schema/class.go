@@ -938,6 +938,9 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 	}
 
 	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
 		// check only if vectorizer correctly configured (map with single key being vectorizer name)
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
@@ -1029,6 +1032,9 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 	for k, v := range updated.VectorConfig {
 		if _, ok := initial.VectorConfig[k]; !ok {
+			continue
+		}
+		if modelsext.IsVectorIndexDropped(v) {
 			continue
 		}
 

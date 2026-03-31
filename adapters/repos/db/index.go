@@ -775,6 +775,32 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	return nil
 }
 
+func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error {
+	// Delete the config entry first so that a concurrent shard load
+	// (initTargetVectors) won't try to re-initialize the vector being dropped.
+	func() {
+		i.vectorIndexUserConfigLock.Lock()
+		defer i.vectorIndexUserConfigLock.Unlock()
+		delete(i.vectorIndexUserConfigs, targetVector)
+	}()
+
+	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+		if err := shard.DropVectorIndex(ctx, targetVector); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
+		}
+		return nil
+	}); err != nil {
+		// Log the error but still return it so the caller knows the drop was
+		// not fully successful. The shard-init helper will clean up any
+		// leftover files on next shard initialization.
+		i.logger.WithError(err).WithField("vector", targetVector).
+			Warn("some shards failed to drop vector index; leftover files will be cleaned up on next shard init")
+		return err
+	}
+
+	return nil
+}
+
 func (i *Index) GetInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
