@@ -768,7 +768,7 @@ func (p searchParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
 
 type searchResultsPayload struct{}
 
-func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, []helpers.ShardProfile, error) {
+func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	read := uint64(0)
 
 	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
@@ -790,16 +790,16 @@ func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32
 	}
 
 	// Parse optional query profile data appended after dists.
-	var queryProfiles []helpers.ShardProfile
+	var queryProfiles []helpers.ShardQueryProfile
 	if read+8 <= uint64(len(in)) {
 		profilesLength := binary.LittleEndian.Uint64(in[read : read+8])
 		read += 8
 		if profilesLength > 0 {
 			if read+profilesLength > uint64(len(in)) {
-				return nil, nil, nil, fmt.Errorf("profiles data truncated: need %d bytes, have %d", profilesLength, uint64(len(in))-read)
+				return nil, nil, nil, fmt.Errorf("query profiles data truncated: need %d bytes, have %d", profilesLength, uint64(len(in))-read)
 			}
 			if err := json.Unmarshal(in[read:read+profilesLength], &queryProfiles); err != nil {
-				return nil, nil, nil, fmt.Errorf("unmarshal profiles: %w", err)
+				return nil, nil, nil, fmt.Errorf("unmarshal query profiles: %w", err)
 			}
 		}
 	}
@@ -841,7 +841,7 @@ func (p searchResultsPayload) Marshal(objs []*storobj.Object,
 // include vectors and properties based on the additional.Properties parameter.
 // This reduces network bandwidth by not transmitting vectors when they are not requested.
 func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
-	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardProfile,
+	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardQueryProfile,
 ) ([]byte, error) {
 	reusableLengthBuf := make([]byte, 8)
 	var out []byte
@@ -872,7 +872,7 @@ func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
 	if len(queryProfiles) > 0 {
 		profilesBytes, err = json.Marshal(queryProfiles)
 		if err != nil {
-			return nil, fmt.Errorf("marshal profiles: %w", err)
+			return nil, fmt.Errorf("marshal query profiles: %w", err)
 		}
 	}
 	binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(len(profilesBytes)))

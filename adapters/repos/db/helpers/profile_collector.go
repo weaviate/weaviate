@@ -28,22 +28,22 @@ type contextKey string
 
 const profileCollectorKey contextKey = "profile_collector"
 
-// SearchProfile holds the profiling details for a single search type within a shard.
-type SearchProfile struct {
+// SearchQueryProfile holds the profiling details for a single search type within a shard.
+type SearchQueryProfile struct {
 	// Details contains human-readable profiling metrics keyed by metric name
 	// (e.g., "total_took", "vector_search_took", "filters_build_allow_list_took").
 	Details map[string]string `json:"details"`
 }
 
-// ShardProfile holds the profiling details for a single shard's contribution to a search query.
+// ShardQueryProfile holds the profiling details for a single shard's contribution to a search query.
 // For hybrid queries a shard may have multiple search types (e.g., "vector" and "keyword").
-type ShardProfile struct {
+type ShardQueryProfile struct {
 	// Name is the identifier of the shard that was searched.
 	Name string `json:"name"`
 	// Node is the name of the node that executed the shard search.
 	Node string `json:"node"`
 	// Searches maps search type (e.g., "vector", "keyword") to its profiling details.
-	Searches map[string]SearchProfile `json:"searches"`
+	Searches map[string]SearchQueryProfile `json:"searches"`
 }
 
 // shardEntry is an internal record for a single search operation within a shard.
@@ -54,36 +54,36 @@ type shardEntry struct {
 	details    map[string]string
 }
 
-// ProfileCollector aggregates per-shard profiling data across concurrent shard searches.
+// QueryProfileCollector aggregates per-shard profiling data across concurrent shard searches.
 // It is stored in the context and is safe for concurrent use.
-type ProfileCollector struct {
+type QueryProfileCollector struct {
 	mu      sync.Mutex
 	entries []shardEntry
 }
 
-// InitProfileCollector stores a new [ProfileCollector] in the context.
-// Call this before shard searches so that [AddShardProfile] can record timing data.
+// InitQueryProfileCollector stores a new [QueryProfileCollector] in the context.
+// Call this before shard searches so that [AddShardQueryProfile] can record timing data.
 // It is idempotent: if a collector already exists in ctx, the context is returned as-is.
 // This allows hybrid search to initialize a single shared collector that both
 // sub-searches (vector and keyword) write to.
-func InitProfileCollector(ctx context.Context) context.Context {
+func InitQueryProfileCollector(ctx context.Context) context.Context {
 	if ctx.Value(profileCollectorKey) != nil {
 		return ctx
 	}
-	return context.WithValue(ctx, profileCollectorKey, &ProfileCollector{})
+	return context.WithValue(ctx, profileCollectorKey, &QueryProfileCollector{})
 }
 
-// AddShardProfile records profiling data for a single shard search.
+// AddShardQueryProfile records profiling data for a single shard search.
 // searchType identifies the kind of search (e.g., "vector", "keyword").
 // It converts the raw slow-query details map into human-readable strings.
 // Safe for concurrent use from multiple shard search goroutines.
-func AddShardProfile(ctx context.Context, shardName, nodeName, searchType string, totalTook time.Duration, details map[string]any) {
+func AddShardQueryProfile(ctx context.Context, shardName, nodeName, searchType string, totalTook time.Duration, details map[string]any) {
 	val := ctx.Value(profileCollectorKey)
 	if val == nil {
 		return
 	}
 
-	collector, ok := val.(*ProfileCollector)
+	collector, ok := val.(*QueryProfileCollector)
 	if !ok {
 		return
 	}
@@ -139,18 +139,18 @@ func AddShardProfile(ctx context.Context, shardName, nodeName, searchType string
 	}()
 }
 
-// AddRemoteProfiles merges pre-built [ShardProfile] entries (received from a remote node)
+// AddRemoteQueryProfiles merges pre-built [ShardQueryProfile] entries (received from a remote node)
 // into the collector stored in ctx. This allows the coordinator to include profiling data
 // from shards that were searched on other nodes. Safe for concurrent use.
-func AddRemoteProfiles(ctx context.Context, profiles []ShardProfile) {
-	if len(profiles) == 0 {
+func AddRemoteQueryProfiles(ctx context.Context, queryProfiles []ShardQueryProfile) {
+	if len(queryProfiles) == 0 {
 		return
 	}
 	val := ctx.Value(profileCollectorKey)
 	if val == nil {
 		return
 	}
-	collector, ok := val.(*ProfileCollector)
+	collector, ok := val.(*QueryProfileCollector)
 	if !ok {
 		return
 	}
@@ -158,7 +158,7 @@ func AddRemoteProfiles(ctx context.Context, profiles []ShardProfile) {
 	func() {
 		collector.mu.Lock()
 		defer collector.mu.Unlock()
-		for _, p := range profiles {
+		for _, p := range queryProfiles {
 			for searchType, sp := range p.Searches {
 				collector.entries = append(collector.entries, shardEntry{
 					shardName:  p.Name,
@@ -171,38 +171,38 @@ func AddRemoteProfiles(ctx context.Context, profiles []ShardProfile) {
 	}()
 }
 
-// AttachProfileToResults calls [ExtractProfiles] and attaches the collected
-// [ShardProfile] entries to the first search result's AdditionalProperties.
+// AttachQueryProfileToResults calls [ExtractQueryProfiles] and attaches the collected
+// [ShardQueryProfile] entries to the first search result's AdditionalProperties.
 // Profile data is per-query (not per-object), so it is only attached to results[0].
-// The data is stored in two formats: "queryProfileRaw" ([][ShardProfile] for gRPC)
+// The data is stored in two formats: "queryProfileRaw" ([][ShardQueryProfile] for gRPC)
 // and "queryProfile" (JSON string for GraphQL).
-func AttachProfileToResults(ctx context.Context, results search.Results) search.Results {
-	profiles := ExtractProfiles(ctx)
-	if len(profiles) == 0 || len(results) == 0 {
+func AttachQueryProfileToResults(ctx context.Context, results search.Results) search.Results {
+	queryProfiles := ExtractQueryProfiles(ctx)
+	if len(queryProfiles) == 0 || len(results) == 0 {
 		return results
 	}
 	if results[0].AdditionalProperties == nil {
 		results[0].AdditionalProperties = make(models.AdditionalProperties)
 	}
-	// Store raw profiles for gRPC consumption.
-	results[0].AdditionalProperties["queryProfileRaw"] = profiles
+	// Store raw query profiles for gRPC consumption.
+	results[0].AdditionalProperties["queryProfileRaw"] = queryProfiles
 	// Store JSON string for GraphQL consumption.
-	if b, err := json.Marshal(profiles); err == nil {
+	if b, err := json.Marshal(queryProfiles); err == nil {
 		results[0].AdditionalProperties["queryProfile"] = string(b)
 	}
 	return results
 }
 
-// ExtractProfiles groups all collected entries by shard name and returns one
-// [ShardProfile] per shard, each containing a map of search type to [SearchProfile].
+// ExtractQueryProfiles groups all collected entries by shard name and returns one
+// [ShardQueryProfile] per shard, each containing a map of search type to [SearchQueryProfile].
 // Safe for concurrent use. Returns nil if no collector is present or no entries were recorded.
-func ExtractProfiles(ctx context.Context) []ShardProfile {
+func ExtractQueryProfiles(ctx context.Context) []ShardQueryProfile {
 	val := ctx.Value(profileCollectorKey)
 	if val == nil {
 		return nil
 	}
 
-	collector, ok := val.(*ProfileCollector)
+	collector, ok := val.(*QueryProfileCollector)
 	if !ok {
 		return nil
 	}
@@ -220,24 +220,24 @@ func ExtractProfiles(ctx context.Context) []ShardProfile {
 		node string
 	}
 	order := make([]shardKey, 0, len(collector.entries))
-	grouped := make(map[shardKey]map[string]SearchProfile)
+	grouped := make(map[shardKey]map[string]SearchQueryProfile)
 	for _, e := range collector.entries {
 		key := shardKey{name: e.shardName, node: e.nodeName}
 		if _, exists := grouped[key]; !exists {
 			order = append(order, key)
-			grouped[key] = make(map[string]SearchProfile)
+			grouped[key] = make(map[string]SearchQueryProfile)
 		}
 		// Copy the details map so callers cannot mutate collector state.
 		detailsCopy := make(map[string]string, len(e.details))
 		for k, v := range e.details {
 			detailsCopy[k] = v
 		}
-		grouped[key][e.searchType] = SearchProfile{Details: detailsCopy}
+		grouped[key][e.searchType] = SearchQueryProfile{Details: detailsCopy}
 	}
 
-	result := make([]ShardProfile, len(order))
+	result := make([]ShardQueryProfile, len(order))
 	for i, key := range order {
-		result[i] = ShardProfile{
+		result[i] = ShardQueryProfile{
 			Name:     key.name,
 			Node:     key.node,
 			Searches: grouped[key],

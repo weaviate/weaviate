@@ -1848,7 +1848,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	shardResultLock := sync.Mutex{}
 
 	remoteSearch := func(shardName string) error {
-		objs, scores, profiles, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
+		objs, scores, queryProfiles, nodeName, err := i.remote.SearchShard(ctx, shardName, nil, nil, 0, limit, filters, keywordRanking, sort, cursor, nil, addlProps, nil, properties)
 		if err != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err)
@@ -1863,7 +1863,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		resultScores = append(resultScores, scores...)
 		shardResultLock.Unlock()
 
-		helpers.AddRemoteProfiles(ctx, profiles)
+		helpers.AddRemoteQueryProfiles(ctx, queryProfiles)
 
 		return nil
 	}
@@ -1900,7 +1900,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if keywordRanking == nil {
 				searchType = "object"
 			}
-			helpers.AddShardProfile(ctx, shard.ID(), nodeName, searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
+			helpers.AddShardQueryProfile(ctx, shard.ID(), nodeName, searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 		}
 
 		if i.shardHasMultipleReplicasRead(tenant, shardName) {
@@ -2019,7 +2019,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additional.QueryProfile {
-		helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+		helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 	return res, resDists, nil
 }
@@ -2050,7 +2050,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additionalProps.QueryProfile {
-		helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
+		helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 	}
 	// Append result to out
 	if i.shardHasMultipleReplicasRead(tenantName, shardName) {
@@ -2089,11 +2089,11 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 			}
 			outObjects = append(outObjects, remoteShardResult.Objects...)
 			outScores = append(outScores, remoteShardResult.Scores...)
-			helpers.AddRemoteProfiles(ctx, remoteShardResult.QueryProfiles)
+			helpers.AddRemoteQueryProfiles(ctx, remoteShardResult.QueryProfiles)
 		}
 	} else {
 		// Search only what is necessary
-		remoteResult, remoteDists, profiles, nodeName, err := i.remote.SearchShard(ctx,
+		remoteResult, remoteDists, queryProfiles, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, targetCombination, properties)
 		if err != nil {
@@ -2105,7 +2105,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		}
 		outObjects = remoteResult
 		outScores = remoteDists
-		helpers.AddRemoteProfiles(ctx, profiles)
+		helpers.AddRemoteQueryProfiles(ctx, queryProfiles)
 	}
 	return outObjects, outScores, nil
 }
@@ -2272,7 +2272,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-) ([]*storobj.Object, []float32, []helpers.ShardProfile, error) {
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, nil, nil, err
@@ -2291,7 +2291,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	if additional.QueryProfile {
-		ctx = helpers.InitProfileCollector(ctx)
+		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
 	if len(searchVectors) == 0 {
@@ -2308,10 +2308,10 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 			if keywordRanking == nil {
 				searchType = "object"
 			}
-			helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+			helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 		}
 
-		return res, scores, helpers.ExtractProfiles(ctx), nil
+		return res, scores, helpers.ExtractQueryProfiles(ctx), nil
 	}
 
 	var shardStart time.Time
@@ -2324,10 +2324,10 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additional.QueryProfile {
-		helpers.AddShardProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+		helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 
-	return res, resDists, helpers.ExtractProfiles(ctx), nil
+	return res, resDists, helpers.ExtractQueryProfiles(ctx), nil
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,

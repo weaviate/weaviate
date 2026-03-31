@@ -119,12 +119,12 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 	if !ok {
 		return nil
 	}
-	profiles, ok := additional["queryProfileRaw"].([]helpers.ShardProfile)
+	queryProfiles, ok := additional["queryProfileRaw"].([]helpers.ShardQueryProfile)
 	if !ok {
 		return nil
 	}
-	shards := make([]*pb.QueryProfile_ShardProfile, len(profiles))
-	for i, p := range profiles {
+	shards := make([]*pb.QueryProfile_ShardProfile, len(queryProfiles))
+	for i, p := range queryProfiles {
 		searches := make(map[string]*pb.QueryProfile_SearchProfile, len(p.Searches))
 		for searchType, sp := range p.Searches {
 			searches[searchType] = &pb.QueryProfile_SearchProfile{Details: sp.Details}

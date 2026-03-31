@@ -83,7 +83,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	}()
 
 	if params.AdditionalProperties.QueryProfile {
-		ctx = helpers.InitProfileCollector(ctx)
+		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
@@ -133,7 +133,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 	}
 
 	if params.AdditionalProperties.QueryProfile {
-		ctx = helpers.InitProfileCollector(ctx)
+		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
 	res, scores, err := db.SparseObjectSearch(ctx, params)
@@ -149,7 +149,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, err
 	}
 	if params.AdditionalProperties.QueryProfile {
-		results = helpers.AttachProfileToResults(ctx, results)
+		results = helpers.AttachQueryProfileToResults(ctx, results)
 	}
 	return results, nil
 }
@@ -173,7 +173,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	}
 
 	if params.AdditionalProperties.QueryProfile {
-		ctx = helpers.InitProfileCollector(ctx)
+		ctx = helpers.InitQueryProfileCollector(ctx)
 	}
 
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
@@ -206,7 +206,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 		return nil, err
 	}
 	if params.AdditionalProperties.QueryProfile {
-		results = helpers.AttachProfileToResults(ctx, results)
+		results = helpers.AttachQueryProfileToResults(ctx, results)
 	}
 	return results, nil
 }

@@ -150,7 +150,7 @@ type shards interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, []helpers.ShardProfile, error)
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,

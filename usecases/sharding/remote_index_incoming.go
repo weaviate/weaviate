@@ -71,7 +71,7 @@ type RemoteIndexIncomingRepo interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, []helpers.ShardProfile, error)
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	IncomingAggregate(ctx context.Context, shardName string,
 		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
 
@@ -220,7 +220,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 	properties []string,
-) ([]*storobj.Object, []float32, []helpers.ShardProfile, error) {
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
