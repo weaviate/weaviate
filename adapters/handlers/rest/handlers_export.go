@@ -91,6 +91,9 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
+		case errors.Is(err, ucexport.ErrExportDisabled):
+			return export.NewExportStatusUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -124,6 +127,9 @@ func (h *exportHandlers) cancelExport(params export.ExportCancelParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
+		case errors.Is(err, ucexport.ErrExportDisabled):
+			return export.NewExportCancelUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCancelForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -183,7 +189,8 @@ func (e *exportRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &authzerrors.Forbidden{}),
 		errors.Is(err, ucexport.ErrExportValidation),
 		errors.Is(err, ucexport.ErrExportAlreadyExists),
-		errors.Is(err, ucexport.ErrExportAlreadyActive):
+		errors.Is(err, ucexport.ErrExportAlreadyActive),
+		errors.Is(err, ucexport.ErrExportDisabled):
 		e.logUserError(className)
 	default:
 		e.logServerError(className, err)

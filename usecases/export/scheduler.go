@@ -63,7 +63,7 @@ var (
 	ErrExportShuttingDown = errors.New("server is shutting down")
 
 	// ErrExportDisabled is returned when the export feature is not enabled.
-	ErrExportDisabled = errors.New("export is disabled, set EXPORT_ENABLED=true to enable")
+	ErrExportDisabled = errors.New("export API is disabled; enable it via EXPORT_ENABLED=true or the runtime config")
 )
 
 const exportMetadataFile = "export_metadata.json"
@@ -224,6 +224,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 // Status retrieves the status of an export.
 // Assembles status from metadata's NodeAssignments + per-node status files.
 func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, path string) (*models.ExportStatusResponse, error) {
+	if !s.exportConfig.Enabled.Get() {
+		return nil, ErrExportDisabled
+	}
 	if err := validateExportID(id); err != nil {
 		return nil, err
 	}
@@ -301,6 +304,9 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // and to avoid the complexity of distributed garbage collection across
 // storage backends. The same applies to failed exports.
 func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, path string) error {
+	if !s.exportConfig.Enabled.Get() {
+		return ErrExportDisabled
+	}
 	if err := validateExportID(id); err != nil {
 		return err
 	}

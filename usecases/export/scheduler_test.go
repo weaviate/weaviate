@@ -26,8 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // errorBackend embeds fakeBackend but overrides GetObject to always return
@@ -100,15 +98,29 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 	})
 }
 
+func TestScheduler_ExportDisabled(t *testing.T) {
+	s := &Scheduler{} // zero-value: Enabled defaults to false
+
+	t.Run("Export", func(t *testing.T) {
+		_, err := s.Export(context.Background(), nil, "test", "s3", nil, nil, "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+	t.Run("Status", func(t *testing.T) {
+		_, err := s.Status(context.Background(), nil, "s3", "test", "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+	t.Run("Cancel", func(t *testing.T) {
+		err := s.Cancel(context.Background(), nil, "s3", "test", "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+}
+
 func TestScheduler_ExportIDValidation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	s := &Scheduler{
-		logger:     logger,
-		authorizer: mocks.NewMockAuthorizer(),
-		exportConfig: config.Export{
-			Enabled: configRuntime.NewDynamicValue(true),
-			Bucket:  configRuntime.NewDynamicValue(""),
-		},
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: testExportConfig(),
 		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
@@ -211,6 +223,7 @@ func TestScheduler_ErrorPaths(t *testing.T) {
 			s := &Scheduler{
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				backends:     &fakeBackendProvider{backend: tc.backend},
 				client:       &fakeExportClient{},
 				nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
@@ -277,10 +290,11 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 	}
 
 	s := &Scheduler{
-		logger:     logger,
-		authorizer: mocks.NewMockAuthorizer(),
-		backends:   &fakeBackendProvider{backend: backend},
-		client:     &fakeExportClient{},
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: testExportConfig(),
+		backends:     &fakeBackendProvider{backend: backend},
+		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{
 			"node1": "host1:8080",
 			"node2": "host2:8080",
@@ -355,6 +369,7 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 			s := &Scheduler{
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				backends:     &fakeBackendProvider{backend: backend},
 				client:       client,
 				nodeResolver: resolver,

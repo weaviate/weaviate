@@ -505,6 +505,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 			s := &Scheduler{
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				selector:     selector,
 				backends:     backends,
 				participant:  participant,
