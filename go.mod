@@ -61,7 +61,7 @@ require (
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/klauspost/compress v1.18.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.4.0
-	github.com/launchdarkly/go-server-sdk/v7 v7.14.1
+	github.com/launchdarkly/go-server-sdk/v7 v7.14.6
 	github.com/maypok86/otter/v2 v2.2.1
 	github.com/minio/minio-go/v7 v7.0.97
 	github.com/netresearch/go-cron v0.9.1
