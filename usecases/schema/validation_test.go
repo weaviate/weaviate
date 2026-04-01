@@ -803,4 +803,143 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("validates textAnalyzer on nested text property", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_text",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vTrue,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{"é"},
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name)
+		assert.NoError(t, err)
+	})
+
+	t.Run("rejects multi-char asciiFoldIgnore on nested property", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_text",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vTrue,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{"ab"},
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name)
+		assert.ErrorContains(t, err, "single character")
+	})
+
+	t.Run("rejects textAnalyzer on nested non-text property", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_int",
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vTrue,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name)
+		assert.ErrorContains(t, err, "processing options are only allowed for text")
+	})
+
+	t.Run("normalizes empty textAnalyzer on nested non-text property", func(t *testing.T) {
+		nestedProp := &models.NestedProperty{
+			Name:              "nested_int",
+			DataType:          schema.DataTypeInt.PropString(),
+			IndexFilterable:   &vTrue,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			TextAnalyzer:      &models.TextAnalyzerConfig{},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  []*models.NestedProperty{nestedProp},
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name)
+		assert.NoError(t, err)
+		assert.Nil(t, nestedProp.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("rejects textAnalyzer on nested property without inverted index", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_text",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name)
+		assert.ErrorContains(t, err, "processing options are only allowed for properties with an inverted index")
+	})
 }
