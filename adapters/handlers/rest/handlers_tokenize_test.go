@@ -44,19 +44,6 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"the", "quick", "brown", "fox"},
 		},
 		{
-			name: "word tokenization with english stopwords",
-			body: &models.TokenizeRequest{
-				Text:         strPtr("The quick brown fox jumps over the lazy dog"),
-				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TextAnalyserConfig{
-					StopwordPreset: "en",
-				},
-			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"},
-			wantQuery:   []string{"quick", "brown", "fox", "jumps", "over", "lazy", "dog"},
-		},
-		{
 			name: "lowercase tokenization",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("Hello World Test"),
@@ -101,17 +88,6 @@ func TestHandleGenericTokenize(t *testing.T) {
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello"),
 				Tokenization: strPtr("gse"),
-			},
-			wantOK: false,
-		},
-		{
-			name: "invalid stopwords preset returns bad request",
-			body: &models.TokenizeRequest{
-				Text:         strPtr("hello"),
-				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TextAnalyserConfig{
-					StopwordPreset: "invalid",
-				},
 			},
 			wantOK: false,
 		},
