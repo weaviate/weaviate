@@ -33,10 +33,19 @@ else
     diff_cmd=(git diff --cached)
 fi
 
+# Verify the git ref exists before piping to perl, so failures produce a
+# clear error instead of a silent non-zero exit from pipefail.
+if [ "${diff_cmd[0]}" = "git" ] && [ -n "$ARG" ]; then
+    if ! git rev-parse --verify "$ARG" >/dev/null 2>&1; then
+        echo "Error: git ref not found: $ARG" >&2
+        exit 2
+    fi
+fi
+
 # Use perl for portable Unicode-aware matching. The script parses the unified
 # diff, tracks file names and line numbers, and checks each added line for
 # invisible characters.
-"${diff_cmd[@]}" 2>/dev/null | perl -CSD -e '
+"${diff_cmd[@]}" | perl -CSD -e '
 use strict;
 use warnings;
 use utf8;
@@ -91,6 +100,26 @@ my $skip_file = 0;
 # Detect GitHub Actions environment for annotations.
 my $github_actions = defined $ENV{GITHUB_ACTIONS};
 
+# Escape strings for GitHub Actions workflow commands.
+# Properties (file, line) must escape %, \r, \n, :, and ,.
+# The message part must escape %, \r, and \n.
+sub escape_property {
+    my $s = shift;
+    $s =~ s/%/%25/g;
+    $s =~ s/\r/%0D/g;
+    $s =~ s/\n/%0A/g;
+    $s =~ s/:/%3A/g;
+    $s =~ s/,/%2C/g;
+    return $s;
+}
+sub escape_message {
+    my $s = shift;
+    $s =~ s/%/%25/g;
+    $s =~ s/\r/%0D/g;
+    $s =~ s/\n/%0A/g;
+    return $s;
+}
+
 while (my $line = <STDIN>) {
     chomp $line;
 
@@ -116,8 +145,8 @@ while (my $line = <STDIN>) {
         next;
     }
 
-    # Added lines only.
-    if ($line =~ /^\+/ && $line !~ /^\+\+\+/) {
+    # Added lines only (exclude diff headers like "+++ b/..." or "+++ /dev/null").
+    if ($line =~ /^\+/ && $line !~ /^\+\+\+ (?:$|b\/|\/dev\/null)/) {
         my $content = substr($line, 1);
 
         # Find all suspicious characters in the line.
@@ -128,7 +157,9 @@ while (my $line = <STDIN>) {
             my $desc = $names{$cp} // sprintf("U+%04X suspicious invisible character", $cp);
             print "Error: $file:$lineno: hidden character found: $desc\n";
             if ($github_actions) {
-                print "::error file=$file,line=$lineno" . "::Hidden character found: $desc\n";
+                my $efile = escape_property($file);
+                my $emsg = escape_message("Hidden character found: $desc");
+                print "::error file=$efile,line=$lineno" . "::$emsg\n";
             }
             $found = 1;
         }
