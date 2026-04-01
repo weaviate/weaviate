@@ -36,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/exporttest"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	pqexport "github.com/weaviate/weaviate/usecases/export"
+
+	swaggerexport "github.com/weaviate/weaviate/client/export"
 )
 
 func TestExport_SingleShard(t *testing.T) {
@@ -58,7 +60,7 @@ func TestExport_SingleShard(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	objects := make([]*models.Object, 20)
+	objects := make([]*models.Object, 200)
 	for i := range objects {
 		objects[i] = &models.Object{
 			Class: className,
@@ -72,8 +74,27 @@ func TestExport_SingleShard(t *testing.T) {
 	startedAt := time.Now()
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	// Concurrently start the export and import more objects.
+	// These objects race with the snapshot; they MAY or MAY NOT appear.
+	duringObjects := makeObjects(className, "", 100)
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
+
+	// objects imported after export call completed MUST NOT appear in the export.
+	var postObjects []*models.Object
+	statusResp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
+	if statusResp.Payload.Status != "SUCCESS" {
+		postObjects = makeObjects(className, "", 100)
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
@@ -84,7 +105,7 @@ func TestExport_SingleShard(t *testing.T) {
 	// Verify status response metadata (timestamps, classes, path, etc.)
 	exporttest.VerifyStatusResponse(t, resp.Payload, "s3", exportID, []string{className}, startedAt)
 
-	// Verify shard-level progress reports the correct object count
+	// Verify shard-level progress — during-objects may or may not be included
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
@@ -93,13 +114,15 @@ func TestExport_SingleShard(t *testing.T) {
 		require.Equal(t, "SUCCESS", progress.Status)
 		totalExported += progress.ObjectsExported
 	}
-	require.Equal(t, int64(len(objects)), totalExported,
-		"total objects exported across shards should match inserted count")
+	require.GreaterOrEqual(t, totalExported, int64(len(objects)),
+		"total exported must include at least all pre-export objects")
+	require.LessOrEqual(t, totalExported, int64(len(objects)+len(duringObjects)),
+		"total exported must not exceed pre-export + during-export objects")
 
-	verifyParquetExport(t, exportID, className, objects)
 	verifyParquetMetadata(t, exportID, className, false)
 
-	// Verify legacy (unnamed) vectors and row timestamps survive the parquet round-trip
+	// Verify legacy (unnamed) vectors and row timestamps survive the parquet
+	// round-trip (only for pre-export objects that are guaranteed present).
 	allRows := fetchParquetRows(t, exportID, className)
 	expectedVecs := make(map[string]models.C11yVector, len(objects))
 	for _, obj := range objects {
@@ -107,13 +130,17 @@ func TestExport_SingleShard(t *testing.T) {
 	}
 	for _, row := range allRows {
 		expVec, ok := expectedVecs[row.ID]
-		require.True(t, ok)
+		if !ok {
+			continue // during/post object — skip vector check
+		}
 		require.NotNil(t, row.Vector, "expected vector for object %s", row.ID)
 		actualVec := byteops.Fp32SliceFromBytes(row.Vector)
 		require.InDeltaSlice(t, []float32(expVec), actualVec, 1e-6,
 			"vector mismatch for object %s", row.ID)
 		verifyRowTimestamps(t, row, startedAt)
 	}
+
+	verifyConcurrentExport(t, exportID, className, len(objects), duringObjects, postObjects)
 }
 
 func TestExport_MultiShard(t *testing.T) {
@@ -135,20 +162,34 @@ func TestExport_MultiShard(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	objects := makeObjects(className, "", 50)
+	objects := makeObjects(className, "", 500)
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	// Concurrently start the export and import more objects.
+	duringObjects := makeObjects(className, "", 100)
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
+
+	// Import objects after the snapshot is complete.
+	var postObjects []*models.Object
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
+	if resp.Payload.Status != "SUCCESS" {
+		postObjects = makeObjects(className, "", 100)
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	verifyParquetExport(t, exportID, className, objects)
 	verifyParquetMetadata(t, exportID, className, false)
+	verifyConcurrentExport(t, exportID, className, len(objects), duringObjects, postObjects)
 }
 
 func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
@@ -283,8 +324,9 @@ func TestExport_EmptyCollection(t *testing.T) {
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
-	// Should produce a parquet file with zero data rows
-	verifyParquetExport(t, exportID, className, nil)
+	// Empty collection should produce no parquet files.
+	keys := listParquetKeys(t, exportID, className)
+	assert.Empty(t, keys, "empty collection should not produce parquet files")
 }
 
 func TestExport_MultipleClasses(t *testing.T) {
@@ -352,21 +394,39 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 
 	var allObjects []*models.Object
 	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
+		objects := makeObjects(className, tenant.Name, 100)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		allObjects = append(allObjects, objects...)
 	}
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
+	// Concurrently start the export and import more objects per tenant.
+	var duringObjects []*models.Object
+	for _, tenant := range tenants {
+		duringObjects = append(duringObjects, makeObjects(className, tenant.Name, 30)...)
+	}
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
 
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
+	// Import objects after the snapshot is complete.
+	var postObjects []*models.Object
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
+	if resp.Payload.Status != "SUCCESS" {
+		for _, tenant := range tenants {
+			postObjects = append(postObjects, makeObjects(className, tenant.Name, 30)...)
+		}
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
-	verifyParquetExport(t, exportID, className, allObjects)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+	verifyConcurrentExport(t, exportID, className, len(allObjects), duringObjects, postObjects)
 }
 
 func TestExport_MultiTenant_MultiShard(t *testing.T) {
@@ -567,6 +627,14 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 	require.Empty(t, expected, "some objects were not found in parquet export")
 }
 
+// TestExport_MultiTenant_ActiveAndInactive verifies that exports handle
+// tenants in different activity states correctly:
+//   - HOT tenants: exported from the live (loaded) bucket
+//   - COLD tenants: exported directly from disk without loading the shard
+//   - OFFLOADED tenants: skipped
+//
+// AutoTenantActivation has no effect on exports because cold tenants are
+// snapshotted from disk without loading.
 func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
@@ -593,20 +661,22 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	}
 	helper.CreateTenants(t, className, tenants)
 
-	var activeObjects []*models.Object
+	var exportableObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-		if tenant.Name == "tenantA" || tenant.Name == "tenantC" {
-			activeObjects = append(activeObjects, objects...)
+		// tenantD will be OFFLOADED and skipped; all others are exported.
+		if tenant.Name != "tenantD" {
+			exportableObjects = append(exportableObjects, objects...)
 		}
 	}
 
-	// Set tenantB to COLD (=INACTIVE), tenantD to OFFLOADED.
-	// Note: FROZEN is a deprecated alias for OFFLOADED (same code path),
-	// so this single test covers both the modern and legacy status names.
+	// tenantB → COLD: exported from disk without loading.
+	// tenantC → COLD: exported from disk without loading.
+	// tenantD → OFFLOADED: skipped entirely.
 	helper.UpdateTenants(t, className, []*models.Tenant{
 		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantC", ActivityStatus: models.TenantActivityStatusCOLD},
 		{Name: "tenantD", ActivityStatus: models.TenantActivityStatusOFFLOADED},
 	})
 
@@ -619,18 +689,13 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
 
-	// Only tenantA and tenantC should be exported (20 objects)
-	verifyParquetExport(t, exportID, className, activeObjects)
+	// tenantA (HOT) + tenantB (COLD) + tenantC (COLD) = 30 objects.
+	verifyParquetExport(t, exportID, className, exportableObjects)
 
-	// Verify skipped tenants have a skip reason
+	// tenantD (OFFLOADED) should be skipped.
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
-
-	progressB, ok := shardStatus["tenantB"]
-	require.True(t, ok, "expected shard status for tenantB")
-	assert.Equal(t, "SKIPPED", progressB.Status)
-	assert.Contains(t, progressB.SkipReason, "COLD", "expected COLD in skip reason for tenantB")
 
 	progressD, ok := shardStatus["tenantD"]
 	require.True(t, ok, "expected shard status for tenantD")
@@ -639,65 +704,13 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 		strings.Contains(progressD.SkipReason, "FROZEN") || strings.Contains(progressD.SkipReason, "FREEZING"),
 		"expected FROZEN or FREEZING in skip reason for tenantD, got: %s", progressD.SkipReason)
 
-	// Verify parquet metadata
-	verifyParquetMetadata(t, exportID, className, true)
-}
-
-func TestExport_MultiTenant_AutoActivation(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:              true,
-			AutoTenantActivation: true,
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	tenants := []*models.Tenant{
-		{Name: "tenantA"},
-		{Name: "tenantB"},
-		{Name: "tenantC"},
-	}
-	helper.CreateTenants(t, className, tenants)
-
-	var allObjects []*models.Object
-	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-		allObjects = append(allObjects, objects...)
-	}
-
-	// Set tenantB to COLD
-	helper.UpdateTenants(t, className, []*models.Tenant{
-		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
-	})
-
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	// All 30 objects should be exported (auto-activation brings tenantB back)
-	verifyParquetExport(t, exportID, className, allObjects)
-
-	// Verify tenantB is COLD again after export
+	// Cold tenants must remain COLD — the export must not activate them.
 	tenantsResp, err := helper.GetTenants(t, className)
 	require.NoError(t, err)
 	for _, tenant := range tenantsResp.Payload {
-		if tenant.Name == "tenantB" {
+		if tenant.Name == "tenantB" || tenant.Name == "tenantC" {
 			require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
-				"tenantB should be deactivated back to COLD after export")
+				"tenant %s should still be COLD after export", tenant.Name)
 		}
 	}
 
@@ -705,7 +718,13 @@ func TestExport_MultiTenant_AutoActivation(t *testing.T) {
 	verifyParquetMetadata(t, exportID, className, true)
 }
 
-func TestExport_MultiTenant_AllInactive(t *testing.T) {
+// TestExport_MultiTenant_AllCold verifies that an export succeeds and
+// produces correct parquet files when every tenant is COLD. Cold tenants
+// are snapshotted directly from disk without loading the shard.
+//
+// It also includes an empty tenant (tenantEmpty) that was created but never
+// had objects inserted. This tenant should be SKIPPED with no parquet output.
+func TestExport_MultiTenant_AllCold(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
@@ -718,6 +737,7 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:              true,
 			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
 		},
 	})
 	defer helper.DeleteClass(t, className)
@@ -725,18 +745,23 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 	tenants := []*models.Tenant{
 		{Name: "tenantA"},
 		{Name: "tenantB"},
+		{Name: "tenantEmpty"}, // created but never populated
 	}
 	helper.CreateTenants(t, className, tenants)
 
-	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
+	// Only populate tenantA and tenantB.
+	var allObjects []*models.Object
+	for _, name := range []string{"tenantA", "tenantB"} {
+		objects := makeObjects(className, name, 10)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
+		allObjects = append(allObjects, objects...)
 	}
 
-	// Set both tenants to COLD
+	// Set all tenants to COLD.
 	helper.UpdateTenants(t, className, []*models.Tenant{
 		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
 		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantEmpty", ActivityStatus: models.TenantActivityStatusCOLD},
 	})
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
@@ -748,20 +773,114 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
 
-	// No objects should be exported (all tenants are COLD, autoActivation disabled)
-	keys := listParquetKeys(t, exportID, className)
-	require.Empty(t, keys, "expected no parquet files when all tenants are inactive")
+	// tenantA + tenantB = 20 objects exported from disk snapshots.
+	verifyParquetExport(t, exportID, className, allObjects)
 
-	// Cold tenants should be reported as SKIPPED at the shard level
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
-	for _, tenant := range tenants {
-		progress, ok := shardStatus[tenant.Name]
-		require.True(t, ok, "expected shard status for tenant %s", tenant.Name)
-		assert.Equal(t, "SKIPPED", progress.Status, "cold tenant %s should be SKIPPED", tenant.Name)
-		assert.Equal(t, int64(0), progress.ObjectsExported, "cold tenant %s should have 0 objects exported", tenant.Name)
+
+	// Populated cold tenants should report SUCCESS.
+	for _, name := range []string{"tenantA", "tenantB"} {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SUCCESS", progress.Status, "cold tenant %s should be SUCCESS", name)
+		assert.Equal(t, int64(10), progress.ObjectsExported,
+			"cold tenant %s should have 10 objects exported", name)
 	}
+
+	// Empty cold tenant should be SKIPPED with no parquet files.
+	progressEmpty, ok := shardStatus["tenantEmpty"]
+	require.True(t, ok, "expected shard status for tenantEmpty")
+	assert.Equal(t, "SKIPPED", progressEmpty.Status, "empty cold tenant should be SKIPPED")
+	assert.Equal(t, int64(0), progressEmpty.ObjectsExported)
+
+	// All tenants must remain COLD — the export must not activate them.
+	tenantsResp, err := helper.GetTenants(t, className)
+	require.NoError(t, err)
+	for _, tenant := range tenantsResp.Payload {
+		require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
+			"tenant %s should still be COLD after export", tenant.Name)
+	}
+
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
+// TestExport_ColdTenantReactivatedDuringExport verifies that a cold tenant's
+// snapshot is isolated from writes that happen after the tenant is reactivated.
+// The WAL is copied (not hard-linked) during snapshotting, so reactivating
+// the tenant and writing new data must not affect the exported snapshot.
+func TestExport_ColdTenantReactivatedDuringExport(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{{Name: "tenantA"}}
+	helper.CreateTenants(t, className, tenants)
+
+	// Insert initial data and deactivate the tenant. The WAL on disk may
+	// contain unflushed data (small tenants use WAL reuse on shutdown).
+	preObjects := makeObjects(className, "tenantA", 50)
+	helper.CreateObjectsBatchCL(t, preObjects, types.ConsistencyLevelAll)
+
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	// Start the export. The snapshot copies the WAL from disk.
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+
+	// Immediately reactivate the tenant and write more data. This modifies
+	// the original WAL file on disk. If the snapshot had hard-linked the
+	// WAL instead of copying it, these writes would corrupt the snapshot.
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusHOT},
+	})
+	postObjects := makeObjects(className, "tenantA", 50)
+	helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+
+	requireExportCreated(t, exportCh)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	// The export must contain exactly the pre-export objects. Post-export
+	// writes must not leak into the snapshot.
+	allRows := fetchParquetRows(t, exportID, className)
+	exportedIDs := make(map[string]struct{}, len(allRows))
+	for _, row := range allRows {
+		exportedIDs[row.ID] = struct{}{}
+	}
+
+	// All pre-export objects must be present.
+	for _, obj := range preObjects {
+		assert.Contains(t, exportedIDs, string(obj.ID),
+			"pre-export object %s must be in export", obj.ID)
+	}
+
+	// Post-export objects must NOT be present.
+	for _, obj := range postObjects {
+		assert.NotContains(t, exportedIDs, string(obj.ID),
+			"post-reactivation object %s must NOT be in export", obj.ID)
+	}
+
+	assert.Equal(t, len(preObjects), len(allRows),
+		"export must contain exactly the pre-export objects")
 }
 
 // verifyParquetMetadata checks that all parquet files for a class contain
@@ -787,6 +906,21 @@ func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenan
 			require.True(t, ok, "missing 'tenant' metadata in %s", key)
 			require.NotEmpty(t, tenant, "empty 'tenant' metadata in %s", key)
 		}
+	}
+}
+
+// requireExportCreated waits for the CreateExport result from exportCh and
+// fails the test with the full validation message if it is a 422 error.
+func requireExportCreated(t *testing.T, exportCh <-chan error) {
+	t.Helper()
+	if err := <-exportCh; err != nil {
+		var ue *swaggerexport.ExportCreateUnprocessableEntity
+		if errors.As(err, &ue) && ue.Payload != nil {
+			for _, e := range ue.Payload.Error {
+				t.Logf("  validation error: %s", e.Message)
+			}
+		}
+		t.Fatalf("CreateExport failed: %v", err)
 	}
 }
 
@@ -1085,7 +1219,6 @@ func TestExport_ExcludeFilter(t *testing.T) {
 func TestExport_CustomConfig(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-	customBucket := "custom-export-bucket"
 
 	helper.CreateClass(t, &models.Class{
 		Class: className,
@@ -1105,31 +1238,24 @@ func TestExport_CustomConfig(t *testing.T) {
 	objects := makeObjects(className, "", 10)
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	// Create a custom bucket in MinIO
-	_, err := s3Client.CreateBucket(context.Background(), &s3.CreateBucketInput{
-		Bucket: aws.String(customBucket),
-	})
-	require.NoError(t, err)
-
-	// Export with both a custom bucket and a custom path prefix
+	// Export with a custom path prefix
 	fileFormat := models.ExportCreateRequestFileFormatParquet
-	_, err = exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
+	_, err := exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
 		ID:         &exportID,
 		Include:    []string{className},
 		FileFormat: &fileFormat,
 		Config: &models.ExportCreateRequestConfig{
-			Bucket: customBucket,
-			Path:   "custom/prefix",
+			Path: "custom/prefix",
 		},
 	})
 	require.NoError(t, err)
 
-	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, customBucket, "custom/prefix")
+	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, "custom/prefix")
 
-	// Verify files landed in the custom bucket under the custom prefix
+	// Verify files landed under the custom prefix in the configured bucket
 	prefix := fmt.Sprintf("custom/prefix/%s/%s", exportID, className)
 	listResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(customBucket),
+		Bucket: aws.String(s3Bucket),
 		Prefix: aws.String(prefix),
 	})
 	require.NoError(t, err)
@@ -1141,15 +1267,7 @@ func TestExport_CustomConfig(t *testing.T) {
 			keys = append(keys, key)
 		}
 	}
-	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, customBucket)
-
-	// Default bucket should have no files for this export
-	defaultResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(s3Bucket),
-		Prefix: aws.String(fmt.Sprintf("%s/%s", exportID, className)),
-	})
-	require.NoError(t, err)
-	require.Empty(t, defaultResp.Contents, "default bucket should have no files for this export")
+	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, s3Bucket)
 }
 
 func TestExport_DuplicateID(t *testing.T) {
@@ -1388,4 +1506,42 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "422",
 		"export without async replication should be rejected with 422, got: %v", err)
+}
+
+// verifyConcurrentExport checks the point-in-time semantics of an export
+// that ran concurrently with object imports:
+//   - duringObjects MAY or may not be present (race with snapshot)
+//   - No postObjects may be in the export
+//   - Total row count is bounded by [preCount, preCount+duringCount]
+func verifyConcurrentExport(
+	t *testing.T,
+	exportID, className string,
+	preCount int,
+	duringObjects, postObjects []*models.Object,
+) {
+	t.Helper()
+
+	allRows := fetchParquetRows(t, exportID, className)
+	exportedIDs := make(map[string]struct{}, len(allRows))
+	for _, row := range allRows {
+		exportedIDs[row.ID] = struct{}{}
+	}
+
+	var duringPresent int
+	for _, obj := range duringObjects {
+		if _, ok := exportedIDs[string(obj.ID)]; ok {
+			duringPresent++
+		}
+	}
+	t.Logf("during-export objects present: %d/%d", duringPresent, len(duringObjects))
+
+	for _, obj := range postObjects {
+		assert.NotContains(t, exportedIDs, string(obj.ID),
+			"post-export object %s must NOT be in export", obj.ID)
+	}
+
+	assert.GreaterOrEqual(t, len(allRows), preCount,
+		"export must contain at least all pre-export objects")
+	assert.LessOrEqual(t, len(allRows), preCount+len(duringObjects),
+		"export must not contain more than pre+during objects")
 }

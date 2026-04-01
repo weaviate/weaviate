@@ -14,22 +14,20 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
-	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-// ExportShardLike is the minimal shard interface needed for export operations.
-// Matches usecases/export.ShardLike.
-type ExportShardLike = interface {
-	Store() *lsmkv.Store
-	Name() string
-}
 
 // ShardOwnership returns a map of node name to shard names for a given class.
 // Shards are distributed across their replica nodes using a least-loaded
@@ -107,152 +105,6 @@ func assignShardsToNodes(shards map[string][]string) map[string][]string {
 	return result
 }
 
-// AcquireShardForExport returns the shard handle and a release function.
-// For MT classes it checks the tenant's activity status:
-//   - COLD + autoActivation enabled: activates the tenant; release deactivates it.
-//   - COLD + autoActivation disabled: returns a nil shard and a nil error so the
-//     caller can skip this tenant gracefully.
-//   - HOT/ACTIVE: returns the shard as-is; release is a no-op.
-//
-// For non-MT classes it simply loads the shard.
-func (db *DB) AcquireShardForExport(ctx context.Context, className, shardName string) (ExportShardLike, func(), string, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, "", err
-	}
-
-	idx := db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return nil, nil, "", fmt.Errorf("index not found for class %s", className)
-	}
-
-	class := idx.getClass()
-	if class == nil {
-		return nil, nil, "", fmt.Errorf("class not found for index %s", className)
-	}
-
-	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
-	autoActivationEnabled := schema.AutoTenantActivationEnabled(class)
-
-	// For MT classes, check the tenant's activity status up front.
-	// Only HOT and COLD tenants are exportable. All other statuses
-	// (OFFLOADED, OFFLOADING, ONLOADING, FROZEN, FREEZING, UNFREEZING, etc.)
-	// are skipped — the caller receives a nil shard with no error.
-	//
-	// For COLD tenants:
-	//   - auto-activation enabled: activate, export, then deactivate after.
-	//   - auto-activation disabled: skip.
-	deactivateAfter := false
-	if isMT {
-		statuses, err := idx.tenantsManager.TenantsStatus(class.Class, shardName)
-		if err != nil {
-			return nil, nil, "", fmt.Errorf("get tenant status for %s/%s: %w", className, shardName, err)
-		}
-		status := statuses[shardName]
-		switch status {
-		case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE:
-			// Exportable as-is.
-		case models.TenantActivityStatusCOLD, models.TenantActivityStatusINACTIVE:
-			if !autoActivationEnabled {
-				return nil, nil, fmt.Sprintf("tenant is %s and auto-activation is disabled", status), nil
-			}
-			deactivateAfter = true
-		default:
-			// Any other status (OFFLOADED, FROZEN, transitional states, etc.)
-			// — skip this tenant.
-			return nil, nil, fmt.Sprintf("tenant status is %s", status), nil
-		}
-	}
-
-	shard, shardRelease, err := idx.acquireShardWithLock(ctx, shardName, class)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("acquire shard %s for class %s: %w", shardName, className, err)
-	}
-
-	release := shardRelease
-	if deactivateAfter {
-		release = func() {
-			shardRelease()
-			deactivateCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := idx.tenantsManager.DeactivateTenants(deactivateCtx, class.Class, shardName); err != nil {
-				idx.logger.WithField("action", "export").
-					WithField("class", className).
-					WithField("tenant", shardName).
-					Warnf("failed to deactivate tenant after export: %v", err)
-			}
-		}
-	}
-
-	return shard, release, "", nil
-}
-
-// acquireShardWithLock loads (or initializes) a shard and returns it with
-// shardCreateLocks.RLock held. The returned release function releases both
-// preventShutdown and the RLock. Holding RLock blocks the migrator from
-// deactivating the shard (it acquires shardCreateLocks.Lock).
-func (i *Index) acquireShardWithLock(ctx context.Context, shardName string, class *models.Class) (ShardLike, func(), error) {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-	if i.closed {
-		return nil, nil, errAlreadyShutdown
-	}
-
-	i.shardCreateLocks.RLock(shardName)
-	shard := i.shards.Load(shardName)
-
-	if shard != nil {
-		// Hot path: shard already loaded. RLock is held continuously from
-		// load through preventShutdown — no gap for the migrator.
-		shardRelease, err := shard.preventShutdown()
-		if err != nil {
-			i.shardCreateLocks.RUnlock(shardName)
-			return nil, nil, err
-		}
-		release := func() {
-			shardRelease()
-			i.shardCreateLocks.RUnlock(shardName)
-		}
-		return shard, release, nil
-	}
-
-	// Cold path: shard not loaded — upgrade to exclusive Lock for init.
-	// Go's RWMutex does not support upgrade, so release RLock first.
-	i.shardCreateLocks.RUnlock(shardName)
-
-	i.shardCreateLocks.Lock(shardName)
-	// Double-check: another goroutine may have initialized it.
-	shard = i.shards.Load(shardName)
-	if shard == nil {
-		var err error
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-		if err != nil {
-			i.shardCreateLocks.Unlock(shardName)
-			return nil, nil, err
-		}
-		i.shards.Store(shardName, shard)
-	}
-
-	// Call preventShutdown while still holding exclusive Lock, so no
-	// deactivation can start between init and the ref being acquired.
-	shardRelease, err := shard.preventShutdown()
-	if err != nil {
-		i.shardCreateLocks.Unlock(shardName)
-		return nil, nil, err
-	}
-
-	// Downgrade to RLock: release exclusive Lock, then acquire RLock.
-	// The migrator could slip in during this gap, but preventShutdown
-	// is already held so it cannot shut the shard down.
-	i.shardCreateLocks.Unlock(shardName)
-	i.shardCreateLocks.RLock(shardName)
-
-	release := func() {
-		shardRelease()
-		i.shardCreateLocks.RUnlock(shardName)
-	}
-	return shard, release, nil
-}
-
 // IsMultiTenant returns true if the class has multi-tenancy enabled.
 func (db *DB) IsMultiTenant(_ context.Context, className string) bool {
 	idx := db.GetIndex(schema.ClassName(className))
@@ -286,6 +138,242 @@ func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) boo
 		return false
 	}
 	return class.ReplicationConfig.AsyncEnabled
+}
+
+// SnapshotShards creates point-in-time snapshots of the objects buckets for
+// the given shards of a class. It acquires the index's dropIndex.RLock once
+// for the entire batch.
+func (db *DB) SnapshotShards(ctx context.Context, className string, shardNames []string, exportID string) ([]export.ShardSnapshotResult, error) {
+	var (
+		idx    *Index
+		exists bool
+	)
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+
+		idx, exists = db.indices[indexID(schema.ClassName(className))]
+		if exists {
+			idx.dropIndex.RLock()
+		}
+	}()
+
+	if !exists {
+		return nil, fmt.Errorf("index not found for class %s", className)
+	}
+	defer idx.dropIndex.RUnlock()
+
+	idx.closeLock.RLock()
+	defer idx.closeLock.RUnlock()
+	if idx.closed {
+		return nil, errAlreadyShutdown
+	}
+	return idx.snapshotShardsForExport(ctx, shardNames, exportID)
+}
+
+func (i *Index) snapshotShardsForExport(ctx context.Context, shardNames []string, exportID string) ([]export.ShardSnapshotResult, error) {
+	if !i.probeHardlinkSupport() {
+		// Export snapshots rely on hard-linking immutable LSM segment files to
+		// create a frozen, read-only view without holding shard locks for the
+		// duration of the scan. Supporting filesystems without hard links would
+		// require either reading directly from live bucket directories (which
+		// conflicts with NewSnapshotBucket's safety checks and concurrent
+		// compaction) or a full file-copy fallback — both are significant
+		// changes that are not worth the complexity given that all production
+		// filesystems (ext4, xfs, btrfs, APFS, NTFS) support hard links.
+		return nil, fmt.Errorf("export requires a filesystem that supports hard links; "+
+			"the data directory for class %s does not", i.Config.ClassName)
+	}
+
+	class := i.getClass()
+	if class == nil {
+		return nil, fmt.Errorf("class not found for index %s", i.Config.ClassName)
+	}
+
+	isMT := multitenancy.IsMultiTenant(class.MultiTenancyConfig)
+	snapshotsRoot := i.snapshotsPath()
+
+	// Pre-allocate one result per shard. Each goroutine writes to its own
+	// index so no synchronisation is needed on the slice elements.
+	results := make([]export.ShardSnapshotResult, len(shardNames))
+
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
+
+	for idx, shardName := range shardNames {
+		results[idx].ShardName = shardName
+
+		eg.Go(func() error {
+			snapshotName := lsmkv.SafeSnapshotName(exportID, string(i.Config.ClassName), shardName)
+			snapResult, skipReason, err := i.snapshotLocalShard(egCtx, class, isMT, shardName, snapshotsRoot, snapshotName)
+			if err != nil {
+				return fmt.Errorf("snapshot shard %s/%s: %w", i.Config.ClassName, shardName, err)
+			}
+			if snapResult == nil {
+				results[idx].SkipReason = skipReason
+			} else {
+				results[idx].SnapshotDir = snapResult.SnapshotDir
+				results[idx].Strategy = snapResult.Strategy
+			}
+			return nil
+		}, shardName)
+	}
+
+	if err := eg.Wait(); err != nil {
+		// Clean up any snapshot dirs created by goroutines that succeeded
+		// before the error group was cancelled.
+		for _, r := range results {
+			if r.SnapshotDir != "" {
+				os.RemoveAll(r.SnapshotDir)
+			}
+		}
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// shouldSkipTenant checks the RAFT-based tenant status and returns a skip
+// reason if the tenant should not be exported. Returns ("", nil) if the
+// tenant is exportable. Active and cold/inactive tenants are always
+// exportable (cold tenants are snapshotted from disk without loading).
+// Only offloaded, frozen, and transitional states are skipped.
+//
+// Errors from the status lookup are returned as errors (not skip reasons)
+// so that the caller can fail the export rather than silently skipping
+// the tenant — a transient RAFT failure should not produce an incomplete
+// export.
+func (i *Index) shouldSkipTenant(class *models.Class, shardName string) (string, error) {
+	statuses, err := i.tenantsManager.TenantsStatus(class.Class, shardName)
+	if err != nil {
+		return "", fmt.Errorf("get tenant status for %s/%s: %w", class.Class, shardName, err)
+	}
+	status := statuses[shardName]
+
+	switch status {
+	case models.TenantActivityStatusHOT, models.TenantActivityStatusACTIVE,
+		models.TenantActivityStatusCOLD, models.TenantActivityStatusINACTIVE:
+		return "", nil
+	default:
+		return fmt.Sprintf("tenant status is %s", status), nil
+	}
+}
+
+// snapshotLocalShard snapshots a shard based on its local state. This method holds
+// shardCreateLocks.RLock for the entire operation to prevent races with concurrent
+// shard loading/unloading.
+//
+// For MT classes the tenant status check (shouldSkipTenant) runs under the
+// same lock so that the status cannot change between the check and the
+// snapshot.
+//
+// The local state determines *how* to snapshot: if the shard is loaded
+// (including unloaded lazy shards) it is snapshotted from the live bucket;
+// if not, it is snapshotted directly from disk.
+func (i *Index) snapshotLocalShard(
+	ctx context.Context, class *models.Class, isMT bool, shardName string,
+	snapshotsRoot, snapshotName string,
+) (*export.ShardSnapshotResult, string, error) {
+	// Hold the shard lock for the entire operation so that no concurrent
+	// load/unload can change the local shard state during the snapshot.
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	if isMT {
+		// this is using the RAFT state and not the local state, so there might be a race between these two. We accept
+		// this here as any action concurrent with the export might or might not be reflected in the export.
+		skipReason, err := i.shouldSkipTenant(class, shardName)
+		if err != nil {
+			return nil, "", err
+		}
+		if skipReason != "" {
+			return nil, skipReason, nil
+		}
+	}
+
+	if shard := i.shards.Load(shardName); shard != nil {
+		return i.snapshotShard(ctx, shard, shardName, snapshotsRoot, snapshotName)
+	}
+
+	// Shard is not loaded. Snapshot from disk if data exists.
+	return i.snapshotFromDisk(shardName, snapshotsRoot, snapshotName)
+}
+
+// snapshotShard snapshots a shard that may be lazy-loaded or fully loaded.
+// If the shard is a LazyLoadShard that hasn't been loaded yet, it snapshots
+// directly from disk to avoid triggering a load. The caller must hold
+// shardCreateLocks.RLock.
+func (i *Index) snapshotShard(
+	ctx context.Context, shard ShardLike, shardName string,
+	snapshotsRoot, snapshotName string,
+) (*export.ShardSnapshotResult, string, error) {
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		release := lazyShard.blockLoading()
+		defer release()
+
+		if !lazyShard.loaded {
+			return i.snapshotFromDisk(shardName, snapshotsRoot, snapshotName)
+		}
+		shard = lazyShard.shard
+	}
+
+	return i.snapshotFromLoadedShard(ctx, shard, shardName, snapshotsRoot, snapshotName)
+}
+
+// snapshotFromLoadedShard snapshots the objects bucket of an already-acquired
+// shard. The caller must hold whatever lock is appropriate (shardCreateLocks
+// for MT, acquireShardWithLock for non-MT).
+func (i *Index) snapshotFromLoadedShard(
+	ctx context.Context, shard ShardLike, shardName string,
+	snapshotsRoot, snapshotName string,
+) (*export.ShardSnapshotResult, string, error) {
+	store := shard.Store()
+	if store == nil {
+		return nil, "", fmt.Errorf("store not found for shard %s", shardName)
+	}
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, "", fmt.Errorf("objects bucket not found for shard %s", shardName)
+	}
+
+	snapshotDir, err := bucket.CreateSnapshot(ctx, snapshotsRoot, snapshotName)
+	if err != nil {
+		return nil, "", fmt.Errorf("create snapshot for shard %s: %w", shardName, err)
+	}
+
+	return &export.ShardSnapshotResult{
+		SnapshotDir: snapshotDir,
+		Strategy:    bucket.GetDesiredStrategy(),
+	}, "", nil
+}
+
+// snapshotFromDisk hard-links the objects bucket files from an unloaded
+// shard's on-disk directory. The caller must hold shardCreateLocks.RLock
+// to prevent concurrent shard status changes. RLock is sufficient because
+// concurrent callers produce distinct snapshot directories.
+func (i *Index) snapshotFromDisk(
+	shardName, snapshotsRoot, snapshotName string,
+) (*export.ShardSnapshotResult, string, error) {
+	// Path convention: <indexPath>/<shardName>/lsm/<bucketName>. This is the
+	// same convention used by shard init (shard_init_lsm.go) via shardPathLSM
+	// + helpers.ObjectsBucketLSM, so it stays in sync with loaded shards.
+	objectsBucketDir := filepath.Join(shardPathLSM(i.path(), shardName), helpers.ObjectsBucketLSM)
+	if _, err := os.Stat(objectsBucketDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, "tenant has no data on disk", nil
+		}
+		return nil, "", fmt.Errorf("stat objects bucket dir for shard %s: %w", shardName, err)
+	}
+
+	snapshotDir, err := lsmkv.SnapshotBucketFromDisk(objectsBucketDir, snapshotsRoot, snapshotName)
+	if err != nil {
+		return nil, "", fmt.Errorf("hardlink unloaded shard %s: %w", shardName, err)
+	}
+
+	return &export.ShardSnapshotResult{
+		SnapshotDir: snapshotDir,
+		Strategy:    lsmkv.StrategyReplace,
+	}, "", nil
 }
 
 // ListClasses returns all class names (already exists on DB, this is a convenience alias comment).

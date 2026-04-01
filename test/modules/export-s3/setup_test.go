@@ -69,6 +69,8 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 		WithBackendS3(s3Bucket, defaultS3Region).
 		WithOffloadS3(s3Bucket, defaultS3Region).
 		WithWeaviateEnv("AWS_REGION", defaultS3Region).
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", s3Bucket).
 		WithWeaviateCluster(3).
 		Start(ctx)
 	if err != nil {

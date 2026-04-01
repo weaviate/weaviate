@@ -16,7 +16,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -182,6 +184,10 @@ func (m fakeModulesProvider) IsMultiVector(name string) bool {
 	return strings.Contains(name, "colbert")
 }
 
+func (m fakeModulesProvider) HasModule(name string) bool {
+	return name == "none" || strings.Contains(name, "colbert") || strings.Contains(name, "text2vec") || strings.Contains(name, "multi2vec")
+}
+
 func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
 	return false
 }
@@ -257,5 +263,65 @@ func TestParserDefaultShardingCount(t *testing.T) {
 
 		sc := class.ShardingConfig.(config.Config)
 		require.Equal(t, 0, sc.DesiredCount)
+	})
+}
+
+func TestParseTargetVectorsIndexConfigErrors(t *testing.T) {
+	// parseVectorConfig that returns a multi-vector index config regardless of input
+	multiVecParseConfig := func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
+		m := schemaConfig.NewMockVectorIndexConfig(t)
+		m.EXPECT().IsMultiVector().Return(true).Maybe()
+		m.EXPECT().IndexType().Return("fake").Maybe()
+		m.EXPECT().DistanceName().Return("cosine").Maybe()
+		return m, nil
+	}
+
+	cs := fakes.NewFakeClusterState()
+
+	makeClass := func(vectorizerName string) *models.Class {
+		return &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"target": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						vectorizerName: map[string]interface{}{},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("module not registered suggests downgrade", func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		// "new-module-v2" is not returned by HasModule on fakeModulesProvider
+		err := p.ParseClass(makeClass("new-module-v2"))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "not found with name")
+	})
+
+	t.Run("module registered but does not support multi vectors", func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		// "text2vec-contextionary" is returned by HasModule but not by IsMultiVector
+		err := p.ParseClass(makeClass("text2vec-contextionary"))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "doesn't support multi vectors")
+	})
+
+	t.Run("multi vector module succeeds", func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		// "colbert" satisfies both HasModule and IsMultiVector on fakeModulesProvider
+		err := p.ParseClass(makeClass("colbert"))
+		require.NoError(t, err)
+	})
+
+	t.Run(`vectorizer "none" succeeds for multi vector index`, func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		err := p.ParseClass(makeClass("none"))
+		require.NoError(t, err)
 	})
 }

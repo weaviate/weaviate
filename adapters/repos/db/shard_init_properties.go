@@ -31,6 +31,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 	ctx := context.TODO()
 
 	s.propertyIndices = propertyspecific.Indices{}
+	s.geoQueues = make(map[string]*VectorIndexQueue)
 	if class == nil {
 		return
 	}
@@ -135,18 +136,18 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 	// Remove the bucket's directory from disk
 	// If this fails after successful shutdown, we're in an inconsistent state:
 	// the bucket is removed from the store but its data remains on disk
-	if err := s.removeBucketDir(s.pathLSM(), bucketName); err != nil {
+	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
 	return nil
 }
 
-func (s *Shard) removeBucketDir(pathLSM, bucketName string) error {
-	bucketDir := filepath.Join(pathLSM, bucketName)
-	if _, err := os.Stat(bucketDir); !os.IsNotExist(err) {
-		if err := os.RemoveAll(bucketDir); err != nil {
-			return fmt.Errorf("failed to remove data for %s bucket: "+
-				"orphaned data remains at %s (manual cleanup may be required): %w", bucketName, bucketDir, err)
+func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
+	dirPath := filepath.Join(parentDir, dirName)
+	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
+		if err := os.RemoveAll(dirPath); err != nil {
+			return fmt.Errorf("failed to remove data for %s: "+
+				"orphaned data remains at %s (manual cleanup may be required): %w", dirName, dirPath, err)
 		}
 	}
 	return nil

@@ -48,8 +48,6 @@ type compactorSet struct {
 	maxNewFileSize int64
 	allocChecker   memwatch.AllocChecker
 
-	scratchSpacePath string
-
 	enableChecksumValidation bool
 
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error)
@@ -65,7 +63,7 @@ type compactorSet struct {
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool,
+	cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
 	shouldSkipKeyFunc func(key []byte, ctx context.Context) (bool, error),
 ) *compactorSet {
@@ -88,7 +86,6 @@ func newCompactorSetCollection(w io.WriteSeeker,
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
 		secondaryIndexCount:      secondaryIndexCount,
-		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
 		allocChecker:             allocChecker,
 		maxNewFileSize:           maxNewFileSize,

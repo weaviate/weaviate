@@ -182,9 +182,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			UsageEnabled:                   m.db.config.UsageEnabled,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
-				// If explicitly enabled in config, override auto-detection.
-				if m.db.config.EnableLazyLoadShards {
-					return true
+				// If explicitly set (true = always lazy, false = always eager),
+				// skip auto-detection entirely.
+				if m.db.config.EnableLazyLoadShards != nil {
+					return *m.db.config.EnableLazyLoadShards
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -787,6 +788,34 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 	return idx.updateVectorIndexConfigs(ctx, updated)
 }
 
+func (m *Migrator) GetVectorIndexNames(className string) []string {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil
+	}
+
+	configs := idx.GetVectorIndexConfigs()
+	names := make([]string, 0, len(configs))
+	for name := range configs {
+		names = append(names, name)
+	}
+	return names
+}
+
+func (m *Migrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	indexID := indexID(schema.ClassName(className))
+
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot drop vector index of non-existing index for %s", className)
+	}
+
+	return idx.dropVectorIndex(ctx, targetVector)
+}
+
 func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
@@ -812,7 +841,12 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName := range old {
-		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
+		updatedCfg, exists := updated[vecName]
+		if !exists {
+			// Vector index was dropped — no config to validate.
+			continue
+		}
+		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updatedCfg); err != nil {
 			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}

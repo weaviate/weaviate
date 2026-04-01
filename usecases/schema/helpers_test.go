@@ -242,6 +242,10 @@ func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
 	return strings.Contains(moduleName, "colbert")
 }
 
+func (f *fakeModuleConfig) HasModule(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert") || strings.Contains(moduleName, "text2vec") || strings.Contains(moduleName, "multi2vec")
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -361,6 +365,14 @@ func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sc
 func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
+	return nil
+}
+
+func (*fakeMigrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	return nil
+}
+
+func (*fakeMigrator) GetVectorIndexNames(className string) []string {
 	return nil
 }
 

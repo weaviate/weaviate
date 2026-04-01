@@ -44,7 +44,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	tolerance := 4.
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -148,7 +148,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	tolerance := 4.
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
 
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -243,7 +243,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+		flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 		flushCycle.Start()
 
 		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -288,7 +288,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+		flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 		flushCycle.Start()
 
 		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -337,7 +337,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+		flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 		flushCycle.Start()
 
 		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,

@@ -47,10 +47,6 @@ type ExportCancelParams struct {
 	  In: path
 	*/
 	Backend string
-	/*Optional bucket name where the export is stored.
-	  In: query
-	*/
-	Bucket *string
 	/*The unique identifier of the export to cancel.
 	  Required: true
 	  In: path
@@ -75,11 +71,6 @@ func (o *ExportCancelParams) BindRequest(r *http.Request, route *middleware.Matc
 
 	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
 	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qBucket, qhkBucket, _ := qs.GetOK("bucket")
-	if err := o.bindBucket(qBucket, qhkBucket, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -108,24 +99,6 @@ func (o *ExportCancelParams) bindBackend(rawData []string, hasKey bool, formats 
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.Backend = raw
-
-	return nil
-}
-
-// bindBucket binds and validates parameter Bucket from query.
-func (o *ExportCancelParams) bindBucket(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-	o.Bucket = &raw
 
 	return nil
 }

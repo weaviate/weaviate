@@ -178,13 +178,13 @@ jobs:
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         env:
           DOCKER_BUILD_SUMMARY: false
         with:
@@ -421,7 +421,7 @@ jobs:
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
       - name: Acceptance tests (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: 2
@@ -491,7 +491,7 @@ jobs:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -527,7 +527,7 @@ jobs:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -702,6 +702,8 @@ jobs:
             test: "--acceptance-go-client-named-vectors-cluster"
           - name: "fast-group-4"
             test: "--acceptance-only-fast-group-4"
+          - name: "distributed-tasks"
+            test: "--acceptance-distributed-tasks"
           - name: "compaction"
             test: "--acceptance-compaction"
           - name: "recovery"
@@ -734,13 +736,13 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
           fi
       - name: Acceptance tests Large
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
@@ -778,7 +780,7 @@ jobs:
             echo "retry_max_attempts=1" >> $GITHUB_ENV
           fi
       - name: Acceptance tests Large
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -807,7 +809,7 @@ jobs:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
       - name: Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           fail_ci_if_error: false
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt

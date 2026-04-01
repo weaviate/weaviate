@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -218,10 +219,10 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run("test", func(t *testing.T) {
-			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 0.7, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
 			require.Nil(t, err)
 
-			vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
+			vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
 			require.Nil(t, err)
 			assert.Equal(t, tt.SearchVectors, vecs)
 			assert.Equal(t, tt.Targets, targets)
@@ -235,7 +236,7 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.SearchVectors[0], vecsOld)
 				assert.Equal(t, tt.Targets[0], targetsOld)
 
-				vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
+				vecs, targets, _, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
 				require.Nil(t, err)
 				assert.Equal(t, tt.SearchVectors, vecs)
 				assert.Equal(t, tt.Targets, targets)
@@ -327,6 +328,162 @@ func Test_searchParametersPayload_Unmarshal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSearchResultsPayload_MarshalUnmarshalWithProfiles(t *testing.T) {
+	now := time.Now()
+	id := strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336")
+	objs := []*storobj.Object{
+		{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:               id,
+				Class:            "TestClass",
+				CreationTimeUnix: now.UnixMilli(),
+			},
+			Vector:    []float32{1, 2, 3},
+			VectorLen: 3,
+		},
+	}
+	dists := []float32{0.5, 0.8}
+	queryProfiles := []helpers.ShardQueryProfile{
+		{
+			Name: "shard-1",
+			Node: "node-1",
+			Searches: map[string]helpers.SearchQueryProfile{
+				"vector": {Details: map[string]string{
+					"total_took":         "10ms",
+					"vector_search_took": "8ms",
+				}},
+			},
+		},
+		{
+			Name: "shard-2",
+			Node: "node-2",
+			Searches: map[string]helpers.SearchQueryProfile{
+				"keyword": {Details: map[string]string{
+					"total_took": "5ms",
+				}},
+			},
+		},
+	}
+
+	payload := searchResultsPayload{}
+	data, err := payload.MarshalWithAdditional(objs, dists, additional.Properties{}, queryProfiles)
+	require.NoError(t, err)
+
+	gotObjs, gotDists, gotProfiles, err := payload.Unmarshal(data)
+	require.NoError(t, err)
+
+	assert.Len(t, gotObjs, 1)
+	assert.Equal(t, id, gotObjs[0].ID())
+	assert.Equal(t, dists, gotDists)
+	require.Len(t, gotProfiles, 2)
+	assert.Equal(t, "shard-1", gotProfiles[0].Name)
+	assert.Equal(t, "node-1", gotProfiles[0].Node)
+	assert.Equal(t, "8ms", gotProfiles[0].Searches["vector"].Details["vector_search_took"])
+	assert.Equal(t, "shard-2", gotProfiles[1].Name)
+	assert.Equal(t, "node-2", gotProfiles[1].Node)
+	assert.Equal(t, "5ms", gotProfiles[1].Searches["keyword"].Details["total_took"])
+}
+
+func TestSearchResultsPayload_UnmarshalOldFormatWithoutProfiles(t *testing.T) {
+	now := time.Now()
+	id := strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336")
+	objs := []*storobj.Object{
+		{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:               id,
+				Class:            "TestClass",
+				CreationTimeUnix: now.UnixMilli(),
+			},
+			Vector:    []float32{1, 2, 3},
+			VectorLen: 3,
+		},
+	}
+	dists := []float32{0.5}
+
+	// Use the old Marshal (without query profiles) to produce old-format payload.
+	payload := searchResultsPayload{}
+	data, err := payload.Marshal(objs, dists)
+	require.NoError(t, err)
+
+	gotObjs, gotDists, gotProfiles, err := payload.Unmarshal(data)
+	require.NoError(t, err)
+
+	assert.Len(t, gotObjs, 1)
+	assert.Equal(t, dists, gotDists)
+	assert.Nil(t, gotProfiles)
+}
+
+func TestSearchResultsPayload_UnmarshalTruncatedProfiles(t *testing.T) {
+	now := time.Now()
+	id := strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336")
+	objs := []*storobj.Object{
+		{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:               id,
+				Class:            "TestClass",
+				CreationTimeUnix: now.UnixMilli(),
+			},
+			Vector:    []float32{1, 2, 3},
+			VectorLen: 3,
+		},
+	}
+	dists := []float32{0.5}
+
+	// Marshal with query profiles to get valid data, then truncate.
+	queryProfiles := []helpers.ShardQueryProfile{
+		{Name: "shard-1", Searches: map[string]helpers.SearchQueryProfile{
+			"vector": {Details: map[string]string{"total_took": "10ms"}},
+		}},
+	}
+	payload := searchResultsPayload{}
+	data, err := payload.MarshalWithAdditional(objs, dists, additional.Properties{}, queryProfiles)
+	require.NoError(t, err)
+
+	// Truncate the last 5 bytes so query profiles length exceeds remaining data.
+	truncated := data[:len(data)-5]
+
+	_, _, _, err = payload.Unmarshal(truncated)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "query profiles data truncated")
+}
+
+func TestSearchResultsPayload_UnmarshalCraftedOverflowLength(t *testing.T) {
+	// Build a minimal valid payload (1 object, 1 dist) then append a
+	// query profiles length header that claims more bytes than remain.
+	now := time.Now()
+	id := strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336")
+	objs := []*storobj.Object{
+		{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:               id,
+				Class:            "TestClass",
+				CreationTimeUnix: now.UnixMilli(),
+			},
+			Vector:    []float32{1},
+			VectorLen: 1,
+		},
+	}
+	dists := []float32{0.1}
+
+	payload := searchResultsPayload{}
+	base, err := payload.Marshal(objs, dists)
+	require.NoError(t, err)
+
+	// Append a query profiles length header claiming 9999 bytes, followed by only 2 bytes.
+	lengthBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(lengthBuf, 9999)
+	crafted := append(base, lengthBuf...)
+	crafted = append(crafted, []byte("ab")...)
+
+	_, _, _, err = payload.Unmarshal(crafted)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "query profiles data truncated")
 }
 
 func TestVersionedObjectListPayloadV2RoundTrip(t *testing.T) {

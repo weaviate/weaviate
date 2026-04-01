@@ -46,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
@@ -353,6 +354,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsPropertiesDeleteHandler: schema.SchemaObjectsPropertiesDeleteHandlerFunc(func(params schema.SchemaObjectsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesDelete has not yet been implemented")
 		}),
+		SchemaSchemaObjectsPropertiesTokenizeHandler: schema.SchemaObjectsPropertiesTokenizeHandlerFunc(func(params schema.SchemaObjectsPropertiesTokenizeParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesTokenize has not yet been implemented")
+		}),
 		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
 		}),
@@ -361,6 +365,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
+		}),
+		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
 		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
@@ -379,6 +386,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
+		}),
+		TokenizeTokenizeHandler: tokenize.TokenizeHandlerFunc(func(params tokenize.TokenizeParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation tokenize.Tokenize has not yet been implemented")
 		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
@@ -628,12 +638,16 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
 	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
 	SchemaSchemaObjectsPropertiesDeleteHandler schema.SchemaObjectsPropertiesDeleteHandler
+	// SchemaSchemaObjectsPropertiesTokenizeHandler sets the operation handler for the schema objects properties tokenize operation
+	SchemaSchemaObjectsPropertiesTokenizeHandler schema.SchemaObjectsPropertiesTokenizeHandler
 	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
+	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
+	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -646,6 +660,8 @@ type WeaviateAPI struct {
 	SchemaTenantsGetOneHandler schema.TenantsGetOneHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
+	// TokenizeTokenizeHandler sets the operation handler for the tokenize operation
+	TokenizeTokenizeHandler tokenize.TokenizeHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -1015,6 +1031,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsPropertiesDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesDeleteHandler")
 	}
+	if o.SchemaSchemaObjectsPropertiesTokenizeHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesTokenizeHandler")
+	}
 	if o.SchemaSchemaObjectsShardsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
 	}
@@ -1023,6 +1042,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
+	}
+	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -1041,6 +1063,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
+	}
+	if o.TokenizeTokenizeHandler == nil {
+		unregistered = append(unregistered, "tokenize.TokenizeHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -1073,7 +1098,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -1521,6 +1545,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{className}/properties/{propertyName}/tokenize"] = schema.NewSchemaObjectsPropertiesTokenize(o.context, o.SchemaSchemaObjectsPropertiesTokenizeHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1533,6 +1561,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}
@@ -1557,6 +1589,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/tokenize"] = tokenize.NewTokenize(o.context, o.TokenizeTokenizeHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

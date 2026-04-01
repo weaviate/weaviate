@@ -40,6 +40,19 @@ func ClassGetVectorConfig(class *models.Class, targetVector string) (models.Vect
 	return models.VectorConfig{}, false
 }
 
+// IsVectorIndexDropped returns true if the named vector config entry represents
+// a dropped index — i.e. the vector data still exists in the objects bucket but
+// the search index has been removed from disk.
+//
+// A dropped entry is identified by BOTH an empty VectorIndexType AND a nil
+// VectorIndexConfig. Checking both conditions prevents a user-submitted class
+// with a missing VectorIndexType (the zero value) from being silently treated
+// as dropped and skipping validation. The DeleteClassVectorIndex handler
+// explicitly clears both fields when dropping an index.
+func IsVectorIndexDropped(cfg models.VectorConfig) bool {
+	return cfg.VectorIndexType == "" && cfg.VectorIndexConfig == nil
+}
+
 func ClassUsesVectorisation(class *models.Class) bool {
 	needsVectorisation := func(name string) bool {
 		return name != "" && name != "none"
