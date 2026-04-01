@@ -62,16 +62,6 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	copy(query, indexed)
 
 	var analyzerConfig *models.TextAnalyserConfig
-	if params.Body.AnalyzerConfig != nil && params.Body.AnalyzerConfig.StopwordPreset != "" {
-		analyzerConfig = params.Body.AnalyzerConfig
-		detector, err := stopwords.NewDetectorFromPreset(params.Body.AnalyzerConfig.StopwordPreset)
-		if err != nil {
-			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
-			})
-		}
-		query = removeStopwords(indexed, detector)
-	}
 
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization:   *params.Body.Tokenization,
@@ -126,18 +116,6 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	query := make([]string, len(indexed))
 	copy(query, indexed)
 
-	//TODO: priority for stopword settings: property TextAnalyser.StopwordPreset > class InvertedIndexConfig.Stopwords > no stopwords
-	/*
-		if prop.TextAnalyser != nil && prop.TextAnalyser.StopwordPreset != "" {
-			detector, err := stopwords.NewDetectorFromPreset(prop.TextAnalyser.StopwordPreset)
-			if err != nil {
-				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
-				})
-			}
-			query = removeStopwords(indexed, detector)
-		} else ...
-	*/
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
 		detector, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {

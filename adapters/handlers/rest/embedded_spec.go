@@ -9570,11 +9570,6 @@ func init() {
             "type": "string"
           },
           "x-omitempty": true
-        },
-        "stopwordPreset": {
-          "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
-          "type": "string",
-          "x-omitempty": true
         }
       },
       "x-omitempty": true
@@ -20080,11 +20075,6 @@ func init() {
           "items": {
             "type": "string"
           },
-          "x-omitempty": true
-        },
-        "stopwordPreset": {
-          "description": "If provided, specifies a predefined set of stopwords to exclude from indexing and search. For example, 'en' would apply a common set of English stopwords. Defaults to no stopword filtering.",
-          "type": "string",
           "x-omitempty": true
         }
       },

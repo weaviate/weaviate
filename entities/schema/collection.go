@@ -107,11 +107,9 @@ type ShardingConfig struct {
 
 // PropertyAnalyser contains text processing options for a property.
 // ASCIIFold is immutable after creation; ASCIIFoldIgnore can change, but will not be applied to already indexed data.
-// Stopwords and TokenizerOverrides are not being used at the moment, but are included for future use.
 type PropertyAnalyser struct {
 	ASCIIFold       bool     `json:"asciiFold,omitempty"`
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
-	StopwordPreset  string   `json:"stopwordPreset,omitempty"`
 }
 
 type Property struct {
@@ -205,7 +203,6 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 		n.Processing = PropertyAnalyser{
 			ASCIIFold:       m.TextAnalyser.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyser.ASCIIFoldIgnore,
-			StopwordPreset:  m.TextAnalyser.StopwordPreset,
 		}
 	}
 	n.Tokenization = m.Tokenization
@@ -236,12 +233,10 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
 	if n.Processing.ASCIIFold ||
-		len(n.Processing.ASCIIFoldIgnore) > 0 ||
-		n.Processing.StopwordPreset != "" {
+		len(n.Processing.ASCIIFoldIgnore) > 0 {
 		m.TextAnalyser = &models.TextAnalyserConfig{
 			ASCIIFold:       n.Processing.ASCIIFold,
 			ASCIIFoldIgnore: n.Processing.ASCIIFoldIgnore,
-			StopwordPreset:  n.Processing.StopwordPreset,
 		}
 	}
 	m.Tokenization = n.Tokenization
@@ -291,7 +286,6 @@ func PropertyFromModel(m models.Property) Property {
 		p.Analyser = PropertyAnalyser{
 			ASCIIFold:       m.TextAnalyser.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyser.ASCIIFoldIgnore,
-			StopwordPreset:  m.TextAnalyser.StopwordPreset,
 		}
 	}
 	if len(m.NestedProperties) > 0 {
@@ -324,12 +318,10 @@ func PropertyToModel(p Property) models.Property {
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
 	if p.Analyser.ASCIIFold ||
-		len(p.Analyser.ASCIIFoldIgnore) > 0 ||
-		p.Analyser.StopwordPreset != "" {
+		len(p.Analyser.ASCIIFoldIgnore) > 0 {
 		m.TextAnalyser = &models.TextAnalyserConfig{
 			ASCIIFold:       p.Analyser.ASCIIFold,
 			ASCIIFoldIgnore: p.Analyser.ASCIIFoldIgnore,
-			StopwordPreset:  p.Analyser.StopwordPreset,
 		}
 	}
 	m.Tokenization = p.Tokenization
