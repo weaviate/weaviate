@@ -91,7 +91,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(queue_paused{})\n",
+          "expr": "queue_paused",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -159,7 +159,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(queue_count{})\n",
+          "expr": "queue_count",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
