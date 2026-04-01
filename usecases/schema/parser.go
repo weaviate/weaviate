@@ -435,16 +435,16 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 // stripASCIIFoldIgnore removes the ASCIIFoldIgnore field from the TextAnalyzer
 // entry in a property map so that it is excluded from immutability checks.
 func stripASCIIFoldIgnore(m map[string]any) {
-	ta, ok := m["TextAnalyzer"]
+	ta, ok := m["textAnalyzer"]
 	if !ok {
 		return
 	}
 
-	// Normalize explicit nulls: treat `"TextAnalyzer": null` the same as
-	// an absent TextAnalyzer by deleting the key so DeepEqual does not
+	// Normalize explicit nulls: treat "textAnalyzer": null the same as
+	// an absent textAnalyzer by deleting the key so DeepEqual does not
 	// see a difference between the two.
 	if ta == nil {
-		delete(m, "TextAnalyzer")
+		delete(m, "textAnalyzer")
 		return
 	}
 
@@ -460,10 +460,10 @@ func stripASCIIFoldIgnore(m map[string]any) {
 		// such empty configs by removing the key so that {} and null behave
 		// the same in immutability checks.
 		if reflect.ValueOf(copyCfg).IsZero() {
-			delete(m, "TextAnalyzer")
+			delete(m, "textAnalyzer")
 			return
 		}
-		m["TextAnalyzer"] = &copyCfg
+		m["textAnalyzer"] = &copyCfg
 	}
 }
 

@@ -5,6 +5,7 @@ Requires a running Weaviate instance (e.g. via `make local`).
 """
 
 import json
+import urllib.error
 import urllib.request
 from typing import Generator
 
@@ -44,8 +45,14 @@ def _rest_put(path: str, body: dict) -> None:
         method="PUT",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req) as resp:
-        resp.read()
+    try:
+        with urllib.request.urlopen(req) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"PUT {path} failed with {e.code}: {err_body}"
+        ) from e
 
 
 def _create_and_populate(client, collection_name: str) -> None:
@@ -60,7 +67,7 @@ def _create_and_populate(client, collection_name: str) -> None:
                     "name": "title",
                     "dataType": ["text"],
                     "tokenization": "word",
-                    "TextAnalyzer": {
+                    "textAnalyzer": {
                         "asciiFold": True,
                         "asciiFoldIgnore": ["é", "Ł"],
                     },
@@ -69,7 +76,7 @@ def _create_and_populate(client, collection_name: str) -> None:
                     "name": "body",
                     "dataType": ["text"],
                     "tokenization": "word",
-                    "TextAnalyzer": {
+                    "textAnalyzer": {
                         "asciiFold": True,
                         "asciiFoldIgnore": [],
                     },
@@ -101,7 +108,7 @@ class TestASCIIFoldConfig:
         self.client.close()
 
     def test_ascii_fold_ignore_config(self) -> None:
-        """Verify collection config reflects TextAnalyzer settings."""
+        """Verify collection config reflects textAnalyzer settings."""
         self.client.collections.create_from_dict(
             {
                 "class": self.collection_name,
@@ -111,7 +118,7 @@ class TestASCIIFoldConfig:
                         "name": "title",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "TextAnalyzer": {
+                        "textAnalyzer": {
                             "asciiFold": True,
                             "asciiFoldIgnore": ["é"],
                         },
@@ -120,7 +127,7 @@ class TestASCIIFoldConfig:
                         "name": "body",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "TextAnalyzer": {
+                        "textAnalyzer": {
                             "asciiFold": True,
                             "asciiFoldIgnore": [],
                         },
@@ -132,11 +139,11 @@ class TestASCIIFoldConfig:
         schema = _rest_get(f"/v1/schema/{self.collection_name}")
         raw_props = {p["name"]: p for p in schema["properties"]}
 
-        title_analyzer = raw_props["title"].get("TextAnalyzer", {})
+        title_analyzer = raw_props["title"].get("textAnalyzer", {})
         assert title_analyzer.get("asciiFold") is True
         assert title_analyzer.get("asciiFoldIgnore") == ["é"]
 
-        body_analyzer = raw_props["body"].get("TextAnalyzer", {})
+        body_analyzer = raw_props["body"].get("textAnalyzer", {})
         assert body_analyzer.get("asciiFold") is True
         assert (
             body_analyzer.get("asciiFoldIgnore") is None
@@ -246,13 +253,13 @@ class TestASCIIFoldUpdateIgnoreList:
         class_schema = _rest_get(f"/v1/schema/{self.collection_name}")
         for prop in class_schema["properties"]:
             if prop["name"] == "title":
-                prop["TextAnalyzer"]["asciiFoldIgnore"] = []
+                prop["textAnalyzer"]["asciiFoldIgnore"] = []
         _rest_put(f"/v1/schema/{self.collection_name}", class_schema)
 
         # Verify config updated
         updated = _rest_get(f"/v1/schema/{self.collection_name}")
         updated_props = {p["name"]: p for p in updated["properties"]}
-        ignore = updated_props["title"].get("TextAnalyzer", {}).get("asciiFoldIgnore")
+        ignore = updated_props["title"].get("textAnalyzer", {}).get("asciiFoldIgnore")
         assert ignore is None or ignore == []
 
         # Old docs NOT re-indexed: query now folds é→e, but old index has "école"
@@ -289,61 +296,61 @@ class TestASCIIFoldTokenizationVariants:
                         "name": "wordProp",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "TextAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
+                        "textAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
                     },
                     {
                         "name": "lowercaseProp",
                         "dataType": ["text"],
                         "tokenization": "lowercase",
-                        "TextAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
+                        "textAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
                     },
                     {
                         "name": "whitespaceProp",
                         "dataType": ["text"],
                         "tokenization": "whitespace",
-                        "TextAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
+                        "textAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
                     },
                     {
                         "name": "fieldProp",
                         "dataType": ["text"],
                         "tokenization": "field",
-                        "TextAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
+                        "textAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
                     },
                     {
                         "name": "trigramProp",
                         "dataType": ["text"],
                         "tokenization": "trigram",
-                        "TextAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
+                        "textAnalyzer": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
                     },
                     {
                         "name": "wordNoIgnore",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "TextAnalyzer": {"asciiFold": True},
+                        "textAnalyzer": {"asciiFold": True},
                     },
                     {
                         "name": "lowercaseNoIgnore",
                         "dataType": ["text"],
                         "tokenization": "lowercase",
-                        "TextAnalyzer": {"asciiFold": True},
+                        "textAnalyzer": {"asciiFold": True},
                     },
                     {
                         "name": "whitespaceNoIgnore",
                         "dataType": ["text"],
                         "tokenization": "whitespace",
-                        "TextAnalyzer": {"asciiFold": True},
+                        "textAnalyzer": {"asciiFold": True},
                     },
                     {
                         "name": "fieldNoIgnore",
                         "dataType": ["text"],
                         "tokenization": "field",
-                        "TextAnalyzer": {"asciiFold": True},
+                        "textAnalyzer": {"asciiFold": True},
                     },
                     {
                         "name": "trigramNoIgnore",
                         "dataType": ["text"],
                         "tokenization": "trigram",
-                        "TextAnalyzer": {"asciiFold": True},
+                        "textAnalyzer": {"asciiFold": True},
                     },
                 ],
             }
@@ -438,7 +445,7 @@ class TestASCIIFoldMultiCharIgnore:
                         "name": "multiIgnore",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "TextAnalyzer": {
+                        "textAnalyzer": {
                             "asciiFold": True,
                             "asciiFoldIgnore": ["é", "ü", "ñ", "ø"],
                         },
@@ -447,7 +454,7 @@ class TestASCIIFoldMultiCharIgnore:
                         "name": "noIgnore",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "TextAnalyzer": {
+                        "textAnalyzer": {
                             "asciiFold": True,
                             "asciiFoldIgnore": [],
                         },
@@ -523,7 +530,7 @@ class TestASCIIFoldMultiCharIgnore:
         """Schema config returns all characters in the ignore list."""
         schema = _rest_get(f"/v1/schema/{self.collection_name}")
         props = {p["name"]: p for p in schema["properties"]}
-        ignore = props["multiIgnore"].get("TextAnalyzer", {}).get("asciiFoldIgnore")
+        ignore = props["multiIgnore"].get("textAnalyzer", {}).get("asciiFoldIgnore")
         assert set(ignore) == {"é", "ü", "ñ", "ø"}
 
 
