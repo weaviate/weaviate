@@ -207,7 +207,17 @@ func FoldAccents(s string, ignore map[rune]struct{}) string {
 					}
 				}
 			}
-			result = append(result, decomposed[i:i+size]...)
+			// After NFD decomposition, base characters that are in the
+			// foldTable (e.g. ø from ǿ→ø+acute) must still be replaced.
+			if !skipMarks {
+				if repl, ok := foldTable[r]; ok {
+					result = append(result, repl...)
+				} else {
+					result = append(result, decomposed[i:i+size]...)
+				}
+			} else {
+				result = append(result, decomposed[i:i+size]...)
+			}
 		}
 		i += size
 	}
@@ -224,6 +234,10 @@ func BuildIgnoreSet(chars []string) map[rune]struct{} {
 	}
 	ignore := make(map[rune]struct{}, len(chars))
 	for _, s := range chars {
+		// Normalize to NFC so that NFD input like "e" + combining acute
+		// becomes the single codepoint U+00E9, matching what FoldAccents
+		// checks against in its phase-2 recomposition (line 202).
+		s = norm.NFC.String(s)
 		for _, r := range s {
 			ignore[r] = struct{}{}
 		}

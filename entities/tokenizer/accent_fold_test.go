@@ -169,6 +169,22 @@ func TestFoldAccents(t *testing.T) {
 			input:    "Ångström straße",
 			expected: "Angstrom strasse",
 		},
+		// Characters that NFD-decompose into foldTable characters + combining marks
+		{
+			name:     "ǿ (o-stroke with acute) NFC",
+			input:    "\u01FF", // ǿ — NFD decomposes to ø + combining acute
+			expected: "o",
+		},
+		{
+			name:     "ǽ (ae-ligature with acute) NFC",
+			input:    "\u01FD", // ǽ — NFD decomposes to æ + combining acute
+			expected: "ae",
+		},
+		{
+			name:     "ǿ in context",
+			input:    "f\u01FFr",
+			expected: "for",
+		},
 	}
 
 	for _, tt := range tests {
