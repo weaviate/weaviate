@@ -360,6 +360,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	if err != nil {
 		return 0, fmt.Errorf("get object %q: %w", remotePath, err)
 	}
+	defer obj.Close()
 
 	read, err := io.Copy(w, obj)
 	if err != nil {
