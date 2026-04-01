@@ -440,9 +440,10 @@ func stripASCIIFoldIgnore(m map[string]any) {
 		return
 	}
 
-	// Normalize explicit nulls: treat "textAnalyzer": null the same as
-	// an absent textAnalyzer by deleting the key so DeepEqual does not
-	// see a difference between the two.
+	// Normalize explicit nulls and typed nil pointers: propertyAsMap stores
+	// fields via reflect, so a (*models.TextAnalyzerConfig)(nil) becomes a
+	// non-nil interface holding a typed nil. Handle both cases so DeepEqual
+	// does not see a difference between absent and null textAnalyzer.
 	if ta == nil {
 		delete(m, "textAnalyzer")
 		return
@@ -451,7 +452,13 @@ func stripASCIIFoldIgnore(m map[string]any) {
 	// Avoid mutating the original TextAnalyzerConfig pointer that may be shared
 	// with the underlying Property/NestedProperty. Instead, create a shallow copy
 	// with ASCIIFoldIgnore cleared and store that copy back into the map.
-	if cfg, ok := ta.(*models.TextAnalyzerConfig); ok && cfg != nil {
+	if cfg, ok := ta.(*models.TextAnalyzerConfig); ok {
+		// Typed nil pointer: treat the same as an absent key.
+		if cfg == nil {
+			delete(m, "textAnalyzer")
+			return
+		}
+
 		copyCfg := *cfg
 		copyCfg.ASCIIFoldIgnore = nil
 

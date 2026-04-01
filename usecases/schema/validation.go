@@ -231,6 +231,10 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index", propName)
 	}
 
+	if !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("property '%s': asciiFoldIgnore requires asciiFold to be enabled", propName)
+	}
+
 	for _, entry := range property.TextAnalyzer.ASCIIFoldIgnore {
 		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
 			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",

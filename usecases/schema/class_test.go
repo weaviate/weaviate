@@ -3258,3 +3258,35 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("ignore with fold disabled is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "asciiFoldIgnore requires asciiFold to be enabled")
+	})
+
+	t.Run("ignore with fold enabled is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       true,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+	})
+}
