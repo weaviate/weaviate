@@ -28,6 +28,7 @@ const (
 	quantizationKey    = "quantization"
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
+	muveraKey          = "muvera"
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -138,6 +139,30 @@ type QuantizationData struct {
 	RQ compression.RQData `msgpack:"rq"`
 }
 
+func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
+	serialized, err := msgpack.Marshal(data)
+	if err != nil {
+		return errors.Wrap(err, "marshal muvera data")
+	}
+	return i.bucket.Put(i.key(muveraKey), serialized)
+}
+
+func (i *IndexMetadataStore) GetMuveraData() (*compression.MuveraData, error) {
+	data, err := i.bucket.Get(i.key(muveraKey))
+	if err != nil {
+		return nil, errors.Wrap(err, "get muvera data")
+	}
+	if data == nil {
+		return nil, nil
+	}
+
+	var muveraData compression.MuveraData
+	if err = msgpack.Unmarshal(data, &muveraData); err != nil {
+		return nil, errors.Wrap(err, "unmarshal muvera data")
+	}
+	return &muveraData, nil
+}
+
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.IndexMetadata.GetDimensions()
 	if err != nil || dims == 0 {
@@ -162,6 +187,18 @@ func (h *HFresh) restoreMetadata() error {
 	})
 	if err != nil {
 		return err
+	}
+
+	if h.muvera.Load() {
+		muveraData, muveraErr := h.IndexMetadata.GetMuveraData()
+		if muveraErr != nil {
+			return muveraErr
+		}
+		if muveraData != nil {
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*muveraData)
+			})
+		}
 	}
 
 	// restore posting map
