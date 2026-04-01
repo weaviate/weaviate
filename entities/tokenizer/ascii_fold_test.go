@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFoldAccents(t *testing.T) {
+func TestFoldASCII(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -189,22 +189,22 @@ func TestFoldAccents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FoldAccents(tt.input, nil)
+			result := FoldASCII(tt.input, nil)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestFoldAccentsSlice(t *testing.T) {
+func TestFoldASCIISlice(t *testing.T) {
 	input := []string{"école", "café", "hello"}
-	result := FoldAccentsSlice(input, nil)
+	result := FoldASCIISlice(input, nil)
 	require.Len(t, result, 3)
 	assert.Equal(t, "ecole", result[0])
 	assert.Equal(t, "cafe", result[1])
 	assert.Equal(t, "hello", result[2])
 }
 
-func TestFoldAccentsWithIgnore(t *testing.T) {
+func TestFoldASCIIWithIgnore(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -270,29 +270,29 @@ func TestFoldAccentsWithIgnore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ignore := BuildIgnoreSet(tt.ignore)
-			result := FoldAccents(tt.input, ignore)
+			result := FoldASCII(tt.input, ignore)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestFoldAccentsSliceWithIgnore(t *testing.T) {
+func TestFoldASCIISliceWithIgnore(t *testing.T) {
 	input := []string{"école", "café", "hello"}
 	ignore := BuildIgnoreSet([]string{"é"})
-	result := FoldAccentsSlice(input, ignore)
+	result := FoldASCIISlice(input, ignore)
 	require.Len(t, result, 3)
 	assert.Equal(t, "école", result[0])
 	assert.Equal(t, "café", result[1])
 	assert.Equal(t, "hello", result[2])
 }
 
-func TestFoldAccentsIdempotent(t *testing.T) {
+func TestFoldASCIIIdempotent(t *testing.T) {
 	input := "ecole"
-	result := FoldAccents(input, nil)
+	result := FoldASCII(input, nil)
 	assert.Equal(t, input, result, "folding already-ASCII text should be a no-op")
 }
 
-func TestFoldAccentsWithWordTokenization(t *testing.T) {
+func TestFoldASCIIWithWordTokenization(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -318,7 +318,7 @@ func TestFoldAccentsWithWordTokenization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens := Tokenize("word", tt.input)
-			folded := FoldAccentsSlice(tokens, nil)
+			folded := FoldASCIISlice(tokens, nil)
 			assert.Equal(t, tt.expected, folded)
 		})
 	}

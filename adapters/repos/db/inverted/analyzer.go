@@ -84,7 +84,7 @@ func (a *Analyzer) TextArray(tokenization string, inArr []string, textAnalyser *
 	var terms []string
 	for _, in := range inArr {
 		if textAnalyser != nil && textAnalyser.ASCIIFold {
-			in = tokenizer.FoldAccents(in, ignore)
+			in = tokenizer.FoldASCII(in, ignore)
 		}
 		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
 	}

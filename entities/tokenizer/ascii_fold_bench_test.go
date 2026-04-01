@@ -39,9 +39,9 @@ var (
 	ignoreLarge = BuildIgnoreSet([]string{"é", "è", "ê", "ë", "ñ", "ü", "ö", "ä", "ß", "ø", "Ø", "æ", "Æ", "þ", "Þ", "å", "Å"})
 )
 
-// --- FoldAccents benchmarks ---
+// --- FoldASCII benchmarks ---
 
-func BenchmarkFoldAccents(b *testing.B) {
+func BenchmarkFoldASCII(b *testing.B) {
 	for _, tc := range benchInputs {
 		b.Run(tc.name+"/no_fold", func(b *testing.B) {
 			// Baseline: no folding at all (just return input)
@@ -54,29 +54,29 @@ func BenchmarkFoldAccents(b *testing.B) {
 		b.Run(tc.name+"/fold_no_ignore", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				FoldAccents(tc.input, ignoreNil)
+				FoldASCII(tc.input, ignoreNil)
 			}
 		})
 
 		b.Run(tc.name+"/fold_ignore_small", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				FoldAccents(tc.input, ignoreSmall)
+				FoldASCII(tc.input, ignoreSmall)
 			}
 		})
 
 		b.Run(tc.name+"/fold_ignore_large", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				FoldAccents(tc.input, ignoreLarge)
+				FoldASCII(tc.input, ignoreLarge)
 			}
 		})
 	}
 }
 
-// --- FoldAccentsSlice benchmarks (simulates analyzer path) ---
+// --- FoldASCIISlice benchmarks (simulates analyzer path) ---
 
-func BenchmarkFoldAccentsSlice(b *testing.B) {
+func BenchmarkFoldASCIISlice(b *testing.B) {
 	// Simulate tokenized input (word tokenization of the paragraph)
 	tokens := Tokenize("word", benchParagraph)
 
@@ -92,7 +92,7 @@ func BenchmarkFoldAccentsSlice(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			t := make([]string, len(tokens))
 			copy(t, tokens)
-			FoldAccentsSlice(t, ignoreNil)
+			FoldASCIISlice(t, ignoreNil)
 		}
 	})
 
@@ -101,7 +101,7 @@ func BenchmarkFoldAccentsSlice(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			t := make([]string, len(tokens))
 			copy(t, tokens)
-			FoldAccentsSlice(t, ignoreSmall)
+			FoldASCIISlice(t, ignoreSmall)
 		}
 	})
 
@@ -110,7 +110,7 @@ func BenchmarkFoldAccentsSlice(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			t := make([]string, len(tokens))
 			copy(t, tokens)
-			FoldAccentsSlice(t, ignoreLarge)
+			FoldASCIISlice(t, ignoreLarge)
 		}
 	})
 }
@@ -150,21 +150,21 @@ func BenchmarkAnalyzerPath(b *testing.B) {
 
 	b.Run("fold_then_tokenize", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			folded := FoldAccents(input, ignoreNil)
+			folded := FoldASCII(input, ignoreNil)
 			Tokenize("word", folded)
 		}
 	})
 
 	b.Run("fold_then_tokenize_ignore_small", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			folded := FoldAccents(input, ignoreSmall)
+			folded := FoldASCII(input, ignoreSmall)
 			Tokenize("word", folded)
 		}
 	})
 
 	b.Run("fold_then_tokenize_ignore_large", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			folded := FoldAccents(input, ignoreLarge)
+			folded := FoldASCII(input, ignoreLarge)
 			Tokenize("word", folded)
 		}
 	})

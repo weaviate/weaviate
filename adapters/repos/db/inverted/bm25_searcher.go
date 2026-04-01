@@ -165,7 +165,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 	props := make([]propInfo, 0, len(params.Properties))
 	neededTokenizations := map[string]struct{}{}
-	needsAccentFold := map[string]struct{}{}
+	needsASCIIFold := map[string]struct{}{}
 
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
@@ -202,10 +202,10 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
 				if len(prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
 					// Per-property ignore key — will be computed after tokenization
-					tokKey = accentTokenizationKey(prop.Tokenization) + ":" + property
+					tokKey = asciiiTokenizationKey(prop.Tokenization) + ":" + property
 				} else {
-					tokKey = accentTokenizationKey(prop.Tokenization)
-					needsAccentFold[prop.Tokenization] = struct{}{}
+					tokKey = asciiiTokenizationKey(prop.Tokenization)
+					needsASCIIFold[prop.Tokenization] = struct{}{}
 				}
 			}
 			neededTokenizations[prop.Tokenization] = struct{}{}
@@ -233,17 +233,17 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		propNamesByTokenization[tok] = make([]string, 0)
 	}
 
-	// Prepare accent-folded variants only for tokenizations that need them
-	for tok := range needsAccentFold {
-		accentKey := accentTokenizationKey(tok)
-		foldedQuery := tokenizer.FoldAccents(params.Query, nil)
-		accentTerms, accentBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tok, foldedQuery, class.Class)
+	// Prepare asciii-folded variants only for tokenizations that need them
+	for tok := range needsASCIIFold {
+		asciiiKey := asciiiTokenizationKey(tok)
+		foldedQuery := tokenizer.FoldASCII(params.Query, nil)
+		asciiiTerms, asciiiBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tok, foldedQuery, class.Class)
 		if tok == models.PropertyTokenizationWord {
-			accentTerms, accentBoosts = b.removeStopwordsFromQueryTerms(accentTerms, accentBoosts)
+			asciiiTerms, asciiiBoosts = b.removeStopwordsFromQueryTerms(asciiiTerms, asciiiBoosts)
 		}
-		queryTermsByTokenization[accentKey] = accentTerms
-		duplicateBoostsByTokenization[accentKey] = accentBoosts
-		propNamesByTokenization[accentKey] = make([]string, 0)
+		queryTermsByTokenization[asciiiKey] = asciiiTerms
+		duplicateBoostsByTokenization[asciiiKey] = asciiiBoosts
+		propNamesByTokenization[asciiiKey] = make([]string, 0)
 	}
 
 	// Third pass: assign properties to tokenization keys, compute per-property ignore keys
@@ -262,7 +262,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		tokKey := pi.tokKey
 		if pi.prop.TextAnalyser != nil && pi.prop.TextAnalyser.ASCIIFold && len(pi.prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
 			ignore := tokenizer.BuildIgnoreSet(pi.prop.TextAnalyser.ASCIIFoldIgnore)
-			foldedQ := tokenizer.FoldAccents(params.Query, ignore)
+			foldedQ := tokenizer.FoldASCII(params.Query, ignore)
 			propTerms, propBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(pi.prop.Tokenization, foldedQ, class.Class)
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
 				propTerms, propBoosts = b.removeStopwordsFromQueryTerms(propTerms, propBoosts)
@@ -291,9 +291,9 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
-// accentTokenizationKey returns the composite key used for accent-insensitive properties.
-func accentTokenizationKey(tokenization string) string {
-	return tokenization + ":accent"
+// asciiiTokenizationKey returns the composite key used for asciii-insensitive properties.
+func asciiiTokenizationKey(tokenization string) string {
+	return tokenization + ":asciii"
 }
 
 func (b *BM25Searcher) wand(

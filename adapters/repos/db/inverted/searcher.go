@@ -653,7 +653,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	// Fold accents before tokenization so filter values match the indexed form
 	if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
 		ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
-		valueString = tokenizer.FoldAccents(valueString, ignore)
+		valueString = tokenizer.FoldASCII(valueString, ignore)
 	}
 
 	switch propType {

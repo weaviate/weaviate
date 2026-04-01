@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// FoldAccents normalizes accented text for accent-insensitive search.
+// FoldASCII normalizes accented text for accent-insensitive search.
 //
 // ## Common Latin diacritics folded
 //
@@ -133,7 +133,7 @@ var foldTable = map[rune]string{
 	'ʐ': "z",
 }
 
-// FoldAccents normalizes accented text for accent-insensitive search.
+// FoldASCII normalizes accented text for accent-insensitive search.
 //
 // Phase 1: Explicit replacements for characters that don't decompose
 // under NFD (stroked letters, ligatures, special letters, hooked letters).
@@ -149,7 +149,7 @@ var foldTable = map[rune]string{
 //
 // If ignore is non-nil, characters present in the set are preserved
 // without folding.
-func FoldAccents(s string, ignore map[rune]struct{}) string {
+func FoldASCII(s string, ignore map[rune]struct{}) string {
 	// Phase 1: replace characters that NFD doesn't decompose
 	var buf strings.Builder
 	buf.Grow(len(s))
@@ -227,7 +227,7 @@ func FoldAccents(s string, ignore map[rune]struct{}) string {
 }
 
 // BuildIgnoreSet converts a slice of strings (each typically a single character)
-// into a rune set for use with FoldAccents.
+// into a rune set for use with FoldASCII.
 func BuildIgnoreSet(chars []string) map[rune]struct{} {
 	if len(chars) == 0 {
 		return nil
@@ -235,7 +235,7 @@ func BuildIgnoreSet(chars []string) map[rune]struct{} {
 	ignore := make(map[rune]struct{}, len(chars)*2)
 	for _, s := range chars {
 		// Normalize to NFC so that NFD input like "e" + combining acute
-		// becomes the single codepoint U+00E9, matching what FoldAccents
+		// becomes the single codepoint U+00E9, matching what FoldASCII
 		// checks against in its phase-2 recomposition (line 202).
 		s = norm.NFC.String(s)
 		for _, r := range s {
@@ -249,10 +249,10 @@ func BuildIgnoreSet(chars []string) map[rune]struct{} {
 	return ignore
 }
 
-// FoldAccentsSlice applies accent folding to each element of a string slice in-place.
-func FoldAccentsSlice(terms []string, ignore map[rune]struct{}) []string {
+// FoldASCIISlice applies accent folding to each element of a string slice in-place.
+func FoldASCIISlice(terms []string, ignore map[rune]struct{}) []string {
 	for i := range terms {
-		terms[i] = FoldAccents(terms[i], ignore)
+		terms[i] = FoldASCII(terms[i], ignore)
 	}
 	return terms
 }
