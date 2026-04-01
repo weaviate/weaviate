@@ -423,7 +423,6 @@ func (b *BM25Searcher) wand(
 	return objects, scores, err
 }
 
-
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
