@@ -240,6 +240,20 @@ type RClient interface {
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	// GetAsyncCheckpointStatus fetches the checkpoint state for multiple shards from
+	// a remote node in a single request. Returns a map from shard name to its status.
+	GetAsyncCheckpointStatus(ctx context.Context, host, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error)
+
+	// CreateAsyncCheckpoint creates or atomically replaces the checkpoint
+	// for multiple shards on a remote node in a single request.
+	// createdAt is determined once by the initiating node's index layer and
+	// must be passed unchanged so all replicas share the same creation timestamp.
+	CreateAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error
+
+	// DeleteAsyncCheckpoint removes the active checkpoint from multiple
+	// shards on a remote node in a single request. Idempotent.
+	DeleteAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string) error
 }
 
 // FinderClient extends RClient with consistency checks
@@ -326,4 +340,22 @@ func (fc FinderClient) FindUUIDs(ctx context.Context,
 	host, class, shard string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit)
+}
+
+func (fc FinderClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]AsyncCheckpointShardStatus, error) {
+	return fc.cl.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+}
+
+func (fc FinderClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	return fc.cl.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+}
+
+func (fc FinderClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
 }

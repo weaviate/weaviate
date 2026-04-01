@@ -193,6 +193,78 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
+// CreateAsyncCheckpoint is the receiver-side handler for a fan-out create.
+// It applies the checkpoint to each shard in shardNames. Returns an error if any
+// shard is not initialized on this node (GetShard returns nil).
+func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	for _, shardName := range shardNames {
+		if err := index.CreateAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteAsyncCheckpoint is the receiver-side handler for a fan-out delete.
+// It removes the checkpoint from each shard in shardNames. Idempotent.
+// Returns an error if any shard is not initialized on this node.
+func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	for _, shardName := range shardNames {
+		if err := index.DeleteAsyncCheckpoint(ctx, shardName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.GetAsyncCheckpointShardStatus(ctx, shardNames)
+}
+
+// CreateAsyncCheckpoints creates (or atomically replaces) a checkpoint on
+// all loaded shards of className (or the listed subset) and fans out to remote
+// replicas. See Index.CreateAsyncCheckpoints for details.
+func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cutoffMs int64, shards []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.CreateAsyncCheckpoints(ctx, cutoffMs, shards)
+}
+
+// DeleteAsyncCheckpoints removes the active checkpoint from all loaded
+// shards of className (or the listed subset) and fans out to remote replicas.
+// See Index.DeleteAsyncCheckpoints for details.
+func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shards []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.DeleteAsyncCheckpoints(ctx, shards)
+}
+
+// GetAsyncCheckpointNodeStatuses returns per-shard, per-replica checkpoint state for
+// className. See Index.GetAsyncCheckpointStatus for details.
+func (db *DB) GetAsyncCheckpointNodeStatuses(ctx context.Context, className string, shards []string) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.GetAsyncCheckpointStatus(ctx, shards)
+}
+
 func (db *DB) CommitReplication(ctx context.Context,
 	class, shard, requestID string,
 ) any {
@@ -909,6 +981,61 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (i *Index) CreateAsyncCheckpoint(ctx context.Context, shardName string, cutoffMs int64, createdAt time.Time) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("%w: shard %q", err, shardName)
+	}
+	defer release()
+	if shard == nil {
+		return fmt.Errorf("shard %q is not yet initialized on this node", shardName)
+	}
+	return shard.CreateAsyncCheckpoint(cutoffMs, createdAt)
+}
+
+func (i *Index) DeleteAsyncCheckpoint(ctx context.Context, shardName string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("%w: shard %q", err, shardName)
+	}
+	defer release()
+	if shard == nil {
+		return fmt.Errorf("shard %q is not yet initialized on this node", shardName)
+	}
+	shard.DeleteAsyncCheckpoint()
+	return nil
+}
+
+func (i *Index) GetAsyncCheckpointShardStatus(_ context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	// Build a set of requested shards for O(1) lookup.
+	requested := make(map[string]struct{}, len(shardNames))
+	for _, name := range shardNames {
+		requested[name] = struct{}{}
+	}
+
+	// Pre-populate with zero status so unloaded/absent shards appear in the
+	// result. ForEachLoadedShard skips lazy stubs that have not been loaded yet,
+	// avoiding the force-load that GetShard (via preventShutdown) would trigger.
+	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
+	for _, name := range shardNames {
+		out[name] = replica.AsyncCheckpointShardStatus{}
+	}
+
+	_ = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if _, ok := requested[name]; !ok {
+			return nil
+		}
+		root, cutoffMs, createdAt, _ := shard.AsyncCheckpointRoot()
+		out[name] = replica.AsyncCheckpointShardStatus{
+			Root:      root,
+			CutoffMs:  cutoffMs,
+			CreatedAt: createdAt,
+		}
+		return nil
+	})
+	return out, nil
 }
 
 func (i *Index) FetchObject(ctx context.Context,

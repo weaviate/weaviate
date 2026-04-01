@@ -449,7 +449,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		cfg := fullRangeConfig(100)
 
 		local, remote, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local)
@@ -470,7 +470,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		cfg := fullRangeConfig(100)
 
 		local, remote, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local, "memtable objects must not be returned by disk-only scan")
@@ -492,7 +492,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		cfg := fullRangeConfig(100)
 
 		local, remote, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local)
@@ -520,7 +520,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		cfg := fullRangeConfig(100)
 
 		_, _, objs, err := s.objectsToPropagateWithinRange(
-			ctx, cfg, "http://fake", "node2", 0, 1, limit, nil,
+			ctx, cfg, "http://fake", "node2", 0, 1, limit, nil, 0,
 		)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(objs), limit,
@@ -550,7 +550,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		t.Run("LocalWins_LowerName", func(t *testing.T) {
 			// local="node1", target="node2": "node1" < "node2" → local wins → propagate.
 			_, _, objs, err := s.objectsToPropagateWithinRange(
-				ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+				ctx, cfg, "http://fake", "node2", 0, 1, 100, nil, 0,
 			)
 			require.NoError(t, err)
 			assert.Len(t, objs, 1, "local node wins tiebreak → must propagate")
@@ -559,7 +559,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		t.Run("LocalLoses_HigherName", func(t *testing.T) {
 			// local="node1", target="node0": "node1" > "node0" → local loses → skip.
 			_, _, objs, err := s.objectsToPropagateWithinRange(
-				ctx, cfg, "http://fake", "node0", 0, 1, 100, nil,
+				ctx, cfg, "http://fake", "node0", 0, 1, 100, nil, 0,
 			)
 			require.NoError(t, err)
 			assert.Empty(t, objs, "local node loses tiebreak → must not propagate")
@@ -895,6 +895,340 @@ func TestPropagateObjects(t *testing.T) {
 			_, _ = s.propagateObjects(cancelCtx, cfg, "http://fake-host", uuids, nil)
 		})
 	})
+}
+
+// ─── CreateAsyncCheckpoint ────────────────────────────────────────────────────
+
+// TestCreateAsyncCheckpoint covers the cutoff validation rules and the
+// idempotent-overwrite behaviour of CreateAsyncCheckpoint.
+func TestCreateAsyncCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	const class = "CreateAsyncCheckpointTest"
+
+	// helper returns a shard with async replication enabled and the hashtree
+	// fully initialized. If objects is non-nil they are flushed to disk first
+	// so they are registered in the hashtree.
+	newShard := func(t *testing.T, objs []*storobj.Object) *Shard {
+		t.Helper()
+		sl, _ := testShard(t, ctx, class)
+		s := concreteShard(t, sl)
+		for _, o := range objs {
+			require.NoError(t, sl.PutObject(ctx, o))
+		}
+		if len(objs) > 0 {
+			require.NoError(t, s.store.FlushMemtables(ctx))
+		}
+		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+		awaitHashtreeInitialized(t, s)
+		return s
+	}
+
+	const tsObj int64 = 1000 // updateTime used for test objects
+
+	t.Run("EmptyHashtree_CutoffZero_Rejected", func(t *testing.T) {
+		// cutoffMs == 0 is never valid: CutoffMs==0 is reserved for "no active
+		// checkpoint" in the status contract, so creation must always reject it.
+		s := newShard(t, nil)
+		defer s.mayStopAsyncReplication()
+
+		err := s.CreateAsyncCheckpoint(0, time.Now())
+		require.Error(t, err, "cutoff 0 must always be rejected to keep CutoffMs==0 unambiguous")
+	})
+
+	t.Run("ZeroCreatedAt_Rejected", func(t *testing.T) {
+		s := newShard(t, nil)
+		defer s.mayStopAsyncReplication()
+
+		err := s.CreateAsyncCheckpoint(tsObj+100, time.Time{})
+		require.Error(t, err, "zero createdAt must be rejected to keep the tie-breaker reliable")
+	})
+
+	t.Run("EmptyHashtree_CutoffPositive_Allowed", func(t *testing.T) {
+		s := newShard(t, nil)
+		defer s.mayStopAsyncReplication()
+
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj+999, time.Now()),
+			"any positive cutoff on an empty hashtree must be accepted")
+	})
+
+	t.Run("ObjectsRegistered_CutoffEqualToMaxUpdateTime_Allowed", func(t *testing.T) {
+		// cutoff == hashtreeMaxUpdateTime: boundary is inclusive, must be accepted.
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj, time.Now()),
+			"cutoff equal to the newest update time must be accepted")
+	})
+
+	t.Run("ObjectsRegistered_CutoffAboveMaxUpdateTime_Allowed", func(t *testing.T) {
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj+1, time.Now()),
+			"cutoff strictly above the newest update time must be accepted")
+	})
+
+	t.Run("ObjectsRegistered_CutoffBelowMaxUpdateTime_Rejected", func(t *testing.T) {
+		// hashtreeMaxUpdateTime==tsObj; cutoff==tsObj-1 would make the cloned
+		// tree contain an object whose updateTime exceeds the cutoff boundary.
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		err := s.CreateAsyncCheckpoint(tsObj-1, time.Now())
+		require.Error(t, err, "cutoff below the newest update time must be rejected")
+	})
+
+	t.Run("NonEmptyHashtree_CutoffZero_Rejected", func(t *testing.T) {
+		// cutoff==0 must also be rejected when objects are registered.
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		err := s.CreateAsyncCheckpoint(0, time.Now())
+		require.Error(t, err, "cutoff 0 must be rejected regardless of hashtree state")
+	})
+
+	t.Run("Overwrite_NewerCreatedAt_Replaces", func(t *testing.T) {
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		// Use fixed creation times to make the test deterministic.
+		createdAt1 := time.UnixMilli(1)
+		createdAt2 := time.UnixMilli(2) // strictly newer → must overwrite
+
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj+100, createdAt1))
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj+200, createdAt2),
+			"second CreateAsyncCheckpoint with a strictly newer createdAt must atomically replace the first")
+
+		s.asyncReplicationRWMux.RLock()
+		assert.Equal(t, int64(tsObj+200), s.asyncCheckpointCutoff,
+			"stored cutoff must reflect the latest overwrite")
+		assert.Equal(t, createdAt2, s.asyncCheckpointCreatedAt,
+			"stored createdAt must reflect the latest overwrite")
+		s.asyncReplicationRWMux.RUnlock()
+	})
+
+	t.Run("Overwrite_SameCreatedAt_Rejected", func(t *testing.T) {
+		// Tie-breaker: a request with the same createdAt as the existing checkpoint
+		// must be rejected. This prevents a stale in-flight fanout from overwriting
+		// a checkpoint created by a concurrent initiating request.
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		createdAt := time.UnixMilli(500)
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj+100, createdAt))
+		err := s.CreateAsyncCheckpoint(tsObj+200, createdAt)
+		require.Error(t, err, "second call with the same createdAt must be rejected")
+	})
+
+	t.Run("Overwrite_OlderCreatedAt_Rejected", func(t *testing.T) {
+		// Tie-breaker: a request with an older createdAt than the existing
+		// checkpoint must be rejected.
+		s := newShard(t, []*storobj.Object{testObjWithTime(class, uuidLow, tsObj)})
+		defer s.mayStopAsyncReplication()
+
+		createdAt1 := time.UnixMilli(500)
+		createdAt2 := time.UnixMilli(100) // older
+		require.NoError(t, s.CreateAsyncCheckpoint(tsObj+100, createdAt1))
+		err := s.CreateAsyncCheckpoint(tsObj+200, createdAt2)
+		require.Error(t, err, "second call with an older createdAt must be rejected")
+	})
+
+	t.Run("NoHashtree_Rejected", func(t *testing.T) {
+		// Async replication not enabled: hashtree==nil.
+		sl, _ := testShard(t, ctx, class)
+		s := concreteShard(t, sl)
+
+		err := s.CreateAsyncCheckpoint(tsObj, time.Now())
+		require.Error(t, err, "CreateAsyncCheckpoint without active async replication must be rejected")
+	})
+}
+
+// ─── Checkpoint concurrency ──────────────────────────────────────────────
+
+// TestAsyncCheckpointConcurrentFlush verifies that concurrent memtable flushes
+// and CreateAsyncCheckpoint / DeleteCheckpoint calls do not race and do not
+// deadlock. The test must be run with -race to catch data races.
+func TestAsyncCheckpointConcurrentFlush(t *testing.T) {
+	ctx := context.Background()
+	const (
+		class     = "AsyncCheckpointConcurrentFlushTest"
+		workers   = 8
+		flushIter = 20
+	)
+
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+	defer s.mayStopAsyncReplication()
+
+	// Seed one object so hashtreeMaxUpdateTime > 0 before the stress loop.
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, 1)))
+	require.NoError(t, s.store.FlushMemtables(ctx))
+
+	var wg sync.WaitGroup
+	// flushErrs collects errors from the flush goroutine so they can be
+	// reported after wg.Wait() — require/t.Fatal are not safe inside goroutines.
+	flushErrs := make(chan error, flushIter*2)
+
+	// Goroutine 1: repeatedly insert objects and flush to disk, triggering
+	// updateHashtreeOnFlush under the write lock.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := range flushIter {
+			ts := int64(i + 2)
+			id := strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012x", i+1))
+			if err := sl.PutObject(ctx, testObjWithTime(class, id, ts)); err != nil {
+				flushErrs <- fmt.Errorf("PutObject iter %d: %w", i, err)
+			}
+			if err := s.store.FlushMemtables(ctx); err != nil {
+				flushErrs <- fmt.Errorf("FlushMemtables iter %d: %w", i, err)
+			}
+		}
+	}()
+
+	// Goroutine 2: repeatedly create and delete the checkpoint, racing with
+	// flushes. Errors from CreateAsyncCheckpoint are expected (cutoff may fall
+	// behind the advancing hashtreeMaxUpdateTime) and are intentionally ignored.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range flushIter * workers {
+			// Read the current max under lock to compute a valid cutoff.
+			s.asyncReplicationRWMux.RLock()
+			maxUT := s.hashtreeMaxUpdateTime
+			s.asyncReplicationRWMux.RUnlock()
+
+			_ = s.CreateAsyncCheckpoint(maxUT+1000, time.Now())
+			s.DeleteAsyncCheckpoint()
+		}
+	}()
+
+	// Additional goroutines: concurrent read-only checkpoint status queries.
+	for range workers - 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range flushIter * 4 {
+				_, _, _, _ = s.AsyncCheckpointRoot()
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(flushErrs)
+	for err := range flushErrs {
+		t.Errorf("flush goroutine error: %v", err)
+	}
+
+	// After the stress run the shard must be in a consistent state: no dangling
+	// checkpoint pointer, hashtree still non-nil.
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	assert.NotNil(t, s.hashtree, "hashtree must still be allocated after concurrent stress")
+	// asyncCheckpointHashtree may be nil (last op was a delete) or non-nil (last
+	// op was a successful create) — both are valid. The important invariant is
+	// that the two fields are consistent with each other.
+	if s.asyncCheckpointHashtree == nil {
+		assert.Zero(t, s.asyncCheckpointCutoff,
+			"cutoff must be 0 when checkpoint is nil")
+	} else {
+		assert.Positive(t, s.asyncCheckpointCutoff,
+			"cutoff must be positive when checkpoint is non-nil")
+	}
+}
+
+// TestAsyncCheckpointSurvivesDisableReEnable verifies that a checkpoint is
+// cleared when async replication is disabled and that re-enabling replication
+// leaves no dangling checkpoint pointer.
+func TestAsyncCheckpointSurvivesDisableReEnable(t *testing.T) {
+	ctx := context.Background()
+	const class = "AsyncCheckpointDisableReEnableTest"
+
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
+	cfg := minAsyncReplicationConfig()
+
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+
+	// Create a checkpoint on the empty shard with a positive cutoff.
+	require.NoError(t, s.CreateAsyncCheckpoint(time.Now().Add(time.Hour).UnixMilli(), time.Now()))
+	s.asyncReplicationRWMux.RLock()
+	assert.NotNil(t, s.asyncCheckpointHashtree, "checkpoint must be active after create")
+	s.asyncReplicationRWMux.RUnlock()
+
+	// Disable: must clear both hashtree and checkpoint without deadlock.
+	require.NoError(t, s.disableAsyncReplication(ctx))
+	s.asyncReplicationRWMux.RLock()
+	assert.Nil(t, s.hashtree, "hashtree must be nil after disable")
+	assert.Nil(t, s.asyncCheckpointHashtree, "checkpoint must be cleared on disable")
+	assert.Zero(t, s.asyncCheckpointCutoff, "cutoff must be 0 after disable")
+	s.asyncReplicationRWMux.RUnlock()
+
+	// Re-enable and wait for init; no checkpoint must be present.
+	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+	awaitHashtreeInitialized(t, s)
+	s.asyncReplicationRWMux.RLock()
+	assert.NotNil(t, s.hashtree, "hashtree must be allocated after re-enable")
+	assert.Nil(t, s.asyncCheckpointHashtree, "checkpoint must not re-appear after re-enable")
+	s.asyncReplicationRWMux.RUnlock()
+
+	// Verify that hashtreeMaxUpdateTime was reset on disable so that a positive
+	// cutoff succeeds on the fresh (empty) tree. Before fix #2 this would fail
+	// because the stale high-water mark from before the disable would be compared
+	// against the cutoff.
+	s.asyncReplicationRWMux.RLock()
+	maxUT := s.hashtreeMaxUpdateTime
+	s.asyncReplicationRWMux.RUnlock()
+	assert.Zero(t, maxUT, "hashtreeMaxUpdateTime must be reset on disable/re-enable")
+	require.NoError(t, s.CreateAsyncCheckpoint(time.Now().Add(time.Hour).UnixMilli(), time.Now()), "CreateCheckpoint with positive cutoff must succeed on fresh empty tree after re-enable")
+
+	require.NoError(t, s.disableAsyncReplication(ctx))
+}
+
+// TestAsyncCheckpointConcurrentCreateDelete verifies that many goroutines
+// simultaneously calling CreateAsyncCheckpoint and DeleteAsyncCheckpoint do not
+// produce data races or panics. Run with -race.
+func TestAsyncCheckpointConcurrentCreateDelete(t *testing.T) {
+	ctx := context.Background()
+	const (
+		class   = "AsyncCheckpointConcurrentCreateDeleteTest"
+		workers = 16
+		iter    = 50
+	)
+
+	sl, _ := testShard(t, ctx, class)
+	s := concreteShard(t, sl)
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+	defer s.mayStopAsyncReplication()
+
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := range iter {
+				// Use a cutoff that is always ≥ 0 (empty hashtree, nothing flushed).
+				// createdAt is derived from the same monotonic value as cutoff so each
+				// call has a unique timestamp. Errors are expected: a call may fail because
+				// another worker already created a checkpoint with a newer createdAt or
+				// because the cutoff was outpaced by a concurrent flush.
+				cutoff := int64(workerID*iter + j + 1)
+				_ = s.CreateAsyncCheckpoint(cutoff, time.UnixMilli(cutoff))
+				_, _, _, _ = s.AsyncCheckpointRoot()
+				s.DeleteAsyncCheckpoint()
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Final state must be consistent.
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	assert.NotNil(t, s.hashtree)
 }
 
 // ─── Shutdown hashtree persistence ───────────────────────────────────────────

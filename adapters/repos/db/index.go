@@ -2454,6 +2454,24 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	i.shards.Store(shardName, shard)
 
+	// If the shard was eagerly loaded (not a lazy stub) and async replication is
+	// enabled for this index, start async replication immediately. This covers
+	// tenant activation (COLD → HOT) where the shard is loaded on demand and
+	// updateReplicationConfig's ForEachLoadedShard loop has already run.
+	if disableLazyLoad {
+		if ctrl, ok := shard.(asyncReplicationController); ok && i.asyncReplicationEnabled() {
+			i.replicationConfigLock.RLock()
+			cfg := i.Config.AsyncReplicationConfig
+			i.replicationConfigLock.RUnlock()
+			if err := ctrl.enableAsyncReplication(ctx, cfg); err != nil {
+				i.logger.WithField("action", "init_shard_async_replication").
+					WithField("shard", shardName).
+					WithError(err).
+					Warn("failed to enable async replication on newly loaded shard")
+			}
+		}
+	}
+
 	return nil
 }
 

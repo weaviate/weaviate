@@ -65,6 +65,11 @@ type Metrics struct {
 	asyncReplicationObjectsDiffCount    prometheus.Counter
 	asyncReplicationLocalDeletionsCount prometheus.Counter
 
+	// async replication checkpoint metrics
+	asyncCheckpointActive              prometheus.Gauge
+	asyncCheckpointLifetimeSeconds     prometheus.Histogram
+	asyncCheckpointPropagationDuration prometheus.Histogram
+
 	objttlFindUuidsCount             prometheus.Counter
 	objttlFindUuidsFailureCount      prometheus.Counter
 	objttlFindUuidsRunning           prometheus.Gauge
@@ -408,6 +413,46 @@ func NewMetrics(
 	}
 	if !alreadyRegistered {
 		m.asyncReplicationLocalDeletionsCount.Add(0)
+	}
+
+	// checkpoint metrics
+
+	m.asyncCheckpointActive, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_checkpoint_active",
+			Help:      "Number of shards with an active checkpoint. Incremented on create, decremented on delete.",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_checkpoint_active: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncCheckpointActive.Set(0)
+	}
+
+	m.asyncCheckpointLifetimeSeconds, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_checkpoint_lifetime_seconds",
+			Help:      "Lifetime of a checkpoint from creation to deletion or overwrite.",
+			Buckets:   prometheus.ExponentialBuckets(1, 2, 16),
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_checkpoint_lifetime_seconds: %w", err)
+	}
+
+	m.asyncCheckpointPropagationDuration, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_checkpoint_propagation_duration_seconds",
+			Help:      "Duration of hashbeat cycles where a checkpoint was active.",
+			Buckets:   prometheus.ExponentialBuckets(0.001, 2, 16),
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_checkpoint_propagation_duration_seconds: %w", err)
 	}
 
 	// objects ttl - find uuids
@@ -868,6 +913,32 @@ func (m *Metrics) AddAsyncReplicationObjectsDiffCount(n int) {
 func (m *Metrics) AddAsyncReplicationLocalDeletionsCount(n int) {
 	if m.monitoring {
 		m.asyncReplicationLocalDeletionsCount.Add(float64(n))
+	}
+}
+
+// --- Async Checkpoint Metrics ---
+
+func (m *Metrics) IncAsyncCheckpointActive() {
+	if m.monitoring {
+		m.asyncCheckpointActive.Inc()
+	}
+}
+
+func (m *Metrics) DecAsyncCheckpointActive() {
+	if m.monitoring {
+		m.asyncCheckpointActive.Dec()
+	}
+}
+
+func (m *Metrics) ObserveAsyncCheckpointLifetime(d time.Duration) {
+	if m.monitoring {
+		m.asyncCheckpointLifetimeSeconds.Observe(d.Seconds())
+	}
+}
+
+func (m *Metrics) ObserveAsyncCheckpointPropagationDuration(d time.Duration) {
+	if m.monitoring {
+		m.asyncCheckpointPropagationDuration.Observe(d.Seconds())
 	}
 }
 

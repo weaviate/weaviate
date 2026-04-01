@@ -109,6 +109,18 @@ func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string,
 	return []hashtree.Digest{}, nil
 }
 
+func (f *fakeReplicator) CreateAsyncCheckpoint(_ context.Context, _ string, _ []string, _ int64, _ time.Time) error {
+	return nil
+}
+
+func (f *fakeReplicator) DeleteAsyncCheckpoint(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
+func (f *fakeReplicator) GetAsyncCheckpointStatus(_ context.Context, _ string, _ []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	return map[string]replica.AsyncCheckpointShardStatus{}, nil
+}
+
 func (f *fakeReplicator) Done() {
 	close(f.commitBlock)
 }

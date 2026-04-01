@@ -53,4 +53,23 @@ type Replicator interface {
 		digests []types.RepairResponse) ([]types.RepairResponse, error)
 	HashTreeLevel(ctx context.Context, className, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	// CreateAsyncCheckpoint creates (or atomically replaces) a time-bounded
+	// hashtree checkpoint on multiple shards in one call.
+	// createdAt is determined once by the initiating node's index layer and
+	// propagated to every replica unchanged, so all copies share the same
+	// creation timestamp. It acts as a tie-breaker: a shard rejects the request
+	// (StatusConflict) when it already holds a checkpoint with createdAt ≥ the
+	// incoming value.
+	CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error
+	// DeleteAsyncCheckpoint removes the active checkpoint from multiple shards
+	// in one call. Idempotent.
+	DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error
+	// GetAsyncCheckpointStatus returns the checkpoint state for multiple shards on
+	// this node in one call. Returns a map from shard name to its status.
+	// CutoffMs == 0 in an entry means no active checkpoint for that shard.
+	// An active checkpoint always has CutoffMs > 0 because CreateAsyncCheckpoint
+	// rejects cutoffMs <= 0 and also rejects cutoffMs below the shard's highest
+	// registered update time.
+	GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error)
 }
