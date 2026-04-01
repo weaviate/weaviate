@@ -232,7 +232,7 @@ func BuildIgnoreSet(chars []string) map[rune]struct{} {
 	if len(chars) == 0 {
 		return nil
 	}
-	ignore := make(map[rune]struct{}, len(chars))
+	ignore := make(map[rune]struct{}, len(chars)*2)
 	for _, s := range chars {
 		// Normalize to NFC so that NFD input like "e" + combining acute
 		// becomes the single codepoint U+00E9, matching what FoldAccents
@@ -240,6 +240,10 @@ func BuildIgnoreSet(chars []string) map[rune]struct{} {
 		s = norm.NFC.String(s)
 		for _, r := range s {
 			ignore[r] = struct{}{}
+			// Include both cases so that ignore list entries like 'ø'
+			// also prevent folding of 'Ø' (and vice versa).
+			ignore[unicode.ToLower(r)] = struct{}{}
+			ignore[unicode.ToUpper(r)] = struct{}{}
 		}
 	}
 	return ignore

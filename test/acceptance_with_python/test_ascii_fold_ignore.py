@@ -421,6 +421,112 @@ class TestASCIIFoldTokenizationVariants:
         assert len(self._bm25("eco", ["trigramProp", "trigramNoIgnore"]).objects) == 1
 
 
+class TestASCIIFoldMultiCharIgnore:
+    """Tests for asciiFoldIgnore with multiple characters in the ignore list."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, request, weaviate_client) -> Generator[None, None, None]:
+        self.client = weaviate_client()
+        self.collection_name = _sanitize_collection_name(request.node.name)
+        self.client.collections.delete(self.collection_name)
+        self.client.collections.create_from_dict(
+            {
+                "class": self.collection_name,
+                "vectorizer": "none",
+                "properties": [
+                    {
+                        "name": "multiIgnore",
+                        "dataType": ["text"],
+                        "tokenization": "word",
+                        "textAnalyser": {
+                            "asciiFold": True,
+                            "asciiFoldIgnore": ["é", "ü", "ñ", "ø"],
+                        },
+                    },
+                    {
+                        "name": "noIgnore",
+                        "dataType": ["text"],
+                        "tokenization": "word",
+                        "textAnalyser": {
+                            "asciiFold": True,
+                            "asciiFoldIgnore": [],
+                        },
+                    },
+                ],
+            }
+        )
+        collection = self.client.collections.get(self.collection_name)
+        collection.data.insert_many(
+            [
+                {"multiIgnore": "résumé", "noIgnore": "résumé"},
+                {"multiIgnore": "über", "noIgnore": "über"},
+                {"multiIgnore": "El Niño", "noIgnore": "El Niño"},
+                {"multiIgnore": "Ørsted", "noIgnore": "Ørsted"},
+                {"multiIgnore": "São Paulo", "noIgnore": "São Paulo"},
+                {"multiIgnore": "naïve café", "noIgnore": "naïve café"},
+            ]
+        )
+        self.collection = collection
+        yield
+        self.client.collections.delete(self.collection_name)
+        self.client.close()
+
+    def _bm25(self, q, props):
+        return self.collection.query.bm25(query=q, query_properties=props, limit=10)
+
+    def test_ignored_chars_preserved(self) -> None:
+        """Characters in the ignore list are NOT folded."""
+        # é preserved: "resume" should not match
+        assert len(self._bm25("resume", ["multiIgnore"]).objects) == 0
+        assert len(self._bm25("résumé", ["multiIgnore"]).objects) == 1
+
+        # ü preserved: "uber" should not match
+        assert len(self._bm25("uber", ["multiIgnore"]).objects) == 0
+        assert len(self._bm25("über", ["multiIgnore"]).objects) == 1
+
+        # ñ preserved: "nino" should not match
+        assert len(self._bm25("nino", ["multiIgnore"]).objects) == 0
+        assert len(self._bm25("niño", ["multiIgnore"]).objects) == 1
+
+        # ø preserved: "orsted" should not match
+        assert len(self._bm25("orsted", ["multiIgnore"]).objects) == 0
+        assert len(self._bm25("ørsted", ["multiIgnore"]).objects) == 1
+
+    def test_non_ignored_chars_still_folded(self) -> None:
+        """Characters NOT in the ignore list are still folded."""
+        # ã is not in ignore list, so "sao" matches "São"
+        assert len(self._bm25("sao", ["multiIgnore"]).objects) == 1
+        assert len(self._bm25("são", ["multiIgnore"]).objects) == 1
+
+        # ï is not in ignore list, so "naive" matches "naïve"
+        assert len(self._bm25("naive", ["multiIgnore"]).objects) == 1
+        assert len(self._bm25("naïve", ["multiIgnore"]).objects) == 1
+
+    def test_no_ignore_folds_everything(self) -> None:
+        """With empty ignore list, all characters are folded."""
+        assert len(self._bm25("resume", ["noIgnore"]).objects) == 1
+        assert len(self._bm25("uber", ["noIgnore"]).objects) == 1
+        assert len(self._bm25("nino", ["noIgnore"]).objects) == 1
+        assert len(self._bm25("orsted", ["noIgnore"]).objects) == 1
+        assert len(self._bm25("sao", ["noIgnore"]).objects) == 1
+        assert len(self._bm25("naive", ["noIgnore"]).objects) == 1
+
+    def test_mixed_ignored_and_folded_in_same_word(self) -> None:
+        """Words with both ignored and non-ignored accented chars."""
+        # "naïve café": ï folded (not in ignore), é preserved (in ignore)
+        # So "naive" matches but "cafe" does not
+        assert len(self._bm25("naive", ["multiIgnore"]).objects) == 1
+        assert len(self._bm25("cafe", ["multiIgnore"]).objects) == 0
+        assert len(self._bm25("café", ["multiIgnore"]).objects) == 1
+
+    def test_config_reflects_multi_char_ignore(self) -> None:
+        """Schema config returns all characters in the ignore list."""
+        schema = _rest_get(f"/v1/schema/{self.collection_name}")
+        props = {p["name"]: p for p in schema["properties"]}
+        ignore = props["multiIgnore"].get("textAnalyser", {}).get("asciiFoldIgnore")
+        assert set(ignore) == {"é", "ü", "ñ", "ø"}
+
+
 class TestASCIIFoldFilters:
     """Filters (Equal, Like) respect asciiFold and asciiFoldIgnore."""
 

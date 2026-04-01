@@ -236,15 +236,15 @@ func TestFoldAccentsWithIgnore(t *testing.T) {
 			expected: "Straße",
 		},
 		{
-			name:     "ignore ø preserves lowercase only",
+			name:     "ignore ø preserves both cases",
 			input:    "Ørsted rødgrød",
 			ignore:   []string{"ø"},
-			expected: "Orsted rødgrød",
+			expected: "Ørsted rødgrød",
 		},
 		{
-			name:     "ignore both ø and Ø preserves both",
+			name:     "ignore Ø (uppercase) also preserves lowercase",
 			input:    "Ørsted rødgrød",
-			ignore:   []string{"ø", "Ø"},
+			ignore:   []string{"Ø"},
 			expected: "Ørsted rødgrød",
 		},
 		{
@@ -258,6 +258,12 @@ func TestFoldAccentsWithIgnore(t *testing.T) {
 			input:    "école",
 			ignore:   []string{"ñ"},
 			expected: "ecole",
+		},
+		{
+			name:     "NFD ignore entry is normalized to NFC",
+			input:    "école fermée",
+			ignore:   []string{"e\u0301"}, // é in NFD form
+			expected: "école fermée",
 		},
 	}
 
