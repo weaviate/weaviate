@@ -49,7 +49,7 @@
 // ## Special cases NOT handled by NFD (*)
 //
 // These are single codepoints that do not decompose. They are handled by
-// an explicit replacement table in accent_fold.go:
+// an explicit replacement table in ascii_fold.go:
 //
 //	ł (U+0142) — Polish L-stroke
 //	æ (U+00E6) — ligature
