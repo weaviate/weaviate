@@ -923,6 +923,11 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
+	// Treat an empty config as absent — some client generators emit
+	// "textAnalyzer": {} by default and this should not block creation.
+	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 {
+		prop.TextAnalyzer = nil
+	}
 	if prop.TextAnalyzer == nil {
 		return nil
 	}

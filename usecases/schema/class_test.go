@@ -3060,6 +3060,61 @@ func Test_deepEqualVectorizerSettings(t *testing.T) {
 	}
 }
 
+func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
+	searchable := true
+	intPDT := newFakePrimitivePDT(schema.DataTypeInt)
+	textPDT := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("empty textAnalyzer on non-text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "count",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, intPDT)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty textAnalyzer on text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, textPDT)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty ignore list with asciiFold=false is normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{},
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "zero-value config should be normalized to nil")
+	})
+
+	t.Run("non-empty config is NOT normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold: true,
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT)
+		require.NoError(t, err)
+		assert.NotNil(t, prop.TextAnalyzer, "active config should be preserved")
+	})
+}
+
 func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
 	searchable := true
 	pdt := newFakePrimitivePDT(schema.DataTypeText)
