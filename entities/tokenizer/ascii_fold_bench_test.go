@@ -34,7 +34,7 @@ var benchParagraph = strings.Repeat("L'école est fermée. Le café résumé na�
 
 // Pre-built ignore sets
 var (
-	ignoreNil   map[rune]struct{}
+	ignoreNil   *IgnoreSet
 	ignoreSmall = BuildIgnoreSet([]string{"é"})
 	ignoreLarge = BuildIgnoreSet([]string{"é", "è", "ê", "ë", "ñ", "ü", "ö", "ä", "ß", "ø", "Ø", "æ", "Æ", "þ", "Þ", "å", "Å"})
 )

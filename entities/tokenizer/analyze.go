@@ -33,7 +33,7 @@ type AnalyzeResult struct {
 // PreparedAnalyzer should be created.
 type PreparedAnalyzer struct {
 	fold      bool
-	ignoreSet map[rune]struct{}
+	ignoreSet *IgnoreSet
 }
 
 // NewPreparedAnalyzer pre-builds the ignore set from the given config.

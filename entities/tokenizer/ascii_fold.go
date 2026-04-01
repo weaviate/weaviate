@@ -9,58 +9,55 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// FoldASCII normalizes accented text for accent-insensitive search.
+// Package tokenizer provides text tokenization and accent folding for
+// Weaviate's inverted index.
 //
-// ## Common Latin diacritics folded
+// # Accent folding
 //
-//	Character              | Folded to | Language examples
-//	à á â ã ä å            | a         | French, Portuguese, German, Swedish
-//	è é ê ë                | e         | French, Portuguese, Spanish
-//	ì í î ï                | i         | Italian, French
-//	ò ó ô õ ö              | o         | Portuguese, German, Swedish
-//	ù ú û ü                | u         | French, German, Spanish
-//	ý ÿ                    | y         | French, Icelandic
-//	ñ                      | n         | Spanish
-//	ç                      | c         | French, Portuguese, Turkish
-//	ş                      | s         | Turkish, Romanian
-//	ţ ț                    | t         | Romanian
-//	ă                      | a         | Romanian
-//	ź ż ž                  | z         | Polish, Czech
-//	ś š                    | s         | Polish, Czech
-//	ć č                    | c         | Polish, Czech, Croatian
-//	ń ň                    | n         | Polish, Czech
-//	ř                      | r         | Czech
-//	ď                      | d         | Czech
-//	ľ ĺ ł                  | l         | Slovak, Polish (ł via table*)
-//	ő                      | o         | Hungarian
-//	ű                      | u         | Hungarian
-//	ā ē ī ō ū             | a e i o u | Latvian, Māori
-//	æ                      | ae        | Danish, Norwegian (table*)
-//	ø                      | o         | Danish, Norwegian (table*)
-//	ð                      | d         | Icelandic (table*)
-//	þ                      | th        | Icelandic (table*)
+// FoldASCII removes diacritical marks from Latin characters while
+// preserving the base letters.  It uses a three-phase approach:
 //
-// ## What NFD decomposition handles automatically
+//  1. Table-driven replacement for characters that Unicode NFD
+//     normalization does not decompose (ø→o, æ→ae, ß→ss, ð→d, þ→th,
+//     ł→l, đ→d, ħ→h, ŧ→t, etc.).
+//  2. NFD decomposition + stripping of combining marks (category Mn).
+//     Only Mn marks are stripped so that vowel signs in other scripts are
+//     not affected.
+//  3. NFC recomposition for clean storage.
 //
-// Everything with a combining mark — the vast majority of accented Latin
-// characters (acute, grave, circumflex, tilde, dieresis, caron/háček,
-// cedilla, ogonek, macron, breve, ring, dot above/below, etc.).
+// Characters that have table-driven replacements but no NFD decomposition:
 //
-// ## Special cases NOT handled by NFD (*)
+//	Character              | Replacement | Language / script
+//	-----------------------|-------------|------------------------------------------
+//	ł (U+0142) — L-stroke | l           | Polish
+//	Ł (U+0141)            | L           | Polish
+//	ø (U+00F8) — O-stroke | o           | Danish, Norwegian
+//	Ø (U+00D8)            | O           | Danish, Norwegian
+//	æ (U+00E6)            | ae          | Danish, Norwegian, Icelandic, Old English
+//	Æ (U+00C6)            | AE          |
+//	œ (U+0153)            | oe          | French
+//	Œ (U+0152)            | OE          |
+//	ß (U+00DF) — Eszett   | ss          | German
+//	ẞ (U+1E9E)            | SS          | German (capital)
+//	ð (U+00F0) — Eth      | d           | Icelandic, Old English
+//	Ð (U+00D0)            | D           |
+//	þ (U+00FE) — Thorn    | th          | Icelandic, Old English
+//	Þ (U+00DE)            | Th          |
+//	đ (U+0111) — D-stroke | d           | Croatian, Vietnamese
+//	Đ (U+0110)            | D           |
+//	ħ (U+0127) — H-stroke | h           | Maltese
+//	Ħ (U+0126)            | H           |
+//	ŧ (U+0167) — T-stroke | t           | Northern Sami
+//	Ŧ (U+0166)            | T           |
+//	ı (U+0131) — dotless i| i           | Turkish
 //
-// These are single codepoints that do not decompose. They are handled by
-// an explicit replacement table in ascii_fold.go:
+// Additional entries cover hooked, tailed, and other modified Latin
+// letters that NFD does not decompose (ɓ→b, ƈ→c, ɗ→d, etc.).
 //
-//	ł (U+0142) — Polish L-stroke
-//	æ (U+00E6) — ligature
-//	ø (U+00F8) — O-stroke
-//	ð (U+00F0) — eth
-//	þ (U+00FE) — thorn
-//	đ (U+0111) — D-stroke (Croatian/Vietnamese)
-//	ß (U+00DF) — German sharp s
-//
-// The implementation does NFD + strip Mn (nonspacing marks), which covers
-// ~95% of real-world Latin-language diacritics. The explicit table covers
+// The fold table is intentionally limited to Latin-script characters.
+// CJK, Cyrillic, Arabic, Devanagari, and other scripts are passed through
+// unchanged.  Within the Latin block, characters that already have a clean
+// NFD decomposition (e.g. é → e + combining acute) are handled entirely by
 // the remaining stroked letters, ligatures, special letters, and
 // hooked/tailed letters.
 package tokenizer
@@ -73,11 +70,11 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// foldTable maps characters that NFD decomposition cannot handle to their
-// ASCII equivalents. This covers stroked/barred letters, special letters,
-// ligatures, and hooked/tailed letters.
+// foldTable maps characters that NFD normalization does NOT decompose
+// to their ASCII equivalents.  Characters that decompose cleanly under
+// NFD (like é → e + ◌́) are handled in Phase 2 of FoldASCII.
 var foldTable = map[rune]string{
-	// Stroked / barred letters
+	// Stroked letters
 	'ł': "l", 'Ł': "L",
 	'ø': "o", 'Ø': "O",
 	'đ': "d", 'Đ': "D",
@@ -91,19 +88,23 @@ var foldTable = map[rune]string{
 	'ɏ': "y", 'Ɏ': "Y",
 	'ⱥ': "a", 'Ⱥ': "A",
 
+	// Ligatures → digraphs
+	'æ': "ae", 'Æ': "AE",
+	'œ': "oe", 'Œ': "OE",
+	'ĳ': "ij", 'Ĳ': "IJ",
+
 	// Special letters
+	'ß': "ss", 'ẞ': "SS",
 	'ð': "d", 'Ð': "D",
+	'þ': "th", 'Þ': "TH",
+
+	// Dotless i / dotted I / kra / long s / apostrophe-n
 	'ı': "i", 'İ': "I",
 	'ĸ': "k",
 	'ŉ': "n",
 	'ſ': "s",
 
-	// Ligatures (single-char → multi-char expansion)
-	'æ': "ae", 'Æ': "AE",
-	'œ': "oe", 'Œ': "OE",
-	'ĳ': "ij", 'Ĳ': "IJ",
-	'ß': "ss", 'ẞ': "SS",
-	'þ': "th", 'Þ': "TH",
+	// Typographic ligatures
 	'ﬀ': "ff",
 	'ﬁ': "fi",
 	'ﬂ': "fl",
@@ -112,7 +113,7 @@ var foldTable = map[rune]string{
 	'ﬅ': "st",
 	'ﬆ': "st",
 
-	// Hooked / tailed letters
+	// Hooked / tailed letters (not decomposed by NFD)
 	'ɓ': "b",
 	'ƈ': "c",
 	'ɗ': "d",
@@ -131,32 +132,60 @@ var foldTable = map[rune]string{
 	'ⱳ': "w",
 	'ƴ': "y",
 	'ʐ': "z",
+
+	// Hooked / tailed uppercase
+	'Ɓ': "B",
+	'Ƈ': "C",
+	'Ɗ': "D",
+	'Ƒ': "F",
+	'Ɠ': "G",
+	'Ƙ': "K",
+	'Ɲ': "N",
+	'Ƥ': "P",
+	'Ƭ': "T",
+	'Ʋ': "V",
+	'Ƴ': "Y",
+	'Ȥ': "Z",
 }
 
-// FoldASCII normalizes accented text for accent-insensitive search.
+// IgnoreSet holds the precomputed data for the asciiFoldIgnore feature.
+// Create one via BuildIgnoreSet.
+type IgnoreSet struct {
+	// runes is the set of NFC characters to preserve (both cases).
+	runes map[rune]struct{}
+	// suffixes maps an NFD base rune to the combining-mark suffixes that
+	// recompose to an ignored character.  For ignore={"é"}, this contains
+	// 'e' → ["\u0301"] and 'E' → ["\u0301"].
+	// Phase 2 checks if the marks following a base character match any
+	// suffix — a simple string prefix check, no NFC call needed.
+	suffixes map[rune][]string
+}
+
+// FoldASCII removes diacritical marks from Latin characters.
 //
-// Phase 1: Explicit replacements for characters that don't decompose
-// under NFD (stroked letters, ligatures, special letters, hooked letters).
-// ł→l, ø→o, æ→ae, ß→ss, ð→d, þ→th, etc.
+// Phase 1: table-driven replacement for characters NFD doesn't decompose
+// (ł→l, ø→o, æ→ae, ß→ss, ð→d, þ→th, etc.).
 //
-// Phase 2: NFD decompose + strip combining marks (category Mn only).
-// Handles all Latin characters that decompose into base + accent:
-// é→e, ñ→n, ç→c, ž→z, etc. Only Mn (Mark, Nonspacing) is stripped —
-// Mc (Mark, Spacing Combining) is preserved to avoid destroying vowel
-// signs in Indic and Southeast Asian scripts.
+// Phase 2: NFD decompose + strip combining marks (Mn category).
+// When ignore is non-nil, base characters whose NFD suffix matches a
+// precomputed pattern are preserved along with their combining marks.
 //
 // Phase 3: NFC recompose to clean up any remaining sequences.
 //
 // If ignore is non-nil, characters present in the set are preserved
 // without folding.
-func FoldASCII(s string, ignore map[rune]struct{}) string {
+func FoldASCII(s string, ignore *IgnoreSet) string {
 	// Phase 1: replace characters that NFD doesn't decompose
 	var buf strings.Builder
 	buf.Grow(len(s))
+	hasNonASCII := false
 	for _, r := range s {
 		if ignore != nil {
-			if _, skip := ignore[r]; skip {
+			if _, skip := ignore.runes[r]; skip {
 				buf.WriteRune(r)
+				if r > 127 {
+					hasNonASCII = true
+				}
 				continue
 			}
 		}
@@ -164,13 +193,19 @@ func FoldASCII(s string, ignore map[rune]struct{}) string {
 			buf.WriteString(repl)
 		} else {
 			buf.WriteRune(r)
+			if r > 127 {
+				hasNonASCII = true
+			}
 		}
 	}
 
+	// Fast path: if Phase 1 resolved everything to ASCII, NFD/NFC are
+	// identity transforms and Phase 2 has no marks to strip.
+	if !hasNonASCII {
+		return buf.String()
+	}
+
 	// Phase 2: NFD decompose and strip nonspacing marks (Mn)
-	// When ignore is set, we need to track which characters to preserve.
-	// We do this by checking if the base character (before decomposition)
-	// was in the ignore set — if so, we keep its combining marks too.
 	decomposed := norm.NFD.String(buf.String())
 
 	result := make([]byte, 0, len(decomposed))
@@ -188,30 +223,41 @@ func FoldASCII(s string, ignore map[rune]struct{}) string {
 			// Base character — check if it should be ignored
 			skipMarks = false
 			if ignore != nil {
-				// Check if the original character (base + following marks)
-				// recomposes to an ignored character. We check by looking ahead
-				// at the marks and recomposing to see if the result is ignored.
-				j := i + size
-				for j < len(decomposed) {
-					nr, ns := utf8.DecodeRuneInString(decomposed[j:])
-					if !unicode.Is(unicode.Mn, nr) {
-						break
+				if patterns, ok := ignore.suffixes[r]; ok {
+					// Collect the combining marks that follow this base.
+					markStart := i + size
+					j := markStart
+					for j < len(decomposed) {
+						nr, ns := utf8.DecodeRuneInString(decomposed[j:])
+						if !unicode.Is(unicode.Mn, nr) {
+							break
+						}
+						j += ns
 					}
-					j += ns
-				}
-				composed := norm.NFC.String(decomposed[i:j])
-				for _, cr := range composed {
-					if _, skip := ignore[cr]; skip {
-						skipMarks = true
-						break
+					marks := decomposed[markStart:j]
+					// Check if the marks match any precomputed suffix.
+					for _, suffix := range patterns {
+						if marks == suffix {
+							skipMarks = true
+							break
+						}
 					}
 				}
 			}
 			// After NFD decomposition, base characters that are in the
-			// foldTable (e.g. ø from ǿ→ø+acute) must still be replaced.
+			// foldTable (e.g. ø from ǿ→ø+acute) must still be replaced,
+			// unless they are in the ignore set.
 			if !skipMarks {
-				if repl, ok := foldTable[r]; ok {
-					result = append(result, repl...)
+				ignored := false
+				if ignore != nil {
+					_, ignored = ignore.runes[r]
+				}
+				if !ignored {
+					if repl, ok := foldTable[r]; ok {
+						result = append(result, repl...)
+					} else {
+						result = append(result, decomposed[i:i+size]...)
+					}
 				} else {
 					result = append(result, decomposed[i:i+size]...)
 				}
@@ -227,30 +273,59 @@ func FoldASCII(s string, ignore map[rune]struct{}) string {
 }
 
 // BuildIgnoreSet converts a slice of strings (each typically a single character)
-// into a rune set for use with FoldASCII.
-func BuildIgnoreSet(chars []string) map[rune]struct{} {
+// into an IgnoreSet for use with FoldASCII.  It pre-decomposes the ignored
+// characters into base + combining-mark suffixes so that Phase 2 can match
+// by simple string comparison instead of calling norm.NFC.String().
+func BuildIgnoreSet(chars []string) *IgnoreSet {
 	if len(chars) == 0 {
 		return nil
 	}
-	ignore := make(map[rune]struct{}, len(chars)*2)
+	runes := make(map[rune]struct{}, len(chars)*2)
+	suffixes := make(map[rune][]string, len(chars)*2)
+
 	for _, s := range chars {
 		// Normalize to NFC so that NFD input like "e" + combining acute
-		// becomes the single codepoint U+00E9, matching what FoldASCII
-		// checks against in its phase-2 recomposition (line 202).
+		// becomes the single codepoint U+00E9.
 		s = norm.NFC.String(s)
 		for _, r := range s {
-			ignore[r] = struct{}{}
+			runes[r] = struct{}{}
 			// Include both cases so that ignore list entries like 'ø'
 			// also prevent folding of 'Ø' (and vice versa).
-			ignore[unicode.ToLower(r)] = struct{}{}
-			ignore[unicode.ToUpper(r)] = struct{}{}
+			lo := unicode.ToLower(r)
+			up := unicode.ToUpper(r)
+			runes[lo] = struct{}{}
+			runes[up] = struct{}{}
+
+			// Pre-decompose to extract base + suffix for each case variant.
+			for _, caseR := range []rune{lo, up} {
+				decomposed := norm.NFD.String(string(caseR))
+				// Extract base rune and the combining marks that follow.
+				baseR, baseSize := utf8.DecodeRuneInString(decomposed)
+				markSuffix := decomposed[baseSize:]
+				// Only add if there are combining marks (otherwise the character
+				// is already handled by the Phase 1 runes check or foldTable).
+				if len(markSuffix) > 0 {
+					// Deduplicate: don't add the same suffix twice for the same base.
+					existing := suffixes[baseR]
+					found := false
+					for _, s := range existing {
+						if s == markSuffix {
+							found = true
+							break
+						}
+					}
+					if !found {
+						suffixes[baseR] = append(existing, markSuffix)
+					}
+				}
+			}
 		}
 	}
-	return ignore
+	return &IgnoreSet{runes: runes, suffixes: suffixes}
 }
 
 // FoldASCIISlice applies accent folding to each element of a string slice in-place.
-func FoldASCIISlice(terms []string, ignore map[rune]struct{}) []string {
+func FoldASCIISlice(terms []string, ignore *IgnoreSet) []string {
 	for i := range terms {
 		terms[i] = FoldASCII(terms[i], ignore)
 	}
