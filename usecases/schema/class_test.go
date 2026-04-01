@@ -3060,6 +3060,93 @@ func Test_deepEqualVectorizerSettings(t *testing.T) {
 	}
 }
 
+func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name         string
+		tokenization string
+		expectError  bool
+	}{
+		{
+			name:         "word tokenization accepted",
+			tokenization: models.PropertyTokenizationWord,
+			expectError:  false,
+		},
+		{
+			name:         "lowercase tokenization accepted",
+			tokenization: models.PropertyTokenizationLowercase,
+			expectError:  false,
+		},
+		{
+			name:         "whitespace tokenization accepted",
+			tokenization: models.PropertyTokenizationWhitespace,
+			expectError:  false,
+		},
+		{
+			name:         "field tokenization accepted",
+			tokenization: models.PropertyTokenizationField,
+			expectError:  false,
+		},
+		{
+			name:         "trigram tokenization accepted",
+			tokenization: models.PropertyTokenizationTrigram,
+			expectError:  false,
+		},
+		{
+			name:         "empty tokenization accepted",
+			tokenization: "",
+			expectError:  false,
+		},
+		{
+			name:         "gse tokenization rejected",
+			tokenization: models.PropertyTokenizationGse,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_kr tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeKr,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_ja tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeJa,
+			expectError:  true,
+		},
+		{
+			name:         "gse_ch tokenization rejected",
+			tokenization: models.PropertyTokenizationGseCh,
+			expectError:  true,
+		},
+		{
+			name:         "unknown tokenization rejected",
+			tokenization: "unknown",
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				Tokenization:    tt.tokenization,
+				IndexSearchable: &searchable,
+				TextAnalyser: &models.TextAnalyserConfig{
+					ASCIIFold: true,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported tokenization")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
 	searchable := true
 	pdt := newFakePrimitivePDT(schema.DataTypeText)
