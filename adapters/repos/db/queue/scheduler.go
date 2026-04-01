@@ -126,7 +126,7 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 
 	s.queues.m[q.ID()] = newQueueState(s.ctx, q)
 
-	q.Metrics().Registered(q.ID())
+	s.updateQueueCountMetric()
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -152,7 +152,7 @@ func (s *Scheduler) UnregisterQueue(id string) {
 	delete(s.queues.m, id)
 	s.queues.Unlock()
 
-	q.q.Metrics().Unregistered(q.q.ID())
+	s.updateQueueCountMetric()
 }
 
 func (s *Scheduler) Start() {
@@ -295,6 +295,14 @@ func (s *Scheduler) updatePausedMetric() {
 	s.queues.Unlock()
 
 	s.PrometheusMetrics.QueuePaused.Set(float64(count))
+}
+
+func (s *Scheduler) updateQueueCountMetric() {
+	if s.PrometheusMetrics == nil {
+		return
+	}
+
+	s.PrometheusMetrics.QueueCount.Set(float64(len(s.queues.m)))
 }
 
 func (s *Scheduler) Wait(id string) {

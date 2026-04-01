@@ -25,7 +25,6 @@ type Metrics struct {
 	monitoring                  bool
 	queueSize                   prometheus.Gauge
 	queueDiskUsage              prometheus.Gauge
-	queuesCount                 prometheus.Gauge
 	partitionProcessingDuration prometheus.Observer
 }
 
@@ -48,34 +47,9 @@ func NewMetrics(
 
 	m.queueSize = prom.QueueSize.With(labels)
 	m.queueDiskUsage = prom.QueueDiskUsage.With(labels)
-	m.queuesCount = prom.QueueCount.With(labels)
 	m.partitionProcessingDuration = prom.QueuePartitionProcessingDuration.With(labels)
 
 	return &m
-}
-
-func (m *Metrics) Registered(id string) {
-	m.logger.WithField("action", "queue_register").
-		WithField("queue_id", id).
-		Trace("queue registered")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesCount.Inc()
-}
-
-func (m *Metrics) Unregistered(id string) {
-	m.logger.WithField("action", "queue_unregister").
-		WithField("queue_id", id).
-		Trace("queue unregistered")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesCount.Dec()
 }
 
 func (m *Metrics) TasksProcessed(start time.Time, count int) {
