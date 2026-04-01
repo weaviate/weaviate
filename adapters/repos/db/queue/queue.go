@@ -1320,8 +1320,8 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 func (r *chunkReader) ReleaseChunk(c *chunk) {
 	_ = c.Close()
 	r.m.Lock()
+	defer r.m.Unlock()
 	delete(r.chunks, c.path)
-	r.m.Unlock()
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
