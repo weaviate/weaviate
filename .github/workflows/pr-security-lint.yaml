@@ -53,7 +53,7 @@ jobs:
       # Clones the BASE branch (main) — trusted code only.
       # The linter script at tools/linter_hidden_unicode.sh comes from main,
       # not from the PR, so an attacker cannot tamper with it.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       # Fetches the PR diff via the GitHub API and pipes it to the linter.
       # No checkout of PR code occurs — only the diff text is processed.
