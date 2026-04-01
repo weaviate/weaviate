@@ -13,8 +13,10 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	schemaops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -54,6 +57,12 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	if len(*params.Body.Text) > 10000 {
 		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
 			Error: []*models.ErrorResponseErrorItems0{{Message: "text exceeds maximum allowed length of 10,000 characters"}},
+		})
+	}
+
+	if err := validateAnalyzerConfig(params.Body.AnalyzerConfig); err != nil {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
 		})
 	}
 
@@ -145,4 +154,19 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		Indexed:      result.Indexed,
 		Query:        result.Query,
 	})
+}
+
+func validateAnalyzerConfig(cfg *models.TextAnalyzerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if !cfg.ASCIIFold && len(cfg.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("asciiFoldIgnore requires asciiFold to be enabled")
+	}
+	for _, entry := range cfg.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("each asciiFoldIgnore entry must be a single character, got %q", entry)
+		}
+	}
+	return nil
 }

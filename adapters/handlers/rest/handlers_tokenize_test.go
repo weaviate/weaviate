@@ -184,6 +184,30 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantIndexed: []string{"hello", "world"},
 			wantQuery:   []string{"hello", "world"},
 		},
+		{
+			name: "ascii fold ignore without fold enabled is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					ASCIIFold:       false,
+					ASCIIFoldIgnore: []string{"é"},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			name: "multi-character ignore entry is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{"ab"},
+				},
+			},
+			wantOK: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -450,6 +474,66 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 			require.True(t, ok, "expected TokenizeOK response")
 			assert.Equal(t, *tt.body.Tokenization, okResp.Payload.Tokenization)
 			assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
+		})
+	}
+}
+
+func TestValidateAnalyzerConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       *models.TextAnalyzerConfig
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "nil config",
+			cfg:  nil,
+		},
+		{
+			name: "empty config",
+			cfg:  &models.TextAnalyzerConfig{},
+		},
+		{
+			name: "fold enabled no ignore",
+			cfg:  &models.TextAnalyzerConfig{ASCIIFold: true},
+		},
+		{
+			name: "fold enabled with valid ignore",
+			cfg:  &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
+		},
+		{
+			name: "fold enabled with NFD single char",
+			cfg:  &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"e\u0301"}},
+		},
+		{
+			name:      "ignore without fold",
+			cfg:       &models.TextAnalyzerConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
+			wantErr:   true,
+			errSubstr: "asciiFoldIgnore requires asciiFold",
+		},
+		{
+			name:      "multi-character entry",
+			cfg:       &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"ab"}},
+			wantErr:   true,
+			errSubstr: "single character",
+		},
+		{
+			name:      "empty string entry",
+			cfg:       &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{""}},
+			wantErr:   true,
+			errSubstr: "single character",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAnalyzerConfig(tt.cfg)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
