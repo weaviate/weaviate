@@ -483,11 +483,13 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 // PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
 // It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
-	q.Pause(ctx)
+	err := q.Pause(ctx)
+	if err != nil {
+		return err
+	}
 	defer q.Resume()
-	q.Wait(ctx)
 
-	err := q.Flush()
+	err = q.Flush()
 	if err != nil {
 		return err
 	}
@@ -1318,8 +1320,8 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 func (r *chunkReader) ReleaseChunk(c *chunk) {
 	_ = c.Close()
 	r.m.Lock()
+	defer r.m.Unlock()
 	delete(r.chunks, c.path)
-	r.m.Unlock()
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
