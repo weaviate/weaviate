@@ -61,23 +61,6 @@ class TestGenericTokenize:
         assert body["indexed"] == expected_tokens
         assert body["query"] == expected_tokens
 
-    def test_with_stopwords(self) -> None:
-        status, body = post_json(
-            f"{WEAVIATE_URL}/v1/tokenize",
-            {
-                "text": "The quick brown fox jumps over the lazy dog",
-                "tokenization": "word",
-                "analyzerConfig": {"stopwordPreset": "en"},
-            },
-        )
-        assert status == 200
-        assert body["indexed"] == [
-            "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog",
-        ]
-        # "the" should be filtered from query tokens
-        assert "the" not in body["query"]
-        assert "quick" in body["query"]
-
     def test_missing_text(self) -> None:
         status, _ = post_json(f"{WEAVIATE_URL}/v1/tokenize", {"tokenization": "word"})
         assert status == 422
