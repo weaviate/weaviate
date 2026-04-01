@@ -199,8 +199,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			tokKey := prop.Tokenization
-			if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
-				if len(prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
+			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
+				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
 					// Per-property ignore key — will be computed after tokenization
 					tokKey = asciiiTokenizationKey(prop.Tokenization) + ":" + property
 				} else {
@@ -228,7 +228,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if tok == models.PropertyTokenizationWord {
 			sw = b.stopWordDetector
 		}
-		queryTerms, dupBoosts := tokenizer.AnalyseAndCountDuplicates(params.Query, tok, class.Class, nil, sw)
+		queryTerms, dupBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, nil, sw)
 		queryTermsByTokenization[tok] = queryTerms
 		duplicateBoostsByTokenization[tok] = dupBoosts
 		propNamesByTokenization[tok] = make([]string, 0)
@@ -241,8 +241,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if tok == models.PropertyTokenizationWord {
 			sw = b.stopWordDetector
 		}
-		foldAnalyser := &models.TextAnalyserConfig{ASCIIFold: true}
-		asciiiTerms, asciiiBoosts := tokenizer.AnalyseAndCountDuplicates(params.Query, tok, class.Class, foldAnalyser, sw)
+		foldAnalyzer := &models.TextAnalyzerConfig{ASCIIFold: true}
+		asciiiTerms, asciiiBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, foldAnalyzer, sw)
 		queryTermsByTokenization[asciiiKey] = asciiiTerms
 		duplicateBoostsByTokenization[asciiiKey] = asciiiBoosts
 		propNamesByTokenization[asciiiKey] = make([]string, 0)
@@ -262,12 +262,12 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		tokKey := pi.tokKey
-		if pi.prop.TextAnalyser != nil && pi.prop.TextAnalyser.ASCIIFold && len(pi.prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
+		if pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.ASCIIFold && len(pi.prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
 				sw = b.stopWordDetector
 			}
-			propTerms, propBoosts := tokenizer.AnalyseAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, pi.prop.TextAnalyser, sw)
+			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, pi.prop.TextAnalyzer, sw)
 			queryTermsByTokenization[tokKey] = propTerms
 			duplicateBoostsByTokenization[tokKey] = propBoosts
 			propNamesByTokenization[tokKey] = make([]string, 0)

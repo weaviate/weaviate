@@ -838,7 +838,7 @@ func TestFilterASCIIFold(t *testing.T) {
 							Tokenization:    models.PropertyTokenizationWord,
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vTrue,
-							TextAnalyser: &models.TextAnalyserConfig{
+							TextAnalyzer: &models.TextAnalyzerConfig{
 								ASCIIFold: true,
 							},
 						},
@@ -848,7 +848,7 @@ func TestFilterASCIIFold(t *testing.T) {
 							Tokenization:    models.PropertyTokenizationWord,
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vTrue,
-							TextAnalyser: &models.TextAnalyserConfig{
+							TextAnalyzer: &models.TextAnalyzerConfig{
 								ASCIIFold:       true,
 								ASCIIFoldIgnore: []string{"é"},
 							},

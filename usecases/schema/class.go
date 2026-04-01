@@ -923,7 +923,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
-	if prop.TextAnalyser == nil {
+	if prop.TextAnalyzer == nil {
 		return nil
 	}
 
@@ -944,7 +944,7 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%v and IndexFilterable=%v", prop.Name, prop.IndexSearchable, prop.IndexFilterable)
 	}
 
-	for _, entry := range prop.TextAnalyser.ASCIIFoldIgnore {
+	for _, entry := range prop.TextAnalyzer.ASCIIFoldIgnore {
 		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
 			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
 				prop.Name, entry)

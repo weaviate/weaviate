@@ -53,8 +53,8 @@ type NestedProperty struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
-	// text analyser
-	TextAnalyser *TextAnalyserConfig `json:"textAnalyser,omitempty"`
+	// text analyzer
+	TextAnalyzer *TextAnalyzerConfig `json:"textAnalyzer,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
@@ -69,7 +69,7 @@ func (m *NestedProperty) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateTextAnalyser(formats); err != nil {
+	if err := m.validateTextAnalyzer(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -109,17 +109,17 @@ func (m *NestedProperty) validateNestedProperties(formats strfmt.Registry) error
 	return nil
 }
 
-func (m *NestedProperty) validateTextAnalyser(formats strfmt.Registry) error {
-	if swag.IsZero(m.TextAnalyser) { // not required
+func (m *NestedProperty) validateTextAnalyzer(formats strfmt.Registry) error {
+	if swag.IsZero(m.TextAnalyzer) { // not required
 		return nil
 	}
 
-	if m.TextAnalyser != nil {
-		if err := m.TextAnalyser.Validate(formats); err != nil {
+	if m.TextAnalyzer != nil {
+		if err := m.TextAnalyzer.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("textAnalyser")
+				return ve.ValidateName("textAnalyzer")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("textAnalyser")
+				return ce.ValidateName("textAnalyzer")
 			}
 			return err
 		}
@@ -199,7 +199,7 @@ func (m *NestedProperty) ContextValidate(ctx context.Context, formats strfmt.Reg
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateTextAnalyser(ctx, formats); err != nil {
+	if err := m.contextValidateTextAnalyzer(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -229,14 +229,14 @@ func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, fo
 	return nil
 }
 
-func (m *NestedProperty) contextValidateTextAnalyser(ctx context.Context, formats strfmt.Registry) error {
+func (m *NestedProperty) contextValidateTextAnalyzer(ctx context.Context, formats strfmt.Registry) error {
 
-	if m.TextAnalyser != nil {
-		if err := m.TextAnalyser.ContextValidate(ctx, formats); err != nil {
+	if m.TextAnalyzer != nil {
+		if err := m.TextAnalyzer.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("textAnalyser")
+				return ve.ValidateName("textAnalyzer")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("textAnalyser")
+				return ce.ValidateName("textAnalyzer")
 			}
 			return err
 		}

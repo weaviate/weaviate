@@ -23,10 +23,10 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// TextAnalyserConfig Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).
+// TextAnalyzerConfig Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).
 //
-// swagger:model TextAnalyserConfig
-type TextAnalyserConfig struct {
+// swagger:model TextAnalyzerConfig
+type TextAnalyzerConfig struct {
 
 	// If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.
 	ASCIIFold bool `json:"asciiFold,omitempty"`
@@ -35,18 +35,18 @@ type TextAnalyserConfig struct {
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
 }
 
-// Validate validates this text analyser config
-func (m *TextAnalyserConfig) Validate(formats strfmt.Registry) error {
+// Validate validates this text analyzer config
+func (m *TextAnalyzerConfig) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this text analyser config based on context it is used
-func (m *TextAnalyserConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this text analyzer config based on context it is used
+func (m *TextAnalyzerConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *TextAnalyserConfig) MarshalBinary() ([]byte, error) {
+func (m *TextAnalyzerConfig) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -54,8 +54,8 @@ func (m *TextAnalyserConfig) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *TextAnalyserConfig) UnmarshalBinary(b []byte) error {
-	var res TextAnalyserConfig
+func (m *TextAnalyzerConfig) UnmarshalBinary(b []byte) error {
+	var res TextAnalyzerConfig
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -432,38 +432,38 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 	return nil
 }
 
-// stripASCIIFoldIgnore removes the ASCIIFoldIgnore field from the textAnalyser
+// stripASCIIFoldIgnore removes the ASCIIFoldIgnore field from the TextAnalyzer
 // entry in a property map so that it is excluded from immutability checks.
 func stripASCIIFoldIgnore(m map[string]any) {
-	ta, ok := m["textAnalyser"]
+	ta, ok := m["TextAnalyzer"]
 	if !ok {
 		return
 	}
 
-	// Normalize explicit nulls: treat `"textAnalyser": null` the same as
-	// an absent textAnalyser by deleting the key so DeepEqual does not
+	// Normalize explicit nulls: treat `"TextAnalyzer": null` the same as
+	// an absent TextAnalyzer by deleting the key so DeepEqual does not
 	// see a difference between the two.
 	if ta == nil {
-		delete(m, "textAnalyser")
+		delete(m, "TextAnalyzer")
 		return
 	}
 
-	// Avoid mutating the original TextAnalyserConfig pointer that may be shared
+	// Avoid mutating the original TextAnalyzerConfig pointer that may be shared
 	// with the underlying Property/NestedProperty. Instead, create a shallow copy
 	// with ASCIIFoldIgnore cleared and store that copy back into the map.
-	if cfg, ok := ta.(*models.TextAnalyserConfig); ok && cfg != nil {
+	if cfg, ok := ta.(*models.TextAnalyzerConfig); ok && cfg != nil {
 		copyCfg := *cfg
 		copyCfg.ASCIIFoldIgnore = nil
 
 		// After clearing ASCIIFoldIgnore, an entirely zero-valued config
-		// is semantically equivalent to "no textAnalyser" at all. Normalize
+		// is semantically equivalent to "no TextAnalyzer" at all. Normalize
 		// such empty configs by removing the key so that {} and null behave
 		// the same in immutability checks.
 		if reflect.ValueOf(copyCfg).IsZero() {
-			delete(m, "textAnalyser")
+			delete(m, "TextAnalyzer")
 			return
 		}
-		m["textAnalyser"] = &copyCfg
+		m["TextAnalyzer"] = &copyCfg
 	}
 }
 

@@ -147,14 +147,14 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 	vTrue := true
 	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
 
-	baseProp := func(proc *models.TextAnalyserConfig) *models.Property {
+	baseProp := func(proc *models.TextAnalyzerConfig) *models.Property {
 		return &models.Property{
 			Name:            "title",
 			DataType:        []string{"text"},
 			Tokenization:    "word",
 			IndexFilterable: &vTrue,
 			IndexSearchable: &vTrue,
-			TextAnalyser:    proc,
+			TextAnalyzer:    proc,
 		}
 	}
 
@@ -163,8 +163,8 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		existing    *models.TextAnalyserConfig
-		updated     *models.TextAnalyserConfig
+		existing    *models.TextAnalyzerConfig
+		updated     *models.TextAnalyzerConfig
 		expectError bool
 	}{
 		{
@@ -175,62 +175,62 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 		},
 		{
 			name:        "no change - both asciiFold true",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: true},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
 			expectError: false,
 		},
 		{
 			name:        "no change - both asciiFold false",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: false},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: false},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: false},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false},
 			expectError: false,
 		},
 		{
 			name:        "change asciiFold false to true",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: false},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: true},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: false},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
 			expectError: true,
 		},
 		{
 			name:        "change asciiFold true to false",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: false},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false},
 			expectError: true,
 		},
 		{
 			name:        "add processing where none existed",
 			existing:    nil,
-			updated:     &models.TextAnalyserConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
 			expectError: true,
 		},
 		{
 			name:        "remove processing",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
 			updated:     nil,
 			expectError: true,
 		},
 		{
 			name:        "update asciiFoldIgnore is allowed",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
 			expectError: false,
 		},
 		{
 			name:        "add asciiFoldIgnore is allowed",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			expectError: false,
 		},
 		{
 			name:        "remove asciiFoldIgnore is allowed",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: true},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
 			expectError: false,
 		},
 		{
 			name:        "change asciiFold while changing ignore is still blocked",
-			existing:    &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
-			updated:     &models.TextAnalyserConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
 			expectError: true,
 		},
 	}

@@ -55,7 +55,7 @@ func SetupASCIIFoldIgnoreClass(t require.TestingT, repo *DB, schemaGetter *fakeS
 				Tokenization:    models.PropertyTokenizationWord,
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
-				TextAnalyser: &models.TextAnalyserConfig{
+				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
 					ASCIIFoldIgnore: []string{"é"},
 				},
@@ -66,7 +66,7 @@ func SetupASCIIFoldIgnoreClass(t require.TestingT, repo *DB, schemaGetter *fakeS
 				Tokenization:    models.PropertyTokenizationWord,
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
-				TextAnalyser: &models.TextAnalyserConfig{
+				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
 					ASCIIFoldIgnore: []string{},
 				},
@@ -359,7 +359,7 @@ func runASCIIFoldIgnoreUpdateTest(t *testing.T, useBlockMaxWAND bool) {
 				Tokenization:    models.PropertyTokenizationWord,
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
-				TextAnalyser: &models.TextAnalyserConfig{
+				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
 					ASCIIFoldIgnore: []string{}, // removed é from ignore
 				},
@@ -370,7 +370,7 @@ func runASCIIFoldIgnoreUpdateTest(t *testing.T, useBlockMaxWAND bool) {
 				Tokenization:    models.PropertyTokenizationWord,
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
-				TextAnalyser: &models.TextAnalyserConfig{
+				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
 					ASCIIFoldIgnore: []string{},
 				},

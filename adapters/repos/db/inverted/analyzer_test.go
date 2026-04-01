@@ -601,7 +601,7 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	a := NewAnalyzer(nil, "")
 
 	t.Run("Text with accent folding", func(t *testing.T) {
-		config := &models.TextAnalyserConfig{
+		config := &models.TextAnalyzerConfig{
 			ASCIIFold: true,
 		}
 
@@ -632,7 +632,7 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("TextArray with accent folding merges duplicates", func(t *testing.T) {
-		config := &models.TextAnalyserConfig{
+		config := &models.TextAnalyzerConfig{
 			ASCIIFold: true,
 		}
 		countable := a.TextArray(models.PropertyTokenizationWord, []string{"café", "cafe"}, config)
@@ -647,7 +647,7 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("Text with accent folding and ignore list", func(t *testing.T) {
-		config := &models.TextAnalyserConfig{
+		config := &models.TextAnalyzerConfig{
 			ASCIIFold:       true,
 			ASCIIFoldIgnore: []string{"é"},
 		}
@@ -668,7 +668,7 @@ func TestAnalyzerASCIIFold(t *testing.T) {
 	})
 
 	t.Run("TextArray with accent folding and ignore preserves ignored chars", func(t *testing.T) {
-		config := &models.TextAnalyserConfig{
+		config := &models.TextAnalyzerConfig{
 			ASCIIFold:       true,
 			ASCIIFoldIgnore: []string{"é"},
 		}

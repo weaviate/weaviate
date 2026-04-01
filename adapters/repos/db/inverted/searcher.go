@@ -657,8 +657,8 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			// LIKE queries need special wildcard-preserving tokenization;
 			// fold manually then use the wildcard tokenizer.
 			text := valueString
-			if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
-				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
+			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
+				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
 				text = tokenizer.FoldASCII(text, ignore)
 			}
 			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, text, class.Class)
@@ -667,7 +667,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			if prop.Tokenization == models.PropertyTokenizationWord {
 				sw = s.stopwords
 			}
-			result := tokenizer.Analyse(valueString, prop.Tokenization, class.Class, prop.TextAnalyser, sw)
+			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prop.TextAnalyzer, sw)
 			terms = result.Query
 		}
 	default:

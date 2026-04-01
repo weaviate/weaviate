@@ -30,7 +30,7 @@ import (
 type TokenizeResponse struct {
 
 	// The analyzer configuration that was used, if any.
-	AnalyzerConfig *TextAnalyserConfig `json:"analyzerConfig,omitempty"`
+	AnalyzerConfig *TextAnalyzerConfig `json:"analyzerConfig,omitempty"`
 
 	// The tokens as they would be stored in the inverted index.
 	Indexed []string `json:"indexed"`

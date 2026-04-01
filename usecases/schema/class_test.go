@@ -3132,7 +3132,7 @@ func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
 				Name:            "test",
 				Tokenization:    tt.tokenization,
 				IndexSearchable: &searchable,
-				TextAnalyser: &models.TextAnalyserConfig{
+				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold: true,
 				},
 			}
@@ -3188,7 +3188,7 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
 			prop := &models.Property{
 				Name:            "test",
 				IndexSearchable: &searchable,
-				TextAnalyser: &models.TextAnalyserConfig{
+				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
 					ASCIIFoldIgnore: tt.ignore,
 				},

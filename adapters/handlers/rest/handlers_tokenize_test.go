@@ -112,7 +112,7 @@ func TestHandleGenericTokenize(t *testing.T) {
 	}
 }
 
-func TestAnalyseStopwords(t *testing.T) {
+func TestAnalyzeStopwords(t *testing.T) {
 	tests := []struct {
 		name        string
 		text        string
@@ -154,40 +154,40 @@ func TestAnalyseStopwords(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			detector, err := stopwords.NewDetectorFromConfig(tt.config)
 			require.NoError(t, err)
-			result := tokenizer.Analyse(tt.text, "word", "", nil, detector)
+			result := tokenizer.Analyze(tt.text, "word", "", nil, detector)
 			assert.Equal(t, tt.wantIndexed, result.Indexed)
 			assert.Equal(t, tt.wantQuery, result.Query)
 		})
 	}
 }
 
-func TestAnalyseFoldAndTokenize(t *testing.T) {
+func TestAnalyzeFoldAndTokenize(t *testing.T) {
 	tests := []struct {
 		name         string
 		text         string
 		tokeniz      string
-		textAnalyser *models.TextAnalyserConfig
+		textAnalyzer *models.TextAnalyzerConfig
 		wantIndexed  []string
 	}{
 		{
 			name:         "word: fold all accents",
 			text:         "L'école est fermée",
 			tokeniz:      "word",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true},
 			wantIndexed:  []string{"l", "ecole", "est", "fermee"},
 		},
 		{
 			name:         "word: fold with é ignored",
 			text:         "L'école est fermée",
 			tokeniz:      "word",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			wantIndexed:  []string{"l", "école", "est", "fermée"},
 		},
 		{
 			name:         "word: fold with multiple ignores",
 			text:         "naïve café résumé",
 			tokeniz:      "word",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			wantIndexed:  []string{"naive", "café", "résumé"},
 		},
 		{
@@ -200,63 +200,63 @@ func TestAnalyseFoldAndTokenize(t *testing.T) {
 			name:         "lowercase: fold all accents",
 			text:         "L'école est fermée",
 			tokeniz:      "lowercase",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true},
 			wantIndexed:  []string{"l'ecole", "est", "fermee"},
 		},
 		{
 			name:         "lowercase: fold with é ignored",
 			text:         "L'école est fermée",
 			tokeniz:      "lowercase",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			wantIndexed:  []string{"l'école", "est", "fermée"},
 		},
 		{
 			name:         "whitespace: fold all accents",
 			text:         "São Paulo café",
 			tokeniz:      "whitespace",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true},
 			wantIndexed:  []string{"Sao", "Paulo", "cafe"},
 		},
 		{
 			name:         "field: fold all accents",
 			text:         "  café résumé  ",
 			tokeniz:      "field",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true},
 			wantIndexed:  []string{"cafe resume"},
 		},
 		{
 			name:         "field: fold with é ignored",
 			text:         "  café résumé  ",
 			tokeniz:      "field",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			wantIndexed:  []string{"café résumé"},
 		},
 		{
 			name:         "trigram: fold all accents",
 			text:         "école",
 			tokeniz:      "trigram",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true},
 			wantIndexed:  []string{"eco", "col", "ole"},
 		},
 		{
 			name:         "trigram: fold with é ignored",
 			text:         "école",
 			tokeniz:      "trigram",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			wantIndexed:  []string{"éco", "col", "ole"},
 		},
 		{
 			name:         "word: uppercase ignored char also preserved",
 			text:         "Ørsted ørsted",
 			tokeniz:      "word",
-			textAnalyser: &models.TextAnalyserConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"ø"}},
+			textAnalyzer: &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"ø"}},
 			wantIndexed:  []string{"ørsted", "ørsted"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tokenizer.Analyse(tt.text, tt.tokeniz, "", tt.textAnalyser, nil)
+			result := tokenizer.Analyze(tt.text, tt.tokeniz, "", tt.textAnalyzer, nil)
 			assert.Equal(t, tt.wantIndexed, result.Indexed)
 		})
 	}

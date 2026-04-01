@@ -984,7 +984,7 @@
         },
         "analyzerConfig": {
           "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TextAnalyserConfig"
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       }
     },
@@ -998,7 +998,7 @@
         },
         "analyzerConfig": {
           "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyserConfig"
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -1623,13 +1623,13 @@
           "x-nullable": true,
           "default": true
         },
-        "textAnalyser": {
-          "$ref": "#/definitions/TextAnalyserConfig"
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
       "type": "object"
     },
-    "TextAnalyserConfig": {
+    "TextAnalyzerConfig": {
       "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "properties": {
         "asciiFold": {
@@ -1713,8 +1713,8 @@
           "type": "array",
           "x-omitempty": true
         },
-        "textAnalyser": {
-          "$ref": "#/definitions/TextAnalyserConfig"
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
       "type": "object"

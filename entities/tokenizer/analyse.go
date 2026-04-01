@@ -20,31 +20,31 @@ type StopwordDetector interface {
 	IsStopword(word string) bool
 }
 
-// AnalyseResult holds the output of Analyse: the indexed tokens and the
+// AnalyzeResult holds the output of Analyze: the indexed tokens and the
 // query tokens (indexed minus stopwords).
-type AnalyseResult struct {
+type AnalyzeResult struct {
 	Indexed []string
 	Query   []string
 }
 
-// Analyse runs the full text-analysis pipeline used for both indexing and
+// Analyze runs the full text-analysis pipeline used for both indexing and
 // querying: ASCII-fold → tokenize → stopword removal (query only).
 //
 // Parameters:
 //   - text: the raw input string
 //   - tokenization: one of the PropertyTokenization* constants
 //   - className: the collection name (needed for per-class custom tokenizers)
-//   - textAnalyser: per-property folding config (may be nil)
+//   - TextAnalyzer: per-property folding config (may be nil)
 //   - stopwords: stopword detector for the collection (may be nil)
-func Analyse(
+func Analyze(
 	text string,
 	tokenization string,
 	className string,
-	textAnalyser *models.TextAnalyserConfig,
+	TextAnalyzer *models.TextAnalyzerConfig,
 	stopwords StopwordDetector,
-) AnalyseResult {
-	if textAnalyser != nil && textAnalyser.ASCIIFold {
-		ignore := BuildIgnoreSet(textAnalyser.ASCIIFoldIgnore)
+) AnalyzeResult {
+	if TextAnalyzer != nil && TextAnalyzer.ASCIIFold {
+		ignore := BuildIgnoreSet(TextAnalyzer.ASCIIFoldIgnore)
 		text = FoldASCII(text, ignore)
 	}
 
@@ -58,23 +58,23 @@ func Analyse(
 		query = append(query, token)
 	}
 
-	return AnalyseResult{
+	return AnalyzeResult{
 		Indexed: indexed,
 		Query:   query,
 	}
 }
 
-// AnalyseAndCountDuplicates is like Analyse but also deduplicates tokens and
+// AnalyzeAndCountDuplicates is like Analyze but also deduplicates tokens and
 // returns per-token counts (boost factors). Used by BM25 scoring.
-func AnalyseAndCountDuplicates(
+func AnalyzeAndCountDuplicates(
 	text string,
 	tokenization string,
 	className string,
-	textAnalyser *models.TextAnalyserConfig,
+	TextAnalyzer *models.TextAnalyzerConfig,
 	stopwords StopwordDetector,
 ) (terms []string, boosts []int) {
-	if textAnalyser != nil && textAnalyser.ASCIIFold {
-		ignore := BuildIgnoreSet(textAnalyser.ASCIIFoldIgnore)
+	if TextAnalyzer != nil && TextAnalyzer.ASCIIFold {
+		ignore := BuildIgnoreSet(TextAnalyzer.ASCIIFoldIgnore)
 		text = FoldASCII(text, ignore)
 	}
 

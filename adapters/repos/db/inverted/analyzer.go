@@ -69,17 +69,17 @@ type Analyzer struct {
 
 // Text tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) Text(tokenization, in string, textAnalyser *models.TextAnalyserConfig) []Countable {
-	return a.TextArray(tokenization, []string{in}, textAnalyser)
+func (a *Analyzer) Text(tokenization, in string, TextAnalyzer *models.TextAnalyzerConfig) []Countable {
+	return a.TextArray(tokenization, []string{in}, TextAnalyzer)
 }
 
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) TextArray(tokenization string, inArr []string, textAnalyser *models.TextAnalyserConfig) []Countable {
+func (a *Analyzer) TextArray(tokenization string, inArr []string, TextAnalyzer *models.TextAnalyzerConfig) []Countable {
 	counts := map[string]uint64{}
 	for _, in := range inArr {
-		// Analyse with nil stopwords: indexing stores all tokens including stopwords
-		result := tokenizer.Analyse(in, tokenization, a.className, textAnalyser, nil)
+		// Analyze with nil stopwords: indexing stores all tokens including stopwords
+		result := tokenizer.Analyze(in, tokenization, a.className, TextAnalyzer, nil)
 		for _, term := range result.Indexed {
 			counts[term]++
 		}

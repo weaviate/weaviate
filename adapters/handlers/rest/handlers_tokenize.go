@@ -61,7 +61,7 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	query := make([]string, len(indexed))
 	copy(query, indexed)
 
-	var analyzerConfig *models.TextAnalyserConfig
+	var analyzerConfig *models.TextAnalyzerConfig
 
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization:   *params.Body.Tokenization,
@@ -124,7 +124,7 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		}
 	}
 
-	result := tokenizer.Analyse(*params.Body.Text, prop.Tokenization, className, prop.TextAnalyser, detector)
+	result := tokenizer.Analyze(*params.Body.Text, prop.Tokenization, className, prop.TextAnalyzer, detector)
 
 	return schemaops.NewSchemaObjectsPropertiesTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization: prop.Tokenization,

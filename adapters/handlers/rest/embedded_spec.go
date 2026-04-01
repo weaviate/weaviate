@@ -8001,8 +8001,8 @@ func init() {
           },
           "x-omitempty": true
         },
-        "textAnalyser": {
-          "$ref": "#/definitions/TextAnalyserConfig"
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "type": "string",
@@ -8640,8 +8640,8 @@ func init() {
           },
           "x-omitempty": true
         },
-        "textAnalyser": {
-          "$ref": "#/definitions/TextAnalyserConfig"
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
@@ -9555,7 +9555,7 @@ func init() {
         }
       }
     },
-    "TextAnalyserConfig": {
+    "TextAnalyzerConfig": {
       "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
@@ -9584,7 +9584,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TextAnalyserConfig"
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -9613,7 +9613,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyserConfig"
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -18331,8 +18331,8 @@ func init() {
           },
           "x-omitempty": true
         },
-        "textAnalyser": {
-          "$ref": "#/definitions/TextAnalyserConfig"
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "type": "string",
@@ -19143,8 +19143,8 @@ func init() {
           },
           "x-omitempty": true
         },
-        "textAnalyser": {
-          "$ref": "#/definitions/TextAnalyserConfig"
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
@@ -20061,7 +20061,7 @@ func init() {
         }
       }
     },
-    "TextAnalyserConfig": {
+    "TextAnalyzerConfig": {
       "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
@@ -20090,7 +20090,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TextAnalyserConfig"
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -20119,7 +20119,7 @@ func init() {
       "properties": {
         "analyzerConfig": {
           "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyserConfig"
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",

@@ -62,8 +62,8 @@ type Property struct {
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
-	// text analyser
-	TextAnalyser *TextAnalyserConfig `json:"textAnalyser,omitempty"`
+	// text analyzer
+	TextAnalyzer *TextAnalyzerConfig `json:"textAnalyzer,omitempty"`
 
 	// Determines how a property is indexed. This setting applies to `text` and `text[]` data types. The following tokenization methods are available:<br/><br/>- `word` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.<br/>- `lowercase`: Splits the text on whitespace and lowercases the tokens.<br/>- `whitespace`: Splits the text on whitespace. This tokenization is case-sensitive.<br/>- `field`: Indexes the entire property value as a single token after trimming whitespace.<br/>- `trigram`: Splits the property into rolling trigrams (three-character sequences).<br/>- `gse`: Uses the `gse` tokenizer, suitable for Chinese language text. [See `gse` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).<br/>- `kagome_ja`: Uses the `Kagome` tokenizer with a Japanese (IPA) dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/>- `kagome_kr`: Uses the `Kagome` tokenizer with a Korean dictionary. [See `kagome` docs](https://github.com/ikawaha/kagome).<br/><br/>See [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.
 	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja gse_ch]
@@ -78,7 +78,7 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateTextAnalyser(formats); err != nil {
+	if err := m.validateTextAnalyzer(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -118,17 +118,17 @@ func (m *Property) validateNestedProperties(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Property) validateTextAnalyser(formats strfmt.Registry) error {
-	if swag.IsZero(m.TextAnalyser) { // not required
+func (m *Property) validateTextAnalyzer(formats strfmt.Registry) error {
+	if swag.IsZero(m.TextAnalyzer) { // not required
 		return nil
 	}
 
-	if m.TextAnalyser != nil {
-		if err := m.TextAnalyser.Validate(formats); err != nil {
+	if m.TextAnalyzer != nil {
+		if err := m.TextAnalyzer.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("textAnalyser")
+				return ve.ValidateName("textAnalyzer")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("textAnalyser")
+				return ce.ValidateName("textAnalyzer")
 			}
 			return err
 		}
@@ -208,7 +208,7 @@ func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry)
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateTextAnalyser(ctx, formats); err != nil {
+	if err := m.contextValidateTextAnalyzer(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -238,14 +238,14 @@ func (m *Property) contextValidateNestedProperties(ctx context.Context, formats 
 	return nil
 }
 
-func (m *Property) contextValidateTextAnalyser(ctx context.Context, formats strfmt.Registry) error {
+func (m *Property) contextValidateTextAnalyzer(ctx context.Context, formats strfmt.Registry) error {
 
-	if m.TextAnalyser != nil {
-		if err := m.TextAnalyser.ContextValidate(ctx, formats); err != nil {
+	if m.TextAnalyzer != nil {
+		if err := m.TextAnalyzer.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("textAnalyser")
+				return ve.ValidateName("textAnalyzer")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("textAnalyser")
+				return ce.ValidateName("textAnalyzer")
 			}
 			return err
 		}
