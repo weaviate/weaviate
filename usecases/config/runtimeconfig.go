@@ -59,6 +59,10 @@ type WeaviateRuntimeConfig struct {
 	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
+	// Export settings
+	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
+	ExportDefaultBucket *runtime.DynamicValue[string] `json:"export_default_bucket" yaml:"export_default_bucket"`
+
 	// RAFT specific configs
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
 	RaftTimoutsMultiplier *runtime.DynamicValue[int]           `json:"raft_timeouts_multiplier" yaml:"raft_timeouts_multiplier"`
@@ -72,6 +76,7 @@ type WeaviateRuntimeConfig struct {
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"authentication_oidc_scopes" json:"authentication_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
+	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

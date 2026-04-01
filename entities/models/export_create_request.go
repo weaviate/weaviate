@@ -193,9 +193,6 @@ func (m *ExportCreateRequest) UnmarshalBinary(b []byte) error {
 // swagger:model ExportCreateRequestConfig
 type ExportCreateRequestConfig struct {
 
-	// Bucket, container, or volume name for cloud storage backends
-	Bucket string `json:"bucket,omitempty"`
-
 	// Path prefix within the bucket or filesystem
 	Path string `json:"path,omitempty"`
 }

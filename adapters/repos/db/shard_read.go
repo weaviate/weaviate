@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -32,6 +33,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -40,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
@@ -291,7 +295,15 @@ func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID u
 	}
 
 	container.Buff = newBuff
-	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	return vecs, nil
 }
 
 // GetObjectsBucketView returns a consistent view of the objects bucket that can
@@ -320,7 +332,15 @@ func (s *Shard) readVectorByIndexIDIntoSliceWithView(ctx context.Context, indexI
 	}
 
 	container.Buff = newBuff
-	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
+	vec, err := storobj.VectorFromBinary(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	return vec, nil
 }
 
 func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string, view common.BucketView) ([][]float32, error) {
@@ -342,7 +362,15 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	}
 
 	container.Buff = newBuff
-	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	vecs, err := storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+	if err != nil {
+		var eTV storobj.ErrTargetVectorNotFound
+		if stderrors.As(err, &eTV) {
+			return nil, storobj.NewErrNotFoundf(indexID, "target vector %q not found", targetVector)
+		}
+		return nil, err
+	}
+	return vecs, nil
 }
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
@@ -453,7 +481,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -576,6 +604,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				return nil
 			}
 
+			if selection != nil {
+				ids, dists, err = s.applySelection(ctx, selection, targetVector, ids, dists, limit)
+				if err != nil {
+					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
+				}
+			}
+
 			idss[i] = ids
 			distss[i] = dists
 			return nil
@@ -637,6 +672,71 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 	return objs, distCombined, nil
+}
+
+func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+	// Build distancer from the target vector's distance config
+	var distProv distancer.Provider
+	cfg := s.index.GetVectorIndexConfig(targetVector)
+	switch cfg.DistanceName() {
+	case "", vectorIndexCommon.DistanceCosine:
+		distProv = distancer.NewCosineDistanceProvider()
+	case vectorIndexCommon.DistanceDot:
+		distProv = distancer.NewDotProductProvider()
+	case vectorIndexCommon.DistanceL2Squared:
+		distProv = distancer.NewL2SquaredProvider()
+	case vectorIndexCommon.DistanceManhattan:
+		distProv = distancer.NewManhattanProvider()
+	case vectorIndexCommon.DistanceHamming:
+		distProv = distancer.NewHammingProvider()
+	default:
+		distProv = distancer.NewCosineDistanceProvider()
+	}
+
+	distFn := func(a, b []float32) (float32, error) {
+		d, err := distProv.SingleDist(a, b)
+		return d, err
+	}
+
+	// Pre-fetch candidate vectors from the object store
+	var addProps additional.Properties
+	if targetVector == "" {
+		addProps = additional.Properties{Vector: true}
+	} else {
+		addProps = additional.Properties{Vectors: []string{targetVector}}
+	}
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
+	}
+
+	vecMap := make(map[uint64][]float32, len(ids))
+	for i, obj := range objs {
+		if obj == nil {
+			continue
+		}
+		var vec []float32
+		if targetVector == "" {
+			vec = obj.Vector
+		} else {
+			vec = obj.Vectors[targetVector]
+		}
+		vecMap[ids[i]] = vec
+	}
+
+	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
+		return vecMap[id], nil
+	}
+
+	sel, err := selector.New(selection, distFn, vecForID, k)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mmr selection: %w", err)
+	}
+	if sel == nil {
+		return ids, dists, nil
+	}
+	return sel.Select(ctx, ids, dists)
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {

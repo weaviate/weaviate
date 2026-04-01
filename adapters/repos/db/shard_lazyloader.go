@@ -282,11 +282,11 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties)
+	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties, selection)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
@@ -463,25 +463,49 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
 		}
 		return nil
 	})
+}
+
+func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	if l.isLoaded() {
+		return l.shard.DropVectorIndex(ctx, targetVector)
+	} else {
+		return l.dropUnloadedVectorIndex(targetVector)
+	}
+}
+
+func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
+	// Shard is not loaded — remove files directly from disk. Delegate to the
+	// shared helper so file path logic is defined in one place.
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+		return err
+	}
+
+	// Remove the index checkpoint entry for this vector.
+	if l.shardOpts.indexCheckpoints != nil {
+		if err := l.shardOpts.indexCheckpoints.Delete(l.ID(), targetVector); err != nil {
+			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+		}
+	}
+	return nil
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -595,6 +619,11 @@ func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index Vec
 func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
 	l.mustLoad()
 	return l.shard.ForEachVectorQueue(f)
+}
+
+func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachGeoQueue(f)
 }
 
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {

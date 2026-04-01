@@ -126,6 +126,8 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
 	}
 
 	// Lazy load shard count threshold for auto-detection
@@ -140,7 +142,8 @@ func FromEnv(config *Config) error {
 		}
 		config.LazyLoadShardCountThreshold = asInt
 		if config.LazyLoadShardCountThreshold == 0 {
-			config.EnableLazyLoadShards = true
+			v := true
+			config.EnableLazyLoadShards = &v
 		}
 	} else {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
@@ -281,6 +284,11 @@ func FromEnv(config *Config) error {
 			skipClientCheck = true
 		}
 
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
 			issuer = v
 		}
@@ -317,6 +325,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -657,6 +666,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.parseExportConfig()
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -984,10 +995,10 @@ func FromEnv(config *Config) error {
 	{
 		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
 		switch {
-		// Deprecated flag: still honored, environment always wins over auto-detection.
+		// flag: still honored, environment always wins over auto-detection.
 		case waitEnvSet:
 			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
-			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. Vector cache prefill is now always enabled and will match the lazy load shard configuration.")
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
 
 		default:
 			config.HNSWStartupWaitForVectorCache = true
@@ -1911,4 +1922,18 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
 }

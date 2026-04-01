@@ -15,14 +15,18 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // fakeNodeResolver resolves node names to hostnames from a static map.
@@ -43,7 +47,7 @@ func (r *fakeNodeResolver) NodeCount() int {
 	return len(r.nodes) + 1 // +1 for local node
 }
 
-// blockingSelector blocks AcquireShardForExport until blockCh is closed.
+// blockingSelector blocks SnapshotShards until blockCh is closed.
 type blockingSelector struct {
 	blockCh   chan struct{}
 	classList []string
@@ -53,19 +57,29 @@ type blockingSelector struct {
 	once      sync.Once
 }
 
+func newBlockingSelector() *blockingSelector {
+	return &blockingSelector{
+		blockCh:  make(chan struct{}),
+		calledCh: make(chan struct{}),
+	}
+}
+
 func (s *blockingSelector) initCalledCh() {
 	s.once.Do(func() {
-		s.calledCh = make(chan struct{})
+		if s.calledCh == nil {
+			s.calledCh = make(chan struct{})
+		}
 	})
 }
 
+// waitForCall blocks until SnapshotShards has been called or the timeout
+// expires.
 func (s *blockingSelector) waitForCall(t *testing.T) {
 	t.Helper()
-	s.initCalledCh()
 	select {
 	case <-s.calledCh:
 	case <-time.After(5 * time.Second):
-		t.Fatal("AcquireShardForExport was not called")
+		t.Fatal("SnapshotShards was not called within timeout")
 	}
 }
 
@@ -85,7 +99,7 @@ func (s *blockingSelector) IsAsyncReplicationEnabled(_ context.Context, _ string
 	return true
 }
 
-func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ string) (ShardLike, func(), string, error) {
+func (s *blockingSelector) SnapshotShards(ctx context.Context, _ string, _ []string, _ string) ([]ShardSnapshotResult, error) {
 	s.initCalledCh()
 	s.calledMu.Lock()
 	if !s.called {
@@ -96,21 +110,21 @@ func (s *blockingSelector) AcquireShardForExport(ctx context.Context, _, _ strin
 
 	select {
 	case <-ctx.Done():
-		return nil, nil, "", ctx.Err()
+		return nil, ctx.Err()
 	case <-s.blockCh:
-		return nil, nil, "", ctx.Err()
+		return nil, fmt.Errorf("test: blocking selector unblocked")
 	}
 }
 
 // fakeSelector is a configurable test Selector. With no shards configured it
 // acts as a no-op (export completes immediately when the request has no
-// shards). With shards/skipped/mt configured it returns pre-configured
-// testShard instances from AcquireShardForExport.
+// shards). With shards/skipped/mt configured it snapshots and returns results.
 type fakeSelector struct {
-	classList []string
-	shards    map[string]map[string]*testShard // className → shardName → testShard
-	skipped   map[string]map[string]string     // className → shardName → skipReason
-	mt        map[string]bool                  // className → isMultiTenant
+	classList     []string
+	shards        map[string]map[string]*testShard
+	skipped       map[string]map[string]string
+	mt            map[string]bool
+	snapshotsRoot string
 }
 
 func (s *fakeSelector) ListClasses(context.Context) []string {
@@ -129,29 +143,64 @@ func (s *fakeSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bo
 	return true
 }
 
-func (s *fakeSelector) AcquireShardForExport(_ context.Context, className, shardName string) (ShardLike, func(), string, error) {
-	if s.skipped != nil {
-		if reasons, ok := s.skipped[className]; ok {
-			if reason, ok := reasons[shardName]; ok {
-				return nil, nil, reason, nil
+func (s *fakeSelector) SnapshotShards(ctx context.Context, className string, shardNames []string, _ string) ([]ShardSnapshotResult, error) {
+	var results []ShardSnapshotResult
+	for _, shardName := range shardNames {
+		result := ShardSnapshotResult{ShardName: shardName}
+
+		if s.skipped != nil {
+			if reasons, ok := s.skipped[className]; ok {
+				if reason, ok := reasons[shardName]; ok {
+					result.SkipReason = reason
+					results = append(results, result)
+					continue
+				}
 			}
 		}
-	}
-	if s.shards != nil {
-		if classShards, ok := s.shards[className]; ok {
-			if shard, ok := classShards[shardName]; ok {
-				return shard, func() {}, "", nil
-			}
+
+		if s.shards == nil {
+			result.SkipReason = "no shards configured"
+			results = append(results, result)
+			continue
 		}
+		classShards, ok := s.shards[className]
+		if !ok {
+			result.SkipReason = "class not found"
+			results = append(results, result)
+			continue
+		}
+		shard, ok := classShards[shardName]
+		if !ok {
+			result.SkipReason = "shard not found"
+			results = append(results, result)
+			continue
+		}
+
+		store := shard.Store()
+		if store == nil {
+			return results, fmt.Errorf("store not found for shard %s/%s", className, shardName)
+		}
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return results, fmt.Errorf("objects bucket not found for shard %s/%s", className, shardName)
+		}
+		snapshotDir, err := bucket.CreateSnapshot(ctx, s.snapshotsRoot,
+			fmt.Sprintf("test-%s-%s", className, shardName))
+		if err != nil {
+			return results, err
+		}
+		result.SnapshotDir = snapshotDir
+		result.Strategy = bucket.GetDesiredStrategy()
+		results = append(results, result)
 	}
-	return nil, nil, "shard not found", nil
+	return results, nil
 }
 
 // fakeBackend captures Write calls so tests can verify what was written.
 type fakeBackend struct {
 	mu                 sync.Mutex
 	written            map[string][]byte
-	interceptGetObject func(key string) ([]byte, error, bool) // if set, called before default logic; return (data, err, handled)
+	interceptGetObject func(key string) ([]byte, error, bool)
 }
 
 func (b *fakeBackend) Write(_ context.Context, _, key, _, _ string, r backup.ReadCloserWithError) (int64, error) {
@@ -261,7 +310,7 @@ type expectedFile struct {
 	numRows int
 }
 
-// testShard is a minimal ShardLike backed by an lsmkv.Store for tests.
+// testShard is a minimal shard backed by an lsmkv.Store for tests.
 type testShard struct {
 	store *lsmkv.Store
 	name  string
@@ -276,5 +325,72 @@ func newTestNodeStatus(nodeName string) *NodeStatus {
 		NodeName:      nodeName,
 		Status:        export.Transferring,
 		ShardProgress: make(map[string]map[string]*ShardProgress),
+	}
+}
+
+// writeBlockingBackend wraps a fakeBackend and blocks parquet writes until
+// either blockParquet is closed or the write's context is canceled. Status
+// writes (keys ending in "_status.json") pass through immediately. The
+// parquetReady channel is closed when the first parquet write has been fully
+// read from the pipe and is about to block.
+type writeBlockingBackend struct {
+	*fakeBackend
+	blockParquet chan struct{} // close to unblock parquet writes
+	parquetReady chan struct{} // closed when first parquet write is attempted
+	readyOnce    sync.Once
+}
+
+func newWriteBlockingBackend() *writeBlockingBackend {
+	return &writeBlockingBackend{
+		fakeBackend:  &fakeBackend{},
+		blockParquet: make(chan struct{}),
+		parquetReady: make(chan struct{}),
+	}
+}
+
+func (b *writeBlockingBackend) Write(ctx context.Context, id, key, bucket, path string, r backup.ReadCloserWithError) (int64, error) {
+	if !strings.HasSuffix(key, ".parquet") {
+		return b.fakeBackend.Write(ctx, id, key, bucket, path, r)
+	}
+
+	// Read all data from the pipe so the scan job can progress to
+	// pipeline.Shutdown, where it will block waiting for uploadDone.
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return 0, err
+	}
+
+	b.readyOnce.Do(func() { close(b.parquetReady) })
+
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-b.blockParquet:
+	}
+
+	b.mu.Lock()
+	if b.written == nil {
+		b.written = make(map[string][]byte)
+	}
+	b.written[key] = data
+	b.mu.Unlock()
+	return int64(len(data)), nil
+}
+
+func (b *writeBlockingBackend) waitForParquetWrite(t *testing.T) {
+	t.Helper()
+	select {
+	case <-b.parquetReady:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no parquet write attempted within timeout")
+	}
+}
+
+// testExportConfig returns an Export config with export enabled and a test bucket,
+// suitable for unit tests that need a non-nil exportConfig.
+func testExportConfig() config.Export {
+	return config.Export{
+		Enabled:       configRuntime.NewDynamicValue(true),
+		DefaultBucket: configRuntime.NewDynamicValue("test-bucket"),
 	}
 }

@@ -981,6 +981,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
+	setupTokenizeHandlers(api, appState.SchemaManager, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
@@ -1160,6 +1161,7 @@ func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
 	return exportusecase.NewScheduler(
 		appState.Authorizer,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Export,
 		appState.DB,
 		appState.Modules,
 		appState.Logger,
@@ -2163,6 +2165,8 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
 		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
 		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
+		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
+		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2173,6 +2177,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
 			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
 			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
+			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
 		}
 
 		cm, err := configRuntime.NewConfigManager(

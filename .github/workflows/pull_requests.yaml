@@ -700,6 +700,8 @@ jobs:
             test: "--acceptance-go-client-named-vectors-cluster"
           - name: "fast-group-4"
             test: "--acceptance-only-fast-group-4"
+          - name: "distributed-tasks"
+            test: "--acceptance-distributed-tasks"
           - name: "compaction"
             test: "--acceptance-compaction"
           - name: "recovery"
@@ -732,7 +734,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
@@ -805,7 +807,7 @@ jobs:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
       - name: Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           fail_ci_if_error: false
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt

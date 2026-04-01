@@ -88,9 +88,10 @@ type ShardLike interface {
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
+	DropVectorIndex(ctx context.Context, targetVector string) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
@@ -126,6 +127,7 @@ type ShardLike interface {
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -226,6 +228,8 @@ type Shard struct {
 	queue         *VectorIndexQueue
 	vectorIndexes map[string]VectorIndex
 	queues        map[string]*VectorIndexQueue
+
+	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex

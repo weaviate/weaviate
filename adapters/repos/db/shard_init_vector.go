@@ -21,6 +21,7 @@ import (
 	"go.etcd.io/bbolt"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -180,6 +181,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				vectorIndexUserConfig)
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		// a shard can actually have multiple vector indexes:
 		// - the main index, which is used for all normal object vectors
@@ -398,4 +400,46 @@ func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
 	} else {
 		s.vectorIndexes[targetVector] = index
 	}
+}
+
+// DropVectorIndex shuts down and removes the named vector index and its queue
+// from this shard, deleting associated files from disk. It also removes the
+// LSM buckets that store the raw and compressed vector data.
+func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	s.vectorIndexMu.Lock()
+	defer s.vectorIndexMu.Unlock()
+
+	if queue, ok := s.queues[targetVector]; ok && queue != nil {
+		if err := queue.Drop(ctx); err != nil {
+			return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+		}
+		delete(s.queues, targetVector)
+	}
+
+	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
+		if err := index.Drop(ctx, false); err != nil {
+			return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+		}
+		delete(s.vectorIndexes, targetVector)
+	}
+
+	// Drop LSM buckets that hold the vector data on disk.
+	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
+	if err := s.removeBucket(ctx, vectorsBucket); err != nil {
+		return fmt.Errorf("drop vectors bucket for %q: %w", targetVector, err)
+	}
+
+	compressedBucket := helpers.GetCompressedBucketName(targetVector)
+	if err := s.removeBucket(ctx, compressedBucket); err != nil {
+		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
+	}
+
+	// Remove the index checkpoint entry for this vector.
+	if s.indexCheckpoints != nil {
+		if err := s.indexCheckpoints.Delete(s.ID(), targetVector); err != nil {
+			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+		}
+	}
+
+	return nil
 }

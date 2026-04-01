@@ -290,11 +290,35 @@ func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, conf.LazyLoadShardCountThreshold)
 				if tt.name == "zero is valid" {
-					assert.True(t, conf.EnableLazyLoadShards)
+					require.NotNil(t, conf.EnableLazyLoadShards)
+					assert.True(t, *conf.EnableLazyLoadShards)
 				}
 			}
 		})
 	}
+}
+
+func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
+	t.Run("DISABLE_LAZY_LOAD_SHARDS=true sets EnableLazyLoadShards=false", func(t *testing.T) {
+		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
+		t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.NotNil(t, conf.EnableLazyLoadShards)
+		assert.False(t, *conf.EnableLazyLoadShards)
+	})
+
+	t.Run("DISABLE_LAZY_LOAD_SHARDS=true coexists with explicit LAZY_LOAD_SHARD_COUNT_THRESHOLD", func(t *testing.T) {
+		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
+		t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "500")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.NotNil(t, conf.EnableLazyLoadShards)
+		assert.False(t, *conf.EnableLazyLoadShards)
+		assert.Equal(t, 500, conf.LazyLoadShardCountThreshold)
+	})
 }
 
 func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
@@ -841,6 +865,25 @@ func TestEnvironmentAuthentication(t *testing.T) {
 					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
 					Certificate:       configRuntime.NewDynamicValue(""),
 					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(false),
+				},
+			},
+		},
+		{
+			name:         "Valid OIDC Auth with SkipTLSVerify",
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY"},
+			expected: Authentication{
+				OIDC: OIDC{
+					Enabled:           true,
+					Issuer:            configRuntime.NewDynamicValue(""),
+					ClientID:          configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
+					UsernameClaim:     configRuntime.NewDynamicValue(""),
+					GroupsClaim:       configRuntime.NewDynamicValue(""),
+					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:       configRuntime.NewDynamicValue(""),
+					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(true),
 				},
 			},
 		},
@@ -863,8 +906,8 @@ func TestEnvironmentAuthentication(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.auth_env_var) == 1 {
-				t.Setenv(tt.auth_env_var[0], "true")
+			for _, envVar := range tt.auth_env_var {
+				t.Setenv(envVar, "true")
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
