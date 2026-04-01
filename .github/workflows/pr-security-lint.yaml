@@ -1,0 +1,66 @@
+name: PR Security Lint
+
+# SECURITY: This workflow uses pull_request_target intentionally.
+#
+# Why pull_request_target:
+#   With the normal `pull_request` trigger, the workflow YAML and all scripts
+#   come from the PR branch. A malicious PR could disable or gut the linter
+#   by modifying this file or tools/linter_hidden_unicode.sh, and the change
+#   would take effect in the very CI run that should catch it.
+#
+#   `pull_request_target` runs the workflow YAML from the BASE branch (main),
+#   so attackers cannot modify or disable this check via their PR.
+#
+# ⚠️  DANGER — rules for maintaining this workflow:
+#
+#   1. NEVER checkout PR code. The `actions/checkout` below clones main
+#      (the base branch). Do NOT add `ref: ${{ github.event.pull_request.head.sha }}`
+#      or any reference to the PR's head. In a pull_request_target context,
+#      GitHub grants the workflow a token with write access to the base repo
+#      and access to all repo secrets — regardless of what we set in
+#      `permissions`. Our `permissions: {}` scopes the token down to read-only
+#      and we reference no secrets, so today there is nothing to exploit. But
+#      if this rule is violated and permissions or secrets are later added,
+#      attacker code would execute with those privileges.
+#
+#   2. NEVER add secrets to this workflow. Currently it has zero secrets and
+#      minimal permissions. Adding secrets (even "read-only" ones) creates a
+#      target if rule 1 is ever accidentally violated.
+#
+#   3. Keep permissions minimal. The only permissions granted are contents:read
+#      (required for actions/checkout to clone the base branch) and
+#      pull-requests:read (required for gh pr diff to fetch the PR diff).
+#      The PR diff is fetched via the GitHub API, not by checking out PR code.
+#
+#   4. Do NOT add other jobs to this file. Each job in a pull_request_target
+#      workflow carries the same risks. Keep this file single-purpose so the
+#      security constraints are obvious and auditable.
+#
+on:
+  pull_request_target:
+
+# Zero permissions at workflow level. Jobs must explicitly request what they need.
+permissions: {}
+
+jobs:
+  hidden-unicode:
+    name: hidden unicode characters
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read       # required for actions/checkout to clone the base branch
+      pull-requests: read  # required for gh pr diff to fetch the PR diff via the API
+    steps:
+      # Clones the BASE branch (main) — trusted code only.
+      # The linter script at tools/linter_hidden_unicode.sh comes from main,
+      # not from the PR, so an attacker cannot tamper with it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Fetches the PR diff via the GitHub API and pipes it to the linter.
+      # No checkout of PR code occurs — only the diff text is processed.
+      - name: Fetch PR diff and scan for hidden characters
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr diff "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            | ./tools/linter_hidden_unicode.sh --stdin
