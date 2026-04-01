@@ -455,11 +455,11 @@ func stripASCIIFoldIgnore(m map[string]any) {
 		copyCfg := *cfg
 		copyCfg.ASCIIFoldIgnore = nil
 
-		// After clearing ASCIIFoldIgnore, an entirely zero-valued config
-		// is semantically equivalent to "no TextAnalyzer" at all. Normalize
+		// After clearing ASCIIFoldIgnore, a config with only default values
+		// is semantically equivalent to "no textAnalyzer" at all. Normalize
 		// such empty configs by removing the key so that {} and null behave
 		// the same in immutability checks.
-		if reflect.ValueOf(copyCfg).IsZero() {
+		if !copyCfg.ASCIIFold {
 			delete(m, "textAnalyzer")
 			return
 		}
