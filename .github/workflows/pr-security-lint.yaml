@@ -27,9 +27,10 @@ name: PR Security Lint
 #      minimal permissions. Adding secrets (even "read-only" ones) creates a
 #      target if rule 1 is ever accidentally violated.
 #
-#   3. Keep permissions minimal. The only permission granted is contents:read
-#      (required for actions/checkout to clone the base branch). The PR diff
-#      is fetched via the GitHub API, not by checking out PR code.
+#   3. Keep permissions minimal. The only permissions granted are contents:read
+#      (required for actions/checkout to clone the base branch) and
+#      pull-requests:read (required for gh pr diff to fetch the PR diff).
+#      The PR diff is fetched via the GitHub API, not by checking out PR code.
 #
 #   4. Do NOT add other jobs to this file. Each job in a pull_request_target
 #      workflow carries the same risks. Keep this file single-purpose so the
@@ -46,12 +47,13 @@ jobs:
     name: hidden unicode characters
     runs-on: ubuntu-latest
     permissions:
-      contents: read  # required for actions/checkout to clone the base branch
+      contents: read       # required for actions/checkout to clone the base branch
+      pull-requests: read  # required for gh pr diff to fetch the PR diff via the API
     steps:
       # Clones the BASE branch (main) — trusted code only.
       # The linter script at tools/linter_hidden_unicode.sh comes from main,
       # not from the PR, so an attacker cannot tamper with it.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       # Fetches the PR diff via the GitHub API and pipes it to the linter.
       # No checkout of PR code occurs — only the diff text is processed.
