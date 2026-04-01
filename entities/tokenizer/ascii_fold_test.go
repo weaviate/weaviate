@@ -286,7 +286,7 @@ func TestFoldASCIISliceWithIgnore(t *testing.T) {
 	assert.Equal(t, "hello", result[2])
 }
 
-func TestFoldASCIIIdempotent(t *testing.T) {
+func TestFoldasciidempotent(t *testing.T) {
 	input := "ecole"
 	result := FoldASCII(input, nil)
 	assert.Equal(t, input, result, "folding already-ASCII text should be a no-op")

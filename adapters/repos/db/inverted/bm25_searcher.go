@@ -202,9 +202,9 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
 				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
 					// Per-property ignore key — will be computed after tokenization
-					tokKey = asciiiTokenizationKey(prop.Tokenization) + ":" + property
+					tokKey = asciiTokenizationKey(prop.Tokenization) + ":" + property
 				} else {
-					tokKey = asciiiTokenizationKey(prop.Tokenization)
+					tokKey = asciiTokenizationKey(prop.Tokenization)
 					needsASCIIFold[prop.Tokenization] = struct{}{}
 				}
 			}
@@ -237,15 +237,15 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	// Prepare ASCII-folded variants only for tokenizations that need them
 	foldNoIgnore := tokenizer.NewPreparedAnalyzer(&models.TextAnalyzerConfig{ASCIIFold: true})
 	for tok := range needsASCIIFold {
-		asciiiKey := asciiiTokenizationKey(tok)
+		asciiKey := asciiTokenizationKey(tok)
 		var sw tokenizer.StopwordDetector
 		if tok == models.PropertyTokenizationWord {
 			sw = b.stopWordDetector
 		}
-		asciiiTerms, asciiiBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, foldNoIgnore, sw)
-		queryTermsByTokenization[asciiiKey] = asciiiTerms
-		duplicateBoostsByTokenization[asciiiKey] = asciiiBoosts
-		propNamesByTokenization[asciiiKey] = make([]string, 0)
+		asciiTerms, asciiBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, foldNoIgnore, sw)
+		queryTermsByTokenization[asciiKey] = asciiTerms
+		duplicateBoostsByTokenization[asciiKey] = asciiBoosts
+		propNamesByTokenization[asciiKey] = make([]string, 0)
 	}
 
 	// Third pass: assign properties to tokenization keys, compute per-property ignore keys
@@ -293,9 +293,9 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	return allBucketsAreInverted, N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
 }
 
-// asciiiTokenizationKey returns the composite key used for asciii-insensitive properties.
-func asciiiTokenizationKey(tokenization string) string {
-	return tokenization + ":asciii"
+// asciiTokenizationKey returns the composite key used for ascii-insensitive properties.
+func asciiTokenizationKey(tokenization string) string {
+	return tokenization + ":ascii"
 }
 
 func (b *BM25Searcher) wand(
