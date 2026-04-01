@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,6 +108,7 @@ func TestDoExport(t *testing.T) {
 			reqShards := make(map[string][]string)
 			var classNames []string
 
+			var expectedObjects int
 			for className, specs := range tc.classes {
 				classNames = append(classNames, className)
 				sel.shards[className] = make(map[string]*testShard)
@@ -115,10 +117,11 @@ func TestDoExport(t *testing.T) {
 					t.Cleanup(func() { store.Shutdown(context.Background()) })
 					sel.shards[className][spec.name] = &testShard{store: store, name: spec.name}
 					reqShards[className] = append(reqShards[className], spec.name)
+					expectedObjects += spec.numObjects
 				}
 			}
 
-			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 			req := &ExportRequest{
 				ID:       "test-export",
 				Backend:  "fake",
@@ -134,6 +137,8 @@ func TestDoExport(t *testing.T) {
 
 			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 			require.NoError(t, err)
+
+			assert.Equal(t, float64(expectedObjects), testutil.ToFloat64(p.metrics.ObjectsTotal), "ExportObjectsTotal")
 
 			for _, ef := range tc.expected {
 				data := backend.getWritten(ef.key)
@@ -176,7 +181,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -228,7 +233,7 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -272,7 +277,7 @@ func TestSnapshotAllShards_Error(t *testing.T) {
 		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1")
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",

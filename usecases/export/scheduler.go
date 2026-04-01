@@ -82,6 +82,7 @@ type Scheduler struct {
 	nodeResolver NodeResolver
 	localNode    string
 	participant  *Participant
+	metrics      *ExportMetrics
 	shuttingDown atomic.Bool
 }
 
@@ -97,6 +98,7 @@ func NewScheduler(
 	nodeResolver NodeResolver,
 	localNode string,
 	participant *Participant,
+	metrics *ExportMetrics,
 ) *Scheduler {
 	if participant == nil {
 		panic("export: scheduler requires a non-nil participant")
@@ -118,6 +120,7 @@ func NewScheduler(
 		nodeResolver: nodeResolver,
 		localNode:    localNode,
 		participant:  participant,
+		metrics:      metrics,
 	}
 }
 
@@ -590,6 +593,11 @@ func (s *Scheduler) assembleStatusFromMetadata(
 //  2. If all prepared successfully, commit all (start the export).
 //  3. If any prepare fails, abort all previously prepared nodes.
 func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.BackupBackend, exportID string, status *models.ExportStatusResponse, classes []string, bucket, path string) error {
+	coordinationStart := time.Now()
+	defer func() {
+		s.metrics.CoordinationDuration.Observe(time.Since(coordinationStart).Seconds())
+	}()
+
 	// Bound the entire 2PC-like flow (Prepare all + metadata write + Commit all) so the
 	// coordinator doesn't hang indefinitely if a participant is unreachable.
 	// The budget is 2× the participant reservation timeout: one window for
@@ -655,6 +663,7 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 	}
 
 	// Phase 1: Prepare all nodes concurrently.
+	prepareStart := time.Now()
 	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
 	for _, ni := range nodes {
@@ -670,6 +679,11 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 		s.abortAll(exportID, nodes)
 		return err
 	}
+	s.logger.WithField("action", "export").
+		WithField("export_id", exportID).
+		WithField("duration_ms", time.Since(prepareStart).Milliseconds()).
+		WithField("nodes", len(nodes)).
+		Info("prepare phase completed")
 
 	// Write initial metadata to the backend after all nodes are prepared.
 	initialMeta := &ExportMetadata{
@@ -686,6 +700,7 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 	}
 
 	// Phase 2: Commit all nodes concurrently.
+	commitStart := time.Now()
 	eg, egCtx = enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	eg.SetLimit(runtime.GOMAXPROCS(0) * 2)
 	for _, ni := range nodes {
@@ -713,6 +728,8 @@ func (s *Scheduler) startExport(ctx context.Context, backend modulecapabilities.
 	s.logger.WithField("action", "export").
 		WithField("export_id", exportID).
 		WithField("nodes", len(nodes)).
+		WithField("prepare_ms", time.Since(prepareStart).Milliseconds()).
+		WithField("commit_ms", time.Since(commitStart).Milliseconds()).
 		Info("multi-node export committed on all nodes")
 
 	return nil
