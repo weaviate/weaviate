@@ -155,6 +155,120 @@ func TestFilterStopwords(t *testing.T) {
 	}
 }
 
+func TestASCIIFoldThenTokenize(t *testing.T) {
+	tests := []struct {
+		name        string
+		text        string
+		tokeniz     string
+		asciiFold   bool
+		ignore      []string
+		wantIndexed []string
+	}{
+		{
+			name:        "word: fold all accents",
+			text:        "L'école est fermée",
+			tokeniz:     "word",
+			asciiFold:   true,
+			wantIndexed: []string{"l", "ecole", "est", "fermee"},
+		},
+		{
+			name:        "word: fold with é ignored",
+			text:        "L'école est fermée",
+			tokeniz:     "word",
+			asciiFold:   true,
+			ignore:      []string{"é"},
+			wantIndexed: []string{"l", "école", "est", "fermée"},
+		},
+		{
+			name:        "word: fold with multiple ignores",
+			text:        "naïve café résumé",
+			tokeniz:     "word",
+			asciiFold:   true,
+			ignore:      []string{"é"},
+			wantIndexed: []string{"naive", "café", "résumé"},
+		},
+		{
+			name:        "word: no fold preserves all accents",
+			text:        "L'école est fermée",
+			tokeniz:     "word",
+			asciiFold:   false,
+			wantIndexed: []string{"l", "école", "est", "fermée"},
+		},
+		{
+			name:        "lowercase: fold all accents",
+			text:        "L'école est fermée",
+			tokeniz:     "lowercase",
+			asciiFold:   true,
+			wantIndexed: []string{"l'ecole", "est", "fermee"},
+		},
+		{
+			name:        "lowercase: fold with é ignored",
+			text:        "L'école est fermée",
+			tokeniz:     "lowercase",
+			asciiFold:   true,
+			ignore:      []string{"é"},
+			wantIndexed: []string{"l'école", "est", "fermée"},
+		},
+		{
+			name:        "whitespace: fold all accents",
+			text:        "São Paulo café",
+			tokeniz:     "whitespace",
+			asciiFold:   true,
+			wantIndexed: []string{"Sao", "Paulo", "cafe"},
+		},
+		{
+			name:        "field: fold all accents",
+			text:        "  café résumé  ",
+			tokeniz:     "field",
+			asciiFold:   true,
+			wantIndexed: []string{"cafe resume"},
+		},
+		{
+			name:        "field: fold with é ignored",
+			text:        "  café résumé  ",
+			tokeniz:     "field",
+			asciiFold:   true,
+			ignore:      []string{"é"},
+			wantIndexed: []string{"café résumé"},
+		},
+		{
+			name:        "trigram: fold all accents",
+			text:        "école",
+			tokeniz:     "trigram",
+			asciiFold:   true,
+			wantIndexed: []string{"eco", "col", "ole"},
+		},
+		{
+			name:        "trigram: fold with é ignored",
+			text:        "école",
+			tokeniz:     "trigram",
+			asciiFold:   true,
+			ignore:      []string{"é"},
+			wantIndexed: []string{"éco", "col", "ole"},
+		},
+		{
+			name:        "word: uppercase ignored char also preserved",
+			text:        "Ørsted ørsted",
+			tokeniz:     "word",
+			asciiFold:   true,
+			ignore:      []string{"ø"},
+			wantIndexed: []string{"ørsted", "ørsted"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text := tt.text
+			if tt.asciiFold {
+				ignore := tokenizer.BuildIgnoreSet(tt.ignore)
+				text = tokenizer.FoldASCII(text, ignore)
+			}
+			indexed := tokenizer.Tokenize(tt.tokeniz, text)
+			assert.Equal(t, tt.wantIndexed, indexed)
+		})
+	}
+}
+
 func TestHandleGenericTokenizeGSE(t *testing.T) {
 	t.Setenv("USE_GSE", "true")
 	t.Setenv("ENABLE_TOKENIZER_GSE_CH", "true")

@@ -112,7 +112,13 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		})
 	}
 
-	indexed := tokenizer.TokenizeForClass(prop.Tokenization, *params.Body.Text, className)
+	text := *params.Body.Text
+	if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
+		ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
+		text = tokenizer.FoldASCII(text, ignore)
+	}
+
+	indexed := tokenizer.TokenizeForClass(prop.Tokenization, text, className)
 	query := make([]string, len(indexed))
 	copy(query, indexed)
 
