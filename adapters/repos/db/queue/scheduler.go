@@ -56,7 +56,7 @@ type SchedulerOptions struct {
 	// Function to be called when the scheduler is closed
 	OnClose func()
 	// Prometheus metrics. Optional.
-	PrometheusMetrics *monitoring.PrometheusMetrics
+	Metrics *monitoring.PrometheusMetrics
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
@@ -281,7 +281,7 @@ func (s *Scheduler) ResumeQueue(id string) {
 }
 
 func (s *Scheduler) updatePausedMetric() {
-	if s.PrometheusMetrics == nil {
+	if s.Metrics == nil {
 		return
 	}
 
@@ -294,15 +294,15 @@ func (s *Scheduler) updatePausedMetric() {
 	}
 	s.queues.Unlock()
 
-	s.PrometheusMetrics.QueuePaused.Set(float64(count))
+	s.Metrics.QueuePaused.Set(float64(count))
 }
 
 func (s *Scheduler) updateQueueCountMetric() {
-	if s.PrometheusMetrics == nil {
+	if s.Metrics == nil {
 		return
 	}
 
-	s.PrometheusMetrics.QueueCount.Set(float64(len(s.queues.m)))
+	s.Metrics.QueueCount.Set(float64(len(s.queues.m)))
 }
 
 func (s *Scheduler) Wait(id string) {
