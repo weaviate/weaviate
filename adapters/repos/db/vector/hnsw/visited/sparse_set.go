@@ -14,6 +14,7 @@ package visited
 import (
 	"math"
 	"math/bits"
+	"slices"
 	"sync"
 )
 
@@ -88,13 +89,9 @@ func growToUint64SliceLen(slc []uint64, need uint64) []uint64 {
 	if newLen > uint64(math.MaxInt) {
 		panic("growToUint64SliceLen: requested length over MaxInt")
 	}
-	if uint64(cap(slc)) >= newLen {
-		return slc[:newLen]
-	}
-
-	newSlice := make([]uint64, newLen)
-	copy(newSlice, slc)
-	return newSlice
+	extra := int(newLen - uint64(len(slc)))
+	slc = slices.Grow(slc, extra)
+	return slc[:newLen]
 }
 
 func growToSegmentSliceLen(slc []segment, need uint64) []segment {
@@ -111,13 +108,9 @@ func growToSegmentSliceLen(slc []segment, need uint64) []segment {
 	if newLen > uint64(math.MaxInt) {
 		panic("growToSegmentSliceLen: requested length over MaxInt")
 	}
-	if uint64(cap(slc)) >= newLen {
-		return slc[:newLen]
-	}
-
-	newSlice := make([]segment, newLen)
-	copy(newSlice, slc)
-	return newSlice
+	extra := int(newLen - uint64(len(slc)))
+	slc = slices.Grow(slc, extra)
+	return slc[:newLen]
 }
 
 func (s *SparseSet) grow(node uint64) {
