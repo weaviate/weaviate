@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type Scheduler struct {
@@ -55,6 +56,8 @@ type SchedulerOptions struct {
 	RetryInterval time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
+	// Prometheus metrics. Optional.
+	Metrics *monitoring.PrometheusMetrics
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
@@ -124,7 +127,7 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 
 	s.queues.m[q.ID()] = newQueueState(s.ctx, q)
 
-	q.Metrics().Registered(q.ID())
+	s.updateQueueCountMetric()
 }
 
 func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
@@ -150,7 +153,7 @@ func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 	delete(s.queues.m, id)
 	s.queues.Unlock()
 
-	q.q.Metrics().Unregistered(q.q.ID())
+	s.updateQueueCountMetric()
 }
 
 func (s *Scheduler) Start() {
@@ -238,6 +241,8 @@ func (s *Scheduler) PauseQueue(id string) {
 	q.paused = true
 	q.m.Unlock()
 
+	s.updatePausedMetric()
+
 	s.Logger.WithField("id", id).Debug("queue paused")
 }
 
@@ -271,7 +276,34 @@ func (s *Scheduler) ResumeQueue(id string) {
 	q.paused = false
 	q.m.Unlock()
 
+	s.updatePausedMetric()
+
 	s.Logger.WithField("id", id).Debug("queue resumed")
+}
+
+func (s *Scheduler) updatePausedMetric() {
+	if s.Metrics == nil {
+		return
+	}
+
+	var count int
+	s.queues.Lock()
+	for _, q := range s.queues.m {
+		if q.Paused() {
+			count++
+		}
+	}
+	s.queues.Unlock()
+
+	s.Metrics.QueuePaused.Set(float64(count))
+}
+
+func (s *Scheduler) updateQueueCountMetric() {
+	if s.Metrics == nil {
+		return
+	}
+
+	s.Metrics.QueueCount.Set(float64(len(s.queues.m)))
 }
 
 func (s *Scheduler) Wait(ctx context.Context, id string) error {
@@ -420,7 +452,9 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 
 		q.MarkAsUnscheduled()
 
-		nothingScheduled = count <= 0
+		if count > 0 {
+			nothingScheduled = false
+		}
 	}
 
 	return nothingScheduled

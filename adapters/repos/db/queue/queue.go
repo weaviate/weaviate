@@ -298,6 +298,8 @@ func (q *DiskQueue) Push(record []byte) error {
 
 	q.recordCount++
 	q.diskUsage += int64(n)
+	q.metrics.Size(q.recordCount)
+	q.metrics.DiskUsage(q.diskUsage)
 
 	return nil
 }
@@ -452,19 +454,15 @@ func (q *DiskQueue) Size() int64 {
 	q.m.RLock()
 	defer q.m.RUnlock()
 
-	q.metrics.Size(q.recordCount)
-	q.metrics.DiskUsage(q.diskUsage)
 	return int64(q.recordCount)
 }
 
 func (q *DiskQueue) Pause() {
 	q.scheduler.PauseQueue(q.id)
-	q.metrics.Paused(q.id)
 }
 
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
-	q.metrics.Resumed(q.id)
 }
 
 func (q *DiskQueue) Wait(ctx context.Context) error {
