@@ -66,7 +66,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.97
 	github.com/netresearch/go-cron v0.9.1
 	github.com/nyaruka/phonenumbers v1.2.2
-	github.com/parquet-go/parquet-go v0.27.0
+	github.com/parquet-go/parquet-go v0.29.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
