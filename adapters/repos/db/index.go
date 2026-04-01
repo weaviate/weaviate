@@ -2282,6 +2282,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
+	if selection != nil {
+		limit = int(selection.MMR.Limit)
+	}
+
 	if len(readPlan.Shards()) == 1 {
 		return out, dists, nil
 	}
