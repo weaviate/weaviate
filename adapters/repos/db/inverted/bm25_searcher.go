@@ -235,14 +235,14 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	}
 
 	// Prepare ASCII-folded variants only for tokenizations that need them
+	foldNoIgnore := tokenizer.NewPreparedAnalyzer(&models.TextAnalyzerConfig{ASCIIFold: true})
 	for tok := range needsASCIIFold {
 		asciiiKey := asciiiTokenizationKey(tok)
 		var sw tokenizer.StopwordDetector
 		if tok == models.PropertyTokenizationWord {
 			sw = b.stopWordDetector
 		}
-		foldAnalyzer := &models.TextAnalyzerConfig{ASCIIFold: true}
-		asciiiTerms, asciiiBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, foldAnalyzer, sw)
+		asciiiTerms, asciiiBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, foldNoIgnore, sw)
 		queryTermsByTokenization[asciiiKey] = asciiiTerms
 		duplicateBoostsByTokenization[asciiiKey] = asciiiBoosts
 		propNamesByTokenization[asciiiKey] = make([]string, 0)
@@ -267,7 +267,8 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
 				sw = b.stopWordDetector
 			}
-			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, pi.prop.TextAnalyzer, sw)
+			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
+			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
 			queryTermsByTokenization[tokKey] = propTerms
 			duplicateBoostsByTokenization[tokKey] = propBoosts
 			propNamesByTokenization[tokKey] = make([]string, 0)

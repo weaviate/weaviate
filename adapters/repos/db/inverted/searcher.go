@@ -667,7 +667,8 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			if prop.Tokenization == models.PropertyTokenizationWord {
 				sw = s.stopwords
 			}
-			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prop.TextAnalyzer, sw)
+			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
 			terms = result.Query
 		}
 	default:

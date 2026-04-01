@@ -256,7 +256,8 @@ func TestAnalyzeFoldAndTokenize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tokenizer.Analyze(tt.text, tt.tokeniz, "", tt.textAnalyzer, nil)
+			prepared := tokenizer.NewPreparedAnalyzer(tt.textAnalyzer)
+			result := tokenizer.Analyze(tt.text, tt.tokeniz, "", prepared, nil)
 			assert.Equal(t, tt.wantIndexed, result.Indexed)
 		})
 	}

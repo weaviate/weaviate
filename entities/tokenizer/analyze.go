@@ -27,26 +27,48 @@ type AnalyzeResult struct {
 	Query   []string
 }
 
-// Analyze runs the full text-analysis pipeline used for both indexing and
-// querying: ASCII-fold → tokenize → stopword removal (query only).
+// PreparedAnalyzer caches the ignore set built from a TextAnalyzerConfig so
+// that repeated Analyze calls (e.g. over a text array) don't rebuild it each
+// time.  Create one via NewPreparedAnalyzer; when the schema is updated a new
+// PreparedAnalyzer should be created.
+type PreparedAnalyzer struct {
+	fold      bool
+	ignoreSet map[rune]struct{}
+}
+
+// NewPreparedAnalyzer pre-builds the ignore set from the given config.
+// Returns nil when no folding is configured, which Analyze handles as a no-op.
+func NewPreparedAnalyzer(cfg *models.TextAnalyzerConfig) *PreparedAnalyzer {
+	if cfg == nil || !cfg.ASCIIFold {
+		return nil
+	}
+	return &PreparedAnalyzer{
+		fold:      true,
+		ignoreSet: BuildIgnoreSet(cfg.ASCIIFoldIgnore),
+	}
+}
+
+// foldText applies ASCII folding if configured.
+func (p *PreparedAnalyzer) foldText(text string) string {
+	if p == nil || !p.fold {
+		return text
+	}
+	return FoldASCII(text, p.ignoreSet)
+}
+
+// Analyze runs the full text-analysis pipeline: ASCII-fold → tokenize →
+// stopword removal (query only).
 //
-// Parameters:
-//   - text: the raw input string
-//   - tokenization: one of the PropertyTokenization* constants
-//   - className: the collection name (needed for per-class custom tokenizers)
-//   - TextAnalyzer: per-property folding config (may be nil)
-//   - stopwords: stopword detector for the collection (may be nil)
+// The PreparedAnalyzer may be nil (no folding). Create one via
+// NewPreparedAnalyzer to reuse across multiple calls with the same config.
 func Analyze(
 	text string,
 	tokenization string,
 	className string,
-	TextAnalyzer *models.TextAnalyzerConfig,
+	prepared *PreparedAnalyzer,
 	stopwords StopwordDetector,
 ) AnalyzeResult {
-	if TextAnalyzer != nil && TextAnalyzer.ASCIIFold {
-		ignore := BuildIgnoreSet(TextAnalyzer.ASCIIFoldIgnore)
-		text = FoldASCII(text, ignore)
-	}
+	text = prepared.foldText(text)
 
 	indexed := TokenizeForClass(tokenization, text, className)
 
@@ -70,13 +92,10 @@ func AnalyzeAndCountDuplicates(
 	text string,
 	tokenization string,
 	className string,
-	TextAnalyzer *models.TextAnalyzerConfig,
+	prepared *PreparedAnalyzer,
 	stopwords StopwordDetector,
 ) (terms []string, boosts []int) {
-	if TextAnalyzer != nil && TextAnalyzer.ASCIIFold {
-		ignore := BuildIgnoreSet(TextAnalyzer.ASCIIFoldIgnore)
-		text = FoldASCII(text, ignore)
-	}
+	text = prepared.foldText(text)
 
 	raw := TokenizeForClass(tokenization, text, className)
 
