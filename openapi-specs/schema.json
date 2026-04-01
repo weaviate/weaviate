@@ -983,8 +983,12 @@
           ]
         },
         "analyzerConfig": {
-          "description": "Optional analyzer configuration, such as stopword settings.",
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
         }
       }
     },
@@ -997,8 +1001,12 @@
           "type": "string"
         },
         "analyzerConfig": {
-          "description": "The analyzer configuration that was used, if any.",
+          "description": "The text analyzer configuration that was used, if any.",
           "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",

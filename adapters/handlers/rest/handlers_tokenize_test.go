@@ -91,6 +91,99 @@ func TestHandleGenericTokenize(t *testing.T) {
 			},
 			wantOK: false,
 		},
+		{
+			name: "ascii fold enabled",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("L'école est fermée"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"l", "ecole", "est", "fermee"},
+			wantQuery:   []string{"l", "ecole", "est", "fermee"},
+		},
+		{
+			name: "ascii fold with ignore",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("L'école est fermée"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{"é"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"l", "école", "est", "fermée"},
+			wantQuery:   []string{"l", "école", "est", "fermée"},
+		},
+		{
+			name: "stopword preset en",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("The quick brown fox"),
+				Tokenization: strPtr("word"),
+				StopwordConfig: &models.StopwordConfig{
+					Preset: "en",
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "brown", "fox"},
+			wantQuery:   []string{"quick", "brown", "fox"},
+		},
+		{
+			name: "stopword custom additions only",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello world test"),
+				Tokenization: strPtr("word"),
+				StopwordConfig: &models.StopwordConfig{
+					Additions: []string{"test"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"hello", "world", "test"},
+			wantQuery:   []string{"hello", "world"},
+		},
+		{
+			name: "stopword preset with removals",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick"),
+				Tokenization: strPtr("word"),
+				StopwordConfig: &models.StopwordConfig{
+					Preset:   "en",
+					Removals: []string{"the"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick"},
+			wantQuery:   []string{"the", "quick"},
+		},
+		{
+			name: "ascii fold combined with stopwords",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("The école est fermée"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+				StopwordConfig: &models.StopwordConfig{
+					Preset: "en",
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "ecole", "est", "fermee"},
+			wantQuery:   []string{"ecole", "est", "fermee"},
+		},
+		{
+			name: "nil configs is backward compatible",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello world"),
+				Tokenization: strPtr("word"),
+			},
+			wantOK:      true,
+			wantIndexed: []string{"hello", "world"},
+			wantQuery:   []string{"hello", "world"},
+		},
 	}
 
 	for _, tt := range tests {

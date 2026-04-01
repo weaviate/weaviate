@@ -57,17 +57,30 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		})
 	}
 
-	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
-	query := make([]string, len(indexed))
-	copy(query, indexed)
+	prepared := tokenizer.NewPreparedAnalyzer(params.Body.AnalyzerConfig)
 
-	var analyzerConfig *models.TextAnalyzerConfig
+	var detector tokenizer.StopwordDetector
+	if swCfg := params.Body.StopwordConfig; swCfg != nil {
+		if swCfg.Preset == "" {
+			swCfg.Preset = "none"
+		}
+		var err error
+		detector, err = stopwords.NewDetectorFromConfig(*swCfg)
+		if err != nil {
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "invalid stopword configuration: " + err.Error()}},
+			})
+		}
+	}
+
+	result := tokenizer.Analyze(*params.Body.Text, *params.Body.Tokenization, "", prepared, detector)
 
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization:   *params.Body.Tokenization,
-		AnalyzerConfig: analyzerConfig,
-		Indexed:        indexed,
-		Query:          query,
+		AnalyzerConfig: params.Body.AnalyzerConfig,
+		StopwordConfig: params.Body.StopwordConfig,
+		Indexed:        result.Indexed,
+		Query:          result.Query,
 	})
 }
 

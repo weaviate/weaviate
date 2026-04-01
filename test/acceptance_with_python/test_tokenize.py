@@ -80,6 +80,89 @@ class TestGenericTokenize:
         status, _ = post_json(f"{WEAVIATE_URL}/v1/tokenize", {})
         assert status == 422
 
+    def test_ascii_fold(self) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "L'école est fermée",
+                "tokenization": "word",
+                "analyzerConfig": {"asciiFold": True},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["l", "ecole", "est", "fermee"]
+        assert body["query"] == ["l", "ecole", "est", "fermee"]
+
+    def test_ascii_fold_with_ignore(self) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "L'école est fermée",
+                "tokenization": "word",
+                "analyzerConfig": {"asciiFold": True, "asciiFoldIgnore": ["é"]},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["l", "école", "est", "fermée"]
+        assert body["query"] == ["l", "école", "est", "fermée"]
+
+    def test_stopword_preset(self) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The quick brown fox",
+                "tokenization": "word",
+                "stopwordConfig": {"preset": "en"},
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        assert "the" not in body["query"]
+        assert "quick" in body["query"]
+
+    def test_stopword_custom_additions(self) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "hello world test",
+                "tokenization": "word",
+                "stopwordConfig": {"additions": ["test"]},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["hello", "world", "test"]
+        assert body["query"] == ["hello", "world"]
+
+    def test_stopword_preset_with_removals(self) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "the quick",
+                "tokenization": "word",
+                "stopwordConfig": {"preset": "en", "removals": ["the"]},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "quick"]
+        assert body["query"] == ["the", "quick"]
+
+    def test_ascii_fold_combined_with_stopwords(self) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The école est fermée",
+                "tokenization": "word",
+                "analyzerConfig": {"asciiFold": True},
+                "stopwordConfig": {"preset": "en"},
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "ecole", "est", "fermee"]
+        assert "the" not in body["query"]
+        assert "ecole" in body["query"]
+
 def _sanitize_collection_name(name: str) -> str:
     name = (
         name.replace("[", "")
@@ -177,16 +260,6 @@ class TestPropertyTokenize:
             {"text": "hello world"},
         )
         assert status == 200
-
-    @pytest.mark.skip(reason="Currently, the property-level analyzerConfig does not override the class-level stopword preset. This test will be enabled once that functionality is implemented.")
-    def test_with_en_stopword_preset(self) -> None:
-        status, body = post_json(
-            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
-            {"text": "le chat et la souris"},
-        )
-        assert status == 200
-        assert body["indexed"] == ["le", "chat", "et", "la", "souris"]
-        assert body["query"] == ["le", "chat", "et", "la", "souris"]
 
     def test_with_custom_stopword_preset(self) -> None:
         status, body = post_json(

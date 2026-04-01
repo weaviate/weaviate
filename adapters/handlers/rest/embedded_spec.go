@@ -9583,8 +9583,12 @@ func init() {
       ],
       "properties": {
         "analyzerConfig": {
-          "description": "Optional analyzer configuration, such as stopword settings.",
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -9612,7 +9616,7 @@ func init() {
       "type": "object",
       "properties": {
         "analyzerConfig": {
-          "description": "The analyzer configuration that was used, if any.",
+          "description": "The text analyzer configuration that was used, if any.",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
@@ -9628,6 +9632,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "tokenization": {
           "description": "The tokenization method that was applied.",
@@ -20089,8 +20097,12 @@ func init() {
       ],
       "properties": {
         "analyzerConfig": {
-          "description": "Optional analyzer configuration, such as stopword settings.",
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -20118,7 +20130,7 @@ func init() {
       "type": "object",
       "properties": {
         "analyzerConfig": {
-          "description": "The analyzer configuration that was used, if any.",
+          "description": "The text analyzer configuration that was used, if any.",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
@@ -20134,6 +20146,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "tokenization": {
           "description": "The tokenization method that was applied.",
