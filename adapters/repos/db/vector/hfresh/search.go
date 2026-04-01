@@ -100,7 +100,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			}
 
 			// skip duplicates
-			if visited.Visited(id) {
+			if visited.CheckAndVisit(id) {
 				continue
 			}
 
@@ -114,7 +114,6 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
 
-			visited.Visit(id)
 			q.Insert(id, dist)
 		}
 
