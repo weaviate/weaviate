@@ -35,7 +35,7 @@ fi
 
 # Verify the git ref exists before piping to perl, so failures produce a
 # clear error instead of a silent non-zero exit from pipefail.
-if [ "${diff_cmd[0]}" = "git" ]; then
+if [ "${diff_cmd[0]}" = "git" ] && [ -n "$ARG" ]; then
     if ! git rev-parse --verify "$ARG" >/dev/null 2>&1; then
         echo "Error: git ref not found: $ARG" >&2
         exit 2
