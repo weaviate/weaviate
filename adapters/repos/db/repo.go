@@ -241,8 +241,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// scheduler used by async indexing and spfresh background queues
 	db.shutDownWg.Add(1)
 	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
-		Logger:  logger,
-		OnClose: db.shutDownWg.Done,
+		Logger:            logger,
+		OnClose:           db.shutDownWg.Done,
+		PrometheusMetrics: promMetrics,
 	})
 	db.scheduler.Start()
 

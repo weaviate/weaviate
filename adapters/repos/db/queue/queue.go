@@ -455,12 +455,10 @@ func (q *DiskQueue) Size() int64 {
 
 func (q *DiskQueue) Pause() {
 	q.scheduler.PauseQueue(q.id)
-	q.metrics.Paused(q.id)
 }
 
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
-	q.metrics.Resumed(q.id)
 }
 
 func (q *DiskQueue) Wait() {

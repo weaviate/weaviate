@@ -25,7 +25,6 @@ type Metrics struct {
 	monitoring                  bool
 	queueSize                   prometheus.Gauge
 	queueDiskUsage              prometheus.Gauge
-	queuesPaused                prometheus.Gauge
 	queuesCount                 prometheus.Gauge
 	partitionProcessingDuration prometheus.Observer
 }
@@ -49,35 +48,10 @@ func NewMetrics(
 
 	m.queueSize = prom.QueueSize.With(labels)
 	m.queueDiskUsage = prom.QueueDiskUsage.With(labels)
-	m.queuesPaused = prom.QueuePaused.With(labels)
 	m.queuesCount = prom.QueueCount.With(labels)
 	m.partitionProcessingDuration = prom.QueuePartitionProcessingDuration.With(labels)
 
 	return &m
-}
-
-func (m *Metrics) Paused(id string) {
-	m.logger.WithField("action", "queue_pause").
-		WithField("queue_id", id).
-		Trace("index queue paused")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesPaused.Inc()
-}
-
-func (m *Metrics) Resumed(id string) {
-	m.logger.WithField("action", "queue_resume").
-		WithField("queue_id", id).
-		Trace("index queue resumed")
-
-	if !m.monitoring {
-		return
-	}
-
-	m.queuesPaused.Dec()
 }
 
 func (m *Metrics) Registered(id string) {

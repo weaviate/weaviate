@@ -83,7 +83,7 @@ type PrometheusMetrics struct {
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
 	QueueDiskUsage                   *prometheus.GaugeVec
-	QueuePaused                      *prometheus.GaugeVec
+	QueuePaused                      prometheus.Gauge
 	QueueCount                       *prometheus.GaugeVec
 	QueuePartitionProcessingDuration *prometheus.HistogramVec
 
@@ -314,7 +314,6 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
 	pm.QueueSize.DeletePartialMatch(labels)
 	pm.QueueDiskUsage.DeletePartialMatch(labels)
-	pm.QueuePaused.DeletePartialMatch(labels)
 	pm.QueueCount.DeletePartialMatch(labels)
 	pm.QueuePartitionProcessingDuration.DeletePartialMatch(labels)
 	pm.VectorIndexQueueInsertCount.DeletePartialMatch(labels)
@@ -573,10 +572,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "queue_disk_usage",
 			Help: "Disk usage of the queue",
 		}, []string{"class_name", "shard_name"}),
-		QueuePaused: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		QueuePaused: promauto.NewGauge(prometheus.GaugeOpts{
 			Name: "queue_paused",
-			Help: "Whether the queue is paused",
-		}, []string{"class_name", "shard_name"}),
+			Help: "Number of paused queues",
+		}),
 		QueueCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "queue_count",
 			Help: "Number of queues",
