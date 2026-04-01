@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/spfresh"
 )
@@ -85,7 +84,7 @@ type SPFresh struct {
 
 	taskQueue TaskQueue
 
-	visitedPool *visited.Pool
+	visitedPool *Pool
 
 	postingLocks       *common.ShardedRWLocks // Locks to prevent concurrent modifications to the same posting.
 	initialPostingLock sync.Mutex
@@ -130,7 +129,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*SPFresh, error) {
 		postingLocks: common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:        visited.NewPool(1, 512, -1),
+		visitedPool:        NewPool(1, 512, -1),
 		maxPostingSize:     uc.MaxPostingSize,
 		minPostingSize:     uc.MinPostingSize,
 		replicas:           uc.Replicas,
