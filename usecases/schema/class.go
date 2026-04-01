@@ -18,6 +18,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -940,6 +942,13 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 
 	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
 		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%v and IndexFilterable=%v", prop.Name, prop.IndexSearchable, prop.IndexFilterable)
+	}
+
+	for _, entry := range prop.TextAnalyser.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
+				prop.Name, entry)
+		}
 	}
 
 	return nil

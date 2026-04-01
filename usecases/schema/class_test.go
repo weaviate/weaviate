@@ -3059,3 +3059,60 @@ func Test_deepEqualVectorizerSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name        string
+		ignore      []string
+		expectError bool
+	}{
+		{
+			name:        "single NFC character accepted",
+			ignore:      []string{"é"},
+			expectError: false,
+		},
+		{
+			name:        "multiple single characters accepted",
+			ignore:      []string{"é", "ñ", "ü"},
+			expectError: false,
+		},
+		{
+			name:        "NFD character normalized to single codepoint accepted",
+			ignore:      []string{"e\u0301"}, // é in NFD form
+			expectError: false,
+		},
+		{
+			name:        "multi-character string rejected",
+			ignore:      []string{"ab"},
+			expectError: true,
+		},
+		{
+			name:        "empty ignore list accepted",
+			ignore:      nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				IndexSearchable: &searchable,
+				TextAnalyser: &models.TextAnalyserConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: tt.ignore,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "single character")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
