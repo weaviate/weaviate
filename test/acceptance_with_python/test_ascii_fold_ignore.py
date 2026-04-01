@@ -62,7 +62,7 @@ def _create_and_populate(client, collection_name: str) -> None:
                     "tokenization": "word",
                     "textAnalyser": {
                         "asciiFold": True,
-                        "asciiFoldIgnore": ["é"],
+                        "asciiFoldIgnore": ["é", "Ł"],
                     },
                 },
                 {
@@ -83,6 +83,7 @@ def _create_and_populate(client, collection_name: str) -> None:
             {"title": "L'école est fermée", "body": "L'école est fermée"},
             {"title": "cafe résumé", "body": "cafe résumé"},
             {"title": "São Paulo café", "body": "São Paulo café"},
+            {"title": "Łódź", "body": "Łódź"},
         ]
     )
 
@@ -173,6 +174,12 @@ class TestASCIIFoldBM25:
         # body: "cafe" matches both "café" and "cafe"
         r = self.collection.query.bm25(query="cafe", query_properties=["body"], limit=5)
         assert len(r.objects) == 2
+
+        assert len(self.collection.query.bm25("Łódź", query_properties=["title"]).objects) == 1
+        assert len(self.collection.query.bm25("Lodz", query_properties=["title"]).objects) == 0 # Ł preserved
+        assert len(self.collection.query.bm25("Lodz", query_properties=["body"]).objects) == 1 # Ł folded to L
+        assert len(self.collection.query.bm25("Łódź", query_properties=["body"]).objects) == 1
+
 
     def test_bm25f_multi_property(self) -> None:
         """Multi-property BM25F searches with mixed ignore lists."""
