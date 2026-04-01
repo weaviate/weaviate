@@ -298,6 +298,8 @@ func (q *DiskQueue) Push(record []byte) error {
 
 	q.recordCount++
 	q.diskUsage += int64(n)
+	q.metrics.Size(q.recordCount)
+	q.metrics.DiskUsage(q.diskUsage)
 
 	return nil
 }
@@ -452,8 +454,6 @@ func (q *DiskQueue) Size() int64 {
 	q.m.RLock()
 	defer q.m.RUnlock()
 
-	q.metrics.Size(q.recordCount)
-	q.metrics.DiskUsage(q.diskUsage)
 	return int64(q.recordCount)
 }
 
@@ -462,7 +462,6 @@ func (q *DiskQueue) Size() int64 {
 // This does not prevent pushing new tasks to the queue.
 func (q *DiskQueue) Pause(ctx context.Context, nowait ...bool) error {
 	q.scheduler.PauseQueue(q.id)
-	q.metrics.Paused(q.id)
 	if len(nowait) == 0 || !nowait[0] {
 		return q.scheduler.Wait(ctx, q.id)
 	}
@@ -472,7 +471,6 @@ func (q *DiskQueue) Pause(ctx context.Context, nowait ...bool) error {
 // Resume the dequeuing of tasks.
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
-	q.metrics.Resumed(q.id)
 }
 
 // Wait blocks until all currently running tasks are finished.
