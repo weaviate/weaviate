@@ -132,4 +132,3 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		Query:        result.Query,
 	})
 }
-
