@@ -403,7 +403,9 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 
 		q.MarkAsUnscheduled()
 
-		nothingScheduled = count <= 0
+		if count > 0 {
+			nothingScheduled = false
+		}
 	}
 
 	return nothingScheduled
