@@ -112,41 +112,24 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		})
 	}
 
-	text := *params.Body.Text
-	if prop.TextAnalyser != nil && prop.TextAnalyser.ASCIIFold {
-		ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyser.ASCIIFoldIgnore)
-		text = tokenizer.FoldASCII(text, ignore)
-	}
-
-	indexed := tokenizer.TokenizeForClass(prop.Tokenization, text, className)
-	query := make([]string, len(indexed))
-	copy(query, indexed)
-
+	var detector tokenizer.StopwordDetector
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		detector, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
+		var err error
+		detector, err = stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {
 			logger.WithField("action", "create_stopword_detector").Error(err)
 			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
 				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
 			})
-		} else {
-			query = removeStopwords(indexed, detector)
 		}
 	}
+
+	result := tokenizer.Analyse(*params.Body.Text, prop.Tokenization, className, prop.TextAnalyser, detector)
 
 	return schemaops.NewSchemaObjectsPropertiesTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization: prop.Tokenization,
-		Indexed:      indexed,
-		Query:        query,
+		Indexed:      result.Indexed,
+		Query:        result.Query,
 	})
 }
 
-func removeStopwords(tokens []string, detector *stopwords.Detector) []string {
-	filtered := make([]string, 0, len(tokens))
-	for _, token := range tokens {
-		if !detector.IsStopword(token) {
-			filtered = append(filtered, token)
-		}
-	}
-	return filtered
-}

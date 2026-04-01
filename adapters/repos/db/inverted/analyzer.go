@@ -76,22 +76,13 @@ func (a *Analyzer) Text(tokenization, in string, textAnalyser *models.TextAnalys
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
 func (a *Analyzer) TextArray(tokenization string, inArr []string, textAnalyser *models.TextAnalyserConfig) []Countable {
-	var ignore map[rune]struct{}
-	if textAnalyser != nil && textAnalyser.ASCIIFold {
-		ignore = tokenizer.BuildIgnoreSet(textAnalyser.ASCIIFoldIgnore)
-	}
-
-	var terms []string
-	for _, in := range inArr {
-		if textAnalyser != nil && textAnalyser.ASCIIFold {
-			in = tokenizer.FoldASCII(in, ignore)
-		}
-		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
-	}
-
 	counts := map[string]uint64{}
-	for _, term := range terms {
-		counts[term]++
+	for _, in := range inArr {
+		// Analyse with nil stopwords: indexing stores all tokens including stopwords
+		result := tokenizer.Analyse(in, tokenization, a.className, textAnalyser, nil)
+		for _, term := range result.Indexed {
+			counts[term]++
+		}
 	}
 
 	countable := make([]Countable, len(counts))

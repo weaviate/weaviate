@@ -224,23 +224,25 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 	// Second pass: tokenize query only for needed tokenizations
 	for tok := range neededTokenizations {
-		queryTerms, dupBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tok, params.Query, class.Class)
+		var sw tokenizer.StopwordDetector
 		if tok == models.PropertyTokenizationWord {
-			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTerms, dupBoosts)
+			sw = b.stopWordDetector
 		}
+		queryTerms, dupBoosts := tokenizer.AnalyseAndCountDuplicates(params.Query, tok, class.Class, nil, sw)
 		queryTermsByTokenization[tok] = queryTerms
 		duplicateBoostsByTokenization[tok] = dupBoosts
 		propNamesByTokenization[tok] = make([]string, 0)
 	}
 
-	// Prepare asciii-folded variants only for tokenizations that need them
+	// Prepare ASCII-folded variants only for tokenizations that need them
 	for tok := range needsASCIIFold {
 		asciiiKey := asciiiTokenizationKey(tok)
-		foldedQuery := tokenizer.FoldASCII(params.Query, nil)
-		asciiiTerms, asciiiBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(tok, foldedQuery, class.Class)
+		var sw tokenizer.StopwordDetector
 		if tok == models.PropertyTokenizationWord {
-			asciiiTerms, asciiiBoosts = b.removeStopwordsFromQueryTerms(asciiiTerms, asciiiBoosts)
+			sw = b.stopWordDetector
 		}
+		foldAnalyser := &models.TextAnalyserConfig{ASCIIFold: true}
+		asciiiTerms, asciiiBoosts := tokenizer.AnalyseAndCountDuplicates(params.Query, tok, class.Class, foldAnalyser, sw)
 		queryTermsByTokenization[asciiiKey] = asciiiTerms
 		duplicateBoostsByTokenization[asciiiKey] = asciiiBoosts
 		propNamesByTokenization[asciiiKey] = make([]string, 0)
@@ -261,12 +263,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		tokKey := pi.tokKey
 		if pi.prop.TextAnalyser != nil && pi.prop.TextAnalyser.ASCIIFold && len(pi.prop.TextAnalyser.ASCIIFoldIgnore) > 0 {
-			ignore := tokenizer.BuildIgnoreSet(pi.prop.TextAnalyser.ASCIIFoldIgnore)
-			foldedQ := tokenizer.FoldASCII(params.Query, ignore)
-			propTerms, propBoosts := tokenizer.TokenizeAndCountDuplicatesForClass(pi.prop.Tokenization, foldedQ, class.Class)
+			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				propTerms, propBoosts = b.removeStopwordsFromQueryTerms(propTerms, propBoosts)
+				sw = b.stopWordDetector
 			}
+			propTerms, propBoosts := tokenizer.AnalyseAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, pi.prop.TextAnalyser, sw)
 			queryTermsByTokenization[tokKey] = propTerms
 			duplicateBoostsByTokenization[tokKey] = propBoosts
 			propNamesByTokenization[tokKey] = make([]string, 0)
@@ -422,30 +423,6 @@ func (b *BM25Searcher) wand(
 	return objects, scores, err
 }
 
-func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string, duplicateBoost []int) ([]string, []int) {
-	if b.stopWordDetector == nil || len(queryTerms) == 0 {
-		return queryTerms, duplicateBoost
-	}
-
-	i := 0
-WordLoop:
-	for {
-		if i == len(queryTerms) {
-			return queryTerms, duplicateBoost
-		}
-		queryTerm := queryTerms[i]
-		if b.stopWordDetector.IsStopword(queryTerm) {
-			queryTerms[i] = queryTerms[len(queryTerms)-1]
-			queryTerms = queryTerms[:len(queryTerms)-1]
-			duplicateBoost[i] = duplicateBoost[len(duplicateBoost)-1]
-			duplicateBoost = duplicateBoost[:len(duplicateBoost)-1]
-
-			continue WordLoop
-		}
-
-		i++
-	}
-}
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
 	allRequests []string, additional additional.Properties,
