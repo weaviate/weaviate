@@ -51,8 +51,6 @@ type Module struct {
 	*s3Client
 	logger   logrus.FieldLogger
 	dataPath string
-	bucket   string
-	path     string
 }
 
 func New() *Module {
