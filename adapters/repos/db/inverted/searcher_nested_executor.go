@@ -38,23 +38,9 @@ func (s bitmapsByCard) Swap(i, j int) {
 	s.cards[i], s.cards[j] = s.cards[j], s.cards[i]
 }
 
-// applyDirectAnd intersects all raw position bitmaps and strips to docIDs.
-// Implements the directAnd operation: positions are naturally aligned so a
-// plain bitmap AND followed by MaskRootLeaf gives correct results.
-func applyDirectAnd(positionBitmaps []*sroar.Bitmap) *sroar.Bitmap {
-	return nested.MaskRootLeaf(nested.AndAll(positionBitmaps))
-}
-
-// applyMaskLeafAnd zeroes leaf bits on each bitmap, ANDs them, and strips to
-// docIDs. Implements the maskLeafAnd operation: aligns on root+docID so paths
-// from different subtrees or a single-object LCA are correctly combined.
-func applyMaskLeafAnd(positionBitmaps []*sroar.Bitmap) *sroar.Bitmap {
-	return nested.MaskRootLeaf(nested.AndAllMaskLeaf(positionBitmaps))
-}
-
-// applyIdxLoop implements the idxLoopAnd operation. It iterates over all
-// _idx.{lcaPath}[N] entries in the meta bucket and verifies that all
-// conditions fall under the same array element N before accumulating results.
+// runIdxLoop iterates _idx.{lcaPath}[N] entries and verifies all conditions
+// fall within the same array element. Returns a root+docID bitmap (leaf bits
+// zeroed, root bits preserved); the caller applies MaskRootLeaf if needed.
 //
 // Optimisations applied:
 //  1. Conditions are sorted by cardinality (most selective first) so the
@@ -64,37 +50,31 @@ func applyMaskLeafAnd(positionBitmaps []*sroar.Bitmap) *sroar.Bitmap {
 //  3. Per-element pre-check: preFilter AND maskedElem is computed (1 alloc)
 //     before the expensive K-condition processing (2K allocs). Elements where
 //     no document can match all conditions are skipped cheaply. Because
-//     preFilter ⊆ maskedBitmaps[i] for all i, this also implies each
+//     preFilter ⊆ MaskLeaf(sorted[i]) for all i, this also implies each
 //     individual condition overlaps the element — no per-condition skip is
 //     needed inside the inner loop.
 //  4. Early termination when result already contains all documents in preFilter.
 //
 // Algorithm:
 //
-//	maskedBitmaps[i] = MaskLeaf(positionBitmaps[i])  for each i
-//	preFilter = AND of all maskedBitmaps
+//	preFilter = AndAllMaskLeaf(sorted)
 //	if preFilter empty → return empty
 //	for each _idx.{lcaPath}[N] entry:
-//	    maskedElem = MaskLeaf(elem[N])
-//	    if preFilter AND maskedElem empty → skip element cheaply
-//	    partial = MaskLeaf(bm[0] AND elem[N]) AND ...
+//	    if preFilter AND MaskLeaf(elem[N]) empty → skip element cheaply
+//	    partial = MaskLeafAnd(bm[0], elem[N]) AND MaskLeafAnd(bm[1], elem[N]) AND ...
 //	    result = result OR partial
 //	    if result covers all docs in preFilter → stop early
-//	return MaskRootLeaf(result)
-func applyIdxLoop(
+//	return result  (root+docID; caller applies MaskRootLeaf if needed)
+func (e *resolutionPlanExecutor) runIdxLoop(
 	ctx context.Context,
-	metaBucket *lsmkv.Bucket,
 	lcaPath string,
 	positionBitmaps []*sroar.Bitmap,
 ) (*sroar.Bitmap, error) {
-	if metaBucket == nil {
-		return nil, fmt.Errorf("applyIdxLoop: meta bucket is nil for path %q", lcaPath)
-	}
 	if len(positionBitmaps) == 0 {
-		return nil, fmt.Errorf("applyIdxLoop: no position bitmaps provided for path %q", lcaPath)
+		return nil, fmt.Errorf("runIdxLoop: no position bitmaps provided for path %q", lcaPath)
 	}
 	if len(positionBitmaps) == 1 {
-		return nested.MaskRootLeaf(positionBitmaps[0]), nil
+		return nested.MaskLeaf(positionBitmaps[0]), nil
 	}
 
 	// Optimisation 1: sort conditions by cardinality ascending so the most
@@ -125,7 +105,7 @@ func applyIdxLoop(
 	idxPrefix := nested.PathPrefix("_idx." + lcaPath)
 	result := sroar.NewBitmap()
 
-	c := metaBucket.CursorRoaringSet()
+	c := e.metaBucket.CursorRoaringSet()
 	defer c.Close()
 
 	for k, elemBitmap := c.Seek(nested.IdxKey(lcaPath, 0)); k != nil; k, elemBitmap = c.Next() {
@@ -170,5 +150,124 @@ func applyIdxLoop(
 		}
 	}
 
-	return nested.MaskRootLeaf(result), nil
+	return result, nil
+}
+
+// resolutionPlanExecutor executes a resolutionPlan for a correlated nested AND.
+// bitmapsByPath maps each relative nested path to its pre-computed raw position
+// bitmap. metaBucket is the _idx meta bucket for the root nested property; it
+// may be nil when no idxLoopAnd node is in the plan.
+//
+// TODO aliszka:nested_filtering bitmapsByPath holds bare *sroar.Bitmap values
+// with no associated release functions. Bitmaps fetched via fetchRawPositions
+// may be backed by pooled buffers that must be returned to the pool after use.
+// Add a releases []func() field and defer-call all of them at the end of
+// execute() so pooled buffers are correctly returned. See Option A in notes.
+type resolutionPlanExecutor struct {
+	plan          *resolutionPlan
+	bitmapsByPath map[string]*sroar.Bitmap
+	metaBucket    *lsmkv.Bucket
+}
+
+// newResolutionPlanExecutor returns an executor ready to run a resolutionPlan.
+func newResolutionPlanExecutor(
+	plan *resolutionPlan,
+	bitmapsByPath map[string]*sroar.Bitmap,
+	metaBucket *lsmkv.Bucket,
+) *resolutionPlanExecutor {
+	return &resolutionPlanExecutor{plan: plan, bitmapsByPath: bitmapsByPath, metaBucket: metaBucket}
+}
+
+// execute runs the plan and returns a docID-only bitmap.
+// MaskRootLeaf is applied once at the top; all recursive calls work with
+// partially-preserved position bits.
+func (e *resolutionPlanExecutor) execute(ctx context.Context) (*sroar.Bitmap, error) {
+	bm, err := e.executeNode(ctx, e.plan)
+	if err != nil {
+		return nil, err
+	}
+	return nested.MaskRootLeaf(bm), nil
+}
+
+// executeNode dispatches to the appropriate handler based on plan.op.
+// Each handler owns both the interior-groups and leaf-paths cases for its op.
+func (e *resolutionPlanExecutor) executeNode(ctx context.Context, plan *resolutionPlan) (*sroar.Bitmap, error) {
+	switch plan.op {
+	case directAnd:
+		return e.executeDirectAnd(plan)
+	case maskLeafAnd:
+		return e.executeMaskLeafAnd(ctx, plan)
+	case idxLoopAnd:
+		return e.executeIdxLoopAnd(ctx, plan)
+	}
+	return nil, fmt.Errorf("executeNode: unhandled op %d", plan.op)
+}
+
+// executeDirectAnd handles directAnd nodes. Positions are naturally aligned
+// (scalar siblings or ancestor/descendant), so a plain AND suffices.
+// directAnd is always a leaf node — no groups.
+func (e *resolutionPlanExecutor) executeDirectAnd(plan *resolutionPlan) (*sroar.Bitmap, error) {
+	bitmaps, err := e.fetchBitmaps(plan.paths)
+	if err != nil {
+		return nil, err
+	}
+	return nested.AndAll(bitmaps), nil
+}
+
+// executeMaskLeafAnd handles maskLeafAnd nodes. Zeros the leaf bits of each
+// input bitmap and ANDs them, aligning on root+docID. Handles both interior
+// nodes (sub-groups are recursively executed) and leaf nodes (paths fetched).
+func (e *resolutionPlanExecutor) executeMaskLeafAnd(ctx context.Context, plan *resolutionPlan) (*sroar.Bitmap, error) {
+	bitmaps, err := e.collectBitmaps(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	return nested.AndAllMaskLeaf(bitmaps), nil
+}
+
+// executeIdxLoopAnd handles idxLoopAnd nodes. Verifies that all conditions land
+// within the same array element by iterating _idx.{lcaPath}[N] meta entries.
+// Handles both interior nodes (sub-groups executed first) and leaf nodes
+// (paths fetched directly). Returns root+docID.
+func (e *resolutionPlanExecutor) executeIdxLoopAnd(ctx context.Context, plan *resolutionPlan) (*sroar.Bitmap, error) {
+	if e.metaBucket == nil {
+		return nil, fmt.Errorf("executeIdxLoopAnd: meta bucket is nil for path %q", plan.lcaPath)
+	}
+	bitmaps, err := e.collectBitmaps(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	return e.runIdxLoop(ctx, plan.lcaPath, bitmaps)
+}
+
+// collectBitmaps executes each sub-group of an interior maskLeafAnd or
+// idxLoopAnd node and returns the resulting bitmaps. maskLeafAnd and
+// idxLoopAnd nodes always have groups — flat paths are only used by directAnd,
+// which never calls this method.
+func (e *resolutionPlanExecutor) collectBitmaps(ctx context.Context, plan *resolutionPlan) ([]*sroar.Bitmap, error) {
+	if len(plan.groups) == 0 {
+		return nil, fmt.Errorf("collectBitmaps: %d node has no groups", plan.op)
+	}
+	bitmaps := make([]*sroar.Bitmap, 0, len(plan.groups))
+	for _, group := range plan.groups {
+		bm, err := e.executeNode(ctx, group)
+		if err != nil {
+			return nil, err
+		}
+		bitmaps = append(bitmaps, bm)
+	}
+	return bitmaps, nil
+}
+
+// fetchBitmaps returns the pre-computed position bitmap for each path.
+func (e *resolutionPlanExecutor) fetchBitmaps(paths []string) ([]*sroar.Bitmap, error) {
+	bitmaps := make([]*sroar.Bitmap, 0, len(paths))
+	for _, path := range paths {
+		bm, ok := e.bitmapsByPath[path]
+		if !ok {
+			return nil, fmt.Errorf("fetchBitmaps: no bitmap for path %q", path)
+		}
+		bitmaps = append(bitmaps, bm)
+	}
+	return bitmaps, nil
 }

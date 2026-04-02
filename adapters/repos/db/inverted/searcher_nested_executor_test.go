@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,69 +23,133 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-// ---- applyDirectAnd --------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Plan-building helpers
+// ---------------------------------------------------------------------------
 
-func TestApplyDirectAnd(t *testing.T) {
+// directAndPlan builds a directAnd plan and bitmapsByPath from the given
+// bitmaps. Paths are auto-generated as "p1", "p2", …
+func directAndPlan(bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*sroar.Bitmap) {
+	paths := make([]string, len(bitmaps))
+	bitmapsByPath := make(map[string]*sroar.Bitmap, len(bitmaps))
+	for i, bm := range bitmaps {
+		path := fmt.Sprintf("p%d", i+1)
+		paths[i] = path
+		bitmapsByPath[path] = bm
+	}
+	return &resolutionPlan{op: directAnd, paths: paths}, bitmapsByPath
+}
+
+// maskLeafAndPlan builds a maskLeafAnd interior plan where each bitmap becomes
+// one directAnd sub-group.
+func maskLeafAndPlan(bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*sroar.Bitmap) {
+	groups := make([]*resolutionPlan, len(bitmaps))
+	bitmapsByPath := make(map[string]*sroar.Bitmap, len(bitmaps))
+	for i, bm := range bitmaps {
+		path := fmt.Sprintf("p%d", i+1)
+		groups[i] = &resolutionPlan{op: directAnd, paths: []string{path}}
+		bitmapsByPath[path] = bm
+	}
+	return &resolutionPlan{op: maskLeafAnd, groups: groups}, bitmapsByPath
+}
+
+// idxLoopAndPlan builds an idxLoopAnd plan where each bitmap becomes one
+// directAnd sub-group.
+func idxLoopAndPlan(lcaPath string, bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*sroar.Bitmap) {
+	groups := make([]*resolutionPlan, len(bitmaps))
+	bitmapsByPath := make(map[string]*sroar.Bitmap, len(bitmaps))
+	for i, bm := range bitmaps {
+		path := fmt.Sprintf("p%d", i+1)
+		groups[i] = &resolutionPlan{op: directAnd, paths: []string{path}}
+		bitmapsByPath[path] = bm
+	}
+	return &resolutionPlan{op: idxLoopAnd, lcaPath: lcaPath, groups: groups}, bitmapsByPath
+}
+
+// exec is a shorthand for executeResolutionPlan with no meta bucket.
+func exec(t *testing.T, plan *resolutionPlan, bitmapsByPath map[string]*sroar.Bitmap) *sroar.Bitmap {
+	t.Helper()
+	result, err := newResolutionPlanExecutor(plan, bitmapsByPath, nil).execute(context.Background())
+	require.NoError(t, err)
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// directAnd
+// ---------------------------------------------------------------------------
+
+func TestExecuteResolutionPlanDirectAnd(t *testing.T) {
 	const (
 		doc5 = uint64(5)
 		doc7 = uint64(7)
 	)
-	// Positions for doc5 at different root/leaf coordinates.
 	pos511 := nested.Encode(1, 1, doc5) // root=1 leaf=1 docID=5
-	pos512 := nested.Encode(1, 2, doc5) // root=1 leaf=2 docID=5 — same root+docID, different leaf
-	pos521 := nested.Encode(2, 1, doc5) // root=2 leaf=1 docID=5 — different root
-	pos711 := nested.Encode(1, 1, doc7) // root=1 leaf=1 docID=7 — different doc
+	pos512 := nested.Encode(1, 2, doc5) // same root+docID, different leaf
+	pos521 := nested.Encode(2, 1, doc5) // different root
+	pos711 := nested.Encode(1, 1, doc7) // different doc
 
 	t.Run("empty input returns empty", func(t *testing.T) {
-		assert.True(t, applyDirectAnd(nil).IsEmpty())
+		plan, bitmapsByPath := directAndPlan()
+		assert.True(t, exec(t, plan, bitmapsByPath).IsEmpty())
 	})
 
 	t.Run("single bitmap returns docIDs", func(t *testing.T) {
-		assert.Equal(t, []uint64{doc5}, applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511)}).ToArray())
+		plan, bitmapsByPath := directAndPlan(roaringset.NewBitmap(pos511))
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("exact same raw position in both bitmaps — match", func(t *testing.T) {
-		result := applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos511)})
-		assert.Equal(t, []uint64{doc5}, result.ToArray())
+		plan, bitmapsByPath := directAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos511))
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("same root+docID different leaf — no match (requires exact position)", func(t *testing.T) {
-		// directAnd requires identical raw positions; leaf difference breaks the AND.
-		result := applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512)})
-		assert.True(t, result.IsEmpty())
+		plan, bitmapsByPath := directAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512))
+		assert.True(t, exec(t, plan, bitmapsByPath).IsEmpty())
 	})
 
 	t.Run("different root — no match", func(t *testing.T) {
-		result := applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos521)})
-		assert.True(t, result.IsEmpty())
+		plan, bitmapsByPath := directAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos521))
+		assert.True(t, exec(t, plan, bitmapsByPath).IsEmpty())
 	})
 
 	t.Run("different docID — no match", func(t *testing.T) {
-		result := applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos711)})
-		assert.True(t, result.IsEmpty())
+		plan, bitmapsByPath := directAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos711))
+		assert.True(t, exec(t, plan, bitmapsByPath).IsEmpty())
 	})
 
 	t.Run("three bitmaps — intersection of all", func(t *testing.T) {
-		result := applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511, pos521), roaringset.NewBitmap(pos511, pos711), roaringset.NewBitmap(pos511)})
-		assert.Equal(t, []uint64{doc5}, result.ToArray())
+		plan, bitmapsByPath := directAndPlan(
+			roaringset.NewBitmap(pos511, pos521),
+			roaringset.NewBitmap(pos511, pos711),
+			roaringset.NewBitmap(pos511),
+		)
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("multiple matching docs", func(t *testing.T) {
-		result := applyDirectAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511, pos711), roaringset.NewBitmap(pos511, pos711)})
-		assert.Equal(t, []uint64{doc5, doc7}, result.ToArray())
+		plan, bitmapsByPath := directAndPlan(
+			roaringset.NewBitmap(pos511, pos711),
+			roaringset.NewBitmap(pos511, pos711),
+		)
+		assert.Equal(t, []uint64{doc5, doc7}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("inputs not modified", func(t *testing.T) {
-		a, b := roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos511)
-		applyDirectAnd([]*sroar.Bitmap{a, b})
+		a := roaringset.NewBitmap(pos511)
+		b := roaringset.NewBitmap(pos511)
+		plan, bitmapsByPath := directAndPlan(a, b)
+		exec(t, plan, bitmapsByPath)
 		assert.Equal(t, []uint64{pos511}, a.ToArray())
 		assert.Equal(t, []uint64{pos511}, b.ToArray())
 	})
 }
 
-// ---- applyMaskLeafAnd ------------------------------------------------------
+// ---------------------------------------------------------------------------
+// maskLeafAnd
+// ---------------------------------------------------------------------------
 
-func TestApplyMaskLeafAnd(t *testing.T) {
+func TestExecuteResolutionPlanMaskLeafAnd(t *testing.T) {
 	const (
 		doc5 = uint64(5)
 		doc7 = uint64(7)
@@ -95,73 +160,75 @@ func TestApplyMaskLeafAnd(t *testing.T) {
 	pos521 := nested.Encode(2, 1, doc5) // different root, same docID
 	pos711 := nested.Encode(1, 1, doc7) // same root+leaf, different docID
 
-	t.Run("empty input returns empty", func(t *testing.T) {
-		assert.True(t, applyMaskLeafAnd(nil).IsEmpty())
-	})
-
 	t.Run("single bitmap returns docIDs", func(t *testing.T) {
-		assert.Equal(t, []uint64{doc5}, applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511)}).ToArray())
+		plan, bitmapsByPath := maskLeafAndPlan(roaringset.NewBitmap(pos511))
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("same raw position — match", func(t *testing.T) {
-		result := applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos511)})
-		assert.Equal(t, []uint64{doc5}, result.ToArray())
+		plan, bitmapsByPath := maskLeafAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos511))
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("same root+docID different leaf — match (leaf is zeroed before AND)", func(t *testing.T) {
-		// This is the key difference from directAnd: leaf bits are erased so
-		// positions that differ only in leaf_idx — i.e. siblings within the same
-		// element — are treated as identical.
-		result := applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512)})
-		assert.Equal(t, []uint64{doc5}, result.ToArray())
+		plan, bitmapsByPath := maskLeafAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512))
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("three bitmaps same root+docID different leaves — match", func(t *testing.T) {
-		result := applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512), roaringset.NewBitmap(pos513)})
-		assert.Equal(t, []uint64{doc5}, result.ToArray())
+		plan, bitmapsByPath := maskLeafAndPlan(
+			roaringset.NewBitmap(pos511),
+			roaringset.NewBitmap(pos512),
+			roaringset.NewBitmap(pos513),
+		)
+		assert.Equal(t, []uint64{doc5}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("different root same docID — no match (root encodes element identity)", func(t *testing.T) {
-		result := applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos521)})
-		assert.True(t, result.IsEmpty())
+		plan, bitmapsByPath := maskLeafAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos521))
+		assert.True(t, exec(t, plan, bitmapsByPath).IsEmpty())
 	})
 
 	t.Run("different docID — no match", func(t *testing.T) {
-		result := applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos711)})
-		assert.True(t, result.IsEmpty())
+		plan, bitmapsByPath := maskLeafAndPlan(roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos711))
+		assert.True(t, exec(t, plan, bitmapsByPath).IsEmpty())
 	})
 
 	t.Run("multiple matching docs", func(t *testing.T) {
 		pos712 := nested.Encode(1, 2, doc7)
-		result := applyMaskLeafAnd([]*sroar.Bitmap{roaringset.NewBitmap(pos511, pos711), roaringset.NewBitmap(pos512, pos712)})
-		assert.Equal(t, []uint64{doc5, doc7}, result.ToArray())
+		plan, bitmapsByPath := maskLeafAndPlan(
+			roaringset.NewBitmap(pos511, pos711),
+			roaringset.NewBitmap(pos512, pos712),
+		)
+		assert.Equal(t, []uint64{doc5, doc7}, exec(t, plan, bitmapsByPath).ToArray())
 	})
 
 	t.Run("inputs not modified", func(t *testing.T) {
-		a, b := roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512)
-		applyMaskLeafAnd([]*sroar.Bitmap{a, b})
+		a := roaringset.NewBitmap(pos511)
+		b := roaringset.NewBitmap(pos512)
+		plan, bitmapsByPath := maskLeafAndPlan(a, b)
+		exec(t, plan, bitmapsByPath)
 		assert.Equal(t, []uint64{pos511}, a.ToArray())
 		assert.Equal(t, []uint64{pos512}, b.ToArray())
 	})
 }
 
-// ---- applyIdxLoop preconditions (no lsmkv required) ------------------------
+// ---------------------------------------------------------------------------
+// idxLoopAnd preconditions (no lsmkv required)
+// ---------------------------------------------------------------------------
 
-func TestApplyIdxLoopPreconditions(t *testing.T) {
+func TestExecuteResolutionPlanIdxLoopPreconditions(t *testing.T) {
 	pos511 := nested.Encode(1, 1, 5)
 	pos512 := nested.Encode(1, 2, 5)
 
-	t.Run("nil metaBucket returns error regardless of bitmaps", func(t *testing.T) {
-		_, err := applyIdxLoop(context.Background(), nil, "cars", []*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512)})
+	t.Run("nil metaBucket returns error", func(t *testing.T) {
+		plan, bitmapsByPath := idxLoopAndPlan("cars",
+			roaringset.NewBitmap(pos511),
+			roaringset.NewBitmap(pos512),
+		)
+		_, err := newResolutionPlanExecutor(plan, bitmapsByPath, nil).execute(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "meta bucket is nil")
 		assert.Contains(t, err.Error(), "cars")
-	})
-
-	t.Run("nil metaBucket checked before bitmap count", func(t *testing.T) {
-		// Even with zero bitmaps the nil-bucket error fires first.
-		_, err := applyIdxLoop(context.Background(), nil, "cars", nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "meta bucket is nil")
 	})
 }
