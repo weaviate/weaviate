@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -97,7 +98,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, pv.nestedKeyPrefix)
+	rr := NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, nested.PathPrefix(pv.nestedRelPath))
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}

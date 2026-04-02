@@ -17,7 +17,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -119,7 +118,7 @@ func TestExtractNestedProp(t *testing.T) {
 				require.Len(t, pv.children, 2)
 				for _, child := range pv.children {
 					assert.Equal(t, "nested", child.prop)
-					assert.Equal(t, nested.PathPrefix("title"), child.nestedKeyPrefix)
+					assert.Equal(t, "title", child.nestedRelPath)
 					assert.True(t, child.isNested)
 					assert.True(t, child.hasFilterableIndex)
 				}
@@ -189,7 +188,7 @@ func TestExtractNestedProp(t *testing.T) {
 			}
 			relativePath := tt.path[strings.Index(tt.path, ".")+1:]
 			assert.Equal(t, tt.wantProp, pv.prop)
-			assert.Equal(t, nested.PathPrefix(relativePath), pv.nestedKeyPrefix)
+			assert.Equal(t, relativePath, pv.nestedRelPath)
 			assert.True(t, pv.isNested)
 			assert.True(t, pv.hasFilterableIndex)
 			if tt.wantValue != nil {
@@ -249,7 +248,7 @@ func TestExtractPropValuePairNestedRouting(t *testing.T) {
 			relativePath := tt.path[strings.Index(tt.path, ".")+1:]
 			assert.Equal(t, tt.wantProp, pv.prop)
 			assert.Equal(t, tt.wantNested, pv.isNested)
-			assert.Equal(t, nested.PathPrefix(relativePath), pv.nestedKeyPrefix)
+			assert.Equal(t, relativePath, pv.nestedRelPath)
 			assert.Equal(t, tt.operator, pv.operator)
 		})
 	}

@@ -46,12 +46,13 @@ type propValuePair struct {
 	// isNested marks a filter on a nested (object/object[]) property. When set:
 	//   - prop is the top-level property name (used for bucket name resolution)
 	//   - value is the bare encoded value (without prefix)
-	//   - nestedKeyPrefix is hash8(dottedPath), used to bound cursor reads and
-	//     to construct the full bucket key: nestedKeyPrefix+value
+	//   - nestedRelPath is the dot-notation path relative to prop
+	//     (e.g. "city" or "owner.firstname"); hash8(nestedRelPath) gives the
+	//     key prefix used to bound cursor reads and build the bucket key
 	//   - the result bitmap contains positions that are stripped to docIDs
-	isNested        bool
-	nestedKeyPrefix []byte
-	Class           *models.Class // The schema
+	isNested      bool
+	nestedRelPath string
+	Class         *models.Class // The schema
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
