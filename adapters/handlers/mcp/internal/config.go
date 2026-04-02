@@ -40,9 +40,8 @@ func LoadConfig(logger logrus.FieldLogger, configPath string) *Config {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		logger.WithError(err).
-			WithField("config_path", configPath).
-			Error("failed to read MCP config file")
+		logger.WithField("config_path", configPath).
+			Errorf("failed to read MCP config file: %v", err)
 		return nil
 	}
 
@@ -52,17 +51,15 @@ func LoadConfig(logger logrus.FieldLogger, configPath string) *Config {
 	// Determine format based on file extension
 	if ext == ".json" {
 		if err := json.Unmarshal(data, &config); err != nil {
-			logger.WithError(err).
-				WithField("config_path", configPath).
-				Error("failed to parse MCP config JSON")
+			logger.WithField("config_path", configPath).
+				Errorf("failed to parse MCP config JSON: %v", err)
 			return nil
 		}
 	} else {
 		// Default to YAML for .yaml, .yml, or unknown extensions
 		if err := yaml.Unmarshal(data, &config); err != nil {
-			logger.WithError(err).
-				WithField("config_path", configPath).
-				Error("failed to parse MCP config YAML")
+			logger.WithField("config_path", configPath).
+				Errorf("failed to parse MCP config YAML: %v", err)
 			return nil
 		}
 	}

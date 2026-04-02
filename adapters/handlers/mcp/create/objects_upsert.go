@@ -79,7 +79,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// Call batch add operation
 	batchResults, err := c.batchManager.AddObjects(ctx, principal, modelObjects, nil, nil)
 	if err != nil {
-		log.WithError(err).Warn("batch add failed")
+		log.Warnf("batch add failed: %v", err)
 		return nil, fmt.Errorf("failed to add objects: %w", err)
 	}
 

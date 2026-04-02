@@ -113,7 +113,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		AdditionalProperties: additionalProps,
 	})
 	if err != nil {
-		log.WithError(err).Warn("hybrid query failed")
+		log.Warnf("hybrid query failed: %v", err)
 		return nil, fmt.Errorf("failed to execute hybrid search: %w", err)
 	}
 

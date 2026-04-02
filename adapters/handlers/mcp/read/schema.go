@@ -35,7 +35,7 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 	}
 	res, err := r.schemaReader.GetConsistentSchema(ctx, principal, true)
 	if err != nil {
-		log.WithError(err).Warn("failed to get schema")
+		log.Warnf("failed to get schema: %v", err)
 		return nil, fmt.Errorf("failed to get schema: %w", err)
 	}
 
