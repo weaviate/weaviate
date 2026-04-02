@@ -88,7 +88,7 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Type:        obj,
 			Resolve:     resolvePhoneNumber,
 		}
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,
