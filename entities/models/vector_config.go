@@ -28,6 +28,9 @@ import (
 // swagger:model VectorConfig
 type VectorConfig struct {
 
+	// Indicates that a vector index has been deleted, but it's vectors are still present in store
+	Deleted *bool `json:"deleted,omitempty"`
+
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType
 	VectorIndexConfig interface{} `json:"vectorIndexConfig,omitempty"`
 

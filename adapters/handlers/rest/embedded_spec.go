@@ -9789,6 +9789,11 @@ func init() {
     "VectorConfig": {
       "type": "object",
       "properties": {
+        "deleted": {
+          "description": "Indicates that a vector index has been deleted, but it's vectors are still present in store",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -20363,6 +20368,11 @@ func init() {
     "VectorConfig": {
       "type": "object",
       "properties": {
+        "deleted": {
+          "description": "Indicates that a vector index has been deleted, but it's vectors are still present in store",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"

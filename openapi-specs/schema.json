@@ -1675,6 +1675,11 @@
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
+        },
+        "deleted": {
+          "description": "Indicates that a vector index has been deleted, but it's vectors are still present in store",
+          "type": "boolean",
+          "x-nullable": true
         }
       },
       "type": "object"
