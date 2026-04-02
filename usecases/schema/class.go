@@ -946,7 +946,8 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 	}
 
 	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
-		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%v and IndexFilterable=%v", prop.Name, prop.IndexSearchable, prop.IndexFilterable)
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%s and IndexFilterable=%s",
+			prop.Name, fmtBoolPtr(prop.IndexSearchable), fmtBoolPtr(prop.IndexFilterable))
 	}
 
 	if !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
@@ -1169,6 +1170,16 @@ func structToMap(obj any) (objMap map[string]any) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &objMap) // Convert to a map
 	return objMap
+}
+
+func fmtBoolPtr(b *bool) string {
+	if b == nil {
+		return "<nil>"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 type immutableText struct {
