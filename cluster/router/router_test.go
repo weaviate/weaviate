@@ -695,7 +695,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	rs, err := r.GetReadReplicasLocation("TestClass", "", "shard1")
 
 	require.NoError(t, err)
-	require.Equal(t, []types.Replica(nil), rs.Replicas)
+	require.Empty(t, rs.Replicas)
 }
 
 func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
@@ -1141,6 +1141,7 @@ func TestSingleTenantRouter_BroadcastVsTargeted(t *testing.T) {
 			mockSchemaReader := schema.NewMockSchemaReader(t)
 			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
 			mockNodeSelector := cluster.NewMockNodeSelector(t)
+			mockNodeSelector.EXPECT().NodeLifecycle(mock.Anything).Return(cluster.NodeLifecycleActive).Maybe()
 
 			state := createShardingStateWithShards(allShards)
 			mockSchemaReader.EXPECT().Shards(mock.Anything).Return(state.AllPhysicalShards(), nil).Maybe()
@@ -1184,6 +1185,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) 
 		class := &models.Class{Class: className}
 		return readFunc(class, emptyState)
 	}).Maybe()
+	mockNodeSelector.EXPECT().NodeLifecycle(mock.Anything).Return(cluster.NodeLifecycleActive).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2", "node3"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2", "node3"}).
 		Return([]string{}, []string{})
@@ -1214,6 +1216,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_MultipleShards(t *testing.T) {
 		class := &models.Class{Class: className}
 		return readFunc(class, state)
 	}).Maybe()
+	mockNodeSelector.EXPECT().NodeLifecycle(mock.Anything).Return(cluster.NodeLifecycleActive).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
@@ -1252,6 +1255,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_Success(t *testing.T) {
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockSchemaReader := schema.NewMockSchemaReader(t)
 
+	mockNodeSelector.EXPECT().NodeLifecycle(mock.Anything).Return(cluster.NodeLifecycleActive).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2"}, nil)
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
@@ -1372,6 +1376,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_SpecifiedShard(t *testing.T) {
 		class := &models.Class{Class: className}
 		return readFunc(class, state)
 	}).Maybe()
+	mockNodeSelector.EXPECT().NodeLifecycle(mock.Anything).Return(cluster.NodeLifecycleActive).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "shardA").
 		Return([]string{"node1", "node2"}, nil)
 
@@ -1410,6 +1415,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_DefaultShard(t *testing.T) {
 
 	tenant := "luke"
 
+	mockNodeSelector.EXPECT().NodeLifecycle(mock.Anything).Return(cluster.NodeLifecycleActive).Maybe()
 	mockSchemaGetter.EXPECT().
 		OptimisticTenantStatus(mock.Anything, "TestClass", tenant).
 		Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil)

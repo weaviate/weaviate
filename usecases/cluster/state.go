@@ -42,6 +42,7 @@ type NodeResolver interface {
 	// AllOtherClusterMembers returns all cluster members discovered via memberlist with their addresses.
 	// This is useful for bootstrap when the join config is incomplete.
 	AllOtherClusterMembers(port int) map[string]string
+	NodeLifecycle(nodeName string) NodeLifecycle
 }
 
 // NodeSelector builds on NodeResolver and adds selection, health and lifecycle operations.
@@ -68,6 +69,13 @@ type NodeSelector interface {
 	Leave() error
 	// Shutdown is called when leaving the cluster gracefully and shutting down the memberlist instance.
 	Shutdown() error
+	// NodeLifecycle returns the lifecycle state of the named node as gossipped via memberlist metadata.
+	// Returns NodeLifecycleActive for nodes present in the memberlist but without lifecycle metadata
+	// (backward compatibility with old nodes). Returns NodeLifecycleShuttingDown for nodes absent
+	// from the memberlist, so they are excluded from routing.
+	NodeLifecycle(nodeName string) NodeLifecycle
+	// SetNodeLifecycle updates this node's lifecycle state and re-gossips it to peers immediately.
+	SetNodeLifecycle(lc NodeLifecycle) error
 }
 
 type State struct {
@@ -183,8 +191,9 @@ func Init(userConfig Config, raftTimeoutsMultiplier int, dataPath string, nonSto
 			dataPath: dataPath,
 			log:      logger,
 			metadata: NodeMetadata{
-				RestPort: userConfig.DataBindPort,
-				GrpcPort: userConfig.DataBindPort,
+				RestPort:  userConfig.DataBindPort,
+				GrpcPort:  userConfig.DataBindPort,
+				Lifecycle: NodeLifecycleWarmingUp,
 			},
 		},
 	}
@@ -424,6 +433,32 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// NodeAddress resolves a node name to its IP address without the port.
+// NodeLifecycle returns the lifecycle state gossipped by the named node via memberlist metadata.
+// Returns NodeLifecycleActive for nodes running older software without the lifecycle field,
+// preserving backward compatibility.
+// Returns NodeLifecycleShuttingDown for nodes absent from the memberlist: if we cannot see a
+// node in the live member view it is unreachable (stopped, partitioned, or not yet joined),
+// so excluding it from routing is safer than treating it as a healthy ACTIVE node.
+func (s *State) NodeLifecycle(nodeName string) NodeLifecycle {
+	for _, mem := range s.list.Members() {
+		if mem.Name == nodeName {
+			meta, err := nodeMetadata(mem)
+			if err != nil || meta.Lifecycle == "" {
+				return NodeLifecycleActive
+			}
+			return meta.Lifecycle
+		}
+	}
+	return NodeLifecycleShuttingDown
+}
+
+// SetNodeLifecycle updates this node's lifecycle state in memberlist and immediately re-gossips it to peers.
+func (s *State) SetNodeLifecycle(lc NodeLifecycle) error {
+	s.delegate.setLifecycle(lc)
+	return s.list.UpdateNode(0)
 }
 
 // extractHost extracts the host portion from an address string,
