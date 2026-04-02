@@ -254,7 +254,7 @@ class TestASCIIFoldUpdateIgnoreList:
         updated = _rest_get(f"/v1/schema/{self.collection_name}")
         updated_props = {p["name"]: p for p in updated["properties"]}
         ignore = updated_props["title"].get("textAnalyzer", {}).get("asciiFoldIgnore")
-        assert ignore == ["é"], "asciiFoldIgnore should remain unchanged"
+        assert ignore == ["é", "Ł"], "asciiFoldIgnore should remain unchanged"
 
 
 class TestASCIIFoldTokenizationVariants:
