@@ -76,8 +76,14 @@ func resolveCredentials(config *clientConfig, region string) (*credentials.Crede
 		return newSTSAssumeRoleCredentials(config, region)
 	}
 
-	// Try IAM credentials first (covers IRSA, EC2 instance roles, etc.);
-	// fall back to environment variables (or anonymous access).
+	// Prefer explicit env credentials to avoid IAM metadata lookup latency.
+	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
+		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
+		return credentials.NewEnvAWS(), nil
+	}
+
+	// Fall back to IAM (covers IRSA, EC2 instance roles, etc.),
+	// then to anonymous/env access.
 	creds := credentials.NewIAM("")
 	if _, err := creds.GetWithContext(nil); err != nil {
 		return credentials.NewEnvAWS(), nil
