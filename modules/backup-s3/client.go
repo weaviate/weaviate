@@ -46,24 +46,15 @@ type s3Client struct {
 	region   string
 }
 
-func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket, path string) (*s3Client, error) {
+func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string) (*s3Client, error) {
 	region := os.Getenv("AWS_REGION")
 	if len(region) == 0 {
 		region = os.Getenv("AWS_DEFAULT_REGION")
 	}
 
-	var creds *credentials.Credentials
-	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
-		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
-		creds = credentials.NewEnvAWS()
-	} else {
-		creds = credentials.NewIAM("")
-		// .Get() got deprecated with 7.0.83
-		// and passing nil will use default context,
-		if _, err := creds.GetWithContext(nil); err != nil {
-			// can be anonymous access
-			creds = credentials.NewEnvAWS()
-		}
+	creds, err := resolveCredentials(config, region)
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve credentials")
 	}
 
 	client, err := minio.New(config.Endpoint, &minio.Options{
@@ -75,6 +66,77 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket
 		return nil, errors.Wrap(err, "create client")
 	}
 	return &s3Client{client, config, logger, dataPath, region}, nil
+}
+
+func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+	// When a Role ARN is configured, use STS AssumeRole to obtain
+	// temporary credentials. This supports cross-account access and
+	// the ExternalId parameter for confused-deputy prevention.
+	if config.RoleARN != "" {
+		return newSTSAssumeRoleCredentials(config, region)
+	}
+
+	// Try IAM credentials first (covers IRSA, EC2 instance roles, etc.);
+	// fall back to environment variables (or anonymous access).
+	creds := credentials.NewIAM("")
+	if _, err := creds.GetWithContext(nil); err != nil {
+		return credentials.NewEnvAWS(), nil
+	}
+	return creds, nil
+}
+
+func newSTSAssumeRoleCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+	// Default to the regional STS endpoint for lower latency;
+	// fall back to the global endpoint if no region is set.
+	stsEndpoint := config.STSEndpoint
+	if stsEndpoint == "" {
+		if region != "" {
+			stsEndpoint = "https://sts." + region + ".amazonaws.com"
+		} else {
+			stsEndpoint = "https://sts.amazonaws.com"
+		}
+	}
+
+	sessionName := config.RoleSessionName
+	if sessionName == "" {
+		sessionName = "weaviate-backup-s3"
+	}
+
+	// Base credentials used to call STS. These come from the environment
+	// (static keys or IRSA-injected web identity / IAM).
+	var accessKey, secretKey, sessionToken string
+	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
+		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
+		baseCreds := credentials.NewEnvAWS()
+		val, err := baseCreds.GetWithContext(nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "get base credentials for STS AssumeRole")
+		}
+		accessKey = val.AccessKeyID
+		secretKey = val.SecretAccessKey
+		sessionToken = val.SessionToken
+	} else {
+		baseCreds := credentials.NewIAM("")
+		val, err := baseCreds.GetWithContext(nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "get IAM credentials for STS AssumeRole")
+		}
+		accessKey = val.AccessKeyID
+		secretKey = val.SecretAccessKey
+		sessionToken = val.SessionToken
+	}
+
+	opts := credentials.STSAssumeRoleOptions{
+		AccessKey:       accessKey,
+		SecretKey:       secretKey,
+		SessionToken:    sessionToken,
+		Location:        region,
+		RoleARN:         config.RoleARN,
+		RoleSessionName: sessionName,
+		ExternalID:      config.ExternalID,
+	}
+
+	return credentials.NewSTSAssumeRole(stsEndpoint, opts)
 }
 
 func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
