@@ -33,7 +33,7 @@ func VectorizeBatch[T dto.Embedding](
 	objectVectorizer objectVectorizer[T],
 ) ([]T, []models.AdditionalProperties, map[int]error) {
 	vecs := make([]T, len(objs))
-	// error should be the exception so dont preallocate
+	// error should be the exception so don't preallocate
 	errs := make(map[int]error, 0)
 	errorLock := sync.Mutex{}
 
@@ -87,7 +87,7 @@ func VectorizeBatchObjects[T dto.Embedding](
 	batchSize int,
 ) ([]T, []models.AdditionalProperties, map[int]error) {
 	vecs := make([]T, len(objs))
-	// error should be the exception so dont preallocate
+	// error should be the exception so don't preallocate
 	errs := make(map[int]error, 0)
 	errorLock := sync.Mutex{}
 	// create batches

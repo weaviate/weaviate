@@ -349,7 +349,7 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 			if tenant != "" {
 				resources = authorization.ShardsData(name, tenant)
 			}
-			// having data access is enough for querying as we dont leak any info from the collection config that you cannot get via data access anyways
+			// having data access is enough for querying as we don't leak any info from the collection config that you cannot get via data access anyways
 			if err := s.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
 				return nil, err
 			}
