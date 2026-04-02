@@ -25,6 +25,9 @@ import (
 type Logger struct {
 	file common.File
 	bufw *bufWriter
+	// scratch is a reusable buffer for small writes to avoid per-call heap allocations.
+	// 64 bytes covers the largest fixed-size write (ReplaceLinksAtLevel chunks).
+	scratch [64]byte
 }
 
 // TODO: these are duplicates with the hnsw package, unify them
@@ -64,7 +67,7 @@ func NewLoggerWithFile(file common.File) *Logger {
 }
 
 func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
-	toWrite := make([]byte, 11)
+	toWrite := l.scratch[:11]
 	toWrite[0] = byte(SetEntryPointMaxLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
@@ -73,7 +76,7 @@ func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 }
 
 func (l *Logger) AddNode(id uint64, level int) error {
-	toWrite := make([]byte, 11)
+	toWrite := l.scratch[:11]
 	toWrite[0] = byte(AddNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
@@ -103,7 +106,7 @@ func (l *Logger) AddPQCompression(data compression.PQData) error {
 }
 
 func (l *Logger) AddSQCompression(data compression.SQData) error {
-	toWrite := make([]byte, 11)
+	toWrite := l.scratch[:11]
 	toWrite[0] = byte(AddSQ)
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
@@ -208,7 +211,7 @@ func (l *Logger) AddBRQCompression(data compression.BRQData) error {
 }
 
 func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {
-	toWrite := make([]byte, 19)
+	toWrite := l.scratch[:19]
 	toWrite[0] = byte(AddLinkAtLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
@@ -235,7 +238,7 @@ func (l *Logger) AddLinksAtLevel(id uint64, level int, targets []uint64) error {
 // chunks links in increments of 8, so that we never have to allocate a dynamic
 // []byte size which would be guaranteed to escape to the heap
 func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) error {
-	headers := make([]byte, 13)
+	headers := l.scratch[:13]
 	headers[0] = byte(ReplaceLinksAtLevel)
 	binary.LittleEndian.PutUint64(headers[1:9], id)
 	binary.LittleEndian.PutUint16(headers[9:11], uint16(level))
@@ -247,7 +250,7 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 
 	i := 0
 	// chunks of 8
-	buf := make([]byte, 64)
+	buf := l.scratch[:64]
 	for i < len(targets) {
 		if i != 0 && i%8 == 0 {
 			if _, err := l.bufw.Write(buf); err != nil {
@@ -280,7 +283,7 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 }
 
 func (l *Logger) AddTombstone(id uint64) error {
-	toWrite := make([]byte, 9)
+	toWrite := l.scratch[:9]
 	toWrite[0] = byte(AddTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	_, err := l.bufw.Write(toWrite)
@@ -288,7 +291,7 @@ func (l *Logger) AddTombstone(id uint64) error {
 }
 
 func (l *Logger) RemoveTombstone(id uint64) error {
-	toWrite := make([]byte, 9)
+	toWrite := l.scratch[:9]
 	toWrite[0] = byte(RemoveTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	_, err := l.bufw.Write(toWrite)
@@ -296,7 +299,7 @@ func (l *Logger) RemoveTombstone(id uint64) error {
 }
 
 func (l *Logger) ClearLinks(id uint64) error {
-	toWrite := make([]byte, 9)
+	toWrite := l.scratch[:9]
 	toWrite[0] = byte(ClearLinks)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	_, err := l.bufw.Write(toWrite)
@@ -304,7 +307,7 @@ func (l *Logger) ClearLinks(id uint64) error {
 }
 
 func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
-	toWrite := make([]byte, 11)
+	toWrite := l.scratch[:11]
 	toWrite[0] = byte(ClearLinksAtLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], level)
@@ -313,7 +316,7 @@ func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
 }
 
 func (l *Logger) DeleteNode(id uint64) error {
-	toWrite := make([]byte, 9)
+	toWrite := l.scratch[:9]
 	toWrite[0] = byte(DeleteNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	_, err := l.bufw.Write(toWrite)
@@ -321,9 +324,8 @@ func (l *Logger) DeleteNode(id uint64) error {
 }
 
 func (l *Logger) Reset() error {
-	toWrite := make([]byte, 1)
-	toWrite[0] = byte(ResetIndex)
-	_, err := l.bufw.Write(toWrite)
+	l.scratch[0] = byte(ResetIndex)
+	_, err := l.bufw.Write(l.scratch[:1])
 	return err
 }
 
