@@ -334,6 +334,8 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 // without stripping the root/leaf bits. Only valid for nested properties
 // (pv.isNested == true). Used by the correlated resolution path which needs
 // full positions to apply MaskLeaf AND or the _idx loop.
+//
+//nolint:unused //used by correlated resolution in the next commits
 func (pv *propValuePair) fetchRawPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	return pv.fetchBitmap(ctx, s, limit)
 }
