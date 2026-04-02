@@ -3059,3 +3059,234 @@ func Test_deepEqualVectorizerSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
+	searchable := true
+	intPDT := newFakePrimitivePDT(schema.DataTypeInt)
+	textPDT := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("empty textAnalyzer on non-text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "count",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, intPDT)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty textAnalyzer on text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, textPDT)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty ignore list with asciiFold=false is normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{},
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "zero-value config should be normalized to nil")
+	})
+
+	t.Run("non-empty config is NOT normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold: true,
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT)
+		require.NoError(t, err)
+		assert.NotNil(t, prop.TextAnalyzer, "active config should be preserved")
+	})
+}
+
+func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name         string
+		tokenization string
+		expectError  bool
+	}{
+		{
+			name:         "word tokenization accepted",
+			tokenization: models.PropertyTokenizationWord,
+			expectError:  false,
+		},
+		{
+			name:         "lowercase tokenization accepted",
+			tokenization: models.PropertyTokenizationLowercase,
+			expectError:  false,
+		},
+		{
+			name:         "whitespace tokenization accepted",
+			tokenization: models.PropertyTokenizationWhitespace,
+			expectError:  false,
+		},
+		{
+			name:         "field tokenization accepted",
+			tokenization: models.PropertyTokenizationField,
+			expectError:  false,
+		},
+		{
+			name:         "trigram tokenization accepted",
+			tokenization: models.PropertyTokenizationTrigram,
+			expectError:  false,
+		},
+		{
+			name:         "empty tokenization accepted",
+			tokenization: "",
+			expectError:  false,
+		},
+		{
+			name:         "gse tokenization rejected",
+			tokenization: models.PropertyTokenizationGse,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_kr tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeKr,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_ja tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeJa,
+			expectError:  true,
+		},
+		{
+			name:         "gse_ch tokenization rejected",
+			tokenization: models.PropertyTokenizationGseCh,
+			expectError:  true,
+		},
+		{
+			name:         "unknown tokenization rejected",
+			tokenization: "unknown",
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				Tokenization:    tt.tokenization,
+				IndexSearchable: &searchable,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported tokenization")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name        string
+		ignore      []string
+		expectError bool
+	}{
+		{
+			name:        "single NFC character accepted",
+			ignore:      []string{"é"},
+			expectError: false,
+		},
+		{
+			name:        "multiple single characters accepted",
+			ignore:      []string{"é", "ñ", "ü"},
+			expectError: false,
+		},
+		{
+			name:        "NFD character normalized to single codepoint accepted",
+			ignore:      []string{"e\u0301"}, // é in NFD form
+			expectError: false,
+		},
+		{
+			name:        "multi-character string rejected",
+			ignore:      []string{"ab"},
+			expectError: true,
+		},
+		{
+			name:        "empty ignore list accepted",
+			ignore:      nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				IndexSearchable: &searchable,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: tt.ignore,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "single character")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("ignore with fold disabled is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "asciiFoldIgnore requires asciiFold to be enabled")
+	})
+
+	t.Run("ignore with fold enabled is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       true,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+	})
+}

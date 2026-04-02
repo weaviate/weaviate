@@ -643,21 +643,33 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
 	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	var terms []string
-
 	valueString, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
+	var terms []string
 	switch propType {
 	case schema.DataTypeText:
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, valueString, class.Class)
+			// LIKE queries need special wildcard-preserving tokenization;
+			// fold manually then use the wildcard tokenizer.
+			text := valueString
+			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
+				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
+				text = tokenizer.FoldASCII(text, ignore)
+			}
+			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, text, class.Class)
 		} else {
-			terms = tokenizer.TokenizeForClass(prop.Tokenization, valueString, class.Class)
+			var sw tokenizer.StopwordDetector
+			if prop.Tokenization == models.PropertyTokenizationWord {
+				sw = s.stopwords
+			}
+			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
+			terms = result.Query
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -673,9 +685,6 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) && prop.Tokenization == models.PropertyTokenizationWord {
-			continue
-		}
 		propValuePairs = append(propValuePairs, &propValuePair{
 			value:              []byte(term),
 			prop:               prop.Name,

@@ -13,8 +13,10 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	schemaops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -57,27 +60,36 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		})
 	}
 
-	indexed := tokenizer.Tokenize(*params.Body.Tokenization, *params.Body.Text)
-	query := make([]string, len(indexed))
-	copy(query, indexed)
+	if err := validateAnalyzerConfig(params.Body.AnalyzerConfig); err != nil {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
+		})
+	}
 
-	var analyzerConfig *models.TokenizeAnalyzerConfig
-	if params.Body.AnalyzerConfig != nil && params.Body.AnalyzerConfig.Stopwords != nil {
-		analyzerConfig = params.Body.AnalyzerConfig
-		detector, err := stopwords.NewDetectorFromConfig(*params.Body.AnalyzerConfig.Stopwords)
+	prepared := tokenizer.NewPreparedAnalyzer(params.Body.AnalyzerConfig)
+
+	var detector tokenizer.StopwordDetector
+	if swCfg := params.Body.StopwordConfig; swCfg != nil {
+		if swCfg.Preset == "" {
+			swCfg.Preset = "none"
+		}
+		var err error
+		detector, err = stopwords.NewDetectorFromConfig(*swCfg)
 		if err != nil {
 			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+				Error: []*models.ErrorResponseErrorItems0{{Message: "invalid stopword configuration: " + err.Error()}},
 			})
 		}
-		query = removeStopwords(indexed, detector)
 	}
+
+	result := tokenizer.Analyze(*params.Body.Text, *params.Body.Tokenization, "", prepared, detector)
 
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization:   *params.Body.Tokenization,
-		AnalyzerConfig: analyzerConfig,
-		Indexed:        indexed,
-		Query:          query,
+		AnalyzerConfig: params.Body.AnalyzerConfig,
+		StopwordConfig: params.Body.StopwordConfig,
+		Indexed:        result.Indexed,
+		Query:          result.Query,
 	})
 }
 
@@ -122,35 +134,39 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		})
 	}
 
-	indexed := tokenizer.TokenizeForClass(prop.Tokenization, *params.Body.Text, className)
-	query := make([]string, len(indexed))
-	copy(query, indexed)
-
+	var detector tokenizer.StopwordDetector
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		detector, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
+		var err error
+		detector, err = stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {
 			logger.WithField("action", "create_stopword_detector").Error(err)
 			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
 				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
 			})
-		} else {
-			query = removeStopwords(indexed, detector)
 		}
 	}
+
+	prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+	result := tokenizer.Analyze(*params.Body.Text, prop.Tokenization, className, prepared, detector)
 
 	return schemaops.NewSchemaObjectsPropertiesTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization: prop.Tokenization,
-		Indexed:      indexed,
-		Query:        query,
+		Indexed:      result.Indexed,
+		Query:        result.Query,
 	})
 }
 
-func removeStopwords(tokens []string, detector *stopwords.Detector) []string {
-	filtered := make([]string, 0, len(tokens))
-	for _, token := range tokens {
-		if !detector.IsStopword(token) {
-			filtered = append(filtered, token)
+func validateAnalyzerConfig(cfg *models.TextAnalyzerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if !cfg.ASCIIFold && len(cfg.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("asciiFoldIgnore requires asciiFold to be enabled")
+	}
+	for _, entry := range cfg.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("each asciiFoldIgnore entry must be a single character, got %q", entry)
 		}
 	}
-	return filtered
+	return nil
 }
