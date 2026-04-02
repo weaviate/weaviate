@@ -431,15 +431,6 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 		return err
 	}
 
-	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           int64(m.config.Replication.MinimumFactor),
-			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
-			AsyncEnabled:     false,
-		}
-		return nil
-	}
-
 	if class.ReplicationConfig.DeletionStrategy == "" {
 		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyTimeBasedResolution
 	}
@@ -475,7 +466,10 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	}
 
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:       int64(globalCfg.MinimumFactor),
+			AsyncEnabled: globalCfg.AsyncEnforced || globalCfg.AsyncDefault,
+		}
 	}
 
 	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
@@ -485,6 +479,10 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 
 	if class.ReplicationConfig.Factor < 1 {
 		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
+	}
+
+	if globalCfg.AsyncEnforced && !class.ReplicationConfig.AsyncEnabled {
+		class.ReplicationConfig.AsyncEnabled = true
 	}
 
 	h.moduleConfig.SetClassDefaults(class)

@@ -27,6 +27,7 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 		class.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(globalCfg.MinimumFactor),
 			DeletionStrategy: globalCfg.DeletionStrategy,
+			AsyncEnabled:     globalCfg.AsyncEnforced,
 		}
 		return nil
 	}
@@ -42,6 +43,10 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 
 	if globalCfg.DeletionStrategy != "" {
 		class.ReplicationConfig.DeletionStrategy = globalCfg.DeletionStrategy
+	}
+
+	if globalCfg.AsyncEnforced {
+		class.ReplicationConfig.AsyncEnabled = true
 	}
 
 	return nil
