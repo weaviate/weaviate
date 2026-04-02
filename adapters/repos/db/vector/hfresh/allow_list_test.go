@@ -36,7 +36,7 @@ func TestPostingPassesFilterSlice_PassesIfAddsNewVector(t *testing.T) {
 	pm.FastAddVectorID(ctx, 1, 1, 0)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -65,7 +65,7 @@ func TestPostingPassesFilterSlice_IgnoresDisallowedVectors(t *testing.T) {
 	pm.FastAddVectorID(ctx, 1, 12, 0)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -96,7 +96,7 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 	pm.FastAddVectorID(ctx, 1, 1, 0)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -127,7 +127,7 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 	pm.FastAddVectorID(ctx, 1, 1, 0)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
@@ -154,7 +154,7 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	pm.FastAddVectorID(ctx, 0, 0, 0)
 
 	hf := &HFresh{
-		visitedPool: visited.NewPool(10, 10, 10),
+		visitedPool: visited.NewPool(10),
 		PostingMap:  pm,
 	}
 
