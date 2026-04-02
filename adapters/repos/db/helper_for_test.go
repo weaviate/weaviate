@@ -426,16 +426,23 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
-		indexCheckpoints:       checkpts,
-		allocChecker:           memwatch.NewDummyMonitor(),
-		shardCreateLocks:       esync.NewKeyRWLocker(),
-		backupLock:             esync.NewKeyRWLocker(),
-		scheduler:              repo.scheduler,
-		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		shardReindexer:         NewShardReindexerV3Noop(),
-		HFreshEnabled:          true,
-		replicator:             replicator,
-		router:                 mockRouter,
+		stopwordPresets: func() map[string]*stopwords.Detector {
+			if class.InvertedIndexConfig == nil {
+				return nil
+			}
+			d, _ := buildStopwordPresetDetectors(iic.StopwordPresets)
+			return d
+		}(),
+		indexCheckpoints: checkpts,
+		allocChecker:     memwatch.NewDummyMonitor(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		backupLock:       esync.NewKeyRWLocker(),
+		scheduler:        repo.scheduler,
+		shardLoadLimiter: loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		shardReindexer:   NewShardReindexerV3Noop(),
+		HFreshEnabled:    true,
+		replicator:       replicator,
+		router:           mockRouter,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

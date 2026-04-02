@@ -53,6 +53,7 @@ type BM25Searcher struct {
 	logger           logrus.FieldLogger
 	shardVersion     uint16
 	stopWordDetector stopwords.StopwordDetector
+	stopwordPresets  map[string]*stopwords.Detector
 }
 
 type propLengthRetriever interface {
@@ -69,8 +70,9 @@ type termListRequest struct {
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector, propLenTracker propLengthRetriever,
+	classSearcher ClassSearcher, sw stopwords.StopwordDetector, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
+	swPresets map[string]*stopwords.Detector,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:           config,
@@ -81,7 +83,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker:   propLenTracker,
 		logger:           logger.WithField("action", "bm25_search"),
 		shardVersion:     shardVersion,
-		stopWordDetector: stopwords,
+		stopWordDetector: sw,
+		stopwordPresets:  swPresets,
 	}
 }
 
@@ -271,11 +274,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				var userPresets map[string][]string
-				if class.InvertedIndexConfig != nil {
-					userPresets = class.InvertedIndexConfig.StopwordPresets
-				}
-				sw = b.stopwordDetectorForProperty(pi.prop, userPresets)
+				sw = resolveStopwordDetector(pi.prop, b.stopwordPresets, b.stopWordDetector)
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
 			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
@@ -306,31 +305,6 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 // asciiTokenizationKey returns the composite key used for ascii-insensitive properties.
 func asciiTokenizationKey(tokenization string) string {
 	return tokenization + ":ascii"
-}
-
-// stopwordDetectorForProperty returns a property-level stopword detector if
-// the property has a stopwordPreset in its textAnalyzer config, otherwise
-// falls back to the collection-level detector. It checks both built-in presets
-// and user-defined presets from the class's invertedIndexConfig.stopwordPresets.
-func (b *BM25Searcher) stopwordDetectorForProperty(prop *models.Property, userPresets map[string][]string) stopwords.StopwordDetector {
-	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
-		preset := prop.TextAnalyzer.StopwordPreset
-		// Check built-in presets first
-		if d, err := stopwords.NewDetectorFromPreset(preset); err == nil {
-			return d
-		}
-		// Check user-defined presets
-		if words, ok := userPresets[preset]; ok {
-			d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
-			if err != nil {
-				return b.stopWordDetector
-			}
-			d.SetAdditions(words)
-			return d
-		}
-		return b.stopWordDetector
-	}
-	return b.stopWordDetector
 }
 
 func (b *BM25Searcher) wand(
