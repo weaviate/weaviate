@@ -682,9 +682,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportMetrics = exportusecase.NewExportMetrics(prometheus.DefaultRegisterer)
 	appState.ExportParticipant = exportusecase.NewParticipant(
 		appState.DB, appState.Modules, appState.Logger,
 		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+		appState.ExportMetrics,
 	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
@@ -1169,6 +1171,7 @@ func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
 		appState.Cluster,
 		appState.Cluster.LocalName(),
 		appState.ExportParticipant,
+		appState.ExportMetrics,
 	)
 }
 
@@ -2177,6 +2180,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
 			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
 			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
+			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
 		}
 
 		cm, err := configRuntime.NewConfigManager(

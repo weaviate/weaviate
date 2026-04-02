@@ -128,7 +128,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
-		visitedPool:      visited.NewPool(1, 512, -1),
+		visitedPool:      visited.NewPool(512),
 		maxPostingSizeKB: uc.MaxPostingSizeKB,
 		replicas:         uc.Replicas,
 		rngFactor:        DefaultRNGFactor,
@@ -257,46 +257,37 @@ func (h *HFresh) Flush() error {
 	return stderrors.Join(errs...)
 }
 
-func (h *HFresh) stopTaskQueues(ctx context.Context) error {
-	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
-		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue,
-		h.taskQueue.mergeQueue,
-	} {
-		err := queue.Pause(ctx)
-		if err != nil {
-			return fmt.Errorf("pause queue: %w", err)
-		}
-		err = queue.Flush()
-		if err != nil {
-			return fmt.Errorf("flush queue: %w", err)
-		}
-	}
-	return nil
-}
-
-func (h *HFresh) resumeTaskQueues() {
-	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
-		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue,
-		h.taskQueue.mergeQueue,
-	} {
-		queue.Resume()
-	}
-}
-
 func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	err := h.Centroids.hnsw.PrepareForBackup(ctx)
 	if err != nil {
 		return err
 	}
-	return h.stopTaskQueues(ctx)
+
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		err := queue.PrepareForBackup(ctx)
+		if err != nil {
+			return fmt.Errorf("pause queue: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
-	h.resumeTaskQueues()
+	for _, queue := range []*queue.DiskQueue{
+		h.taskQueue.analyzeQueue,
+		h.taskQueue.splitQueue,
+		h.taskQueue.reassignQueue,
+		h.taskQueue.mergeQueue,
+	} {
+		queue.DisableMaintenanceMode()
+	}
+
 	return h.Centroids.hnsw.ResumeAfterBackup(ctx)
 }
 

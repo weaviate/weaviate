@@ -284,6 +284,11 @@ func FromEnv(config *Config) error {
 			skipClientCheck = true
 		}
 
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
 			issuer = v
 		}
@@ -320,6 +325,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {

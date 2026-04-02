@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -251,9 +252,27 @@ func startRangeWriter(ctx context.Context, cfg *rangeWriterConfig, rangeIndex in
 	fileName := fmt.Sprintf("%s_%s_%04d.parquet", cfg.className, cfg.shardName, rangeIndex)
 
 	uploadDone := make(chan error, 1)
+	uploadStart := time.Now()
 	enterrors.GoWrapper(func() {
 		var err error
 		defer func() {
+			if err != nil {
+				cfg.logger.WithField("action", "export_upload").
+					WithField("export_id", cfg.req.ID).
+					WithField("class", cfg.className).
+					WithField("shard", cfg.shardName).
+					WithField("file", fileName).
+					WithField("duration_ms", time.Since(uploadStart).Milliseconds()).
+					Errorf("upload failed: %v", err)
+			} else {
+				cfg.logger.WithField("action", "export_upload").
+					WithField("export_id", cfg.req.ID).
+					WithField("class", cfg.className).
+					WithField("shard", cfg.shardName).
+					WithField("file", fileName).
+					WithField("duration_ms", time.Since(uploadStart).Milliseconds()).
+					Info("upload completed")
+			}
 			uploadDone <- err
 			close(uploadDone)
 		}()

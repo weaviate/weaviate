@@ -14,6 +14,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -143,13 +144,7 @@ func (w *Worker) calculateBackoff(attempts int) time.Duration {
 }
 
 func hasTransientErrors(errs []error) bool {
-	for _, err := range errs {
-		if enterrors.IsTransient(err) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(errs, enterrors.IsTransient)
 }
 
 func hasPermanentErrors(errs []error) bool {

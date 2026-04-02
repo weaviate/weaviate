@@ -80,6 +80,7 @@ type State struct {
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
 	ExportParticipant  *exportUsecase.Participant
+	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
