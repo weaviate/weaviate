@@ -98,7 +98,7 @@ func (a *Analyzer) preparedFor(propName string, cfg *models.TextAnalyzerConfig) 
 	prepared := tokenizer.NewPreparedAnalyzer(cfg)
 	a.cache.Store(propName, analyzerCacheEntry{
 		fold:     fold,
-		ignore:   currentIgnore,
+		ignore:   slices.Clone(currentIgnore),
 		prepared: prepared,
 	})
 	return prepared
