@@ -105,9 +105,9 @@ type ShardingConfig struct {
 	Function            string `json:"function"`
 }
 
-// PropertyAnalyzer contains text processing options for a property.
+// TextAnalyzer contains text processing options for a property.
 // ASCIIFold is immutable after creation; ASCIIFoldIgnore can change, but will not be applied to already indexed data.
-type PropertyAnalyzer struct {
+type TextAnalyzer struct {
 	ASCIIFold       bool     `json:"asciiFold,omitempty"`
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
 }
@@ -142,7 +142,7 @@ type Property struct {
 	NestedProperties []NestedProperty `json:"nestedProperties,omitempty"`
 
 	// Text processing options for this property. Immutable after creation.
-	Analyzer PropertyAnalyzer `json:"processing,omitempty"`
+	TextAnalyzer TextAnalyzer `json:"textAnalyzer,omitempty"`
 
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
 	// Enum: [word lowercase whitespace field]
@@ -169,8 +169,8 @@ type NestedProperty struct {
 	// nested properties
 	NestedProperties []NestedProperty `json:"nested_properties,omitempty"`
 
-	// text processing options
-	Processing PropertyAnalyzer `json:"processing,omitempty"`
+	// Text processing options for this nested property.
+	TextAnalyzer TextAnalyzer `json:"text_analyzer,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field]
@@ -200,7 +200,7 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 	}
 	n.Name = m.Name
 	if m.TextAnalyzer != nil {
-		n.Processing = PropertyAnalyzer{
+		n.TextAnalyzer = TextAnalyzer{
 			ASCIIFold:       m.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyzer.ASCIIFoldIgnore,
 		}
@@ -232,11 +232,11 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	indexRangeFilters := n.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
-	if n.Processing.ASCIIFold ||
-		len(n.Processing.ASCIIFoldIgnore) > 0 {
+	if n.TextAnalyzer.ASCIIFold ||
+		len(n.TextAnalyzer.ASCIIFoldIgnore) > 0 {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
-			ASCIIFold:       n.Processing.ASCIIFold,
-			ASCIIFoldIgnore: n.Processing.ASCIIFoldIgnore,
+			ASCIIFold:       n.TextAnalyzer.ASCIIFold,
+			ASCIIFoldIgnore: n.TextAnalyzer.ASCIIFoldIgnore,
 		}
 	}
 	m.Tokenization = n.Tokenization
@@ -283,7 +283,7 @@ func PropertyFromModel(m models.Property) Property {
 	}
 	p.Tokenization = m.Tokenization
 	if m.TextAnalyzer != nil {
-		p.Analyzer = PropertyAnalyzer{
+		p.TextAnalyzer = TextAnalyzer{
 			ASCIIFold:       m.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyzer.ASCIIFoldIgnore,
 		}
@@ -317,11 +317,11 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
-	if p.Analyzer.ASCIIFold ||
-		len(p.Analyzer.ASCIIFoldIgnore) > 0 {
+	if p.TextAnalyzer.ASCIIFold ||
+		len(p.TextAnalyzer.ASCIIFoldIgnore) > 0 {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
-			ASCIIFold:       p.Analyzer.ASCIIFold,
-			ASCIIFoldIgnore: p.Analyzer.ASCIIFoldIgnore,
+			ASCIIFold:       p.TextAnalyzer.ASCIIFold,
+			ASCIIFoldIgnore: p.TextAnalyzer.ASCIIFoldIgnore,
 		}
 	}
 	m.Tokenization = p.Tokenization
