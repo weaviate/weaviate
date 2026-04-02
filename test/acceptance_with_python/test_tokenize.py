@@ -2,7 +2,6 @@ import json
 import urllib.request
 import urllib.error
 from typing import Any, Generator
-from typing import Any, Generator
 import os
 
 import pytest
@@ -308,7 +307,6 @@ class TestPropertyTokenize:
     """Tests for POST /v1/schema/{className}/properties/{propertyName}/tokenize."""
 
     @pytest.fixture(autouse=True)
-    def setup_collection(self, request, weaviate_client) -> Generator[None, None, None]:
     def setup_collection(self, request, weaviate_client) -> Generator[None, None, None]:
         self.client = weaviate_client()
         self.collection_name = _sanitize_collection_name(request.node.name)
