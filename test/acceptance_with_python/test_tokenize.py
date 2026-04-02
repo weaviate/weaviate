@@ -261,14 +261,41 @@ class TestPropertyTokenize:
         )
         assert status == 200
 
-    def test_with_custom_stopword_preset(self) -> None:
+    def test_property_stopword_preset_overrides_collection(self) -> None:
+        """title_fr has stopwordPreset='none', overriding the collection-level additions."""
         status, body = post_json(
             f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title_fr/tokenize",
             {"text": "le chat et la souris"},
         )
         assert status == 200
         assert body["indexed"] == ["le", "chat", "et", "la", "souris"]
-        assert body["query"] == ["chat", "et", "souris"]
+        # stopwordPreset="none" overrides collection-level stopwords; no words are filtered
+        assert body["query"] == ["le", "chat", "et", "la", "souris"]
+
+    def test_property_stopword_preset_en(self) -> None:
+        """title has stopwordPreset='en', overriding the collection-level French additions."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
+            {"text": "the quick brown fox"},
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        # stopwordPreset="en" filters English stopwords
+        assert "the" not in body["query"]
+        assert "quick" in body["query"]
+        assert "brown" in body["query"]
+        assert "fox" in body["query"]
+
+    def test_property_stopword_preset_en_does_not_use_collection_additions(self) -> None:
+        """title has stopwordPreset='en'; collection-level additions (le, la, les) should NOT apply."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
+            {"text": "le chat la souris"},
+        )
+        assert status == 200
+        # 'le' and 'la' are NOT English stopwords, so they should appear in query
+        assert "le" in body["query"]
+        assert "la" in body["query"]
 
     def test_class_not_found(self) -> None:
         status, _ = post_json(

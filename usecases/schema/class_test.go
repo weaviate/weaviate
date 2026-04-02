@@ -3259,6 +3259,89 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
 	}
 }
 
+func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("valid preset en is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "en",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+	})
+
+	t.Run("valid preset none is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "none",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid preset is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "invalid_language",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown stopword preset")
+		assert.Contains(t, err.Error(), "invalid_language")
+	})
+
+	t.Run("empty preset is accepted and config normalized to nil", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty stopwordPreset means empty config -> normalized to nil")
+	})
+
+	t.Run("stopwordPreset combined with asciiFold is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:      true,
+				StopwordPreset: "en",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+	})
+
+	t.Run("stopwordPreset only keeps config non-nil", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "none",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt)
+		require.NoError(t, err)
+		require.NotNil(t, prop.TextAnalyzer, "config with stopwordPreset should not be normalized to nil")
+		assert.Equal(t, "none", prop.TextAnalyzer.StopwordPreset)
+	})
+}
+
 func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
 	searchable := true
 	pdt := newFakePrimitivePDT(schema.DataTypeText)

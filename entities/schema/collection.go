@@ -110,6 +110,7 @@ type ShardingConfig struct {
 type TextAnalyzer struct {
 	ASCIIFold       bool     `json:"asciiFold,omitempty"`
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
+	StopwordPreset  string   `json:"stopwordPreset,omitempty"`
 }
 
 type Property struct {
@@ -203,6 +204,7 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 		n.TextAnalyzer = &TextAnalyzer{
 			ASCIIFold:       m.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyzer.ASCIIFoldIgnore,
+			StopwordPreset:  m.TextAnalyzer.StopwordPreset,
 		}
 	}
 	n.Tokenization = m.Tokenization
@@ -236,6 +238,7 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
 			ASCIIFold:       n.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: n.TextAnalyzer.ASCIIFoldIgnore,
+			StopwordPreset:  n.TextAnalyzer.StopwordPreset,
 		}
 	}
 	m.Tokenization = n.Tokenization
@@ -285,6 +288,7 @@ func PropertyFromModel(m models.Property) Property {
 		p.TextAnalyzer = &TextAnalyzer{
 			ASCIIFold:       m.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyzer.ASCIIFoldIgnore,
+			StopwordPreset:  m.TextAnalyzer.StopwordPreset,
 		}
 	}
 	if len(m.NestedProperties) > 0 {
@@ -320,6 +324,7 @@ func PropertyToModel(p Property) models.Property {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
 			ASCIIFold:       p.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: p.TextAnalyzer.ASCIIFoldIgnore,
+			StopwordPreset:  p.TextAnalyzer.StopwordPreset,
 		}
 	}
 	m.Tokenization = p.Tokenization

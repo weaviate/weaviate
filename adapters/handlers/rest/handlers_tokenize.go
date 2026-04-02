@@ -135,7 +135,16 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	}
 
 	var detector tokenizer.StopwordDetector
-	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
+	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
+		var err error
+		detector, err = stopwords.NewDetectorFromPreset(prop.TextAnalyzer.StopwordPreset)
+		if err != nil {
+			logger.WithField("action", "create_stopword_detector").Error(err)
+			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
+		}
+	} else if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
 		var err error
 		detector, err = stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {

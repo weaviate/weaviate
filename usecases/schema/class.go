@@ -925,7 +925,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
 	// Treat an empty config as absent — some client generators emit
 	// "textAnalyzer": {} by default and this should not block creation.
-	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 {
+	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 && prop.TextAnalyzer.StopwordPreset == "" {
 		prop.TextAnalyzer = nil
 	}
 	if prop.TextAnalyzer == nil {
@@ -971,6 +971,13 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 			models.PropertyTokenizationField: // supported tokenizers, do nothing
 		default:
 			return fmt.Errorf("property '%s': unsupported tokenization '%s'", prop.Name, prop.Tokenization)
+		}
+	}
+
+	if prop.TextAnalyzer.StopwordPreset != "" {
+		if _, ok := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]; !ok {
+			return fmt.Errorf("property '%s': unknown stopword preset %q, valid options are: ['en', 'none']",
+				prop.Name, prop.TextAnalyzer.StopwordPreset)
 		}
 	}
 

@@ -9570,6 +9570,11 @@ func init() {
             "type": "string"
           },
           "x-omitempty": true
+        },
+        "stopwordPreset": {
+          "description": "Pre-existing list of common stopwords by language. Overrides the collection-level invertedIndexConfig.stopwords preset for this property. Only applies to properties using 'word' tokenization. Options: ['en', 'none'].",
+          "type": "string",
+          "x-omitempty": true
         }
       },
       "x-omitempty": true
@@ -20083,6 +20088,11 @@ func init() {
           "items": {
             "type": "string"
           },
+          "x-omitempty": true
+        },
+        "stopwordPreset": {
+          "description": "Pre-existing list of common stopwords by language. Overrides the collection-level invertedIndexConfig.stopwords preset for this property. Only applies to properties using 'word' tokenization. Options: ['en', 'none'].",
+          "type": "string",
           "x-omitempty": true
         }
       },

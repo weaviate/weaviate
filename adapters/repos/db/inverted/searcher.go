@@ -60,6 +60,21 @@ type Searcher struct {
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
 	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
+// stopwordDetectorForProperty returns a property-level stopword detector if
+// the property has a stopwordPreset in its textAnalyzer config, otherwise
+// falls back to the collection-level detector.
+func (s *Searcher) stopwordDetectorForProperty(prop *models.Property) stopwords.StopwordDetector {
+	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
+		d, err := stopwords.NewDetectorFromPreset(prop.TextAnalyzer.StopwordPreset)
+		if err != nil {
+			// preset was validated at schema creation time, fall back to collection-level
+			return s.stopwords
+		}
+		return d
+	}
+	return s.stopwords
+}
+
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
@@ -665,7 +680,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		} else {
 			var sw tokenizer.StopwordDetector
 			if prop.Tokenization == models.PropertyTokenizationWord {
-				sw = s.stopwords
+				sw = s.stopwordDetectorForProperty(prop)
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
 			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)

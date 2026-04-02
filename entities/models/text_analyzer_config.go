@@ -33,6 +33,9 @@ type TextAnalyzerConfig struct {
 
 	// If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
+
+	// Pre-existing list of common stopwords by language. Overrides the collection-level invertedIndexConfig.stopwords preset for this property. Only applies to properties using 'word' tokenization. Options: ['en', 'none'].
+	StopwordPreset string `json:"stopwordPreset,omitempty"`
 }
 
 // Validate validates this text analyzer config

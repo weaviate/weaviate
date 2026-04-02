@@ -199,14 +199,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			tokKey := prop.Tokenization
+			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
-				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
-					// Per-property ignore key — will be computed after tokenization
+				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 || hasCustomStopwords {
+					// Per-property key — will be computed after tokenization
 					tokKey = asciiTokenizationKey(prop.Tokenization) + ":" + property
 				} else {
 					tokKey = asciiTokenizationKey(prop.Tokenization)
 					needsASCIIFold[prop.Tokenization] = struct{}{}
 				}
+			} else if hasCustomStopwords {
+				// Per-property key for custom stopword preset
+				tokKey = prop.Tokenization + ":" + property
 			}
 			neededTokenizations[prop.Tokenization] = struct{}{}
 
@@ -262,10 +266,12 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		tokKey := pi.tokKey
-		if pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.ASCIIFold && len(pi.prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		hasCustomASCIIFoldIgnore := pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.ASCIIFold && len(pi.prop.TextAnalyzer.ASCIIFoldIgnore) > 0
+		hasCustomStopwords := pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.StopwordPreset != ""
+		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				sw = b.stopWordDetector
+				sw = b.stopwordDetectorForProperty(pi.prop)
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
 			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
@@ -296,6 +302,20 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 // asciiTokenizationKey returns the composite key used for ascii-insensitive properties.
 func asciiTokenizationKey(tokenization string) string {
 	return tokenization + ":ascii"
+}
+
+// stopwordDetectorForProperty returns a property-level stopword detector if
+// the property has a stopwordPreset in its textAnalyzer config, otherwise
+// falls back to the collection-level detector.
+func (b *BM25Searcher) stopwordDetectorForProperty(prop *models.Property) stopwords.StopwordDetector {
+	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
+		d, err := stopwords.NewDetectorFromPreset(prop.TextAnalyzer.StopwordPreset)
+		if err != nil {
+			return b.stopWordDetector
+		}
+		return d
+	}
+	return b.stopWordDetector
 }
 
 func (b *BM25Searcher) wand(
