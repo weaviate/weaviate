@@ -37,14 +37,20 @@ const (
 	// be stored directly in the root of the
 	// bucket.
 	s3Path = "BACKUP_S3_PATH"
+
+	// STS AssumeRole options for cross-account access.
+	// When BACKUP_S3_ROLE_ARN is set, Weaviate will call
+	// STS AssumeRole to obtain temporary credentials.
+	s3RoleARN         = "BACKUP_S3_ROLE_ARN"
+	s3ExternalID      = "BACKUP_S3_EXTERNAL_ID"
+	s3STSEndpoint     = "BACKUP_S3_STS_ENDPOINT"
+	s3RoleSessionName = "BACKUP_S3_ROLE_SESSION_NAME"
 )
 
 type Module struct {
 	*s3Client
 	logger   logrus.FieldLogger
 	dataPath string
-	bucket   string
-	path     string
 }
 
 func New() *Module {
@@ -80,7 +86,11 @@ func (m *Module) Init(ctx context.Context,
 	// SSL on by default
 	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) != "false"
 	config := newConfig(os.Getenv(s3Endpoint), bucket, os.Getenv(s3Path), useSSL)
-	client, err := newClient(config, m.logger, m.dataPath, m.bucket, m.path)
+	config.RoleARN = os.Getenv(s3RoleARN)
+	config.ExternalID = os.Getenv(s3ExternalID)
+	config.STSEndpoint = os.Getenv(s3STSEndpoint)
+	config.RoleSessionName = os.Getenv(s3RoleSessionName)
+	client, err := newClient(config, m.logger, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "initialize S3 backup module")
 	}
