@@ -112,7 +112,11 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if index.compressionType == CompressionBQ {
 		index.compressed.Store(true)
 		builder := NewQuantizerBuilder(cfg.DistanceProvider)
-		index.quantizer = builder.CreateQuantizer(index.compressionType, 0)
+		quantizer, err := builder.CreateQuantizer(index.compressionType, 0)
+		if err != nil {
+			return nil, err
+		}
+		index.quantizer = quantizer
 	}
 
 	cached, cacheType := extractCache(uc)
@@ -350,7 +354,12 @@ func (index *flat) initializeDimensionsAndRQ(vector []float32) {
 
 	if !index.Compressed() && (index.compressionType == CompressionRQ1 || index.compressionType == CompressionRQ8) {
 		builder := NewQuantizerBuilder(index.distancerProvider)
-		index.quantizer = builder.CreateQuantizer(index.compressionType, dims)
+		quantizer, err := builder.CreateQuantizer(index.compressionType, dims)
+		if err != nil {
+			index.logger.WithError(err).Error("could not create quantizer")
+			return // Fail the entire initialization
+		}
+		index.quantizer = quantizer
 		if err := index.persistRQData(); err != nil {
 			index.logger.WithError(err).Error("could not persist RQ data")
 			return // Fail the entire initialization

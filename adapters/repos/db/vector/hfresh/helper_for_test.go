@@ -105,18 +105,24 @@ func addVectorToIndex(t *testing.T, tf *TestHFresh, vectorID uint64, vector []fl
 // (adding a vector via Add() would create a centroid as a side effect)
 func initializeDimensions(t *testing.T, tf *TestHFresh, vector []float32) {
 	t.Helper()
-	tf.Index.initDimensionsOnce.Do(func() {
-		size := uint32(len(vector))
-		tf.Index.dims = size
-		err := tf.Index.setMaxPostingSize()
-		require.NoError(t, err)
-		tf.Index.quantizer = compressionhelpers.NewBinaryRotationalQuantizer(int(tf.Index.dims), 42, tf.Index.config.DistanceProvider)
-		tf.Index.Centroids.SetQuantizer(tf.Index.quantizer)
-		tf.Index.distancer = &Distancer{
-			quantizer: tf.Index.quantizer,
-			distancer: tf.Index.config.DistanceProvider,
-		}
-	})
+	tf.Index.initMu.Lock()
+	defer tf.Index.initMu.Unlock()
+	if tf.Index.initDone {
+		return
+	}
+	size := uint32(len(vector))
+	tf.Index.dims = size
+	err := tf.Index.setMaxPostingSize()
+	require.NoError(t, err)
+	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(tf.Index.dims), 42, tf.Index.config.DistanceProvider)
+	require.NoError(t, err)
+	tf.Index.quantizer = quantizer
+	tf.Index.Centroids.SetQuantizer(tf.Index.quantizer)
+	tf.Index.distancer = &Distancer{
+		quantizer: tf.Index.quantizer,
+		distancer: tf.Index.config.DistanceProvider,
+	}
+	tf.Index.initDone = true
 }
 
 // createPostingWithVectors creates a posting with the given vectors
