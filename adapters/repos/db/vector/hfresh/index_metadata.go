@@ -144,29 +144,40 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
+	if err := h.restoreDimensions(dims); err != nil {
+		return err
+	}
+
+	if err := h.PostingMap.Restore(h.ctx); err != nil {
+		return err
+	}
+
+	return h.restoreMetrics()
+}
+
+// restoreDimensions restores dimension-dependent components from persisted
+// metadata. If quantization data is missing (e.g. crash before it was
+// persisted), the quantizer is re-created from scratch.
+func (h *HFresh) restoreDimensions(dims uint32) error {
 	h.initMu.Lock()
+	defer h.initMu.Unlock()
+
 	if h.initDone {
-		h.initMu.Unlock()
 		return nil
 	}
 
 	atomic.StoreUint32(&h.dims, dims)
-	err = h.setMaxPostingSize()
-	if err != nil {
-		h.initMu.Unlock()
+	if err := h.setMaxPostingSize(); err != nil {
 		return err
 	}
 
 	quantization, err := h.IndexMetadata.GetQuantizationData()
 	if err != nil {
-		h.initMu.Unlock()
 		return err
 	}
 
 	if quantization != nil {
-		err := h.restoreQuantizationData(&quantization.RQ)
-		if err != nil {
-			h.initMu.Unlock()
+		if err := h.restoreQuantizationData(&quantization.RQ); err != nil {
 			return err
 		}
 	} else {
@@ -175,29 +186,18 @@ func (h *HFresh) restoreMetadata() error {
 		// quantizer from scratch.
 		quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
 		if err != nil {
-			h.initMu.Unlock()
 			return errors.Wrap(err, "could not create quantizer")
 		}
 		h.quantizer = quantizer
 		h.Centroids.SetQuantizer(h.quantizer)
 		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
-		err = h.persistQuantizationData()
-		if err != nil {
-			h.initMu.Unlock()
+		if err := h.persistQuantizationData(); err != nil {
 			return errors.Wrap(err, "could not persist RQ data")
 		}
 	}
 
 	h.initDone = true
-	h.initMu.Unlock()
-
-	// restore posting map
-	err = h.PostingMap.Restore(h.ctx)
-	if err != nil {
-		return err
-	}
-
-	return h.restoreMetrics()
+	return nil
 }
 
 func (h *HFresh) persistQuantizationData() error {
