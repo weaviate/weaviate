@@ -27,9 +27,10 @@ func TestBackupTestSuiteConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "us-east-1", config.Region)
 	assert.Equal(t, "BackupTestClass", config.ClassName)
 	assert.Equal(t, "backup-test", config.BackupID)
-	assert.False(t, config.MultiTenant)
-	assert.Equal(t, 3, config.NumTenants)
-	assert.Equal(t, 10, config.ObjectsPerTenant)
+	assert.False(t, config.MultiTenant.Enabled)
+	assert.Equal(t, 3, config.MultiTenant.NumTenants)
+	assert.Equal(t, 10, config.MultiTenant.ObjectsPerTenant)
+	assert.Equal(t, false, config.MultiTenant.WithMidBackupActivations)
 	assert.Equal(t, 5*time.Minute, config.TestTimeout)
 	assert.Equal(t, 2*time.Minute, config.BackupTimeout)
 	assert.Equal(t, 2*time.Minute, config.RestoreTimeout)
@@ -45,29 +46,34 @@ func TestBackupTestSuite_Creation(t *testing.T) {
 
 	t.Run("with custom config", func(t *testing.T) {
 		config := &BackupTestSuiteConfig{
-			BackendType:      "gcs",
-			BucketName:       "custom-bucket",
-			ClassName:        "CustomClass",
-			BackupID:         "custom-backup",
-			MultiTenant:      true,
-			NumTenants:       5,
-			ObjectsPerTenant: 20,
+			BackendType: "gcs",
+			BucketName:  "custom-bucket",
+			ClassName:   "CustomClass",
+			BackupID:    "custom-backup",
+			MultiTenant: BackupTestSuiteMultiTenancyConfig{
+				Enabled:                  true,
+				NumTenants:               5,
+				ObjectsPerTenant:         20,
+				WithMidBackupActivations: false,
+			},
 		}
 		suite := NewBackupTestSuite(config)
 
 		require.NotNil(t, suite)
 		assert.Equal(t, "gcs", suite.config.BackendType)
 		assert.Equal(t, "custom-bucket", suite.config.BucketName)
-		assert.True(t, suite.config.MultiTenant)
+		assert.True(t, suite.config.MultiTenant.Enabled)
 	})
 }
 
 func TestBackupTestSuite_DataGeneration(t *testing.T) {
 	config := &BackupTestSuiteConfig{
-		ClassName:        "TestClass",
-		MultiTenant:      true,
-		NumTenants:       3,
-		ObjectsPerTenant: 5,
+		ClassName: "TestClass",
+		MultiTenant: BackupTestSuiteMultiTenancyConfig{
+			Enabled:          true,
+			NumTenants:       3,
+			ObjectsPerTenant: 5,
+		},
 	}
 	suite := NewBackupTestSuite(config)
 
@@ -107,8 +113,7 @@ func TestStandardBackendTestCases(t *testing.T) {
 
 func TestBackupTestSuite_ObjectIDs(t *testing.T) {
 	suite := NewBackupTestSuite(&BackupTestSuiteConfig{
-		ClassName:        "TestClass",
-		ObjectsPerTenant: 5,
+		ClassName: "TestClass",
 	})
 
 	// Before creating objects, counts should be zero
@@ -129,11 +134,10 @@ func TestBackupTestSuite_S3Integration(t *testing.T) {
 
 	t.Run("suite creation for S3", func(t *testing.T) {
 		suite := NewBackupTestSuite(&BackupTestSuiteConfig{
-			BackendType:      "s3",
-			BucketName:       "backups",
-			Region:           "us-east-1",
-			ClassName:        "IntegrationTestClass",
-			ObjectsPerTenant: 3,
+			BackendType: "s3",
+			BucketName:  "backups",
+			Region:      "us-east-1",
+			ClassName:   "IntegrationTestClass",
 		})
 		require.NotNil(t, suite)
 		assert.Equal(t, "s3", suite.config.BackendType)
@@ -141,10 +145,9 @@ func TestBackupTestSuite_S3Integration(t *testing.T) {
 
 	t.Run("suite creation for GCS", func(t *testing.T) {
 		suite := NewBackupTestSuite(&BackupTestSuiteConfig{
-			BackendType:      "gcs",
-			BucketName:       "backups",
-			ClassName:        "IntegrationTestClass",
-			ObjectsPerTenant: 3,
+			BackendType: "gcs",
+			BucketName:  "backups",
+			ClassName:   "IntegrationTestClass",
 		})
 		require.NotNil(t, suite)
 		assert.Equal(t, "gcs", suite.config.BackendType)
@@ -152,10 +155,9 @@ func TestBackupTestSuite_S3Integration(t *testing.T) {
 
 	t.Run("suite creation for Azure", func(t *testing.T) {
 		suite := NewBackupTestSuite(&BackupTestSuiteConfig{
-			BackendType:      "azure",
-			BucketName:       "backups",
-			ClassName:        "IntegrationTestClass",
-			ObjectsPerTenant: 3,
+			BackendType: "azure",
+			BucketName:  "backups",
+			ClassName:   "IntegrationTestClass",
 		})
 		require.NotNil(t, suite)
 		assert.Equal(t, "azure", suite.config.BackendType)
@@ -166,12 +168,11 @@ func TestBackupTestSuite_ConfigVariants(t *testing.T) {
 	t.Run("single tenant - no multi-tenancy", func(t *testing.T) {
 		// Explicit single-tenant configuration - no multi-tenancy enabled
 		config := &BackupTestSuiteConfig{
-			BackendType:      "s3",
-			BucketName:       "backups",
-			ClassName:        "SingleTenantClass",
-			BackupID:         "single-tenant-backup",
-			MultiTenant:      false, // Explicitly disabled
-			ObjectsPerTenant: 10,    // Total objects (no tenants)
+			BackendType: "s3",
+			BucketName:  "backups",
+			ClassName:   "SingleTenantClass",
+			BackupID:    "single-tenant-backup",
+			MultiTenant: BackupTestSuiteMultiTenancyConfig{Enabled: false}, // Explicitly disabled
 		}
 		suite := NewBackupTestSuite(config)
 
@@ -192,13 +193,15 @@ func TestBackupTestSuite_ConfigVariants(t *testing.T) {
 	t.Run("multi tenant - with multiple tenants", func(t *testing.T) {
 		// Explicit multi-tenant configuration
 		config := &BackupTestSuiteConfig{
-			BackendType:      "s3",
-			BucketName:       "backups",
-			ClassName:        "MultiTenantClass",
-			BackupID:         "multi-tenant-backup",
-			MultiTenant:      true, // Explicitly enabled
-			NumTenants:       4,    // 4 distinct tenants
-			ObjectsPerTenant: 5,    // 5 objects per tenant
+			BackendType: "s3",
+			BucketName:  "backups",
+			ClassName:   "MultiTenantClass",
+			BackupID:    "multi-tenant-backup",
+			MultiTenant: BackupTestSuiteMultiTenancyConfig{
+				Enabled:          true, // Explicitly enabled
+				NumTenants:       4,    // 4 distinct tenants
+				ObjectsPerTenant: 5,    // 5 objects per tenant
+			},
 		}
 		suite := NewBackupTestSuite(config)
 
