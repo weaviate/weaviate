@@ -77,10 +77,10 @@ func (s *Searcher) extractDateValue(in interface{}) ([]byte, error) {
 			return nil, errors.Wrap(err, "trying parse time as RFC3339 string")
 		}
 
-		asInt64 = parsed.UnixNano()
+		asInt64 = parsed.UnixMilli()
 
 	case time.Time:
-		asInt64 = t.UnixNano()
+		asInt64 = t.UnixMilli()
 
 	default:
 		return nil, fmt.Errorf("expected value to be time.Time (or parseable string)"+

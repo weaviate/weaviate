@@ -101,7 +101,7 @@ type timestamp struct {
 func newTimestamp(epochNano int64) timestamp {
 	return timestamp{
 		epochNano: epochNano,
-		rfc3339:   time.Unix(0, epochNano).UTC().Format(time.RFC3339Nano),
+		rfc3339:   time.UnixMilli(epochNano).UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -117,7 +117,7 @@ func (a *dateAggregator) AddTimestamp(rfc3339 string) error {
 	}
 
 	ts := timestamp{
-		epochNano: t.UnixNano(),
+		epochNano: t.UnixMilli(),
 		rfc3339:   rfc3339,
 	}
 	return a.addRow(ts, 1)
@@ -189,7 +189,7 @@ func (a *dateAggregator) Median() string {
 		} else if a.count%2 == 0 {
 			if count == middleIndex {
 				MedianEpochNano := pair.value.epochNano + (a.pairs[index+1].value.epochNano-pair.value.epochNano)/2
-				return time.Unix(0, MedianEpochNano).UTC().Format(time.RFC3339Nano) // case b2)
+				return time.UnixMilli(MedianEpochNano).UTC().Format(time.RFC3339Nano) // case b2)
 			} else if count > middleIndex {
 				return pair.value.rfc3339 // case b1)
 			}
