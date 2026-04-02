@@ -611,6 +611,105 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	return nil
 }
 
+// SwapBucketPointer atomically redirects all future Store.Bucket(targetName)
+// calls to return the bucket currently registered as sourceName. The source
+// name is removed from the map. Returns the old bucket (previously at
+// targetName) so the caller can shut it down.
+//
+// This is a pure in-memory operation — no filesystem changes. The caller is
+// responsible for:
+//   - Shutting down the returned old bucket
+//   - Persisting any crash-safety markers (sentinel files) around this call
+//   - Finalizing directory renames at a later point (e.g., next restart)
+func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return nil, fmt.Errorf("%w: swapping bucket %q with %q in store %q",
+			ErrAlreadyClosed, targetName, sourceName, s.dir)
+	}
+
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	oldBucket, ok := s.bucketsByName[targetName]
+	if !ok {
+		return nil, fmt.Errorf("target bucket %q not found in store %q", targetName, s.dir)
+	}
+
+	sourceBucket, ok := s.bucketsByName[sourceName]
+	if !ok {
+		return nil, fmt.Errorf("source bucket %q not found in store %q", sourceName, s.dir)
+	}
+
+	s.bucketsByName[targetName] = sourceBucket
+	delete(s.bucketsByName, sourceName)
+
+	return oldBucket, nil
+}
+
+// FinalizeBucketSwap completes a deferred bucket swap by renaming directories
+// on disk and updating all in-memory paths. Call this at startup after
+// CreateOrLoadBucket has loaded the bucket under its temporary directory.
+//
+//   - canonicalDir: the directory the bucket should ultimately live at
+//   - currentDir:   the directory the bucket was loaded from
+//   - backupDir:    the _bak directory to clean up
+//
+// Steps:
+//  1. Flush any active memtable data to a segment (preserves WAL-replayed data)
+//  2. Remove backupDir if it exists
+//  3. Rename currentDir → canonicalDir
+//  4. Update bucket.dir, bucket.disk.dir, and all segment paths in memory
+//  5. Create a fresh active memtable at the canonical path
+func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir, currentDir, backupDir string) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: finalizing bucket swap for %q in store %q",
+			ErrAlreadyClosed, bucketName, s.dir)
+	}
+
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
+
+	bucket, ok := s.bucketsByName[bucketName]
+	if !ok {
+		return fmt.Errorf("bucket %q not found in store %q", bucketName, s.dir)
+	}
+
+	// Flush any in-memory data (e.g. from WAL replay at startup) to a segment
+	// before renaming directories. FlushAndSwitch is a no-op for empty
+	// memtables.
+	if err := bucket.FlushAndSwitch(); err != nil {
+		return fmt.Errorf("flush memtable before dir rename: %w", err)
+	}
+
+	if err := os.RemoveAll(backupDir); err != nil {
+		return fmt.Errorf("remove backup dir %q: %w", backupDir, err)
+	}
+
+	if err := os.Rename(currentDir, canonicalDir); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", currentDir, canonicalDir, err)
+	}
+
+	s.updateBucketDir(bucket, currentDir, canonicalDir)
+	bucket.dir = canonicalDir
+
+	bucket.flushLock.Lock()
+	defer bucket.flushLock.Unlock()
+
+	mt, err := bucket.createNewActiveMemtable()
+	if err != nil {
+		return fmt.Errorf("create new active memtable after dir rename: %w", err)
+	}
+	bucket.active = mt
+
+	return nil
+}
+
 func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) {
 	updatePath := func(src string) string {
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
