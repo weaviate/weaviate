@@ -293,7 +293,7 @@ func Test_policy(t *testing.T) {
 				Data: &models.PermissionData{},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("*", "*", "*"),
+				Resource: CasbinData("*", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -306,26 +306,26 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "*", "*"),
+				Resource: CasbinData("Foo", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in all collections ST",
+			name: "an object in all collections ST (object ignored)",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Object: baz,
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("*", "*", "baz"),
+				Resource: CasbinData("*", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in a collection ST",
+			name: "an object in a collection ST (object ignored)",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
@@ -333,7 +333,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "*", "baz"),
+				Resource: CasbinData("Foo", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -346,7 +346,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "*", "*"),
+				Resource: CasbinData("Foo", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -359,7 +359,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("*", "bar", "*"),
+				Resource: CasbinData("*", "bar"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -373,26 +373,26 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "bar", "*"),
+				Resource: CasbinData("Foo", "bar"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in all tenants in all collections MT",
+			name: "an object in all tenants in all collections MT (object ignored)",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Object: baz,
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("*", "*", "baz"),
+				Resource: CasbinData("*", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in all tenants in a collection MT",
+			name: "an object in all tenants in a collection MT (object ignored)",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
@@ -400,13 +400,13 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "*", "baz"),
+				Resource: CasbinData("Foo", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in a tenant in all collections MT",
+			name: "an object in a tenant in all collections MT (object ignored)",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Tenant: bar,
@@ -414,13 +414,13 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("*", "bar", "baz"),
+				Resource: CasbinData("*", "bar"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name: "an object in a tenant in a collection MT",
+			name: "an object in a tenant in a collection MT (object ignored)",
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
@@ -429,7 +429,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("Foo", "bar", "baz"),
+				Resource: CasbinData("Foo", "bar"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -719,25 +719,25 @@ func Test_permission(t *testing.T) {
 			tests: objectsDataTests,
 		},
 		{
-			name:   "an object in all collections ST",
+			name:   "an object in all collections ST (object always wildcard)",
 			policy: []string{"p", "/collections/*/shards/*/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: authorization.All,
 					Tenant:     authorization.All,
-					Object:     baz,
+					Object:     authorization.All,
 				},
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name:   "an object in a collection ST",
+			name:   "an object in a collection ST (object always wildcard)",
 			policy: []string{"p", "/collections/Foo/shards/*/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     authorization.All,
-					Object:     baz,
+					Object:     authorization.All,
 				},
 			},
 			tests: objectsDataTests,
@@ -787,48 +787,49 @@ func Test_permission(t *testing.T) {
 			tests: objectsDataTests,
 		},
 		{
-			name:   "an object in all tenants in all collections MT",
+			name:   "an object in all tenants in all collections MT (object always wildcard)",
 			policy: []string{"p", "/collections/*/shards/*/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: authorization.All,
 					Tenant:     authorization.All,
-					Object:     baz,
+					Object:     authorization.All,
 				},
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name:   "an object in all tenants in a collection MT",
+			name:   "an object in all tenants in a collection MT (object always wildcard)",
 			policy: []string{"p", "/collections/Foo/shards/*/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     authorization.All,
-					Object:     baz,
-				},
-			},
-		},
-		{
-			name:   "an object in a tenant in all collections MT",
-			policy: []string{"p", "/collections/*/shards/bar/objects/baz", "", authorization.DataDomain},
-			permission: &models.Permission{
-				Data: &models.PermissionData{
-					Collection: authorization.All,
-					Tenant:     bar,
-					Object:     baz,
+					Object:     authorization.All,
 				},
 			},
 			tests: objectsDataTests,
 		},
 		{
-			name:   "an object in a tenant in a collection MT",
+			name:   "an object in a tenant in all collections MT (object always wildcard)",
+			policy: []string{"p", "/collections/*/shards/bar/objects/baz", "", authorization.DataDomain},
+			permission: &models.Permission{
+				Data: &models.PermissionData{
+					Collection: authorization.All,
+					Tenant:     bar,
+					Object:     authorization.All,
+				},
+			},
+			tests: objectsDataTests,
+		},
+		{
+			name:   "an object in a tenant in a collection MT (object always wildcard)",
 			policy: []string{"p", "/collections/Foo/shards/bar/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     bar,
-					Object:     baz,
+					Object:     authorization.All,
 				},
 			},
 			tests: objectsDataTests,
@@ -996,29 +997,20 @@ func Test_pObjects(t *testing.T) {
 	tests := []struct {
 		collection string
 		shard      string
-		object     string
 		expected   string
 	}{
-		{collection: "", shard: "", object: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
-		{collection: "*", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "", object: "", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/.*", authorization.DataDomain)},
-		{collection: "", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
-		{collection: "*", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
-		{collection: "", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/baz", authorization.DataDomain)},
-		{collection: "*", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/baz", authorization.DataDomain)},
-		{collection: "foo", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/baz", authorization.DataDomain)},
-		{collection: "foo", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/baz", authorization.DataDomain)},
-		{collection: "", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/baz", authorization.DataDomain)},
-		{collection: "*", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/baz", authorization.DataDomain)},
-		{collection: "foo", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/baz", authorization.DataDomain)},
+		{collection: "", shard: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "*", shard: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "", shard: "bar", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "*", shard: "bar", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/.*", authorization.DataDomain)},
 	}
 	for _, tt := range tests {
-		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
+		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinData(tt.collection, tt.shard, tt.object)
+			p := CasbinData(tt.collection, tt.shard)
 			require.Equal(t, tt.expected, p)
 		})
 	}

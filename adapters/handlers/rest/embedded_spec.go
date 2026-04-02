@@ -7791,9 +7791,10 @@ func init() {
               "default": "*"
             },
             "object": {
-              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
+              "description": "Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.",
               "type": "string",
-              "default": "*"
+              "default": "*",
+              "x-deprecated": true
             },
             "tenant": {
               "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
@@ -17448,9 +17449,10 @@ func init() {
               "default": "*"
             },
             "object": {
-              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
+              "description": "Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.",
               "type": "string",
-              "default": "*"
+              "default": "*",
+              "x-deprecated": true
             },
             "tenant": {
               "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",
@@ -17606,9 +17608,10 @@ func init() {
           "default": "*"
         },
         "object": {
-          "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all objects.",
+          "description": "Deprecated: Object-level permissions are not supported. This field is ignored; the permission always applies to all objects. Kept for backward compatibility.",
           "type": "string",
-          "default": "*"
+          "default": "*",
+          "x-deprecated": true
         },
         "tenant": {
           "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all tenants.",

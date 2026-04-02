@@ -510,9 +510,6 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
 			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
 		}
-		if perm.Data.Object != nil && *perm.Data.Object != "" {
-			s += fmt.Sprintf(" Object: %s", *perm.Data.Object)
-		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
 	}

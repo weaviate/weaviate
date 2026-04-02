@@ -34,7 +34,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	className, _ = m.resolveAlias(className)
 	obj.Class = className
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant))
 	if err != nil {
 		return err
 	}
