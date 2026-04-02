@@ -125,6 +125,7 @@ func TestScheduler_ExportIDValidation(t *testing.T) {
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
 		selector:     &fakeSelector{classList: []string{"Article"}},
+		metrics:      testMetrics(),
 	}
 
 	tests := []struct {

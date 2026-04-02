@@ -1226,8 +1226,7 @@ local-usage-s3)
     MCP_SERVER_CONFIG_PATH="${PWD}/tools/dev/config.mcp.json" \
     DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
     TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
-    CLIP_INFERENCE_API="http://localhost:8005" \
-    ENABLE_MODULES="text2vec-transformers,multi2vec-clip" \
+    ENABLE_MODULES="text2vec-transformers" \
     go_run ./cmd/weaviate-server \
       --scheme http \
       --host "127.0.0.1" \
