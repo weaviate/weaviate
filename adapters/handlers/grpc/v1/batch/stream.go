@@ -94,7 +94,7 @@ func NewStreamHandler(
 		stoppingPerStream:      &sync.Map{},
 		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
 		// this ensures that vectors can be stored in-memory before being processed downstream
-		allocChecker:  memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
+		allocChecker:  memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
 		schemaManager: schemaManager,
 	}
 	return h
