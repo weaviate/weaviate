@@ -167,3 +167,13 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, 
 		Class:              class,
 	}, nil
 }
+
+// findNestedPropByName returns the NestedProperty with the given name, or nil.
+func findNestedPropByName(props []*models.NestedProperty, name string) *models.NestedProperty {
+	for _, np := range props {
+		if np.Name == name {
+			return np
+		}
+	}
+	return nil
+}

@@ -31,7 +31,7 @@ import (
 //	  tags:   text[]
 //	  cars:   object[] {
 //	    make:        text
-//	    tires:       object[] { width int; radiuses int[] }
+//	    tires:       object[] { width int; radiuses int[]; bolts object[]{size int}; caps object[]{color text} }
 //	    accessories: object[] { type text }
 //	    colors:      text[]
 //	  }
@@ -70,6 +70,21 @@ func correlationTestProps() []*models.NestedProperty {
 					NestedProperties: []*models.NestedProperty{
 						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
 						{Name: "radiuses", DataType: schema.DataTypeIntArray.PropString(), IndexFilterable: &vTrue},
+						// bolts and caps are sub-arrays of tires, enabling nested idxLoopAnd tests.
+						{
+							Name:     "bolts",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "size", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+							},
+						},
+						{
+							Name:     "caps",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: "word", IndexFilterable: &vTrue},
+							},
+						},
 					},
 				},
 				{
@@ -85,236 +100,344 @@ func correlationTestProps() []*models.NestedProperty {
 	}
 }
 
-func TestNestedPathRelationship(t *testing.T) {
+func TestBuildResolutionPlanLeafOps(t *testing.T) {
 	props := correlationTestProps()
 	objDT := schema.DataTypeObject
 	arrDT := schema.DataTypeObjectArray
 
+	// These cases all verify the top-level op (and lcaPath where relevant).
+	// Cross-subtree pairs produce an interior maskLeafAnd; same-subtree pairs
+	// produce a leaf or an idxLoopAnd.  The comments show the logical plan.
 	tests := []struct {
-		name     string
-		pathA    string
-		pathB    string
-		rootDT   schema.DataType
-		wantKind nestedCorrelation
-		wantLCA  string
+		name    string
+		pathA   string
+		pathB   string
+		rootDT  schema.DataType
+		wantOp  nestedCorrelation
+		wantLCA string
 	}{
-		// --- ancestor / descendant → directAnd ---
+		// ancestor / descendant
+		// → directAnd [addresses.city]  (identical paths: deduplicated to one)
 		{
 			name:  "identical paths",
 			pathA: "addresses.city", pathB: "addresses.city", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
+		// → directAnd [cars.make]  ("cars" ancestor excluded as superset)
 		{
 			name:  "one is prefix of other",
 			pathA: "cars", pathB: "cars.make", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
 
-		// --- scalar siblings at same array element → directAnd ---
+		// scalar siblings (inherit all parent-element positions) → directAnd
+		// → directAnd [addresses.city, addresses.postcode]
 		{
 			name:  "addresses.city and addresses.postcode (scalar siblings in object[])",
 			pathA: "addresses.city", pathB: "addresses.postcode", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
+		// → directAnd [owner.firstname, owner.lastname]
 		{
 			name:  "owner.firstname and owner.lastname (scalar siblings in object)",
 			pathA: "owner.firstname", pathB: "owner.lastname", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
+		// → directAnd [cars.make, cars.colors]
 		{
 			name:  "cars.make and cars.colors (scalar siblings in cars object[])",
 			pathA: "cars.make", pathB: "cars.colors", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
+		// → directAnd [cars.tires.width, cars.tires.radiuses]
 		{
 			name:  "tires.width and tires.radiuses (scalar siblings in tires object[])",
 			pathA: "cars.tires.width", pathB: "cars.tires.radiuses", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
 
-		// --- different subtrees in object[] → idxLoopAnd ---
+		// different sub-arrays under intermediate object[] → idxLoopAnd
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width]
+		//       └── directAnd [cars.colors]
 		{
-			name:  "cars.tires.width and cars.colors (tires is sub-array of cars)",
-			pathA: "cars.tires.width", pathB: "cars.colors", rootDT: objDT,
-			wantKind: idxLoopAnd, wantLCA: "cars",
+			name:   "cars.tires.width and cars.colors (tires is sub-array of cars)",
+			pathA:  "cars.tires.width", pathB: "cars.colors", rootDT: objDT,
+			wantOp: idxLoopAnd, wantLCA: "cars",
 		},
+		// make is scalar at cars level → superset of tires.width positions → directAnd
+		// → directAnd [cars.tires.width, cars.make]
 		{
-			name:  "cars.tires.width and cars.make (tires sub-array, make scalar)",
+			name:  "cars.tires.width and cars.make (tires sub-array, make scalar superset)",
 			pathA: "cars.tires.width", pathB: "cars.make", rootDT: objDT,
-			wantKind: directAnd, // make is scalar → inherits all car positions (superset)
+			wantOp: directAnd,
 		},
+		// → directAnd [cars.tires.radiuses, cars.tires.width]
 		{
-			name:  "cars.tires.radiuses and cars.tires.width diverge at tires level",
+			name:  "cars.tires.radiuses and cars.tires.width (both scalar at tires level)",
 			pathA: "cars.tires.radiuses", pathB: "cars.tires.width", rootDT: objDT,
-			wantKind: directAnd, // both scalar at tires element level
+			wantOp: directAnd,
 		},
 
-		// --- diverge at root of object[] → maskLeafAnd ---
-		// root_idx already distinguishes root elements so MaskLeaf AND
-		// is sufficient; no _idx metadata is emitted at root level.
+		// diverge at root of object[] → maskLeafAnd (root_idx aligns elements)
+		// → maskLeafAnd
+		//       ├── directAnd [addresses.city]
+		//       └── directAnd [cars.make]
 		{
-			name:  "diverge at root of object[] property",
-			pathA: "addresses.city", pathB: "cars.make", rootDT: arrDT,
-			wantKind: maskLeafAnd,
+			name:   "diverge at root of object[] property",
+			pathA:  "addresses.city", pathB: "cars.make", rootDT: arrDT,
+			wantOp: maskLeafAnd,
 		},
 
-		// --- different root sub-properties of single object → maskLeafAnd ---
+		// diverge at root of single object → maskLeafAnd
+		// → maskLeafAnd
+		//       ├── directAnd [addresses.city]
+		//       └── directAnd [cars.make]
 		{
-			name:  "addresses.city and cars.make under single object",
-			pathA: "addresses.city", pathB: "cars.make", rootDT: objDT,
-			wantKind: maskLeafAnd,
+			name:   "addresses.city and cars.make under single object",
+			pathA:  "addresses.city", pathB: "cars.make", rootDT: objDT,
+			wantOp: maskLeafAnd,
 		},
+		// → maskLeafAnd
+		//       ├── directAnd [owner.firstname]
+		//       └── directAnd [addresses.city]
 		{
-			name:  "owner.firstname and addresses.city under single object",
-			pathA: "owner.firstname", pathB: "addresses.city", rootDT: objDT,
-			wantKind: maskLeafAnd,
+			name:   "owner.firstname and addresses.city under single object",
+			pathA:  "owner.firstname", pathB: "addresses.city", rootDT: objDT,
+			wantOp: maskLeafAnd,
 		},
 
-		// --- owner (object) with one path having sub-array → directAnd
-		//     (scalar firstname inherits all owner positions, superset of nicknames) ---
+		// firstname is scalar at owner level → superset of nicknames (text[]) → directAnd
+		// → directAnd [owner.firstname, owner.nicknames]
 		{
 			name:  "owner.firstname and owner.nicknames (scalar vs text[])",
 			pathA: "owner.firstname", pathB: "owner.nicknames", rootDT: objDT,
-			wantKind: directAnd,
+			wantOp: directAnd,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rel, err := nestedPathsRelationship([]string{tt.pathA, tt.pathB}, tt.rootDT, props)
+			// Use buildResolutionPlan with the pair; cross-subtree pairs produce a
+			// maskLeafAnd interior node — check only the top-level op.
+			plan, err := newResolutionPlanBuilder(tt.rootDT, props).build([]string{tt.pathA, tt.pathB})
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantKind, rel.kind)
-			if tt.wantKind == idxLoopAnd {
-				assert.Equal(t, tt.wantLCA, rel.lcaPath)
+			// For cross-subtree pairs the plan is an interior maskLeafAnd with groups;
+			// for same-subtree pairs it is a leaf. Either way the top-level op matches.
+			assert.Equal(t, tt.wantOp, plan.op)
+			if tt.wantOp == idxLoopAnd {
+				assert.Equal(t, tt.wantLCA, plan.lcaPath)
 			}
 		})
 	}
 }
 
-func TestNestedPathRelationshipInvalidDT(t *testing.T) {
+func TestBuildResolutionPlanNoPaths(t *testing.T) {
 	props := correlationTestProps()
-	_, err := nestedPathsRelationship([]string{"addresses.city", "cars.make"}, schema.DataTypeText, props)
+	_, err := newResolutionPlanBuilder(schema.DataTypeObject, props).build(nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no paths")
+}
+
+func TestBuildResolutionPlanInvalidDT(t *testing.T) {
+	props := correlationTestProps()
+	// cars.make is DataTypeText (non-nested); paths that go deeper share the
+	// same first-segment group, reaching the LCA check with a scalar LCA node.
+	_, err := newResolutionPlanBuilder(schema.DataTypeObject, props).
+		build([]string{"cars.make.foo", "cars.make.bar"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "object or object[]")
 }
 
-func TestNestedPathsRelationshipMulti(t *testing.T) {
+func TestBuildResolutionPlanMultiPath(t *testing.T) {
 	props := correlationTestProps()
 	objDT := schema.DataTypeObject
 
 	tests := []struct {
-		name     string
-		paths    []string
-		wantKind nestedCorrelation
-		wantLCA  string
+		name    string
+		paths   []string
+		wantOp  nestedCorrelation
+		wantLCA string
 	}{
-		// --- degenerate cases ---
-		{name: "empty paths", paths: []string{}, wantKind: directAnd},
-		{name: "single path", paths: []string{"addresses.city"}, wantKind: directAnd},
+		// empty paths is a programming error → expect error, not a plan
+		// → directAnd [addresses.city]
+		{name: "single path", paths: []string{"addresses.city"}, wantOp: directAnd},
 
-		// --- cars.make + cars.colors + cars.accessories.type ---
-		// The scalar superset rule only holds for N=2. With N=3, make is a superset
-		// of each sibling, but colors ∩ accessories.type may be empty even when a
-		// document satisfies all three in the same car (e.g. Tesla: make={l4..l9},
-		// colors={l9}, accessories.type={l7} → direct AND gives {} incorrectly).
-		// idxLoopAnd on cars is required.
+		// N=3: scalar-superset rule (3b) only applies for N=2 → idxLoopAnd
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.make]
+		//       ├── directAnd [cars.colors]
+		//       └── directAnd [cars.accessories.type]
 		{
-			name:     "cars.make + cars.colors + cars.accessories.type (scalar rule N=2 only)",
-			paths:    []string{"cars.make", "cars.colors", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
+			name:   "cars.make + cars.colors + cars.accessories.type (N=3, scalar rule N=2 only)",
+			paths:  []string{"cars.make", "cars.colors", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
 		},
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.make]
+		//       ├── directAnd [cars.tires.width]
+		//       └── directAnd [cars.accessories.type]
 		{
-			name:     "cars.make + cars.tires.width + cars.accessories.type (scalar rule N=2 only)",
-			paths:    []string{"cars.make", "cars.tires.width", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
+			name:   "cars.make + cars.tires.width + cars.accessories.type (N=3)",
+			paths:  []string{"cars.make", "cars.tires.width", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.colors]
+		//       └── directAnd [cars.accessories.type]
+		{
+			name:   "cars.colors + cars.accessories.type (no scalar, accessories is sub-array)",
+			paths:  []string{"cars.colors", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width]
+		//       └── directAnd [cars.accessories.type]
+		{
+			name:   "cars.tires.width + cars.accessories.type (two sub-arrays under cars)",
+			paths:  []string{"cars.tires.width", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width]
+		//       ├── directAnd [cars.colors]
+		//       └── directAnd [cars.accessories.type]
+		{
+			name:   "cars.tires.width + cars.colors + cars.accessories.type (no scalar)",
+			paths:  []string{"cars.tires.width", "cars.colors", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+		// tires.width and tires.radiuses are scalar siblings → merged into one group
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width, cars.tires.radiuses]
+		//       ├── directAnd [cars.colors]
+		//       └── directAnd [cars.accessories.type]
+		{
+			name:   "cars.tires.width + cars.tires.radiuses + cars.colors + cars.accessories.type",
+			paths:  []string{"cars.tires.width", "cars.tires.radiuses", "cars.colors", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
 		},
 
-		// --- without a scalar at cars level → idxLoopAnd on cars ---
-		// colors is text[] (not a further object[]), accessories is object[]
-		// → at least one sub-array present without a scalar rescue
-		{
-			name:     "cars.colors + cars.accessories.type (no scalar, accessories is sub-array)",
-			paths:    []string{"cars.colors", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
-		},
-		// tires and accessories are both sub-arrays under cars
-		{
-			name:     "cars.tires.width + cars.accessories.type (two sub-arrays under cars)",
-			paths:    []string{"cars.tires.width", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
-		},
-		// all three without make: tires, colors, accessories
-		{
-			name:     "cars.tires.width + cars.colors + cars.accessories.type (no scalar)",
-			paths:    []string{"cars.tires.width", "cars.colors", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
-		},
-		// four paths at cars level, none scalar
-		{
-			name:     "cars.tires.width + cars.tires.radiuses + cars.colors + cars.accessories.type",
-			paths:    []string{"cars.tires.width", "cars.tires.radiuses", "cars.colors", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
-		},
-
-		// --- scalar rescues within tires sub-array ---
 		// tires.width is scalar at tires level → superset of radiuses → directAnd
+		// → directAnd [cars.tires.width, cars.tires.radiuses]
 		{
-			name:     "cars.tires.width + cars.tires.radiuses (width is scalar at tires level)",
-			paths:    []string{"cars.tires.width", "cars.tires.radiuses"},
-			wantKind: directAnd,
+			name:   "cars.tires.width + cars.tires.radiuses (scalar at tires level)",
+			paths:  []string{"cars.tires.width", "cars.tires.radiuses"},
+			wantOp: directAnd,
 		},
-		// adding tires.width to a cross-cars pair still requires idxLoopAnd on cars
+		// tires pair is scalar-rescued; accessories diverges under cars → idxLoopAnd
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width, cars.tires.radiuses]
+		//       └── directAnd [cars.accessories.type]
 		{
-			name:     "cars.tires.width + cars.tires.radiuses + cars.accessories.type (LCA still cars)",
-			paths:    []string{"cars.tires.width", "cars.tires.radiuses", "cars.accessories.type"},
-			wantKind: idxLoopAnd, wantLCA: "cars",
-		},
-
-		// --- addresses level ---
-		// city is scalar → superset of postcode and numbers → directAnd
-		{
-			name:     "addresses.city + addresses.postcode + addresses.numbers (city is scalar)",
-			paths:    []string{"addresses.city", "addresses.postcode", "addresses.numbers"},
-			wantKind: directAnd,
-		},
-		// postcode is also scalar → directAnd even without city
-		{
-			name:     "addresses.postcode + addresses.numbers (postcode is scalar)",
-			paths:    []string{"addresses.postcode", "addresses.numbers"},
-			wantKind: directAnd,
+			name:   "cars.tires.width + cars.tires.radiuses + cars.accessories.type (LCA still cars)",
+			paths:  []string{"cars.tires.width", "cars.tires.radiuses", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
 		},
 
-		// --- cross-subtree at root (maskLeafAnd) ---
+		// city is scalar at addresses level → superset of postcode and numbers → directAnd
+		// → directAnd [addresses.city, addresses.postcode, addresses.numbers]
 		{
-			name:     "owner.firstname + addresses.city + cars.make (diverge at root)",
-			paths:    []string{"owner.firstname", "addresses.city", "cars.make"},
-			wantKind: maskLeafAnd,
+			name:   "addresses.city + addresses.postcode + addresses.numbers (city is scalar)",
+			paths:  []string{"addresses.city", "addresses.postcode", "addresses.numbers"},
+			wantOp: directAnd,
 		},
-		// "name" is a scalar at root level but scalar rule only applies for N=2;
-		// addresses goes through an object[], so maskLeafAnd for the root.
+		// → directAnd [addresses.postcode, addresses.numbers]
 		{
-			name:     "name + owner.firstname + addresses.city + cars.make (four subtrees at root)",
-			paths:    []string{"name", "owner.firstname", "addresses.city", "cars.make"},
-			wantKind: maskLeafAnd,
+			name:   "addresses.postcode + addresses.numbers (postcode is scalar)",
+			paths:  []string{"addresses.postcode", "addresses.numbers"},
+			wantOp: directAnd,
 		},
-		// Paths from two different sub-trees (addresses and cars) diverge at the
-		// root of a single object. LCA = root (DataTypeObject) → maskLeafAnd.
-		// MaskLeaf AND aligns on root=1 + docID giving correct doc-level
-		// results even though addresses and cars have disjoint leaf positions.
+
+		// "cars" ancestor excluded as superset; descendants need idxLoopAnd
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width]
+		//       └── directAnd [cars.accessories.type]
 		{
-			name:     "addresses.city + addresses.postcode + cars.make + cars.colors (mixed subtrees at root)",
-			paths:    []string{"addresses.city", "addresses.postcode", "cars.make", "cars.colors"},
-			wantKind: maskLeafAnd,
+			name:   "cars + cars.tires.width + cars.accessories.type — ancestor excluded",
+			paths:  []string{"cars", "cars.tires.width", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+		// "cars" ancestor excluded; only cars.make remains → directAnd
+		// → directAnd [cars.make]
+		{
+			name:   "cars + cars.make (ancestor path only)",
+			paths:  []string{"cars", "cars.make"},
+			wantOp: directAnd,
+		},
+
+		// accessories.type and accessories.color must be in the same accessories element,
+		// not just the same car → rem sub-grouping puts them in one directAnd sub-plan
+		// → idxLoopAnd("cars")
+		//       ├── directAnd [cars.tires.width]
+		//       └── directAnd [cars.accessories.type, cars.accessories.color]
+		{
+			name:   "cars.tires.width + cars.accessories.type + cars.accessories.color",
+			paths:  []string{"cars.tires.width", "cars.accessories.type", "cars.accessories.color"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+
+		// bolts and caps both live under cars.tires → LCA is "cars.tires" directly,
+		// so a single (non-nested) idxLoopAnd at that combined path is produced
+		// → idxLoopAnd("cars.tires")
+		//       ├── directAnd [cars.tires.bolts.size]
+		//       └── directAnd [cars.tires.caps.color]
+		{
+			name:   "cars.tires.bolts.size + cars.tires.caps.color — idxLoopAnd at cars.tires",
+			paths:  []string{"cars.tires.bolts.size", "cars.tires.caps.color"},
+			wantOp: idxLoopAnd, wantLCA: "cars.tires",
+		},
+		// adding accessories.type forces divergence at the cars level: tires and
+		// accessories are different subtrees → LCA = "cars". The tires sub-group
+		// itself diverges under tires (bolts vs caps) → nested idxLoopAnd("tires")
+		// → idxLoopAnd("cars")
+		//       ├── idxLoopAnd("tires")
+		//       │       ├── directAnd [cars.tires.bolts.size]
+		//       │       └── directAnd [cars.tires.caps.color]
+		//       └── directAnd [cars.accessories.type]
+		{
+			name:   "cars.tires.bolts.size + cars.tires.caps.color + cars.accessories.type — nested idxLoopAnd",
+			paths:  []string{"cars.tires.bolts.size", "cars.tires.caps.color", "cars.accessories.type"},
+			wantOp: idxLoopAnd, wantLCA: "cars",
+		},
+
+		// cross-subtree at root → maskLeafAnd
+		// → maskLeafAnd
+		//       ├── directAnd [owner.firstname]
+		//       ├── directAnd [addresses.city]
+		//       └── directAnd [cars.make]
+		{
+			name:   "owner.firstname + addresses.city + cars.make (diverge at root)",
+			paths:  []string{"owner.firstname", "addresses.city", "cars.make"},
+			wantOp: maskLeafAnd,
+		},
+		// → maskLeafAnd
+		//       ├── directAnd [name]
+		//       ├── directAnd [owner.firstname]
+		//       ├── directAnd [addresses.city]
+		//       └── directAnd [cars.make]
+		{
+			name:   "name + owner.firstname + addresses.city + cars.make (four subtrees)",
+			paths:  []string{"name", "owner.firstname", "addresses.city", "cars.make"},
+			wantOp: maskLeafAnd,
+		},
+		// → maskLeafAnd
+		//       ├── directAnd [addresses.city, addresses.postcode]
+		//       └── directAnd [cars.make, cars.colors]
+		{
+			name:   "addresses.city + addresses.postcode + cars.make + cars.colors (mixed subtrees)",
+			paths:  []string{"addresses.city", "addresses.postcode", "cars.make", "cars.colors"},
+			wantOp: maskLeafAnd,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rel, err := nestedPathsRelationship(tt.paths, objDT, props)
+			plan, err := newResolutionPlanBuilder(objDT, props).build(tt.paths)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantKind, rel.kind)
-			if tt.wantKind == idxLoopAnd {
-				assert.Equal(t, tt.wantLCA, rel.lcaPath)
+			assert.Equal(t, tt.wantOp, plan.op)
+			if tt.wantOp == idxLoopAnd {
+				assert.Equal(t, tt.wantLCA, plan.lcaPath)
 			}
 		})
 	}
@@ -330,7 +453,7 @@ func TestBuildResolutionPlan(t *testing.T) {
 		check func(t *testing.T, plan *resolutionPlan)
 	}{
 		{
-			// directAnd [addresses.city]
+			// → directAnd [addresses.city]
 			name:  "single path",
 			paths: []string{"addresses.city"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -340,7 +463,7 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// directAnd [addresses.city, addresses.postcode]
+			// → directAnd [addresses.city, addresses.postcode]
 			name:  "scalar siblings in addresses → directAnd leaf",
 			paths: []string{"addresses.city", "addresses.postcode"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -350,7 +473,9 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// idxLoopAnd("cars") [cars.tires.width, cars.accessories.type]
+			// → idxLoopAnd("cars")
+			//       ├── directAnd [cars.tires.width]
+			//       └── directAnd [cars.accessories.type]
 			name:  "cars.tires.width + cars.accessories.type → idxLoopAnd on cars",
 			paths: []string{"cars.tires.width", "cars.accessories.type"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -359,9 +484,9 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// maskLeafAnd
-			//   ├── directAnd [addresses.city, addresses.postcode]
-			//   └── directAnd [cars.make, cars.colors]
+			// → maskLeafAnd
+			//       ├── directAnd [addresses.city, addresses.postcode]
+			//       └── directAnd [cars.make, cars.colors]
 			name:  "addresses.city + addresses.postcode + cars.make + cars.colors → maskLeafAnd with two directAnd groups",
 			paths: []string{"addresses.city", "addresses.postcode", "cars.make", "cars.colors"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -388,9 +513,11 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// maskLeafAnd
-			//   ├── directAnd          [addresses.city, addresses.postcode]
-			//   └── idxLoopAnd("cars") [cars.tires.width, cars.accessories.type]
+			// → maskLeafAnd
+			//       ├── directAnd           [addresses.city, addresses.postcode]
+			//       └── idxLoopAnd("cars")
+			//               ├── directAnd   [cars.tires.width]
+			//               └── directAnd   [cars.accessories.type]
 			name:  "addresses.city + addresses.postcode + cars.tires.width + cars.accessories.type → maskLeafAnd: directAnd + idxLoopAnd",
 			paths: []string{"addresses.city", "addresses.postcode", "cars.tires.width", "cars.accessories.type"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -399,32 +526,128 @@ func TestBuildResolutionPlan(t *testing.T) {
 
 				var addrGroup, carsGroup *resolutionPlan
 				for _, g := range p.groups {
-					for _, path := range g.paths {
-						if len(path) > 4 && path[:4] == "addr" {
-							addrGroup = g
-						} else if len(path) > 4 && path[:4] == "cars" {
-							carsGroup = g
-						}
+					if g.op == idxLoopAnd && g.lcaPath == "cars" {
+						carsGroup = g
+					} else if g.op == directAnd {
+						addrGroup = g
 					}
 				}
 				require.NotNil(t, addrGroup, "addresses group not found")
 				require.NotNil(t, carsGroup, "cars group not found")
 				assert.Equal(t, directAnd, addrGroup.op)
+				assert.ElementsMatch(t, []string{"addresses.city", "addresses.postcode"}, addrGroup.paths)
 				assert.Equal(t, idxLoopAnd, carsGroup.op)
 				assert.Equal(t, "cars", carsGroup.lcaPath)
 			},
 		},
 		{
-			// idxLoopAnd("cars") [cars.tires.width, cars.colors, cars.accessories.type]
-			name:  "cars.tires.width + cars.colors + cars.accessories.type → idxLoopAnd on cars",
+			// → idxLoopAnd("cars")
+			//       ├── directAnd [cars.tires.width]
+			//       ├── directAnd [cars.colors]
+			//       └── directAnd [cars.accessories.type]
+			name:  "cars.tires.width + cars.colors + cars.accessories.type → idxLoopAnd on cars with groups",
 			paths: []string{"cars.tires.width", "cars.colors", "cars.accessories.type"},
 			check: func(t *testing.T, p *resolutionPlan) {
 				assert.Equal(t, idxLoopAnd, p.op)
 				assert.Equal(t, "cars", p.lcaPath)
+				// Three distinct rem first-segments → three sub-plans.
+				require.Len(t, p.groups, 3)
+				assert.Nil(t, p.paths)
+				for _, g := range p.groups {
+					assert.Equal(t, directAnd, g.op)
+					assert.Len(t, g.paths, 1)
+				}
 			},
 		},
 		{
-			// directAnd [owner.firstname, owner.lastname]
+			// accessories.type and accessories.color must be in the same accessories
+			// element — rem sub-grouping puts them in one directAnd plan.
+			// Sub-plans carry the original full paths.
+			// → idxLoopAnd("cars")
+			//       ├── directAnd [cars.tires.width]
+			//       └── directAnd [cars.accessories.type, cars.accessories.color]
+			name:  "cars.tires.width + cars.accessories.type + cars.accessories.color → idxLoopAnd with two groups",
+			paths: []string{"cars.tires.width", "cars.accessories.type", "cars.accessories.color"},
+			check: func(t *testing.T, p *resolutionPlan) {
+				assert.Equal(t, idxLoopAnd, p.op)
+				assert.Equal(t, "cars", p.lcaPath)
+				require.Len(t, p.groups, 2)
+				assert.Nil(t, p.paths)
+
+				// Identify groups by their path contents (not first-segment cut,
+				// since full paths all start with "cars.").
+				var tiresGroup, accGroup *resolutionPlan
+				for _, g := range p.groups {
+					if assert.Equal(t, directAnd, g.op) {
+						if len(g.paths) == 1 {
+							tiresGroup = g
+						} else {
+							accGroup = g
+						}
+					}
+				}
+				require.NotNil(t, tiresGroup, "tires group missing")
+				require.NotNil(t, accGroup, "accessories group missing")
+				assert.ElementsMatch(t, []string{"cars.tires.width"}, tiresGroup.paths)
+				assert.ElementsMatch(t, []string{"cars.accessories.type", "cars.accessories.color"}, accGroup.paths)
+			},
+		},
+		{
+			// Both paths share LCA "cars.tires" → single idxLoopAnd at that path.
+			// No nesting: the loop iterates _idx.cars.tires[N] entries directly.
+			// → idxLoopAnd("cars.tires")
+			//       ├── directAnd [cars.tires.bolts.size]
+			//       └── directAnd [cars.tires.caps.color]
+			name:  "cars.tires.bolts.size + cars.tires.caps.color → idxLoopAnd at cars.tires",
+			paths: []string{"cars.tires.bolts.size", "cars.tires.caps.color"},
+			check: func(t *testing.T, p *resolutionPlan) {
+				assert.Equal(t, idxLoopAnd, p.op)
+				assert.Equal(t, "cars.tires", p.lcaPath)
+				require.Len(t, p.groups, 2)
+				for _, g := range p.groups {
+					assert.Equal(t, directAnd, g.op)
+					assert.Len(t, g.paths, 1)
+				}
+			},
+		},
+		{
+			// accessories.type forces divergence at the cars level; the tires sub-group
+			// diverges further under tires (bolts vs caps) → nested idxLoopAnd("tires")
+			// inside idxLoopAnd("cars"). Sub-plans carry original full paths.
+			// → idxLoopAnd("cars")
+			//       ├── idxLoopAnd("tires")
+			//       │       ├── directAnd [cars.tires.bolts.size]
+			//       │       └── directAnd [cars.tires.caps.color]
+			//       └── directAnd [cars.accessories.type]
+			name:  "cars.tires.bolts.size + cars.tires.caps.color + cars.accessories.type → nested idxLoopAnd",
+			paths: []string{"cars.tires.bolts.size", "cars.tires.caps.color", "cars.accessories.type"},
+			check: func(t *testing.T, p *resolutionPlan) {
+				assert.Equal(t, idxLoopAnd, p.op)
+				assert.Equal(t, "cars", p.lcaPath)
+				require.Len(t, p.groups, 2)
+
+				var tiresLoop, accGroup *resolutionPlan
+				for _, g := range p.groups {
+					if g.op == idxLoopAnd {
+						tiresLoop = g
+					} else {
+						accGroup = g
+					}
+				}
+				require.NotNil(t, tiresLoop, "tires idxLoopAnd missing")
+				require.NotNil(t, accGroup, "accessories directAnd missing")
+
+				assert.Equal(t, "tires", tiresLoop.lcaPath)
+				require.Len(t, tiresLoop.groups, 2)
+				for _, g := range tiresLoop.groups {
+					assert.Equal(t, directAnd, g.op)
+				}
+				assert.Equal(t, directAnd, accGroup.op)
+				assert.ElementsMatch(t, []string{"cars.accessories.type"}, accGroup.paths)
+			},
+		},
+		{
+			// → directAnd [owner.firstname, owner.lastname]
 			name:  "owner.firstname + owner.lastname → directAnd (scalar siblings in object)",
 			paths: []string{"owner.firstname", "owner.lastname"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -433,9 +656,9 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// maskLeafAnd
-			//   ├── directAnd [owner.firstname]
-			//   └── directAnd [addresses.city]
+			// → maskLeafAnd
+			//       ├── directAnd [owner.firstname]
+			//       └── directAnd [addresses.city]
 			name:  "owner.firstname + addresses.city → maskLeafAnd with two groups",
 			paths: []string{"owner.firstname", "addresses.city"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -444,11 +667,10 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// maskLeafAnd                          (same as sorted-order variant)
-			//   ├── directAnd [cars.make, cars.colors]
-			//   └── directAnd [addresses.city, addresses.postcode]
-			// Paths are interleaved — cars.make, addresses.city, cars.colors, addresses.postcode.
-			// The plan must still produce the same two groups regardless of input order.
+			// Paths are interleaved but grouping is order-independent.
+			// → maskLeafAnd
+			//       ├── directAnd [cars.make, cars.colors]
+			//       └── directAnd [addresses.city, addresses.postcode]
 			name:  "interleaved cars and addresses paths → same grouping as sorted order",
 			paths: []string{"cars.make", "addresses.city", "cars.colors", "addresses.postcode"},
 			check: func(t *testing.T, p *resolutionPlan) {
@@ -476,27 +698,28 @@ func TestBuildResolutionPlan(t *testing.T) {
 			},
 		},
 		{
-			// maskLeafAnd
-			//   ├── idxLoopAnd("cars") [cars.tires.width, cars.accessories.type]
-			//   └── directAnd          [addresses.city, addresses.postcode]
-			// Paths are interleaved: cars.tires.width, addresses.city, cars.accessories.type, addresses.postcode.
+			// Paths are interleaved but grouping is order-independent.
+			// → maskLeafAnd
+			//       ├── directAnd           [addresses.city, addresses.postcode]
+			//       └── idxLoopAnd("cars")
+			//               ├── directAnd   [cars.tires.width]
+			//               └── directAnd   [cars.accessories.type]
 			name:  "interleaved deep cars and addresses paths",
 			paths: []string{"cars.tires.width", "addresses.city", "cars.accessories.type", "addresses.postcode"},
 			check: func(t *testing.T, p *resolutionPlan) {
 				assert.Equal(t, maskLeafAnd, p.op)
 				require.Len(t, p.groups, 2)
 
-				byFirst := map[string]*resolutionPlan{}
+				// Identify groups by op+lcaPath rather than path prefix, since
+				// sub-plans now carry LCA-stripped paths (e.g. "tires.width").
+				var carsGroup, addrGroup *resolutionPlan
 				for _, g := range p.groups {
-					for _, path := range g.paths {
-						first, _, _ := strings.Cut(path, ".")
-						byFirst[first] = g
-						break
+					if g.op == idxLoopAnd && g.lcaPath == "cars" {
+						carsGroup = g
+					} else if g.op == directAnd {
+						addrGroup = g
 					}
 				}
-
-				carsGroup := byFirst["cars"]
-				addrGroup := byFirst["addresses"]
 				require.NotNil(t, carsGroup, "cars group missing")
 				require.NotNil(t, addrGroup, "addresses group missing")
 
@@ -510,7 +733,7 @@ func TestBuildResolutionPlan(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan, err := buildResolutionPlan(tt.paths, objDT, props)
+			plan, err := newResolutionPlanBuilder(objDT, props).build(tt.paths)
 			require.NoError(t, err)
 			tt.check(t, plan)
 		})
