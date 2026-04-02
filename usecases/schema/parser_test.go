@@ -288,7 +288,6 @@ func Test_asMap(t *testing.T) {
 	})
 }
 
-
 type fakeModulesProvider struct{}
 
 func (m fakeModulesProvider) IsReranker(name string) bool {

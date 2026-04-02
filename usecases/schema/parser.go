@@ -427,7 +427,6 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 	return nil
 }
 
-
 func cutModuleConfig(properties map[string]any) map[string]any {
 	cfg, _ := properties["moduleConfig"].(map[string]any)
 	delete(properties, "moduleConfig")
