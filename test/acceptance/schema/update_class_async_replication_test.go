@@ -33,12 +33,10 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("create class with async replication disabled", func(t *testing.T) {
+	t.Run("create class", func(t *testing.T) {
 		c := &models.Class{
-			Class: className,
-			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: false,
-			},
+			Class:             className,
+			ReplicationConfig: &models.ReplicationConfig{},
 		}
 
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
@@ -64,9 +62,9 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 				PrePropagationTimeout:       int64Ptr(600),
 				PropagationTimeout:          int64Ptr(120),
 				PropagationLimit:            int64Ptr(50000),
-				PropagationDelay:            int64Ptr(45000),
 				PropagationConcurrency:      int64Ptr(10),
 				PropagationBatchSize:        int64Ptr(500),
+				InitShieldCPUEveryN:         int64Ptr(5000),
 			},
 		},
 		{
@@ -83,9 +81,9 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 				PrePropagationTimeout:       int64Ptr(300),
 				PropagationTimeout:          int64Ptr(60),
 				PropagationLimit:            int64Ptr(10000),
-				PropagationDelay:            int64Ptr(10000),
 				PropagationConcurrency:      int64Ptr(2),
 				PropagationBatchSize:        int64Ptr(100),
+				InitShieldCPUEveryN:         int64Ptr(20000),
 			},
 		},
 	}
@@ -101,7 +99,6 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 			require.Nil(t, err)
 
 			class := res.Payload
-			class.ReplicationConfig.AsyncEnabled = true
 			class.ReplicationConfig.AsyncConfig = tc.config
 
 			// update
@@ -118,7 +115,6 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 
 			rc := res.Payload.ReplicationConfig
 			require.NotNil(t, rc)
-			require.True(t, rc.AsyncEnabled)
 			require.NotNil(t, rc.AsyncConfig)
 
 			requireAsyncConfigEquals(t, tc.config, rc.AsyncConfig)
@@ -152,9 +148,9 @@ func requireAsyncConfigEquals(
 	requireOptionalInt64(expected.PrePropagationTimeout, actual.PrePropagationTimeout)
 	requireOptionalInt64(expected.PropagationTimeout, actual.PropagationTimeout)
 	requireOptionalInt64(expected.PropagationLimit, actual.PropagationLimit)
-	requireOptionalInt64(expected.PropagationDelay, actual.PropagationDelay)
 	requireOptionalInt64(expected.PropagationConcurrency, actual.PropagationConcurrency)
 	requireOptionalInt64(expected.PropagationBatchSize, actual.PropagationBatchSize)
+	requireOptionalInt64(expected.InitShieldCPUEveryN, actual.InitShieldCPUEveryN)
 }
 
 func TestUpdateClassAsyncReplicationValidation(t *testing.T) {

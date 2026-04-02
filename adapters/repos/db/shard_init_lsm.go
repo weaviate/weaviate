@@ -93,10 +93,11 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
 	// Object bucket must be available, initAsyncReplication depends on it
 	if s.index.AsyncReplicationEnabled() {
-		s.asyncReplicationRWMux.Lock()
-		defer s.asyncReplicationRWMux.Unlock()
-
-		err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
+		func() {
+			s.asyncReplicationRWMux.Lock()
+			defer s.asyncReplicationRWMux.Unlock()
+			err = s.initAsyncReplication(s.index.AsyncReplicationConfig())
+		}()
 		if err != nil {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}

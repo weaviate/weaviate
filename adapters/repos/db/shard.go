@@ -97,6 +97,7 @@ type ShardLike interface {
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
+	CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
@@ -128,8 +129,6 @@ type ShardLike interface {
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
-
-	SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -199,6 +198,14 @@ type ShardLike interface {
 	DebugGetDocIdLockStatus() (bool, error)
 }
 
+// asyncReplicationController is a package-internal interface implemented by
+// both *Shard and *LazyLoadShard. It exists so that index-level code can call
+// the private enable/disable methods without exposing them on ShardLike.
+type asyncReplicationController interface {
+	enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error
+	disableAsyncReplication(ctx context.Context) error
+}
+
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
 
 type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -228,17 +235,75 @@ type Shard struct {
 	queues        map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux           sync.RWMutex
-	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
-	asyncReplicationConfig          AsyncReplicationConfig
-	hashtree                        hashtree.AggregatedHashTree
-	hashtreeFullyInitialized        bool
-	minimalHashtreeInitializationCh chan struct{}
-	asyncReplicationCancelFunc      context.CancelFunc
+	asyncReplicationRWMux      sync.RWMutex
+	targetNodeOverrides        additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig     AsyncReplicationConfig
+	hashtree                   hashtree.AggregatedHashTree
+	hashtreeFullyInitialized   bool
+	hashtreeFlushFailed        bool // set by performShutdown on FlushAndSwitch error; prevents stale .ht dump
+	asyncReplicationCancelFunc context.CancelFunc
+
+	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
+	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
+	// when async replication is stopped. Workers receive this context so that
+	// in-flight cycles terminate promptly when the shard is deregistered.
+	asyncRepCtx context.Context
+
+	// asyncRepWg tracks in-flight hashbeat cycles (counter 0 or 1).
+	// Deregister callers call asyncRepWg.Wait() to ensure the cycle has finished
+	// before proceeding with shard shutdown. The scheduler calls Add(1) before
+	// dispatching a worker and the worker calls Done() when the cycle returns.
+	asyncRepWg sync.WaitGroup
+
+	// asyncRepHasPendingFlush is an atomic dedup flag used by NotifyShard.
+	// notifyHashbeat sets it from false→true via CAS and sends the shard on the
+	// scheduler's notifyCh. The dispatcher clears it before reprioritising.
+	asyncRepHasPendingFlush atomic.Bool
+
+	// asyncRepImmediateReschedule is set by reprioritizeNowLocked when the shard
+	// is currently in-flight. The worker reads-and-clears it after runHashbeatCycle
+	// returns and forces an immediate re-enqueue regardless of the result.
+	asyncRepImmediateReschedule atomic.Bool
+
+	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
+	// (after applying runtime-config overrides) differs from the current hashtree
+	// height. The scheduler spawns a rebuild goroutine after asyncRepWg.Done()
+	// so that DisableAsyncReplication can safely call Deregister+Wait.
+	asyncRepNeedsRebuild atomic.Bool
+
+	// asyncRepRebuildInFlight prevents concurrent rebuildHashtree goroutines.
+	// CAS false→true before spawning a rebuild; the goroutine clears it on exit.
+	// If a rebuild is already in-flight, asyncRepNeedsRebuild is re-armed so
+	// the next completed cycle will try again.
+	asyncRepRebuildInFlight atomic.Bool
+
+	// Per-cycle state (protected by asyncReplicationRWMux).
+	// These replace the goroutine-local variables that lived in startHashbeaterGoroutines.
+	asyncRepLastLocalRootByTarget  map[string]hashtree.Digest
+	asyncRepLastRemoteRootByTarget map[string]hashtree.Digest
+	asyncRepLastPropagatedToTarget map[string]bool
+	// asyncRepLastLog throttles per-shard log messages independently of the
+	// global loggingFrequency config. No lock is needed: the scheduler ensures
+	// at most one worker runs runHashbeatCycle for a given shard at a time.
+	asyncRepLastLog time.Time
+
+	// hashbeatRegistered is set to true by initHashtree / the cached-hashtree
+	// path in initAsyncReplication once the shard is registered with the
+	// scheduler, and cleared by mayStopAsyncReplication /
+	// DisableAsyncReplication. notifyHashbeat uses it to skip
+	// scheduler.NotifyShard calls when the shard is not registered.
+	// All accesses are protected by asyncReplicationRWMux.
+	hashbeatRegistered bool
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
+	// asyncReplicationStatsMux guards asyncReplicationStatsByTargetNode
+	// independently of asyncReplicationRWMux. This prevents the per-iteration
+	// stats write (in handleHashbeatWakeup) from write-locking asyncReplicationRWMux,
+	// which would stall every concurrent object write and query via writer-preference.
+	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
+	asyncReplicationStatsMux sync.RWMutex
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration

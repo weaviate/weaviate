@@ -56,9 +56,24 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		AutoTenantCreation:   true,
 	}
 
+	// Pin async replication settings to the old defaults so the MOVE operation
+	// completes within the 300s test timeout. The global defaults were reduced
+	// to lower resource usage, which increased the minimum time for a MOVE.
+	aliveNodesCheckingFrequency := int64(5000) // ms: 5s (default changed to 30s)
+	frequencyWhilePropagating := int64(3000)   // ms: 3s (default changed to 5s)
+	propagationConcurrency := int64(5)         // (default changed to 1)
+	propagationLimit := int64(10_000)          // (default changed to 1k)
+	maxWorkers := int64(10)                    // multi-tenant (default changed to 5, cap is 10)
 	cls.ReplicationConfig = &models.ReplicationConfig{
 		Factor:           int64(2),
 		DeletionStrategy: strategy,
+		AsyncConfig: &models.ReplicationAsyncConfig{
+			AliveNodesCheckingFrequency: &aliveNodesCheckingFrequency,
+			FrequencyWhilePropagating:   &frequencyWhilePropagating,
+			PropagationConcurrency:      &propagationConcurrency,
+			PropagationLimit:            &propagationLimit,
+			MaxWorkers:                  &maxWorkers,
+		},
 	}
 
 	// Create the class

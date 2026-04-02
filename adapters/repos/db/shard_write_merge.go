@@ -128,17 +128,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
-
 		lock.Lock()
 		defer lock.Unlock()
 
+		var err error
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
@@ -170,10 +163,6 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 
 		if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 			return errors.Wrap(err, "upsert object data")
-		}
-
-		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-			return errors.Wrap(err, "object merge in hashtree")
 		}
 
 		return nil
@@ -215,14 +204,6 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
-		return out, err
-	}
-
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 	lock.Lock()
@@ -261,10 +242,6 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 
 	if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
-	}
-
-	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-		return out, fmt.Errorf("object merge in hashtree: %w", err)
 	}
 
 	// do not updated inverted index, since this requires delta analysis, which

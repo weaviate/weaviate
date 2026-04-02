@@ -13,189 +13,180 @@ package db
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// asyncReplicationConfigFromModel builds an AsyncReplicationConfig from the
+// class model and multitenancy flag.
+//
+// The returned config encodes the three-tier hierarchy:
+//
+//   - Code defaults: chosen based on multiTenancyEnabled (single vs multi-tenant).
+//   - Per-class API / schema overrides: stored in classOverrides (pointer fields).
+//     Non-nil means the user set a value via the collection API; nil means
+//     "use the cluster default or code default".
+//   - Global runtime-config DynamicValues: applied per hashbeat cycle via
+//     Effective(globals) — NOT persisted here.
+//
+// This function intentionally never reads environment variables. Env-var
+// values are surfaced through the GlobalConfig DynamicValues and applied by
+// Effective(), so removing an env var restores the per-class schema value
+// without any schema mutation.
 func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.ReplicationAsyncConfig) (config AsyncReplicationConfig, err error) {
-	if cfg == nil {
-		cfg = &models.ReplicationAsyncConfig{}
-	}
-
-	var maxWorkers int
-
+	// ---- Code defaults (tier 1) ----
 	if multiTenancyEnabled {
-		maxWorkers = defaultAsyncReplicationMaxWorkersMultiTenant
+		config.maxWorkers = defaultAsyncReplicationMaxWorkersMultiTenant
+		config.hashtreeHeight = defaultHashtreeHeightMultiTenant
 	} else {
-		maxWorkers = defaultAsyncReplicationMaxWorkersSingleTenant
+		config.maxWorkers = defaultAsyncReplicationMaxWorkersSingleTenant
+		config.hashtreeHeight = defaultHashtreeHeightSingleTenant
 	}
+	config.frequency = defaultFrequency
+	config.frequencyWhilePropagating = defaultFrequencyWhilePropagating
+	config.aliveNodesCheckingFrequency = defaultAliveNodesCheckingFrequency
+	config.loggingFrequency = defaultLoggingFrequency
+	config.diffBatchSize = defaultDiffBatchSize
+	config.diffPerNodeTimeout = defaultDiffPerNodeTimeout
+	config.prePropagationTimeout = defaultPrePropagationTimeout
+	config.propagationTimeout = defaultPropagationTimeout
+	config.propagationLimit = defaultPropagationLimit
+	config.propagationConcurrency = defaultPropagationConcurrency
+	config.propagationBatchSize = defaultPropagationBatchSize
+	config.initShieldCPUEveryN = defaultInitShieldCPUEveryN
+
+	if cfg == nil {
+		return config, nil
+	}
+
+	// ---- Per-class API / schema overrides (tier 2) ----
+	// Validate each API value and store it as a pointer in classOverrides.
+	// Nil pointer means "not set by the user" — Effective() will skip it.
 
 	if cfg.MaxWorkers != nil {
-		maxWorkers = int(*cfg.MaxWorkers)
-	}
-
-	config.maxWorkers, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_MAX_WORKERS"),
-		maxWorkers,
-		minMaxWorkers,
-		maxMaxWorkers,
-	)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_MAX_WORKERS", err)
-	}
-
-	var hashtreeHeight int
-
-	if multiTenancyEnabled {
-		hashtreeHeight = defaultHashtreeHeightMultiTenant
-	} else {
-		hashtreeHeight = defaultHashtreeHeightSingleTenant
+		v, err := optParseInt("", int(*cfg.MaxWorkers), minMaxWorkers, maxMaxWorkers)
+		if err != nil {
+			return AsyncReplicationConfig{}, fmt.Errorf("maxWorkers: %w", err)
+		}
+		config.classOverrides.maxWorkers = &v
 	}
 
 	if cfg.HashtreeHeight != nil {
-		hashtreeHeight = int(*cfg.HashtreeHeight)
+		v, err := optParseInt("", int(*cfg.HashtreeHeight), minHashtreeHeight, maxHashtreeHeight)
+		if err != nil {
+			return AsyncReplicationConfig{}, fmt.Errorf("hashtreeHeight: %w", err)
+		}
+		config.classOverrides.hashtreeHeight = &v
 	}
 
-	config.hashtreeHeight, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), hashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_HASHTREE_HEIGHT", err)
-	}
-
-	frequency := defaultFrequency
 	if cfg.Frequency != nil {
-		frequency = time.Duration(*cfg.Frequency) * time.Millisecond
+		v := time.Duration(*cfg.Frequency) * time.Millisecond
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("frequency must be > 0")
+		}
+		config.classOverrides.frequency = &v
 	}
 
-	config.frequency, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY"), frequency)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_FREQUENCY", err)
-	}
-
-	frequencyWhilePropagating := defaultFrequencyWhilePropagating
 	if cfg.FrequencyWhilePropagating != nil {
-		frequencyWhilePropagating = time.Duration(*cfg.FrequencyWhilePropagating) * time.Millisecond
+		v := time.Duration(*cfg.FrequencyWhilePropagating) * time.Millisecond
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("frequencyWhilePropagating must be > 0")
+		}
+		config.classOverrides.frequencyWhilePropagating = &v
 	}
 
-	config.frequencyWhilePropagating, err = optParseDuration(os.Getenv("ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING"), frequencyWhilePropagating)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING", err)
-	}
-
-	aliveNodesCheckingFrequency := defaultAliveNodesCheckingFrequency
 	if cfg.AliveNodesCheckingFrequency != nil {
-		aliveNodesCheckingFrequency = time.Duration(*cfg.AliveNodesCheckingFrequency) * time.Millisecond
+		v := time.Duration(*cfg.AliveNodesCheckingFrequency) * time.Millisecond
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("aliveNodesCheckingFrequency must be > 0")
+		}
+		// NOTE: aliveNodesCheckingFrequency is stored for API compatibility but
+		// does NOT affect how often the scheduler checks for newly-alive nodes.
+		// The topology-watcher interval is controlled globally via the
+		// AsyncReplicationAliveNodesCheckingFrequency runtime-config knob on the
+		// AsyncReplicationScheduler, which is shared across all collections.
+		// Per-class overrides of this field are therefore silently ignored at
+		// runtime.
+		config.classOverrides.aliveNodesCheckingFrequency = &v
 	}
 
-	config.aliveNodesCheckingFrequency, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY"), aliveNodesCheckingFrequency)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY", err)
-	}
-
-	loggingFrequency := defaultLoggingFrequency
 	if cfg.LoggingFrequency != nil {
-		loggingFrequency = time.Duration(*cfg.LoggingFrequency) * time.Second
+		v := time.Duration(*cfg.LoggingFrequency) * time.Second
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("loggingFrequency must be > 0")
+		}
+		config.classOverrides.loggingFrequency = &v
 	}
 
-	config.loggingFrequency, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_LOGGING_FREQUENCY"), loggingFrequency)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_LOGGING_FREQUENCY", err)
-	}
-
-	diffBatchSize := defaultDiffBatchSize
 	if cfg.DiffBatchSize != nil {
-		diffBatchSize = int(*cfg.DiffBatchSize)
+		v, err := optParseInt("", int(*cfg.DiffBatchSize), minDiffBatchSize, maxDiffBatchSize)
+		if err != nil {
+			return AsyncReplicationConfig{}, fmt.Errorf("diffBatchSize: %w", err)
+		}
+		config.classOverrides.diffBatchSize = &v
 	}
 
-	config.diffBatchSize, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_DIFF_BATCH_SIZE"), diffBatchSize, minDiffBatchSize, maxDiffBatchSize)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_BATCH_SIZE", err)
-	}
-
-	diffPerNodeTimeout := defaultDiffPerNodeTimeout
 	if cfg.DiffPerNodeTimeout != nil {
-		diffPerNodeTimeout = time.Duration(*cfg.DiffPerNodeTimeout) * time.Second
+		v := time.Duration(*cfg.DiffPerNodeTimeout) * time.Second
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("diffPerNodeTimeout must be > 0")
+		}
+		config.classOverrides.diffPerNodeTimeout = &v
 	}
 
-	config.diffPerNodeTimeout, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT"), diffPerNodeTimeout)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT", err)
-	}
-
-	prePropagationTimeout := defaultPrePropagationTimeout
 	if cfg.PrePropagationTimeout != nil {
-		prePropagationTimeout = time.Duration(*cfg.PrePropagationTimeout) * time.Second
+		v := time.Duration(*cfg.PrePropagationTimeout) * time.Second
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("prePropagationTimeout must be > 0")
+		}
+		config.classOverrides.prePropagationTimeout = &v
 	}
 
-	config.prePropagationTimeout, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT"), prePropagationTimeout)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT", err)
-	}
-
-	propagationTimeout := defaultPropagationTimeout
 	if cfg.PropagationTimeout != nil {
-		propagationTimeout = time.Duration(*cfg.PropagationTimeout) * time.Second
+		v := time.Duration(*cfg.PropagationTimeout) * time.Second
+		if v <= 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("propagationTimeout must be > 0")
+		}
+		config.classOverrides.propagationTimeout = &v
 	}
 
-	config.propagationTimeout, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_TIMEOUT"), propagationTimeout)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_TIMEOUT", err)
-	}
-
-	propagationLimit := defaultPropagationLimit
 	if cfg.PropagationLimit != nil {
-		propagationLimit = int(*cfg.PropagationLimit)
+		v, err := optParseInt("", int(*cfg.PropagationLimit), minPropagationLimit, maxPropagationLimit)
+		if err != nil {
+			return AsyncReplicationConfig{}, fmt.Errorf("propagationLimit: %w", err)
+		}
+		config.classOverrides.propagationLimit = &v
 	}
 
-	config.propagationLimit, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_LIMIT"), propagationLimit, minPropagationLimit, maxPropagationLimit)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_LIMIT", err)
-	}
-
-	propagationDelay := defaultPropagationDelay
-	if cfg.PropagationDelay != nil {
-		propagationDelay = time.Duration(*cfg.PropagationDelay) * time.Millisecond
-	}
-
-	config.propagationDelay, err = optParseDuration(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_DELAY"), propagationDelay)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_DELAY", err)
-	}
-
-	propagationConcurrency := defaultPropagationConcurrency
 	if cfg.PropagationConcurrency != nil {
-		propagationConcurrency = int(*cfg.PropagationConcurrency)
+		v, err := optParseInt("", int(*cfg.PropagationConcurrency), minPropagationConcurrency, maxPropagationConcurrency)
+		if err != nil {
+			return AsyncReplicationConfig{}, fmt.Errorf("propagationConcurrency: %w", err)
+		}
+		config.classOverrides.propagationConcurrency = &v
 	}
 
-	config.propagationConcurrency, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_CONCURRENCY"), propagationConcurrency, minPropagationConcurrency, maxPropagationConcurrency)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_CONCURRENCY", err)
-	}
-
-	propagationBatchSize := defaultPropagationBatchSize
 	if cfg.PropagationBatchSize != nil {
-		propagationBatchSize = int(*cfg.PropagationBatchSize)
+		v, err := optParseInt("", int(*cfg.PropagationBatchSize), minPropagationBatchSize, maxPropagationBatchSize)
+		if err != nil {
+			return AsyncReplicationConfig{}, fmt.Errorf("propagationBatchSize: %w", err)
+		}
+		config.classOverrides.propagationBatchSize = &v
 	}
 
-	config.propagationBatchSize, err = optParseInt(
-		os.Getenv("ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE"), propagationBatchSize, minPropagationBatchSize, maxPropagationBatchSize)
-	if err != nil {
-		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
+	if cfg.InitShieldCPUEveryN != nil {
+		v := int(*cfg.InitShieldCPUEveryN)
+		if v < minInitShieldCPUEveryN || v > maxInitShieldCPUEveryN {
+			return AsyncReplicationConfig{}, fmt.Errorf(
+				"initShieldCPUEveryN value %d out of range: min %d, max %d",
+				v, minInitShieldCPUEveryN, maxInitShieldCPUEveryN)
+		}
+		config.classOverrides.initShieldCPUEveryN = &v
 	}
 
-	return config, err
+	return config, nil
 }
 
 func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) {
@@ -213,11 +204,4 @@ func optParseInt(s string, defaultVal, minVal, maxVal int) (val int, err error) 
 	}
 
 	return val, nil
-}
-
-func optParseDuration(s string, defaultDuration time.Duration) (time.Duration, error) {
-	if s == "" {
-		return defaultDuration, nil
-	}
-	return time.ParseDuration(s)
 }

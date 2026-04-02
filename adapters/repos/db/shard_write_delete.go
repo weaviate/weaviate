@@ -29,14 +29,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
-		return err
-	}
-
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -62,7 +54,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
+	docID, _, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
@@ -77,10 +69,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
@@ -153,38 +141,6 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 			return err
 		}
 	}
-
-	return nil
-}
-
-func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
-	if s.hashtree == nil {
-		return nil
-	}
-
-	return s.deleteObjectHashTree(uuidBytes, updateTime)
-}
-
-func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
-	if len(uuidBytes) != 16 {
-		return fmt.Errorf("invalid object uuid")
-	}
-
-	if updateTime < 1 {
-		return fmt.Errorf("invalid object update time")
-	}
-
-	leaf := s.hashtreeLeafFor(uuidBytes)
-
-	var objectDigest [16 + 8]byte
-
-	copy(objectDigest[:], uuidBytes)
-	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
-
-	// object deletion is treated as non-existent,
-	// that because deletion time or tombstone may not be available
-
-	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil
 }

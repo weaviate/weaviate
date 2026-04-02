@@ -967,6 +967,135 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationAliveNodesCheckingFrequency = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationAliveNodesCheckingFrequency,
+	); err != nil {
+		return err
+	}
+
+	// Per-shard async replication knobs. Default 0 means "not configured at the
+	// cluster level"; per-class API override or hardcoded code defaults apply.
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_MAX_WORKERS",
+		func(val int) { config.Replication.AsyncReplicationMaxWorkers = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_HASHTREE_HEIGHT",
+		func(val int) { config.Replication.AsyncReplicationHashtreeHeight = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationFrequency = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationFrequencyWhilePropagating = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_LOGGING_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationLoggingFrequency = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_DIFF_BATCH_SIZE",
+		func(val int) { config.Replication.AsyncReplicationDiffBatchSize = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationDiffPerNodeTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPrePropagationTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PROPAGATION_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPropagationTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_LIMIT",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationLimit = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_CONCURRENCY",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationConcurrency = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationBatchSize = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N",
+		func(val int) {
+			config.Replication.AsyncReplicationInitShieldCPUEveryN = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
@@ -1444,6 +1573,16 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 	return parseIntVerify(envName, defaultValue, cb, validatePositiveInt)
 }
 
+// parsePositiveIntOrZero parses envName as a positive integer and invokes cb
+// with the result. When the variable is unset, cb is called with 0 as an
+// explicit "not configured" sentinel so that callers wrapping the value in a
+// DynamicValue always receive an initialized pointer. Validation (must be >0)
+// is only applied when the env var is explicitly set; a zero default is
+// intentional and means "fall through to the per-class or code default".
+func parsePositiveIntOrZero(envName string, cb func(val int)) error {
+	return parseIntVerify(envName, 0, cb, validatePositiveInt)
+}
+
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
@@ -1466,21 +1605,25 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	return nil
 }
 
-// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration,
-// applies a default when unset, and validates it is > 0.
+// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration
+// and applies defaultValue when the variable is unset. Validation (must be > 0) only applies
+// when the env var is explicitly set; defaultValue may be 0 as an explicit "not configured"
+// sentinel. The callback is always called so that callers that wrap the value in a DynamicValue
+// pointer always get an initialized pointer. Callers that use DynamicValue treat a Get() result
+// of 0 as "fall through to the per-class or code default".
 func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
-	asDuration := defaultValue
 	if v := os.Getenv(envName); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("parse %s as duration: %w", envName, err)
 		}
-		asDuration = d
+		if d <= 0 {
+			return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, d)
+		}
+		cb(d)
+		return nil
 	}
-	if asDuration <= 0 {
-		return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, asDuration)
-	}
-	cb(asDuration)
+	cb(defaultValue)
 	return nil
 }
 
@@ -1539,20 +1682,21 @@ const (
 )
 
 const (
-	DefaultPersistenceMemtablesFlushDirtyAfter = 60
-	DefaultPersistenceMemtablesMaxSize         = 200
-	DefaultPersistenceMemtablesMinDuration     = 15
-	DefaultPersistenceMemtablesMaxDuration     = 45
-	DefaultMaxConcurrentGetRequests            = 0
-	DefaultMaxConcurrentShardLoads             = 100
-	DefaultMaxConcurrentBucketLoads            = 100
-	DefaultGRPCPort                            = 50051
-	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
-	DefaultGRPCMaxOpenConns                    = 100
-	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
-	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 15
-	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
+	DefaultPersistenceMemtablesFlushDirtyAfter         = 60
+	DefaultPersistenceMemtablesMaxSize                 = 200
+	DefaultPersistenceMemtablesMinDuration             = 15
+	DefaultPersistenceMemtablesMaxDuration             = 45
+	DefaultMaxConcurrentGetRequests                    = 0
+	DefaultMaxConcurrentShardLoads                     = 100
+	DefaultMaxConcurrentBucketLoads                    = 100
+	DefaultGRPCPort                                    = 50051
+	DefaultGRPCMaxMsgSize                              = 104858000 // 100 * 1024 * 1024 + 400
+	DefaultGRPCMaxOpenConns                            = 100
+	DefaultGRPCIdleConnTimeout                         = 5 * time.Minute
+	DefaultMinimumReplicationFactor                    = 1
+	DefaultAsyncReplicationClusterMaxWorkers           = 15
+	DefaultAsyncReplicationAliveNodesCheckingFrequency = 10 * time.Second
+	DefaultMaximumAllowedCollectionsCount              = -1 // unlimited
 )
 
 const VectorizerModuleNone = "none"

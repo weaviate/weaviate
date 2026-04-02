@@ -603,12 +603,11 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
-		EnableLazyLoadShards:    true,
-		RootPath:                dirName,
-		ClassName:               schema.ClassName(class.Class),
-		ReplicationFactor:       1,
-		ShardLoadLimiter:        loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		AsyncReplicationEnabled: true,
+		EnableLazyLoadShards: true,
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(class.Class),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
