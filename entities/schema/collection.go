@@ -142,7 +142,7 @@ type Property struct {
 	NestedProperties []NestedProperty `json:"nestedProperties,omitempty"`
 
 	// Text processing options for this property. Immutable after creation.
-	TextAnalyzer TextAnalyzer `json:"textAnalyzer,omitempty"`
+	TextAnalyzer *TextAnalyzer `json:"textAnalyzer,omitempty"`
 
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
 	// Enum: [word lowercase whitespace field]
@@ -169,8 +169,8 @@ type NestedProperty struct {
 	// nested properties
 	NestedProperties []NestedProperty `json:"nested_properties,omitempty"`
 
-	// Text processing options for this nested property.
-	TextAnalyzer TextAnalyzer `json:"text_analyzer,omitempty"`
+	// Text processing options for this nested property. Immutable after creation.
+	TextAnalyzer *TextAnalyzer `json:"text_analyzer,omitempty"`
 
 	// tokenization
 	// Enum: [word lowercase whitespace field]
@@ -200,7 +200,7 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 	}
 	n.Name = m.Name
 	if m.TextAnalyzer != nil {
-		n.TextAnalyzer = TextAnalyzer{
+		n.TextAnalyzer = &TextAnalyzer{
 			ASCIIFold:       m.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyzer.ASCIIFoldIgnore,
 		}
@@ -232,8 +232,7 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	indexRangeFilters := n.IndexRangeFilters
 	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
-	if n.TextAnalyzer.ASCIIFold ||
-		len(n.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+	if n.TextAnalyzer != nil {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
 			ASCIIFold:       n.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: n.TextAnalyzer.ASCIIFoldIgnore,
@@ -283,7 +282,7 @@ func PropertyFromModel(m models.Property) Property {
 	}
 	p.Tokenization = m.Tokenization
 	if m.TextAnalyzer != nil {
-		p.TextAnalyzer = TextAnalyzer{
+		p.TextAnalyzer = &TextAnalyzer{
 			ASCIIFold:       m.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: m.TextAnalyzer.ASCIIFoldIgnore,
 		}
@@ -317,8 +316,7 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexRangeFilters = &indexRangeFilters
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
-	if p.TextAnalyzer.ASCIIFold ||
-		len(p.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+	if p.TextAnalyzer != nil {
 		m.TextAnalyzer = &models.TextAnalyzerConfig{
 			ASCIIFold:       p.TextAnalyzer.ASCIIFold,
 			ASCIIFoldIgnore: p.TextAnalyzer.ASCIIFoldIgnore,
