@@ -210,22 +210,22 @@ func TestPropertyProcessingImmutability(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "update asciiFoldIgnore is allowed",
+			name:        "update asciiFoldIgnore is blocked",
 			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
-			expectError: false,
+			expectError: true,
 		},
 		{
-			name:        "add asciiFoldIgnore is allowed",
+			name:        "add asciiFoldIgnore is blocked",
 			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
 			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
-			expectError: false,
+			expectError: true,
 		},
 		{
-			name:        "remove asciiFoldIgnore is allowed",
+			name:        "remove asciiFoldIgnore is blocked",
 			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
 			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
-			expectError: false,
+			expectError: true,
 		},
 		{
 			name:        "change asciiFold while changing ignore is still blocked",
@@ -288,53 +288,6 @@ func Test_asMap(t *testing.T) {
 	})
 }
 
-func Test_stripASCIIFoldIgnore(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    map[string]any
-		expected map[string]any
-	}{
-		{
-			name:     "no textAnalyzer key",
-			input:    map[string]any{"name": "foo"},
-			expected: map[string]any{"name": "foo"},
-		},
-		{
-			name:     "untyped nil",
-			input:    map[string]any{"name": "foo", "textAnalyzer": nil},
-			expected: map[string]any{"name": "foo"},
-		},
-		{
-			name:     "typed nil pointer",
-			input:    map[string]any{"name": "foo", "textAnalyzer": (*models.TextAnalyzerConfig)(nil)},
-			expected: map[string]any{"name": "foo"},
-		},
-		{
-			name:     "empty config (all defaults)",
-			input:    map[string]any{"name": "foo", "textAnalyzer": &models.TextAnalyzerConfig{}},
-			expected: map[string]any{"name": "foo"},
-		},
-		{
-			name:     "config with only ASCIIFoldIgnore",
-			input:    map[string]any{"name": "foo", "textAnalyzer": &models.TextAnalyzerConfig{ASCIIFoldIgnore: []string{"é"}}},
-			expected: map[string]any{"name": "foo"},
-		},
-		{
-			name:  "config with ASCIIFold true strips ignore but keeps key",
-			input: map[string]any{"name": "foo", "textAnalyzer": &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}}},
-			expected: map[string]any{"name": "foo", "textAnalyzer": &models.TextAnalyzerConfig{
-				ASCIIFold: true,
-			}},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			stripASCIIFoldIgnore(tt.input)
-			require.Equal(t, tt.expected, tt.input)
-		})
-	}
-}
 
 type fakeModulesProvider struct{}
 

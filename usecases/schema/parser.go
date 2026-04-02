@@ -420,11 +420,6 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 		}
 	}
 
-	// asciiFoldIgnore is mutable — strip it before comparison so changes
-	// to the ignore list alone do not block the update.
-	stripASCIIFoldIgnore(e)
-	stripASCIIFoldIgnore(n)
-
 	if !reflect.DeepEqual(e, n) {
 		return errPropertiesUpdatedInClassUpdate
 	}
@@ -432,47 +427,6 @@ func (p *Parser) validatePropertyForUpdate(existing, new *models.Property) error
 	return nil
 }
 
-// stripASCIIFoldIgnore removes the ASCIIFoldIgnore field from the TextAnalyzer
-// entry in a property map so that it is excluded from immutability checks.
-func stripASCIIFoldIgnore(m map[string]any) {
-	ta, ok := m["textAnalyzer"]
-	if !ok {
-		return
-	}
-
-	// Normalize explicit nulls and typed nil pointers: propertyAsMap stores
-	// fields via reflect, so a (*models.TextAnalyzerConfig)(nil) becomes a
-	// non-nil interface holding a typed nil. Handle both cases so DeepEqual
-	// does not see a difference between absent and null textAnalyzer.
-	if ta == nil {
-		delete(m, "textAnalyzer")
-		return
-	}
-
-	// Avoid mutating the original TextAnalyzerConfig pointer that may be shared
-	// with the underlying Property/NestedProperty. Instead, create a shallow copy
-	// with ASCIIFoldIgnore cleared and store that copy back into the map.
-	if cfg, ok := ta.(*models.TextAnalyzerConfig); ok {
-		// Typed nil pointer: treat the same as an absent key.
-		if cfg == nil {
-			delete(m, "textAnalyzer")
-			return
-		}
-
-		copyCfg := *cfg
-		copyCfg.ASCIIFoldIgnore = nil
-
-		// After clearing ASCIIFoldIgnore, a config with only default values
-		// is semantically equivalent to "no textAnalyzer" at all. Normalize
-		// such empty configs by removing the key so that {} and null behave
-		// the same in immutability checks.
-		if !copyCfg.ASCIIFold {
-			delete(m, "textAnalyzer")
-			return
-		}
-		m["textAnalyzer"] = &copyCfg
-	}
-}
 
 func cutModuleConfig(properties map[string]any) map[string]any {
 	cfg, _ := properties["moduleConfig"].(map[string]any)

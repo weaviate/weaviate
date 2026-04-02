@@ -241,42 +241,20 @@ class TestASCIIFoldUpdateIgnoreList:
         self.client.close()
 
     def test_update_ignore_list(self) -> None:
-        """Updating asciiFoldIgnore does not re-index existing documents."""
-        # Baseline: é preserved in title index
-        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
-        assert len(r.objects) == 1
-
-        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
-        assert len(r.objects) == 0
-
-        # Update schema: remove é from ignore list
+        """Updating asciiFoldIgnore is rejected (field is immutable)."""
         class_schema = _rest_get(f"/v1/schema/{self.collection_name}")
         for prop in class_schema["properties"]:
             if prop["name"] == "title":
                 prop["textAnalyzer"]["asciiFoldIgnore"] = []
-        _rest_put(f"/v1/schema/{self.collection_name}", class_schema)
 
-        # Verify config updated
+        with pytest.raises(RuntimeError, match="failed with 422"):
+            _rest_put(f"/v1/schema/{self.collection_name}", class_schema)
+
+        # Verify config unchanged
         updated = _rest_get(f"/v1/schema/{self.collection_name}")
         updated_props = {p["name"]: p for p in updated["properties"]}
         ignore = updated_props["title"].get("textAnalyzer", {}).get("asciiFoldIgnore")
-        assert ignore is None or ignore == []
-
-        # Old docs NOT re-indexed: query now folds é→e, but old index has "école"
-        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
-        assert len(r.objects) == 0, "old docs still have 'école' in index"
-
-        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
-        assert len(r.objects) == 0, "query 'école' now folded to 'ecole', mismatches old index"
-
-        # New documents use updated config
-        self.collection.data.insert({"title": "nouvelle école", "body": "nouvelle école"})
-
-        r = self.collection.query.bm25(query="ecole", query_properties=["title"], limit=5)
-        assert len(r.objects) == 1, "new doc indexed as 'ecole'"
-
-        r = self.collection.query.bm25(query="école", query_properties=["title"], limit=5)
-        assert len(r.objects) == 1, "query 'école'→'ecole' matches new doc"
+        assert ignore == ["é"], "asciiFoldIgnore should remain unchanged"
 
 
 class TestASCIIFoldTokenizationVariants:
