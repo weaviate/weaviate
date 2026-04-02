@@ -197,8 +197,10 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	// This signals that the vector data still exists in the objects bucket but
 	// the search index has been removed. The executor's UpdateClass will detect
 	// the cleared config and call the migrator to drop the index from disk.
+	deleted := true
 	newVectorConfig[vectorIndexName] = models.VectorConfig{
 		Vectorizer: cfg.Vectorizer,
+		Deleted:    &deleted,
 	}
 	class.VectorConfig = newVectorConfig
 

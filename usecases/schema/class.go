@@ -55,6 +55,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 	name = schema.UppercaseClassName(name)
 
 	cl := h.schemaReader.ReadOnlyClass(name)
+	modelsext.SetVectorIndexDeletedMarkers(cl)
 	return cl, nil
 }
 
@@ -75,9 +76,12 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 
 	if consistency {
 		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
-		return vclasses[name].Class, vclasses[name].Version, err
+		class := vclasses[name].Class
+		modelsext.SetVectorIndexDeletedMarkers(class)
+		return class, vclasses[name].Version, err
 	}
 	class, err := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	modelsext.SetVectorIndexDeletedMarkers(class)
 	return class, 0, err
 }
 

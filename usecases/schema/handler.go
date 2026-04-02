@@ -22,6 +22,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -202,6 +203,9 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 		if err != nil {
 			return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 		}
+		for _, class := range consistentSchema.Classes {
+			modelsext.SetVectorIndexDeletedMarkers(class)
+		}
 		fullSchema = schema.Schema{
 			Objects: &consistentSchema,
 		}
@@ -232,6 +236,9 @@ func (h *Handler) GetSchemaSkipAuth() schema.Schema { return h.getSchema() }
 
 func (h *Handler) getSchema() schema.Schema {
 	s := h.schemaReader.ReadOnlySchema()
+	for _, class := range s.Classes {
+		modelsext.SetVectorIndexDeletedMarkers(class)
+	}
 	return schema.Schema{
 		Objects: &s,
 	}
