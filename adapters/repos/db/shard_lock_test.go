@@ -37,7 +37,7 @@ func createDataForLockTests(t *testing.T, shd ShardLike, className string, amoun
 			require.Nil(t, err)
 		}
 
-		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName, nil)
 		require.Nil(t, err)
 		require.Equal(t, amount, len(objs))
 	})
@@ -51,7 +51,7 @@ func deleteDataForLockTests(t *testing.T, shd ShardLike, ids []strfmt.UUID) {
 		require.Nil(t, err)
 	}
 
-	objs, err := shd.ObjectList(ctx, len(ids), nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+	objs, err := shd.ObjectList(ctx, len(ids), nil, nil, additional.Properties{}, shd.Index().Config.ClassName, nil)
 	require.Nil(t, err)
 	require.Equal(t, 0, len(objs))
 }

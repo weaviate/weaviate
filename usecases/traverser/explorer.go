@@ -352,15 +352,13 @@ func (e *Explorer) getClassList(ctx context.Context,
 	// input
 	userSetAdditionalVector := params.AdditionalProperties.Vector
 
-	// if both grouping and whereFilter/sort are present, the below
-	// class search will eventually call storobj.FromBinaryOptional
-	// to unmarshal the record. in this case, we must manually set
-	// the vector addl prop to unmarshal the result vector into each
-	// result payload. if we skip this step, the grouper will attempt
-	// to compute the distance with a `nil` vector, resulting in NaN.
-	// this was the cause of [github issue 1958]
-	// (https://github.com/weaviate/weaviate/issues/1958)
-	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
+	// if grouping or module-specific additional props are present, we must
+	// ensure vectors are unmarshalled. The class search path uses
+	// storobj.FromBinaryOptional which skips vectors unless explicitly
+	// requested. Without this, the grouper gets nil vectors (NaN distances)
+	// and modules like nearestNeighbors/featureProjection fail.
+	// See https://github.com/weaviate/weaviate/issues/1958
+	if params.Group != nil || len(params.AdditionalProperties.ModuleParams) > 0 {
 		params.AdditionalProperties.Vector = true
 	}
 	var res []search.Result

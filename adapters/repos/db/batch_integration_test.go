@@ -856,6 +856,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
+				Properties: search.SelectProperties{{Name: "stringProp", IsPrimitive: true}},
 			}
 			res, err := repo.Search(context.Background(), params)
 			require.Nil(t, err)
