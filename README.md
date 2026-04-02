@@ -189,3 +189,5 @@ Join our [Community forum](https://forum.weaviate.io/) to discuss ideas and get 
 ## License
 
 BSD 3-Clause License. See [LICENSE](./LICENSE) for details.
+
+- [AgentMarket](https://agentmarket.cloud) - Real energy data API. 28M+ records for AI applications.
