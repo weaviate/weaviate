@@ -465,6 +465,108 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 	}
 }
 
+func TestUpdateClass_ReconcileDroppedVectorIndexes(t *testing.T) {
+	// This test verifies the reconciliation logic in UpdateClass that
+	// preserves the "none" marker on dropped vector indexes when the
+	// update request contains stale (non-dropped) data due to cluster
+	// replication lag.
+
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	parser.On("ParseClassUpdate", mock.Anything).Return(nil, nil)
+
+	db := &fakeIndexer{}
+
+	sm := NewSchemaManager("test-node", db, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	// Add a class with one dropped vector and one active vector.
+	ss := &sharding.State{Physical: map[string]sharding.Physical{
+		"shard1": {Status: "A", BelongsToNodes: []string{"test-node"}},
+	}}
+	cls := &models.Class{
+		Class: "TestClass",
+		VectorConfig: map[string]models.VectorConfig{
+			"dropped_vec": {
+				VectorIndexType: "none",
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+			},
+			"active_vec": {
+				VectorIndexType: "hnsw",
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	require.NoError(t, sm.schema.addClass(cls, ss, 1))
+
+	// Build an update request where "dropped_vec" appears as non-dropped
+	// (simulating a stale ReadOnlyClass that hadn't caught up with the drop).
+	updateClass := &models.Class{
+		Class: "TestClass",
+		VectorConfig: map[string]models.VectorConfig{
+			"dropped_vec": {
+				VectorIndexType: "hnsw",
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+			},
+			"active_vec": {
+				VectorIndexType: "hnsw",
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+			},
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+
+	reqBody := cmd.UpdateClassRequest{Class: updateClass}
+	subCmd, err := json.Marshal(&reqBody)
+	require.NoError(t, err)
+
+	applyReq := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+		SubCommand: subCmd,
+		Version:    2,
+	}
+
+	err = sm.UpdateClass(applyReq, "test-node", false, false)
+	require.NoError(t, err)
+
+	// Verify the dropped vector remained dropped after the update.
+	updatedCls, _ := sm.schema.ReadOnlyClass("TestClass")
+	require.NotNil(t, updatedCls)
+	assert.Equal(t, "none", updatedCls.VectorConfig["dropped_vec"].VectorIndexType,
+		"dropped vector should remain deleted after update with stale data")
+	assert.Equal(t, "hnsw", updatedCls.VectorConfig["active_vec"].VectorIndexType,
+		"active vector should remain unchanged")
+}
+
+// fakeIndexer is a minimal Indexer implementation for tests that go through
+// UpdateClass but don't need real DB operations.
+type fakeIndexer struct{}
+
+func (f *fakeIndexer) AddClass(cmd.AddClassRequest) error                           { return nil }
+func (f *fakeIndexer) UpdateClass(cmd.UpdateClassRequest) error                     { return nil }
+func (f *fakeIndexer) DeleteClass(string, bool) error                               { return nil }
+func (f *fakeIndexer) AddProperty(string, cmd.AddPropertyRequest) error             { return nil }
+func (f *fakeIndexer) UpdateProperty(string, cmd.UpdatePropertyRequest) error       { return nil }
+func (f *fakeIndexer) AddTenants(string, *cmd.AddTenantsRequest) error              { return nil }
+func (f *fakeIndexer) UpdateTenants(string, *cmd.UpdateTenantsRequest) error        { return nil }
+func (f *fakeIndexer) DeleteTenants(string, []*models.Tenant) error                 { return nil }
+func (f *fakeIndexer) UpdateTenantsProcess(string, *cmd.TenantProcessRequest) error { return nil }
+func (f *fakeIndexer) UpdateShardStatus(*cmd.UpdateShardStatusRequest) error        { return nil }
+func (f *fakeIndexer) AddReplicaToShard(string, string, string) error               { return nil }
+func (f *fakeIndexer) DeleteReplicaFromShard(string, string, string) error          { return nil }
+func (f *fakeIndexer) LoadShard(string, string)                                     {}
+func (f *fakeIndexer) ShutdownShard(string, string)                                 {}
+func (f *fakeIndexer) GetShardsStatus(string, string) (models.ShardStatusList, error) {
+	return nil, nil
+}
+func (f *fakeIndexer) TriggerSchemaUpdateCallbacks()                                 {}
+func (f *fakeIndexer) ReloadLocalDB(context.Context, []cmd.UpdateClassRequest) error { return nil }
+func (f *fakeIndexer) RestoreClassDir(string) error                                  { return nil }
+func (f *fakeIndexer) Open(context.Context) error                                    { return nil }
+func (f *fakeIndexer) Close(context.Context) error                                   { return nil }
+func (f *fakeIndexer) UpdateIndex(cmd.UpdateClassRequest) error                      { return nil }
+
 type MockShardReader struct {
 	lst models.ShardStatusList
 	err error

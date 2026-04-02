@@ -781,3 +781,108 @@ func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
 func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 	return false
 }
+
+func TestHandler_DeleteClassVectorIndex(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("nil class returns error", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		err := handler.DeleteClassVectorIndex(ctx, nil, nil, "TestClass", "vec1")
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("empty vector index name returns error", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		class := &models.Class{Class: "TestClass"}
+		err := handler.DeleteClassVectorIndex(ctx, nil, class, "TestClass", "")
+		require.ErrorIs(t, err, ErrValidation)
+	})
+
+	t.Run("class with no vector config returns error", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		class := &models.Class{Class: "TestClass"}
+		err := handler.DeleteClassVectorIndex(ctx, nil, class, "TestClass", "vec1")
+		require.ErrorIs(t, err, ErrValidation)
+	})
+
+	t.Run("non-existent vector index returns error", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		class := &models.Class{
+			Class: "TestClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"other": {VectorIndexType: "hnsw"},
+			},
+		}
+		err := handler.DeleteClassVectorIndex(ctx, nil, class, "TestClass", "vec1")
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("already dropped vector index is a no-op", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		class := &models.Class{
+			Class: "TestClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {VectorIndexType: "none"},
+			},
+		}
+		err := handler.DeleteClassVectorIndex(ctx, nil, class, "TestClass", "vec1")
+		require.NoError(t, err)
+	})
+
+	t.Run("successful drop sets VectorIndexType to none", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		origVecCfg := map[string]models.VectorConfig{
+			"vec1": {
+				VectorIndexType: "hnsw",
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+			"vec2": {
+				VectorIndexType: "flat",
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		}
+		class := &models.Class{
+			Class:        "TestClass",
+			VectorConfig: origVecCfg,
+		}
+
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, class, "TestClass", "vec1")
+		require.NoError(t, err)
+
+		// The class passed to UpdateClass should have vec1 marked as deleted.
+		require.Equal(t, "none", class.VectorConfig["vec1"].VectorIndexType)
+		// vec2 should remain unchanged.
+		require.Equal(t, "flat", class.VectorConfig["vec2"].VectorIndexType)
+		// The original vectorizer should be preserved on the dropped entry.
+		require.NotNil(t, class.VectorConfig["vec1"].Vectorizer)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("drop does not mutate original map", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		origMap := map[string]models.VectorConfig{
+			"vec1": {
+				VectorIndexType: "hnsw",
+				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+			},
+		}
+		class := &models.Class{
+			Class:        "TestClass",
+			VectorConfig: origMap,
+		}
+
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, class, "TestClass", "vec1")
+		require.NoError(t, err)
+
+		// The original map entry should still be "hnsw" because
+		// DeleteClassVectorIndex creates a new map to avoid mutating the live schema.
+		require.Equal(t, "hnsw", origMap["vec1"].VectorIndexType)
+	})
+}

@@ -774,6 +774,16 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
 	}
 
+	// Reject any vector config entry with the "none" sentinel on a brand-new
+	// class. The "none" type is an internal marker set only by the
+	// DeleteClassVectorIndex API for previously-existing indexes.
+	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			return fmt.Errorf("vector %q: cannot create a new class with vectorIndexType %q; "+
+				"this is an internal sentinel for dropped indexes", name, cfg.VectorIndexType)
+		}
+	}
+
 	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
 }
 

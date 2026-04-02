@@ -25,6 +25,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -270,6 +271,19 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// Ensure that if non-default values for properties is stored in raft we fix them before processing an update to
 		// avoid triggering diff on properties and therefore discarding a legitimate update.
 		migratePropertiesIfNecessary(&meta.Class)
+
+		// Reconcile dropped vector indexes: if the current schema has a vector
+		// marked as dropped ("deleted") but the update has a stale non-dropped
+		// copy (possible when the requesting node's local schema hadn't caught
+		// up with a prior drop), carry the dropped state forward. This prevents
+		// ParseClassUpdate from rejecting the update as an invalid re-creation.
+		for vecName, currentCfg := range meta.Class.VectorConfig {
+			if modelsext.IsVectorIndexDropped(currentCfg) {
+				if updatedCfg, ok := req.Class.VectorConfig[vecName]; ok && !modelsext.IsVectorIndexDropped(updatedCfg) {
+					req.Class.VectorConfig[vecName] = currentCfg
+				}
+			}
+		}
 
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {

@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -193,12 +194,13 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	// shallow copy, so class.VectorConfig still points to the live map.
 	newVectorConfig := make(map[string]models.VectorConfig, len(class.VectorConfig))
 	maps.Copy(newVectorConfig, class.VectorConfig)
-	// Keep the vector entry in the schema but clear the index configuration.
+	// Keep the vector entry in the schema but set VectorIndexType to "none".
 	// This signals that the vector data still exists in the objects bucket but
 	// the search index has been removed. The executor's UpdateClass will detect
-	// the cleared config and call the migrator to drop the index from disk.
+	// the "none" type and call the migrator to drop the index from disk.
 	newVectorConfig[vectorIndexName] = models.VectorConfig{
-		Vectorizer: cfg.Vectorizer,
+		Vectorizer:      cfg.Vectorizer,
+		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
 	class.VectorConfig = newVectorConfig
 

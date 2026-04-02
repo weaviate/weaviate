@@ -240,6 +240,14 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string],
 ) (schemaConfig.VectorIndexConfig, error) {
+	// "none" is a sentinel for dropped indexes, not a real index type.
+	// Reject it explicitly rather than relying on the default branch.
+	if vectorIndexType == vectorindex.VectorIndexTypeNone {
+		return nil, errors.Errorf(
+			"parse vector index config: %q is not a valid vector index type; "+
+				"it is an internal sentinel for dropped indexes", vectorIndexType)
+	}
+
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
@@ -557,11 +565,18 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 			return fmt.Errorf("missing config for vector %q", vecName)
 		}
 
-		// Allow dropping a vector index (clearing VectorIndexType to "").
-		// Once dropped, the entry stays in the schema but has no active index.
-		// Also skip already-dropped vectors in the initial config to avoid
-		// false immutability violations when other vectors are being modified.
-		if modelsext.IsVectorIndexDropped(updatedCfg) || modelsext.IsVectorIndexDropped(initialCfg) {
+		// Skip entries that are already dropped in both initial and updated
+		// configs to avoid false immutability violations.
+		// Reject attempts to re-create a previously dropped vector index —
+		// the executor has no path to re-create the on-disk index structures.
+		if modelsext.IsVectorIndexDropped(initialCfg) {
+			if !modelsext.IsVectorIndexDropped(updatedCfg) {
+				return fmt.Errorf("vector %q: cannot re-create a dropped vector index; "+
+					"the index was removed and cannot be restored through a class update", vecName)
+			}
+			continue
+		}
+		if modelsext.IsVectorIndexDropped(updatedCfg) {
 			continue
 		}
 
