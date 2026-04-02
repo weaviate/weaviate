@@ -247,7 +247,8 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 		case models.NestedPropertyTokenizationLowercase,
 			models.NestedPropertyTokenizationWord,
 			models.NestedPropertyTokenizationWhitespace,
-			models.NestedPropertyTokenizationField:
+			models.NestedPropertyTokenizationField,
+			models.NestedPropertyTokenizationTrigram:
 			// supported
 		default:
 			return fmt.Errorf("property '%s': unsupported tokenization '%s' for textAnalyzer", propName, property.Tokenization)
