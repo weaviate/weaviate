@@ -258,7 +258,7 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 
 	if property.TextAnalyzer.StopwordPreset != "" {
 		if _, ok := stopwords.Presets[property.TextAnalyzer.StopwordPreset]; !ok {
-			return fmt.Errorf("property '%s': unknown stopword preset %q, valid options are: ['en', 'none']",
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
 				propName, property.TextAnalyzer.StopwordPreset)
 		}
 	}

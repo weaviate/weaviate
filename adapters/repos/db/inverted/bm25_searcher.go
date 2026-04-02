@@ -271,7 +271,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				sw = b.stopwordDetectorForProperty(pi.prop)
+				var userPresets map[string][]string
+				if class.InvertedIndexConfig != nil {
+					userPresets = class.InvertedIndexConfig.StopwordPresets
+				}
+				sw = b.stopwordDetectorForProperty(pi.prop, userPresets)
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
 			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
@@ -306,14 +310,25 @@ func asciiTokenizationKey(tokenization string) string {
 
 // stopwordDetectorForProperty returns a property-level stopword detector if
 // the property has a stopwordPreset in its textAnalyzer config, otherwise
-// falls back to the collection-level detector.
-func (b *BM25Searcher) stopwordDetectorForProperty(prop *models.Property) stopwords.StopwordDetector {
+// falls back to the collection-level detector. It checks both built-in presets
+// and user-defined presets from the class's invertedIndexConfig.stopwordPresets.
+func (b *BM25Searcher) stopwordDetectorForProperty(prop *models.Property, userPresets map[string][]string) stopwords.StopwordDetector {
 	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
-		d, err := stopwords.NewDetectorFromPreset(prop.TextAnalyzer.StopwordPreset)
-		if err != nil {
-			return b.stopWordDetector
+		preset := prop.TextAnalyzer.StopwordPreset
+		// Check built-in presets first
+		if d, err := stopwords.NewDetectorFromPreset(preset); err == nil {
+			return d
 		}
-		return d
+		// Check user-defined presets
+		if words, ok := userPresets[preset]; ok {
+			d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
+			if err != nil {
+				return b.stopWordDetector
+			}
+			d.SetAdditions(words)
+			return d
+		}
+		return b.stopWordDetector
 	}
 	return b.stopWordDetector
 }

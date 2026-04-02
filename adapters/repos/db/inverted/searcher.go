@@ -62,15 +62,25 @@ var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided.
 
 // stopwordDetectorForProperty returns a property-level stopword detector if
 // the property has a stopwordPreset in its textAnalyzer config, otherwise
-// falls back to the collection-level detector.
-func (s *Searcher) stopwordDetectorForProperty(prop *models.Property) stopwords.StopwordDetector {
+// falls back to the collection-level detector. It checks both built-in presets
+// and user-defined presets from the class's invertedIndexConfig.stopwordPresets.
+func (s *Searcher) stopwordDetectorForProperty(prop *models.Property, userPresets map[string][]string) stopwords.StopwordDetector {
 	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
-		d, err := stopwords.NewDetectorFromPreset(prop.TextAnalyzer.StopwordPreset)
-		if err != nil {
-			// preset was validated at schema creation time, fall back to collection-level
-			return s.stopwords
+		preset := prop.TextAnalyzer.StopwordPreset
+		// Check built-in presets first
+		if d, err := stopwords.NewDetectorFromPreset(preset); err == nil {
+			return d
 		}
-		return d
+		// Check user-defined presets
+		if words, ok := userPresets[preset]; ok {
+			d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
+			if err != nil {
+				return s.stopwords
+			}
+			d.SetAdditions(words)
+			return d
+		}
+		return s.stopwords
 	}
 	return s.stopwords
 }
@@ -680,7 +690,11 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		} else {
 			var sw tokenizer.StopwordDetector
 			if prop.Tokenization == models.PropertyTokenizationWord {
-				sw = s.stopwordDetectorForProperty(prop)
+				var userPresets map[string][]string
+				if class.InvertedIndexConfig != nil {
+					userPresets = class.InvertedIndexConfig.StopwordPresets
+				}
+				sw = s.stopwordDetectorForProperty(prop, userPresets)
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
 			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)

@@ -47,9 +47,14 @@ func SetupStopwordPresetClass(t require.TestingT, repo *DB, schemaGetter *fakeSc
 	vFalse := false
 	vTrue := true
 
+	iic := BM25FinvertedConfig(1.2, 0.75, "en")
+	iic.StopwordPresets = map[string][]string{
+		"custom": {"fox", "dog"},
+	}
+
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(1.2, 0.75, "en"),
+		InvertedIndexConfig: iic,
 		Class:               "StopwordPresetClass",
 		Properties: []*models.Property{
 			{
@@ -70,6 +75,16 @@ func SetupStopwordPresetClass(t require.TestingT, repo *DB, schemaGetter *fakeSc
 				IndexSearchable: &vTrue,
 				// No TextAnalyzer — uses collection-level "en" stopwords
 			},
+			{
+				Name:            "notes",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: &vFalse,
+				IndexSearchable: &vTrue,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					StopwordPreset: "custom",
+				},
+			},
 		},
 	}
 
@@ -89,11 +104,12 @@ func SetupStopwordPresetClass(t require.TestingT, repo *DB, schemaGetter *fakeSc
 	migrator.AddClass(context.Background(), class)
 
 	// Test data: documents containing English stopwords ("the", "is", "a")
+	// and words from the custom preset ("fox", "dog")
 	testData := []map[string]interface{}{
-		{"title": "the quick brown fox", "content": "the quick brown fox"},     // doc 0
-		{"title": "a lazy dog is here", "content": "a lazy dog is here"},       // doc 1
-		{"title": "fox and the hound", "content": "fox and the hound"},         // doc 2
-		{"title": "no stopwords present", "content": "no stopwords present"},   // doc 3
+		{"title": "the quick brown fox", "content": "the quick brown fox", "notes": "the quick brown fox"},    // doc 0
+		{"title": "a lazy dog is here", "content": "a lazy dog is here", "notes": "a lazy dog is here"},       // doc 1
+		{"title": "fox and the hound", "content": "fox and the hound", "notes": "fox and the hound"},          // doc 2
+		{"title": "no stopwords present", "content": "no stopwords present", "notes": "no stopwords present"}, // doc 3
 	}
 
 	for i, data := range testData {
@@ -220,6 +236,37 @@ func runStopwordPresetTests(t *testing.T, repo *DB, props []string) {
 		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 		require.Nil(t, err)
 		require.Len(t, res, 2, "'fox' is not a stopword in either property, matches docs 0 and 2")
+	})
+
+	// --- notes property: user-defined "custom" preset (filters "fox" and "dog") ---
+
+	t.Run("notes custom preset: 'fox' is a stopword", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"notes"}, Query: "fox"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 0, "notes uses 'custom' preset where 'fox' is a stopword")
+	})
+
+	t.Run("notes custom preset: 'dog' is a stopword", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"notes"}, Query: "dog"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 0, "notes uses 'custom' preset where 'dog' is a stopword")
+	})
+
+	t.Run("notes custom preset: 'the' is NOT a stopword", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"notes"}, Query: "the"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 2, "notes uses 'custom' preset, 'the' is NOT in it so matches docs 0 and 2")
+	})
+
+	t.Run("notes custom preset: 'quick' is NOT a stopword", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"notes"}, Query: "quick"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+		require.Nil(t, err)
+		require.Len(t, res, 1, "notes uses 'custom' preset, 'quick' is not a stopword")
+		require.Equal(t, uint64(0), res[0].DocID)
 	})
 }
 

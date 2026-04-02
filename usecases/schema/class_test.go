@@ -3071,7 +3071,7 @@ func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
 			IndexSearchable: &searchable,
 			TextAnalyzer:    &models.TextAnalyzerConfig{},
 		}
-		err := validatePropertyProcessing(prop, intPDT)
+		err := validatePropertyProcessing(prop, intPDT, nil)
 		require.NoError(t, err)
 		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
 	})
@@ -3082,7 +3082,7 @@ func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
 			IndexSearchable: &searchable,
 			TextAnalyzer:    &models.TextAnalyzerConfig{},
 		}
-		err := validatePropertyProcessing(prop, textPDT)
+		err := validatePropertyProcessing(prop, textPDT, nil)
 		require.NoError(t, err)
 		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
 	})
@@ -3096,7 +3096,7 @@ func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
 				ASCIIFoldIgnore: []string{},
 			},
 		}
-		err := validatePropertyProcessing(prop, textPDT)
+		err := validatePropertyProcessing(prop, textPDT, nil)
 		require.NoError(t, err)
 		assert.Nil(t, prop.TextAnalyzer, "zero-value config should be normalized to nil")
 	})
@@ -3109,7 +3109,7 @@ func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
 				ASCIIFold: true,
 			},
 		}
-		err := validatePropertyProcessing(prop, textPDT)
+		err := validatePropertyProcessing(prop, textPDT, nil)
 		require.NoError(t, err)
 		assert.NotNil(t, prop.TextAnalyzer, "active config should be preserved")
 	})
@@ -3191,7 +3191,7 @@ func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
 					ASCIIFold: true,
 				},
 			}
-			err := validatePropertyProcessing(prop, pdt)
+			err := validatePropertyProcessing(prop, pdt, nil)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "unsupported tokenization")
@@ -3248,7 +3248,7 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
 					ASCIIFoldIgnore: tt.ignore,
 				},
 			}
-			err := validatePropertyProcessing(prop, pdt)
+			err := validatePropertyProcessing(prop, pdt, nil)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "single character")
@@ -3271,7 +3271,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 				StopwordPreset: "en",
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 	})
 
@@ -3283,7 +3283,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 				StopwordPreset: "none",
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 	})
 
@@ -3295,7 +3295,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 				StopwordPreset: "invalid_language",
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown stopword preset")
 		assert.Contains(t, err.Error(), "invalid_language")
@@ -3309,7 +3309,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 				StopwordPreset: "",
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 		assert.Nil(t, prop.TextAnalyzer, "empty stopwordPreset means empty config -> normalized to nil")
 	})
@@ -3323,7 +3323,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 				StopwordPreset: "en",
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 	})
 
@@ -3335,10 +3335,41 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 				StopwordPreset: "none",
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 		require.NotNil(t, prop.TextAnalyzer, "config with stopwordPreset should not be normalized to nil")
 		assert.Equal(t, "none", prop.TextAnalyzer.StopwordPreset)
+	})
+
+	t.Run("user-defined preset is accepted", func(t *testing.T) {
+		userPresets := map[string][]string{
+			"medical": {"patient", "diagnosis", "treatment"},
+		}
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "medical",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, userPresets)
+		require.NoError(t, err)
+	})
+
+	t.Run("unknown preset rejected even with user presets", func(t *testing.T) {
+		userPresets := map[string][]string{
+			"medical": {"patient", "diagnosis"},
+		}
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "nonexistent",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, userPresets)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown stopword preset")
 	})
 }
 
@@ -3355,7 +3386,7 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
 				ASCIIFoldIgnore: []string{"é"},
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "asciiFoldIgnore requires asciiFold to be enabled")
 	})
@@ -3369,7 +3400,7 @@ func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
 				ASCIIFoldIgnore: []string{"é"},
 			},
 		}
-		err := validatePropertyProcessing(prop, pdt)
+		err := validatePropertyProcessing(prop, pdt, nil)
 		require.NoError(t, err)
 	})
 }

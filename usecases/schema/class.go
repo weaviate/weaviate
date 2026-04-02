@@ -721,7 +721,11 @@ func (h *Handler) validateProperty(
 			return err
 		}
 
-		if err := validatePropertyProcessing(property, propertyDataType); err != nil {
+		var userPresets map[string][]string
+		if class.InvertedIndexConfig != nil {
+			userPresets = class.InvertedIndexConfig.StopwordPresets
+		}
+		if err := validatePropertyProcessing(property, propertyDataType, userPresets); err != nil {
 			return err
 		}
 
@@ -922,7 +926,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
-func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
+func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType, userPresets map[string][]string) error {
 	// Treat an empty config as absent — some client generators emit
 	// "textAnalyzer": {} by default and this should not block creation.
 	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 && prop.TextAnalyzer.StopwordPreset == "" {
@@ -975,8 +979,10 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 	}
 
 	if prop.TextAnalyzer.StopwordPreset != "" {
-		if _, ok := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]; !ok {
-			return fmt.Errorf("property '%s': unknown stopword preset %q, valid options are: ['en', 'none']",
+		_, builtIn := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]
+		_, userDefined := userPresets[prop.TextAnalyzer.StopwordPreset]
+		if !builtIn && !userDefined {
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
 				prop.Name, prop.TextAnalyzer.StopwordPreset)
 		}
 	}
