@@ -243,3 +243,18 @@ func createSegmentFilesUsingBucket(t *testing.T, ctx context.Context, logger log
 	err = diskio.Fsync(path)
 	require.NoError(t, err)
 }
+
+func TestSegment_TruncatedFileReturnsError(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	existsOnLower := func(key []byte) (bool, error) { return false, nil }
+
+	dir := t.TempDir()
+	segPath := filepath.Join(dir, "truncated.db")
+
+	// Write a file smaller than the 16-byte header
+	require.NoError(t, os.WriteFile(segPath, []byte("short"), 0o644))
+
+	_, err := newSegment(segPath, logger, nil, existsOnLower, segmentConfig{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "segment file too small")
+}
