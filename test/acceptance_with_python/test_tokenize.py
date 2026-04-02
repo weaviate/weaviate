@@ -147,6 +147,133 @@ class TestGenericTokenize:
         assert body["indexed"] == ["the", "quick"]
         assert body["query"] == ["the", "quick"]
 
+    def test_analyzer_stopword_preset_en(self) -> None:
+        """analyzerConfig.stopwordPreset='en' works as shorthand for stopwordConfig."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The quick brown fox",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "en"},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        assert "the" not in body["query"]
+        assert "quick" in body["query"]
+
+    def test_analyzer_stopword_preset_none(self) -> None:
+        """analyzerConfig.stopwordPreset='none' keeps all tokens."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The quick brown fox",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "none"},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        assert body["query"] == ["the", "quick", "brown", "fox"]
+
+    def test_analyzer_stopword_preset_with_ascii_fold(self) -> None:
+        """stopwordPreset combined with asciiFold in analyzerConfig."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The école est fermée",
+                "tokenization": "word",
+                "analyzerConfig": {"asciiFold": True, "stopwordPreset": "en"},
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "ecole", "est", "fermee"]
+        assert "the" not in body["query"]
+        assert "ecole" in body["query"]
+
+    def test_stopword_config_overrides_analyzer_preset(self) -> None:
+        """Explicit stopwordConfig takes precedence over analyzerConfig.stopwordPreset."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The quick brown fox",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "none"},
+                "stopwordConfig": {"preset": "en"},
+            },
+        )
+        assert status == 200
+        # stopwordConfig wins: "en" preset filters "the"
+        assert "the" not in body["query"]
+        assert "quick" in body["query"]
+
+    def test_analyzer_invalid_stopword_preset(self) -> None:
+        """Invalid stopwordPreset in analyzerConfig returns error."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "hello",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "nonexistent"},
+            },
+        )
+        assert status == 422
+
+    def test_custom_preset_via_stopword_presets(self) -> None:
+        """Custom preset defined inline via stopwordPresets, referenced by analyzerConfig."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "le chat et la souris",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "fr"},
+                "stopwordPresets": {
+                    "fr": {"additions": ["le", "la", "les"]},
+                },
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["le", "chat", "et", "la", "souris"]
+        assert "le" not in body["query"]
+        assert "la" not in body["query"]
+        assert "chat" in body["query"]
+        assert "et" in body["query"]
+
+    def test_custom_preset_with_base_and_removals(self) -> None:
+        """Custom preset using 'en' as base with removals."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "the quick and the fox",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "custom"},
+                "stopwordPresets": {
+                    "custom": {"preset": "en", "removals": ["the"]},
+                },
+            },
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "quick", "and", "the", "fox"]
+        # 'the' was removed from en stopwords, so it stays in query
+        assert "the" in body["query"]
+        # 'and' is still an en stopword
+        assert "and" not in body["query"]
+
+    def test_custom_preset_not_found(self) -> None:
+        """Referencing a preset not in stopwordPresets returns 422."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "hello",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "missing"},
+                "stopwordPresets": {
+                    "other": {"additions": ["hello"]},
+                },
+            },
+        )
+        assert status == 422
+
     def test_ascii_fold_combined_with_stopwords(self) -> None:
         status, body = post_json(
             f"{WEAVIATE_URL}/v1/tokenize",
@@ -193,13 +320,16 @@ class TestPropertyTokenize:
                         "preset": "none",
                         "additions": ["le", "la", "les"],
                     },
+                    "stopwordPresets": {
+                        "fr": ["le", "la", "les", "un", "une", "des", "du", "de"],
+                    },
                 },
                 "properties": [
                     {
                         "name": "title",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "analyzerConfig": {
+                        "textAnalyzer": {
                             "stopwordPreset": "en",
                         },
                     },
@@ -207,8 +337,8 @@ class TestPropertyTokenize:
                         "name": "title_fr",
                         "dataType": ["text"],
                         "tokenization": "word",
-                        "analyzerConfig": {
-                            "stopwordPreset": "none",
+                        "textAnalyzer": {
+                            "stopwordPreset": "fr",
                         },
                     },
                     {
@@ -261,14 +391,45 @@ class TestPropertyTokenize:
         )
         assert status == 200
 
-    def test_with_custom_stopword_preset(self) -> None:
+    def test_property_user_defined_preset_fr(self) -> None:
+        """title_fr uses user-defined 'fr' preset from invertedIndexConfig.stopwordPresets."""
         status, body = post_json(
             f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title_fr/tokenize",
             {"text": "le chat et la souris"},
         )
         assert status == 200
         assert body["indexed"] == ["le", "chat", "et", "la", "souris"]
-        assert body["query"] == ["chat", "et", "souris"]
+        # 'le' and 'la' are in the user-defined 'fr' preset, so filtered from query
+        assert "le" not in body["query"]
+        assert "la" not in body["query"]
+        assert "chat" in body["query"]
+        assert "et" in body["query"]
+        assert "souris" in body["query"]
+
+    def test_property_stopword_preset_en(self) -> None:
+        """title has stopwordPreset='en', overriding the collection-level French additions."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
+            {"text": "the quick brown fox"},
+        )
+        assert status == 200
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        # stopwordPreset="en" filters English stopwords
+        assert "the" not in body["query"]
+        assert "quick" in body["query"]
+        assert "brown" in body["query"]
+        assert "fox" in body["query"]
+
+    def test_property_stopword_preset_en_does_not_use_collection_additions(self) -> None:
+        """title has stopwordPreset='en'; collection-level additions (le, la, les) should NOT apply."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title/tokenize",
+            {"text": "le chat la souris"},
+        )
+        assert status == 200
+        # 'le' and 'la' are NOT English stopwords, so they should appear in query
+        assert "le" in body["query"]
+        assert "la" in body["query"]
 
     def test_class_not_found(self) -> None:
         status, _ = post_json(

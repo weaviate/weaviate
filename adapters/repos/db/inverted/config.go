@@ -39,11 +39,33 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 		return err
 	}
 
+	err = validateStopwordPresets(conf.StopwordPresets)
+	if err != nil {
+		return err
+	}
+
 	err = validateTokenizerUserDictConfig(conf.TokenizerUserDict)
 	if err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func validateStopwordPresets(presets map[string][]string) error {
+	for name, words := range presets {
+		if _, ok := stopwords.Presets[name]; ok {
+			return errors.Errorf("stopwordPresets: name %q conflicts with built-in preset", name)
+		}
+		if len(words) == 0 {
+			return errors.Errorf("stopwordPresets: preset %q must have at least one word", name)
+		}
+		for _, w := range words {
+			if strings.TrimSpace(w) == "" {
+				return errors.Errorf("stopwordPresets: preset %q contains empty or whitespace-only word", name)
+			}
+		}
+	}
 	return nil
 }
 
@@ -71,6 +93,8 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 		conf.Stopwords.Additions = iicm.Stopwords.Additions
 		conf.Stopwords.Removals = iicm.Stopwords.Removals
 	}
+
+	conf.StopwordPresets = iicm.StopwordPresets
 
 	if iicm.TokenizerUserDict != nil {
 		conf.TokenizerUserDict = make([]*models.TokenizerUserDictConfig, len(iicm.TokenizerUserDict))

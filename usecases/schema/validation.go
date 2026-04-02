@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/text/unicode/norm"
@@ -210,7 +211,7 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 	propName := propNamePrefix + "." + property.Name
 
 	// Normalize empty config to nil.
-	if property.TextAnalyzer != nil && !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) == 0 {
+	if property.TextAnalyzer != nil && !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) == 0 && property.TextAnalyzer.StopwordPreset == "" {
 		property.TextAnalyzer = nil
 	}
 	if property.TextAnalyzer == nil {
@@ -252,6 +253,13 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 			// supported
 		default:
 			return fmt.Errorf("property '%s': unsupported tokenization '%s' for textAnalyzer", propName, property.Tokenization)
+		}
+	}
+
+	if property.TextAnalyzer.StopwordPreset != "" {
+		if _, ok := stopwords.Presets[property.TextAnalyzer.StopwordPreset]; !ok {
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
+				propName, property.TextAnalyzer.StopwordPreset)
 		}
 	}
 

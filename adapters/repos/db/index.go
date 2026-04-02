@@ -224,12 +224,13 @@ type Index struct {
 	Config                  IndexConfig
 	globalreplicationConfig *replication.GlobalConfig
 
-	getSchema    schemaUC.SchemaGetter
-	schemaReader schemaUC.SchemaReader
-	logger       logrus.FieldLogger
-	remote       *sharding.RemoteIndex
-	stopwords    *stopwords.Detector
-	replicator   *replica.Replicator
+	getSchema       schemaUC.SchemaGetter
+	schemaReader    schemaUC.SchemaReader
+	logger          logrus.FieldLogger
+	remote          *sharding.RemoteIndex
+	stopwords       *stopwords.Detector
+	stopwordPresets map[string]*stopwords.Detector
+	replicator      *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -351,6 +352,11 @@ func NewIndex(
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
+	presetDetectors, err := buildStopwordPresetDetectors(invertedIndexConfig.StopwordPresets)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
 	}
@@ -375,6 +381,7 @@ func NewIndex(
 		invertedIndexConfig:     invertedIndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
+		stopwordPresets:         presetDetectors,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
@@ -821,12 +828,37 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
 
+	presetDetectors, err := buildStopwordPresetDetectors(updated.StopwordPresets)
+	if err != nil {
+		return fmt.Errorf("update inverted index config: %w", err)
+	}
+	i.stopwordPresets = presetDetectors
+
 	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
 	if err != nil {
 		return errors.Wrap(err, "updating inverted index config")
 	}
 
 	return nil
+}
+
+// buildStopwordPresetDetectors creates a Detector for each user-defined
+// stopword preset so they can be reused across queries without per-query
+// allocation.
+func buildStopwordPresetDetectors(presets map[string][]string) (map[string]*stopwords.Detector, error) {
+	if len(presets) == 0 {
+		return nil, nil
+	}
+	detectors := make(map[string]*stopwords.Detector, len(presets))
+	for name, words := range presets {
+		d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
+		if err != nil {
+			return nil, fmt.Errorf("stopwordPresets[%q]: %w", name, err)
+		}
+		d.SetAdditions(words)
+		detectors[name] = d
+	}
+	return detectors, nil
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {

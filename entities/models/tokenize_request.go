@@ -37,6 +37,9 @@ type TokenizeRequest struct {
 	// Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.
 	StopwordConfig *StopwordConfig `json:"stopwordConfig,omitempty"`
 
+	// Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).
+	StopwordPresets map[string]StopwordConfig `json:"stopwordPresets,omitempty"`
+
 	// The text to tokenize.
 	// Required: true
 	Text *string `json:"text"`
@@ -56,6 +59,10 @@ func (m *TokenizeRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateStopwordConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStopwordPresets(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -106,6 +113,32 @@ func (m *TokenizeRequest) validateStopwordConfig(formats strfmt.Registry) error 
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *TokenizeRequest) validateStopwordPresets(formats strfmt.Registry) error {
+	if swag.IsZero(m.StopwordPresets) { // not required
+		return nil
+	}
+
+	for k := range m.StopwordPresets {
+
+		if err := validate.Required("stopwordPresets"+"."+k, "body", m.StopwordPresets[k]); err != nil {
+			return err
+		}
+		if val, ok := m.StopwordPresets[k]; ok {
+			if err := val.Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("stopwordPresets" + "." + k)
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("stopwordPresets" + "." + k)
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -196,6 +229,10 @@ func (m *TokenizeRequest) ContextValidate(ctx context.Context, formats strfmt.Re
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateStopwordPresets(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -229,6 +266,21 @@ func (m *TokenizeRequest) contextValidateStopwordConfig(ctx context.Context, for
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *TokenizeRequest) contextValidateStopwordPresets(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.StopwordPresets {
+
+		if val, ok := m.StopwordPresets[k]; ok {
+			if err := val.ContextValidate(ctx, formats); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	return nil

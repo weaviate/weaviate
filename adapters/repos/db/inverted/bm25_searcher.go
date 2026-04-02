@@ -53,6 +53,7 @@ type BM25Searcher struct {
 	logger           logrus.FieldLogger
 	shardVersion     uint16
 	stopWordDetector stopwords.StopwordDetector
+	stopwordPresets  map[string]*stopwords.Detector
 }
 
 type propLengthRetriever interface {
@@ -69,8 +70,9 @@ type termListRequest struct {
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector, propLenTracker propLengthRetriever,
+	classSearcher ClassSearcher, sw stopwords.StopwordDetector, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
+	swPresets map[string]*stopwords.Detector,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:           config,
@@ -81,7 +83,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker:   propLenTracker,
 		logger:           logger.WithField("action", "bm25_search"),
 		shardVersion:     shardVersion,
-		stopWordDetector: stopwords,
+		stopWordDetector: sw,
+		stopwordPresets:  swPresets,
 	}
 }
 
@@ -199,14 +202,18 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			tokKey := prop.Tokenization
+			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
-				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
-					// Per-property ignore key — will be computed after tokenization
+				if len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 || hasCustomStopwords {
+					// Per-property key — will be computed after tokenization
 					tokKey = asciiTokenizationKey(prop.Tokenization) + ":" + property
 				} else {
 					tokKey = asciiTokenizationKey(prop.Tokenization)
 					needsASCIIFold[prop.Tokenization] = struct{}{}
 				}
+			} else if hasCustomStopwords {
+				// Per-property key for custom stopword preset
+				tokKey = prop.Tokenization + ":" + property
 			}
 			neededTokenizations[prop.Tokenization] = struct{}{}
 
@@ -262,10 +269,12 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		}
 
 		tokKey := pi.tokKey
-		if pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.ASCIIFold && len(pi.prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		hasCustomASCIIFoldIgnore := pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.ASCIIFold && len(pi.prop.TextAnalyzer.ASCIIFoldIgnore) > 0
+		hasCustomStopwords := pi.prop.TextAnalyzer != nil && pi.prop.TextAnalyzer.StopwordPreset != ""
+		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				sw = b.stopWordDetector
+				sw = resolveStopwordDetector(pi.prop, b.stopwordPresets, b.stopWordDetector)
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
 			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
