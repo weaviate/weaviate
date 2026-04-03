@@ -36,7 +36,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // correlationTestClass returns a minimal class with nested object-array
-// properties used across resolveNestedCorrelatedAnd tests.
+// properties used across resolveNestedCorrelated tests.
 //
 //	addresses: object[] { city text, postcode text }
 //	cars:      object[] { make text, tires object[]{width int}, accessories object[]{type text} }
@@ -130,8 +130,18 @@ func makeLeafPvp(class *models.Class, prop, relPath, term string) *propValuePair
 	}
 }
 
-// makeAndPvp wraps children in an AND propValuePair (used to represent the
-// outer AND filter node that resolveNestedCorrelatedAnd is called on).
+// makeCorrelatedPvp wraps children in an isCorrelatedNested AND node for prop.
+func makeCorrelatedPvp(class *models.Class, prop string, children ...*propValuePair) *propValuePair {
+	return &propValuePair{
+		operator:           filters.OperatorAnd,
+		isCorrelatedNested: true,
+		prop:               prop,
+		children:           children,
+		Class:              class,
+	}
+}
+
+// makeAndPvp wraps children in a plain AND propValuePair.
 func makeAndPvp(class *models.Class, children ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		operator: filters.OperatorAnd,
@@ -167,14 +177,11 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		writeNestedValue(t, b, "city", "berlin", []uint64{pos})
 		writeNestedValue(t, b, "postcode", "10115", []uint64{pos})
 
-		pv := makeAndPvp(class,
+		pv := makeCorrelatedPvp(class, "addresses",
 			makeLeafPvp(class, "addresses", "city", "berlin"),
 			makeLeafPvp(class, "addresses", "postcode", "10115"),
 		)
-		groups := pv.extractNestedCorrelatedGroups()
-		require.NotNil(t, groups)
-
-		result, err := pv.resolveNestedCorrelatedAnd(context.Background(), searcher, groups)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
@@ -194,14 +201,11 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		})
 		writeNestedValue(t, b, "postcode", "10115", []uint64{nested.Encode(1, 1, doc5)})
 
-		pv := makeAndPvp(class,
+		pv := makeCorrelatedPvp(class, "addresses",
 			makeLeafPvp(class, "addresses", "city", "berlin"),
 			makeLeafPvp(class, "addresses", "postcode", "10115"),
 		)
-		groups := pv.extractNestedCorrelatedGroups()
-		require.NotNil(t, groups)
-
-		result, err := pv.resolveNestedCorrelatedAnd(context.Background(), searcher, groups)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
@@ -233,7 +237,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		mb := store.Bucket(metaBucket)
 		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("cars", 0), []uint64{tiresPos, accPos}))
 
-		pv := makeAndPvp(class,
+		pv := makeCorrelatedPvp(class, "cars",
 			&propValuePair{
 				prop: "cars", value: widthVal, operator: filters.OperatorEqual,
 				nestedRelPath: "tires.width", hasFilterableIndex: true,
@@ -241,10 +245,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 			},
 			makeLeafPvp(class, "cars", "accessories.type", "spoiler"),
 		)
-		groups := pv.extractNestedCorrelatedGroups()
-		require.NotNil(t, groups)
-
-		result, err := pv.resolveNestedCorrelatedAnd(context.Background(), searcher, groups)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
@@ -271,7 +272,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("cars", 0), []uint64{tiresPos}))
 		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("cars", 1), []uint64{accPos}))
 
-		pv := makeAndPvp(class,
+		pv := makeCorrelatedPvp(class, "cars",
 			&propValuePair{
 				prop: "cars", value: widthVal, operator: filters.OperatorEqual,
 				nestedRelPath: "tires.width", hasFilterableIndex: true,
@@ -279,17 +280,14 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 			},
 			makeLeafPvp(class, "cars", "accessories.type", "spoiler"),
 		)
-		groups := pv.extractNestedCorrelatedGroups()
-		require.NotNil(t, groups)
-
-		result, err := pv.resolveNestedCorrelatedAnd(context.Background(), searcher, groups)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
 		assert.True(t, result.docIDs.IsEmpty())
 	})
 
 	t.Run("multi-prop groups — cars AND addresses correlated independently", func(t *testing.T) {
 		// conditions: cars.make="tesla" AND addresses.city="berlin"
-		// Each prop group is resolved independently then AND'd.
+		// Each prop group is resolved independently then AND'd via the outer AND node.
 		// Expected: doc5 (has both), doc7 excluded (only cars.make matches).
 
 		carsBucket := helpers.BucketNestedFromPropNameLSM("cars")
@@ -304,15 +302,17 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		ab := store.Bucket(addrBucket)
 		writeNestedValue(t, ab, "city", "berlin", []uint64{nested.Encode(1, 1, doc5)})
 
+		// groupNestedByProp creates one isCorrelatedNested node per prop;
+		// here we build the same structure directly.
 		pv := makeAndPvp(class,
-			makeLeafPvp(class, "cars", "make", "tesla"),
-			makeLeafPvp(class, "addresses", "city", "berlin"),
+			makeCorrelatedPvp(class, "cars",
+				makeLeafPvp(class, "cars", "make", "tesla"),
+			),
+			makeCorrelatedPvp(class, "addresses",
+				makeLeafPvp(class, "addresses", "city", "berlin"),
+			),
 		)
-		groups := pv.extractNestedCorrelatedGroups()
-		require.NotNil(t, groups)
-		assert.Len(t, groups, 2)
-
-		result, err := pv.resolveNestedCorrelatedAnd(context.Background(), searcher, groups)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})

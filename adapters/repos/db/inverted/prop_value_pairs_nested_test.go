@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // nestedPvp builds a minimal nested leaf propValuePair.
@@ -25,9 +26,14 @@ func nestedPvp(prop, relPath string) *propValuePair {
 }
 
 // compoundAndPvp builds a compound AND propValuePair as produced by multi-token
-// text tokenization (childrenFromTokenization=true).
+// text tokenization (childrenFromTokenization=true, isCorrelatedNested=true).
+// prop is derived from the first child, mirroring buildNestedTextFilterPair.
 func compoundAndPvp(children ...*propValuePair) *propValuePair {
-	return &propValuePair{operator: filters.OperatorAnd, children: children, childrenFromTokenization: true}
+	var prop string
+	if len(children) > 0 {
+		prop = children[0].prop
+	}
+	return &propValuePair{operator: filters.OperatorAnd, children: children, childrenFromTokenization: true, isCorrelatedNested: true, prop: prop}
 }
 
 // userNestedAndPvp builds a compound AND propValuePair as produced by user
@@ -37,32 +43,64 @@ func userNestedAndPvp(children ...*propValuePair) *propValuePair {
 	return &propValuePair{operator: filters.OperatorAnd, children: children}
 }
 
-func TestNestedCorrelatedGroup(t *testing.T) {
+// wantChild describes one expected element in the groupNestedByProp output.
+type wantChild struct {
+	// correlatedProp is non-empty when the output child should be an
+	// isCorrelatedNested=true AND node wrapping conditions for that prop.
+	correlatedProp string
+	// groupSize is the number of children inside the correlated group.
+	// Only inspected when correlatedProp is non-empty.
+	groupSize int
+	// isPlain is true when the output child should be a plain (non-correlated)
+	// node, passed through unchanged from the input.
+	isPlain bool
+}
+
+func TestGroupNestedByProp(t *testing.T) {
 	flatPvp := func() *propValuePair {
 		return &propValuePair{prop: "name", operator: filters.OperatorEqual}
 	}
+	class := &models.Class{Class: "TestClass"}
 
 	tests := []struct {
-		name          string
-		children      []*propValuePair
-		wantNilGroups bool           // groups == nil (unresolvable)
-		wantGroups    map[string]int // expected group sizes by prop name
-		wantOthers    int            // expected number of flat/other conditions
+		name     string
+		children []*propValuePair
+		want     []wantChild
 	}{
-		// --- all nested, single prop group ---
+		// output: (empty — passthrough)
 		{
-			name:       "single nested child",
-			children:   []*propValuePair{nestedPvp("addresses", "city")},
-			wantGroups: map[string]int{"addresses": 1},
+			name:     "empty children",
+			children: nil,
+			want:     nil,
 		},
+
+		// output:
+		// └── addresses.city
+		// Single-child group is kept as a plain child with no wrapper.
 		{
-			name: "two nested children same prop",
+			name:     "single nested child — no wrapper",
+			children: []*propValuePair{nestedPvp("addresses", "city")},
+			want:     []wantChild{{isPlain: true}},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── postcode
+		{
+			name: "two nested children same prop — wrapped",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				nestedPvp("addresses", "postcode"),
 			},
-			wantGroups: map[string]int{"addresses": 2},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
 		},
+
+		// output:
+		// └── correlated(cars)
+		//     ├── make
+		//     ├── tires.width
+		//     └── accessories.type
 		{
 			name: "three nested children same prop",
 			children: []*propValuePair{
@@ -70,39 +108,59 @@ func TestNestedCorrelatedGroup(t *testing.T) {
 				nestedPvp("cars", "tires.width"),
 				nestedPvp("cars", "accessories.type"),
 			},
-			wantGroups: map[string]int{"cars": 3},
+			want: []wantChild{{correlatedProp: "cars", groupSize: 3}},
 		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── AND(city, city)  ← tokenization compound, treated as one unit
+		//     └── postcode
 		{
-			// Compound AND from multi-token text is kept as a single unit.
 			name: "compound AND (multi-token text) same prop",
 			children: []*propValuePair{
 				compoundAndPvp(nestedPvp("addresses", "city"), nestedPvp("addresses", "city")),
 				nestedPvp("addresses", "postcode"),
 			},
-			wantGroups: map[string]int{"addresses": 2}, // 1 compound + 1 direct
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
 		},
+
+		// output:
+		// └── correlated(cars)
+		//     ├── make
+		//     └── AND(tires.width, tires.width)  ← tokenization compound
 		{
 			name: "direct and compound children same prop",
 			children: []*propValuePair{
 				nestedPvp("cars", "make"),
 				compoundAndPvp(nestedPvp("cars", "tires.width"), nestedPvp("cars", "tires.width")),
 			},
-			wantGroups: map[string]int{"cars": 2},
+			want: []wantChild{{correlatedProp: "cars", groupSize: 2}},
 		},
 
-		// --- multiple prop groups, all nested ---
+		// output:
+		// ├── addresses.city
+		// └── cars.make
+		// Each prop has only one condition — no wrapper created for either.
 		{
-			// Conditions spanning two props produce two separate groups, each
-			// resolved with its own same-element semantics.
-			name: "two props — two groups",
+			name: "two props — single-child groups, no wrappers",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				nestedPvp("cars", "make"),
 			},
-			wantGroups: map[string]int{"addresses": 1, "cars": 1},
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
 		},
+
+		// output:
+		// ├── correlated(cars)       ← first-seen order preserved
+		// │   ├── tires.width
+		// │   └── accessories.type
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── postcode
 		{
-			// Interleaved multi-prop conditions are grouped correctly.
 			name: "four conditions across two props interleaved",
 			children: []*propValuePair{
 				nestedPvp("cars", "tires.width"),
@@ -110,26 +168,39 @@ func TestNestedCorrelatedGroup(t *testing.T) {
 				nestedPvp("cars", "accessories.type"),
 				nestedPvp("addresses", "postcode"),
 			},
-			wantGroups: map[string]int{"cars": 2, "addresses": 2},
+			want: []wantChild{
+				{correlatedProp: "cars", groupSize: 2},
+				{correlatedProp: "addresses", groupSize: 2},
+			},
 		},
 
-		// --- mixed nested + flat: groups returned, flat conditions go into remaining ---
+		// output:
+		// ├── correlated(cars)
+		// │   ├── tires.width
+		// │   └── accessories.type
+		// └── name  ← flat, emitted at its original position
 		{
-			// Flat property alongside nested conditions: nested groups still get
-			// same-element semantics; the flat condition goes into remaining.
 			name: "nested and flat property mixed",
 			children: []*propValuePair{
 				nestedPvp("cars", "tires.width"),
 				flatPvp(),
 				nestedPvp("cars", "accessories.type"),
 			},
-			wantGroups: map[string]int{"cars": 2},
-			wantOthers: 1,
+			want: []wantChild{
+				{correlatedProp: "cars", groupSize: 2},
+				{isPlain: true},
+			},
 		},
+
+		// output:
+		// ├── correlated(cars)
+		// │   ├── tires.width
+		// │   └── accessories.type
+		// ├── correlated(addresses)
+		// │   ├── city
+		// │   └── postcode
+		// └── name  ← flat
 		{
-			// Full mixed: two nested groups + one flat property.
-			// cars and addresses each get correlated resolution; name is resolved
-			// normally and AND'd with the correlated results.
 			name: "cars + addresses + flat mixed",
 			children: []*propValuePair{
 				nestedPvp("cars", "tires.width"),
@@ -138,23 +209,33 @@ func TestNestedCorrelatedGroup(t *testing.T) {
 				nestedPvp("addresses", "postcode"),
 				flatPvp(),
 			},
-			wantGroups: map[string]int{"cars": 2, "addresses": 2},
-			wantOthers: 1,
+			want: []wantChild{
+				{correlatedProp: "cars", groupSize: 2},
+				{correlatedProp: "addresses", groupSize: 2},
+				{isPlain: true},
+			},
 		},
+
+		// output:
+		// ├── addresses.city               ← single-child group, no wrapper
+		// └── AND(addresses.postcode, name) ← flat: childrenFromTokenization=false
 		{
-			// Compound AND with a non-nested grandchild is treated as a flat
-			// condition (goes to remaining, not into a nested group).
-			name: "compound AND with non-nested grandchild goes to remaining",
+			name: "compound AND with non-nested grandchild goes to flat",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				userNestedAndPvp(nestedPvp("addresses", "postcode"), flatPvp()),
 			},
-			wantGroups: map[string]int{"addresses": 1},
-			wantOthers: 1,
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
 		},
+
+		// output:
+		// ├── addresses.city         ← single-child group, no wrapper
+		// └── OR(addresses.postcode) ← flat: not an AND node
 		{
-			// OR compound child: not a valid correlated condition, goes to remaining.
-			name: "non-AND compound child goes to remaining",
+			name: "non-AND compound child goes to flat",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				{
@@ -162,40 +243,30 @@ func TestNestedCorrelatedGroup(t *testing.T) {
 					children: []*propValuePair{nestedPvp("addresses", "postcode")},
 				},
 			},
-			wantGroups: map[string]int{"addresses": 1},
-			wantOthers: 1,
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
 		},
 
-		// --- nil groups (truly unresolvable) ---
+		// output:
+		// └── AND(addresses.city, cars.make) ← flat: childrenFromTokenization=false
 		{
-			name:          "empty children",
-			wantNilGroups: true,
-		},
-
-		// --- compound AND with mixed props → goes to remaining, NOT unresolvable ---
-		// AND(addresses.city, cars.make) is a perfectly valid user filter that
-		// means "doc has a matching address city AND a matching car make".
-		// When nested inside another AND as a compound AND child, it is treated
-		// as an opaque condition in remaining: resolveDocIDsAndOr recurses into it
-		// and applies correlated resolution on its children independently.
-		{
-			// A user-constructed AND(addresses.city, cars.make) nested as a
-			// compound AND child: resolves correctly via the remaining path.
-			name: "compound AND(addresses.city, cars.make) — goes to remaining",
+			name: "compound AND(addresses.city, cars.make) — goes to flat",
 			children: []*propValuePair{
 				userNestedAndPvp(
 					nestedPvp("addresses", "city"),
 					nestedPvp("cars", "make"),
 				),
 			},
-			// groups is nil because no direct nested children exist at this level,
-			// but the user AND goes to remaining, not causing unresolvability.
-			wantNilGroups: true,
+			want: []wantChild{{isPlain: true}},
 		},
+
+		// output:
+		// ├── addresses.city                      ← single-child group, no wrapper
+		// └── AND(addresses.postcode, cars.make)  ← flat: childrenFromTokenization=false
 		{
-			// Valid nested alongside user AND with mixed props: the user AND
-			// goes to remaining, the direct nested child forms a group.
-			name: "nested + user AND(addresses, cars) — nested groups, user AND in remaining",
+			name: "nested + user AND(addresses, cars) — no wrapper, user AND in flat",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				userNestedAndPvp(
@@ -203,26 +274,33 @@ func TestNestedCorrelatedGroup(t *testing.T) {
 					nestedPvp("cars", "make"),
 				),
 			},
-			wantGroups: map[string]int{"addresses": 1},
-			wantOthers: 1,
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pv := &propValuePair{operator: filters.OperatorAnd, children: tt.children}
-			groups := pv.extractNestedCorrelatedGroups()
-			if tt.wantNilGroups {
-				assert.Nil(t, groups)
+			result := groupNestedByProp(tt.children, class)
+			if tt.want == nil {
+				// nil or empty input → passthrough (may be nil or empty slice)
+				assert.Empty(t, result)
 				return
 			}
-			require.NotNil(t, groups)
-			assert.Equal(t, len(tt.wantGroups), len(groups), "number of groups")
-			for prop, wantSize := range tt.wantGroups {
-				assert.Len(t, groups[prop], wantSize, "group size for prop %q", prop)
+			require.Len(t, result, len(tt.want), "output length")
+			for i, wc := range tt.want {
+				child := result[i]
+				if wc.correlatedProp != "" {
+					assert.True(t, child.isCorrelatedNested, "child[%d] should be correlated", i)
+					assert.Equal(t, filters.OperatorAnd, child.operator, "child[%d] operator", i)
+					assert.Equal(t, wc.correlatedProp, child.prop, "child[%d] prop", i)
+					assert.Len(t, child.children, wc.groupSize, "child[%d] group size", i)
+				} else {
+					assert.False(t, child.isCorrelatedNested, "child[%d] should not be correlated", i)
+				}
 			}
-			// pv.children now holds only the flat conditions.
-			assert.Len(t, pv.children, tt.wantOthers, "remaining (flat) children count")
 		})
 	}
 }
