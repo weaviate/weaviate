@@ -626,3 +626,119 @@ func (f *Finder) Overwrite(ctx context.Context,
 func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
+
+// AsyncCheckpointNodeStatus holds the checkpoint state of one replica for one shard.
+// If CutoffMs > 0 the replica has an active checkpoint and Root is the bounded-tree
+// root. If CutoffMs == 0 the replica has no active checkpoint and Root is zero
+// (the batch status API does not return the unbounded root for inactive checkpoints).
+type AsyncCheckpointNodeStatus struct {
+	Node      string
+	CutoffMs  int64
+	CreatedAt time.Time
+	Root      hashtree.Digest
+}
+
+// AsyncCheckpointShardStatus is the per-shard checkpoint state as returned by a
+// single node. It omits the node name; callers supply it when building
+// AsyncCheckpointNodeStatus entries.
+type AsyncCheckpointShardStatus struct {
+	Root      hashtree.Digest
+	CutoffMs  int64
+	CreatedAt time.Time
+}
+
+// remoteReplicaHosts returns the host addresses (and node names) of all non-local
+// replicas for the given shard. Replicas whose hostname cannot be resolved are skipped.
+func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	if err != nil {
+		return nil, nil
+	}
+	localAddr, localResolved := f.nodeResolver.NodeHostname(f.nodeName)
+	for _, nodeName := range routingPlan.NodeNames() {
+		// Always skip the local node by name; fall back to addr comparison only
+		// when local addr resolution succeeded (avoids treating self as remote
+		// when NodeHostname returns "" for the local node).
+		if nodeName == f.nodeName {
+			continue
+		}
+		addr, ok := f.nodeResolver.NodeHostname(nodeName)
+		if !ok || (localResolved && addr == localAddr) {
+			continue
+		}
+		names = append(names, nodeName)
+		addrs = append(addrs, addr)
+	}
+	return names, addrs
+}
+
+// BroadcastCreateAsyncCheckpoint fans out a batch create to all non-local
+// replicas of the given shards. It groups shards by remote replica node address
+// and issues one request per node, rather than one request per shard.
+// Individual node failures are silently ignored.
+func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames []string, cutoffMs int64, createdAt time.Time) {
+	addrShards := f.groupShardsByAddr(shardNames)
+	for addr, shards := range addrShards {
+		_ = f.client.CreateAsyncCheckpoint(ctx, addr, f.class, shards, cutoffMs, createdAt)
+	}
+}
+
+// BroadcastDeleteAsyncCheckpoint fans out a batch delete to all non-local
+// replicas of the given shards. It groups shards by remote replica node address
+// and issues one request per node, rather than one request per shard.
+// Individual node failures are silently ignored.
+func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) {
+	addrShards := f.groupShardsByAddr(shardNames)
+	for addr, shards := range addrShards {
+		_ = f.client.DeleteAsyncCheckpoint(ctx, addr, f.class, shards)
+	}
+}
+
+// groupShardsByAddr builds a map from remote replica address to the subset of
+// shardNames for which that address is a non-local replica.
+func (f *Finder) groupShardsByAddr(shardNames []string) map[string][]string {
+	addrShards := make(map[string][]string)
+	for _, shardName := range shardNames {
+		_, addrs := f.remoteReplicaHosts(shardName)
+		for _, addr := range addrs {
+			addrShards[addr] = append(addrShards[addr], shardName)
+		}
+	}
+	return addrShards
+}
+
+// BroadcastGetAsyncCheckpointStatus queries all non-local replicas for checkpoint
+// state for the given shards. Shards are grouped by remote node so one request is
+// issued per node rather than one per shard. Unreachable nodes are silently skipped.
+// Returns map[shardName][]AsyncCheckpointNodeStatus with entries from all
+// reachable remote replicas.
+func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNames []string) map[string][]AsyncCheckpointNodeStatus {
+	addrShards := make(map[string][]string)
+	addrToName := make(map[string]string)
+	for _, shardName := range shardNames {
+		names, addrs := f.remoteReplicaHosts(shardName)
+		for i, addr := range addrs {
+			addrShards[addr] = append(addrShards[addr], shardName)
+			addrToName[addr] = names[i]
+		}
+	}
+
+	out := make(map[string][]AsyncCheckpointNodeStatus)
+	for addr, shards := range addrShards {
+		nodeName := addrToName[addr]
+		statuses, err := f.client.GetAsyncCheckpointStatus(ctx, addr, f.class, shards)
+		if err != nil {
+			continue
+		}
+		for shardName, s := range statuses {
+			out[shardName] = append(out[shardName], AsyncCheckpointNodeStatus{
+				Node:      nodeName,
+				CutoffMs:  s.CutoffMs,
+				CreatedAt: s.CreatedAt,
+				Root:      s.Root,
+			})
+		}
+	}
+	return out
+}

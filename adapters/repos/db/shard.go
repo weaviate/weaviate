@@ -182,6 +182,24 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
+	// CreateAsyncCheckpoint clones the unbounded hashtree to create (or atomically
+	// replace) a time-bounded checkpoint. createdAt must be determined once
+	// by the initiating node's index layer and propagated to all replicas so that
+	// every replica of a shard shares the same creation timestamp. It is used as
+	// a tie-breaker: the shard rejects the request (StatusConflict) when an active
+	// checkpoint already exists with a createdAt ≥ the incoming createdAt. Returns
+	// an error if cutoffMs is less than the newest object update time already
+	// registered in the hashtree (StatusPreconditionFailed), or if async
+	// replication is not active (StatusNotReady).
+	CreateAsyncCheckpoint(cutoffMs int64, createdAt time.Time) error
+	// DeleteAsyncCheckpoint removes the active checkpoint; subsequent hashbeat
+	// cycles revert to the unbounded hashtree.
+	DeleteAsyncCheckpoint()
+	// AsyncCheckpointRoot returns the root digest, cutoff, and creation time of
+	// the active checkpoint. Returns (zero, 0, time.Time{}, false) when no
+	// checkpoint is active. createdAt uses millisecond precision.
+	AsyncCheckpointRoot() (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool)
+
 	Metrics() *Metrics
 
 	// A thread-safe counter that goes up any time there is activity on this
@@ -294,6 +312,28 @@ type Shard struct {
 	// scheduler.NotifyShard calls when the shard is not registered.
 	// All accesses are protected by asyncReplicationRWMux.
 	hashbeatRegistered bool
+
+	// Async checkpoint (guarded by asyncReplicationRWMux).
+	// asyncCheckpointHashtree is a time-bounded clone of hashtree that covers
+	// only objects with updateTime ≤ asyncCheckpointCutoff. It is created on
+	// demand (CreateAsyncCheckpoint) and cleared on delete or replication stop.
+	asyncCheckpointHashtree  hashtree.AggregatedHashTree // nil when no checkpoint is active
+	asyncCheckpointCutoff    int64                       // Unix ms; objects with updateTime ≤ this are included
+	asyncCheckpointCreatedAt time.Time                   // wall-clock creation time (for lifetime metrics)
+
+	// hashtreeMaxUpdateTime is the highest updateTime (Unix ms) of any object
+	// XOR-applied to the unbounded hashtree. It is always updated under
+	// asyncReplicationRWMux write-lock:
+	//   - During flush: updated in updateHashtreeOnFlush (write-lock held for the
+	//     entire delta loop).
+	//   - During init scan: the per-object maximum is accumulated locally in
+	//     initHashtree and committed to this field under write-lock after the scan.
+	//   - On replication disable: reset to 0 in mayStopAsyncReplication and
+	//     disableAsyncReplication alongside s.hashtree = nil.
+	// Used by CreateAsyncCheckpoint to validate that the requested cutoff is ≥
+	// the newest update time already registered, ensuring the cloned tree
+	// does not contain objects that exceed the cutoff.
+	hashtreeMaxUpdateTime int64
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex

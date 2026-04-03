@@ -78,6 +78,9 @@ const (
 
 	// compareDigestsMaxBodyBytes is the maximum body size accepted by postCompareDigests (4 MiB).
 	compareDigestsMaxBodyBytes = 4 * 1024 * 1024
+	// asyncCheckpointMaxBodyBytes is the maximum body size for async-checkpoint
+	// GET/POST/DELETE requests (64 KiB — shard-name lists are small).
+	asyncCheckpointMaxBodyBytes = 64 * 1024
 )
 
 var (
@@ -93,7 +96,10 @@ var (
 		`\/shards\/(` + sh + `)\/objects/compareDigests`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
-	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
+	// regxAsyncCheckpoint matches the class-level endpoint
+	// GET/POST/DELETE /replicas/indices/{class}/async-checkpoint (no shard in path).
+	regxAsyncCheckpoint = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)\/async-checkpoint`)
+	regxObjects         = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/references`)
@@ -270,6 +276,24 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 	case regxHashTreeLevel.MatchString(path):
 		if r.Method == http.MethodPost {
 			i.getHashTreeLevel().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regxAsyncCheckpoint.MatchString(path):
+		if r.Method == http.MethodGet {
+			i.getAsyncCheckpointStatus().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			i.postAsyncCheckpoint().ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodDelete {
+			i.deleteAsyncCheckpoint().ServeHTTP(w, r)
 			return
 		}
 
@@ -1203,4 +1227,170 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 // this channel to synchronize with shutdown without polling.
 func (i *replicatedIndices) ShuttingDown() <-chan struct{} {
 	return i.shutdownStartedCh
+}
+
+// getAsyncCheckpointStatus handles GET /replicas/indices/{class}/async-checkpoint.
+// Fetches checkpoint status for all listed shards in one request.
+// Shards are passed as repeated query parameters: ?shards=s1&shards=s2
+// Response: {"s1":{"root":"...","cutoff_ms":...,"created_at_ms":...},...}
+func (i *replicatedIndices) getAsyncCheckpointStatus() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		index := args[1]
+
+		if int64(len(r.URL.RawQuery)) > asyncCheckpointMaxBodyBytes {
+			http.Error(w, "query string too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		shards := r.URL.Query()["shards"]
+		if len(shards) == 0 {
+			http.Error(w, "shards query parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		statuses, err := i.replicator.GetAsyncCheckpointStatus(r.Context(), index, shards)
+		if err != nil {
+			http.Error(w, "get checkpoint statuses: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		type shardResp struct {
+			Root        string `json:"root"`
+			CutoffMs    int64  `json:"cutoff_ms"`
+			CreatedAtMs int64  `json:"created_at_ms"`
+		}
+		wire := make(map[string]shardResp, len(statuses))
+		for shardName, s := range statuses {
+			createdAtMs := int64(0)
+			if !s.CreatedAt.IsZero() {
+				createdAtMs = s.CreatedAt.UnixMilli()
+			}
+			wire[shardName] = shardResp{
+				Root:        fmt.Sprintf("%016x%016x", s.Root[0], s.Root[1]),
+				CutoffMs:    s.CutoffMs,
+				CreatedAtMs: createdAtMs,
+			}
+		}
+
+		resBytes, err := json.Marshal(wire)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(resBytes) //nolint:errcheck
+	})
+}
+
+// postAsyncCheckpoint handles POST /replicas/indices/{class}/async-checkpoint.
+// Creates or atomically replaces the checkpoint on all listed shards in one request.
+// Body: {"shards":["s1","s2"],"cutoff_ms":<int64>,"created_at_ms":<int64>}
+func (i *replicatedIndices) postAsyncCheckpoint() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		index := args[1]
+
+		var body struct {
+			Shards      []string `json:"shards"`
+			CutoffMs    int64    `json:"cutoff_ms"`
+			CreatedAtMs int64    `json:"created_at_ms"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, asyncCheckpointMaxBodyBytes)).Decode(&body); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(body.Shards) == 0 {
+			http.Error(w, "shards list is required", http.StatusBadRequest)
+			return
+		}
+		if body.CreatedAtMs <= 0 {
+			http.Error(w, "created_at_ms must be greater than 0", http.StatusBadRequest)
+			return
+		}
+		createdAt := time.UnixMilli(body.CreatedAtMs)
+
+		if err := i.replicator.CreateAsyncCheckpoint(r.Context(), index, dedupStrings(body.Shards), body.CutoffMs, createdAt); err != nil {
+			var repErr *replica.Error
+			if errors.As(err, &repErr) {
+				switch repErr.Code {
+				case replica.StatusNotReady:
+					http.Error(w, "create checkpoint: "+err.Error(), http.StatusServiceUnavailable)
+				case replica.StatusPreconditionFailed:
+					http.Error(w, "create checkpoint: "+err.Error(), http.StatusBadRequest)
+				case replica.StatusConflict:
+					http.Error(w, "create checkpoint: "+err.Error(), http.StatusConflict)
+				default:
+					http.Error(w, "create checkpoint: "+err.Error(), http.StatusInternalServerError)
+				}
+			} else {
+				http.Error(w, "create checkpoint: "+err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+// deleteAsyncCheckpoint handles DELETE /replicas/indices/{class}/async-checkpoint.
+// Removes the active checkpoint from all listed shards in one request (idempotent).
+// Body: {"shards":["s1","s2"]}
+func (i *replicatedIndices) deleteAsyncCheckpoint() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		index := args[1]
+
+		var body struct {
+			Shards []string `json:"shards"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, asyncCheckpointMaxBodyBytes)).Decode(&body); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(body.Shards) == 0 {
+			http.Error(w, "shards list is required", http.StatusBadRequest)
+			return
+		}
+
+		if err := i.replicator.DeleteAsyncCheckpoint(r.Context(), index, dedupStrings(body.Shards)); err != nil {
+			http.Error(w, "delete checkpoint: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+// dedupStrings returns a copy of ss with duplicate entries removed, preserving
+// the first occurrence order.
+func dedupStrings(ss []string) []string {
+	seen := make(map[string]struct{}, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
 }

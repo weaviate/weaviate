@@ -16,10 +16,12 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -55,8 +57,11 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	defer server.Close()
 
 	maintenanceModeExpectedHTTPStatus := http.StatusTeapot
-	requestURL := func(suffix string) string {
+	shardRequestURL := func(suffix string) string {
 		return fmt.Sprintf("%s/replicas/indices/MyClass/shards/myshard%s", server.URL, suffix)
+	}
+	classRequestURL := func(suffix string) string {
+		return fmt.Sprintf("%s/replicas/indices/MyClass%s", server.URL, suffix)
 	}
 	indicesTestRequests := []indicesTestRequest{
 		{"GET", "/objects/_digest"},
@@ -77,7 +82,23 @@ func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	}
 	for _, testRequest := range indicesTestRequests {
 		t.Run(fmt.Sprintf("%s on %s returns maintenance mode status", testRequest.method, testRequest.suffix), func(t *testing.T) {
-			req, err := http.NewRequest(testRequest.method, requestURL(testRequest.suffix), nil)
+			req, err := http.NewRequest(testRequest.method, shardRequestURL(testRequest.suffix), nil)
+			assert.Nil(t, err)
+			res, err := http.DefaultClient.Do(req)
+			assert.Nil(t, err)
+			defer res.Body.Close()
+			assert.True(t, res.StatusCode == maintenanceModeExpectedHTTPStatus, "expected %d, got %d", maintenanceModeExpectedHTTPStatus, res.StatusCode)
+		})
+	}
+	// Class-level (no shard in path) endpoints also return maintenance mode.
+	classTestRequests := []indicesTestRequest{
+		{"GET", "/async-checkpoint"},
+		{"POST", "/async-checkpoint"},
+		{"DELETE", "/async-checkpoint"},
+	}
+	for _, testRequest := range classTestRequests {
+		t.Run(fmt.Sprintf("%s on %s returns maintenance mode status", testRequest.method, testRequest.suffix), func(t *testing.T) {
+			req, err := http.NewRequest(testRequest.method, classRequestURL(testRequest.suffix), nil)
 			assert.Nil(t, err)
 			res, err := http.DefaultClient.Do(req)
 			assert.Nil(t, err)
@@ -980,4 +1001,320 @@ func TestPostCompareDigests(t *testing.T) {
 				"record %d: Deleted flag mismatch", i)
 		}
 	})
+}
+
+func TestPostAsyncCheckpoint(t *testing.T) {
+	cutoffMs := time.Now().Add(time.Hour).UnixMilli()
+	createdAtMs := time.Now().UnixMilli()
+
+	makeBody := func(shards []string, cutoff, createdAt int64) io.Reader {
+		b, _ := json.Marshal(map[string]any{
+			"shards":        shards,
+			"cutoff_ms":     cutoff,
+			"created_at_ms": createdAt,
+		})
+		return bytes.NewReader(b)
+	}
+
+	tests := []struct {
+		name       string
+		body       io.Reader
+		setupMock  func(m *replicaTypes.MockReplicator)
+		wantStatus int
+	}{
+		{
+			name:       "invalid JSON body returns 400",
+			body:       bytes.NewReader([]byte("not-json")),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "body exceeding size limit returns 413",
+			body: func() io.Reader {
+				// Must be valid JSON that exceeds asyncCheckpointMaxBodyBytes (64 KiB)
+				// so the decoder hits the MaxBytesReader limit mid-stream.
+				// Use long shard names so the payload is well over the limit.
+				shards := make([]string, 1000)
+				for i := range shards {
+					shards[i] = strings.Repeat("s", 100) + fmt.Sprintf("%04d", i)
+				}
+				b, _ := json.Marshal(map[string]any{
+					"shards":        shards,
+					"cutoff_ms":     cutoffMs,
+					"created_at_ms": createdAtMs,
+				})
+				return bytes.NewReader(b)
+			}(),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:       "empty shards list returns 400",
+			body:       makeBody([]string{}, cutoffMs, createdAtMs),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "zero created_at_ms returns 400",
+			body:       makeBody([]string{"S1"}, cutoffMs, 0),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "negative created_at_ms returns 400",
+			body:       makeBody([]string{"S1"}, cutoffMs, -1),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "StatusConflict returns 409",
+			body: makeBody([]string{"S1"}, cutoffMs, createdAtMs),
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().CreateAsyncCheckpoint(mock.Anything, "C1", []string{"S1"}, mock.Anything, mock.Anything).
+					Return(replica.NewError(replica.StatusConflict, "newer checkpoint exists"))
+			},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "StatusPreconditionFailed returns 400",
+			body: makeBody([]string{"S1"}, cutoffMs, createdAtMs),
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().CreateAsyncCheckpoint(mock.Anything, "C1", []string{"S1"}, mock.Anything, mock.Anything).
+					Return(replica.NewError(replica.StatusPreconditionFailed, "cutoff below max update time"))
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "StatusNotReady returns 503",
+			body: makeBody([]string{"S1"}, cutoffMs, createdAtMs),
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().CreateAsyncCheckpoint(mock.Anything, "C1", []string{"S1"}, mock.Anything, mock.Anything).
+					Return(replica.NewError(replica.StatusNotReady, "async replication inactive"))
+			},
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name: "success returns 200",
+			body: makeBody([]string{"S1"}, cutoffMs, createdAtMs),
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().CreateAsyncCheckpoint(mock.Anything, "C1", []string{"S1"}, mock.Anything, mock.Anything).
+					Return(nil)
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := replicaTypes.NewMockReplicator(t)
+			tc.setupMock(mr)
+
+			logger, _ := test.NewNullLogger()
+			indices := clusterapi.NewReplicatedIndices(
+				mr,
+				clusterapi.NewNoopAuthHandler(),
+				func() bool { return false },
+				cluster.RequestQueueConfig{},
+				logger,
+				func() bool { return true },
+			)
+			mux := http.NewServeMux()
+			mux.Handle("/replicas/indices/", indices.Indices())
+			server := httptest.NewServer(mux)
+			t.Cleanup(server.Close)
+
+			url := fmt.Sprintf("%s/replicas/indices/C1/async-checkpoint", server.URL)
+			req, err := http.NewRequest(http.MethodPost, url, tc.body)
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tc.wantStatus, resp.StatusCode)
+		})
+	}
+}
+
+func TestGetAsyncCheckpointStatus(t *testing.T) {
+	root := [2]uint64{0xdeadbeefcafebabe, 0x0102030405060708}
+	cutoffMs := time.Now().Add(time.Hour).UnixMilli()
+	createdAtMs := time.Now().UnixMilli()
+
+	returnedStatus := map[string]replica.AsyncCheckpointShardStatus{
+		"S1": {
+			Root:      root,
+			CutoffMs:  cutoffMs,
+			CreatedAt: time.UnixMilli(createdAtMs),
+		},
+	}
+
+	tests := []struct {
+		name       string
+		shards     []string
+		setupMock  func(m *replicaTypes.MockReplicator)
+		wantStatus int
+	}{
+		{
+			name:       "missing shards param returns 400",
+			shards:     nil,
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "replicator error returns 500",
+			shards: []string{"S1"},
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().GetAsyncCheckpointStatus(mock.Anything, "C1", []string{"S1"}).
+					Return(nil, errors.New("internal error"))
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:   "success returns 200 with JSON body",
+			shards: []string{"S1"},
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().GetAsyncCheckpointStatus(mock.Anything, "C1", []string{"S1"}).
+					Return(returnedStatus, nil)
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := replicaTypes.NewMockReplicator(t)
+			tc.setupMock(mr)
+
+			logger, _ := test.NewNullLogger()
+			indices := clusterapi.NewReplicatedIndices(
+				mr,
+				clusterapi.NewNoopAuthHandler(),
+				func() bool { return false },
+				cluster.RequestQueueConfig{},
+				logger,
+				func() bool { return true },
+			)
+			mux := http.NewServeMux()
+			mux.Handle("/replicas/indices/", indices.Indices())
+			server := httptest.NewServer(mux)
+			t.Cleanup(server.Close)
+
+			rawURL := fmt.Sprintf("%s/replicas/indices/C1/async-checkpoint", server.URL)
+			req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+			require.NoError(t, err)
+			if len(tc.shards) > 0 {
+				q := req.URL.Query()
+				for _, s := range tc.shards {
+					q.Add("shards", s)
+				}
+				req.URL.RawQuery = q.Encode()
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tc.wantStatus, resp.StatusCode)
+			if tc.wantStatus == http.StatusOK {
+				var result map[string]map[string]any
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+				s1 := result["S1"]
+				require.NotNil(t, s1)
+				assert.Equal(t, float64(cutoffMs), s1["cutoff_ms"])
+				assert.Equal(t, fmt.Sprintf("%016x%016x", root[0], root[1]), s1["root"])
+			}
+		})
+	}
+}
+
+func TestDeleteAsyncCheckpoint(t *testing.T) {
+	makeBody := func(shards []string) io.Reader {
+		b, _ := json.Marshal(map[string]any{"shards": shards})
+		return bytes.NewReader(b)
+	}
+
+	tests := []struct {
+		name       string
+		body       io.Reader
+		setupMock  func(m *replicaTypes.MockReplicator)
+		wantStatus int
+	}{
+		{
+			name:       "invalid JSON body returns 400",
+			body:       bytes.NewReader([]byte("not-json")),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "body exceeding size limit returns 413",
+			body: func() io.Reader {
+				shards := make([]string, 1000)
+				for i := range shards {
+					shards[i] = strings.Repeat("s", 100) + fmt.Sprintf("%04d", i)
+				}
+				b, _ := json.Marshal(map[string]any{"shards": shards})
+				return bytes.NewReader(b)
+			}(),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:       "empty shards list returns 400",
+			body:       makeBody([]string{}),
+			setupMock:  func(_ *replicaTypes.MockReplicator) {},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "replicator error returns 500",
+			body: makeBody([]string{"S1"}),
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().DeleteAsyncCheckpoint(mock.Anything, "C1", []string{"S1"}).
+					Return(errors.New("internal error"))
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "success returns 200",
+			body: makeBody([]string{"S1", "S2"}),
+			setupMock: func(m *replicaTypes.MockReplicator) {
+				m.EXPECT().DeleteAsyncCheckpoint(mock.Anything, "C1", []string{"S1", "S2"}).
+					Return(nil)
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := replicaTypes.NewMockReplicator(t)
+			tc.setupMock(mr)
+
+			logger, _ := test.NewNullLogger()
+			indices := clusterapi.NewReplicatedIndices(
+				mr,
+				clusterapi.NewNoopAuthHandler(),
+				func() bool { return false },
+				cluster.RequestQueueConfig{},
+				logger,
+				func() bool { return true },
+			)
+			mux := http.NewServeMux()
+			mux.Handle("/replicas/indices/", indices.Indices())
+			server := httptest.NewServer(mux)
+			t.Cleanup(server.Close)
+
+			url := fmt.Sprintf("%s/replicas/indices/C1/async-checkpoint", server.URL)
+			req, err := http.NewRequest(http.MethodDelete, url, tc.body)
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tc.wantStatus, resp.StatusCode)
+		})
+	}
 }

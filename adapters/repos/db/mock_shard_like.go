@@ -5166,12 +5166,163 @@ func (_c *MockShardLike_uuidFromDocID_Call) RunAndReturn(run func(uint64) (strfm
 	return _c
 }
 
+// CreateAsyncCheckpoint provides a mock function with given fields: cutoffMs, createdAt
+func (_m *MockShardLike) CreateAsyncCheckpoint(cutoffMs int64, createdAt time.Time) error {
+	ret := _m.Called(cutoffMs, createdAt)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateAsyncCheckpoint")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64, time.Time) error); ok {
+		r0 = rf(cutoffMs, createdAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_CreateAsyncCheckpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateAsyncCheckpoint'
+type MockShardLike_CreateAsyncCheckpoint_Call struct {
+	*mock.Call
+}
+
+// CreateAsyncCheckpoint is a helper method to define mock.On call
+//   - cutoffMs int64
+//   - createdAt time.Time
+func (_e *MockShardLike_Expecter) CreateAsyncCheckpoint(cutoffMs interface{}, createdAt interface{}) *MockShardLike_CreateAsyncCheckpoint_Call {
+	return &MockShardLike_CreateAsyncCheckpoint_Call{Call: _e.mock.On("CreateAsyncCheckpoint", cutoffMs, createdAt)}
+}
+
+func (_c *MockShardLike_CreateAsyncCheckpoint_Call) Run(run func(cutoffMs int64, createdAt time.Time)) *MockShardLike_CreateAsyncCheckpoint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(int64), args[1].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CreateAsyncCheckpoint_Call) Return(err error) *MockShardLike_CreateAsyncCheckpoint_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockShardLike_CreateAsyncCheckpoint_Call) RunAndReturn(run func(int64, time.Time) error) *MockShardLike_CreateAsyncCheckpoint_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteAsyncCheckpoint provides a mock function with no fields
+func (_m *MockShardLike) DeleteAsyncCheckpoint() {
+	_m.Called()
+}
+
+// MockShardLike_DeleteAsyncCheckpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteAsyncCheckpoint'
+type MockShardLike_DeleteAsyncCheckpoint_Call struct {
+	*mock.Call
+}
+
+// DeleteAsyncCheckpoint is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) DeleteAsyncCheckpoint() *MockShardLike_DeleteAsyncCheckpoint_Call {
+	return &MockShardLike_DeleteAsyncCheckpoint_Call{Call: _e.mock.On("DeleteAsyncCheckpoint")}
+}
+
+func (_c *MockShardLike_DeleteAsyncCheckpoint_Call) Run(run func()) *MockShardLike_DeleteAsyncCheckpoint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_DeleteAsyncCheckpoint_Call) Return() *MockShardLike_DeleteAsyncCheckpoint_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockShardLike_DeleteAsyncCheckpoint_Call) RunAndReturn(run func()) *MockShardLike_DeleteAsyncCheckpoint_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// AsyncCheckpointRoot provides a mock function with no fields
+func (_m *MockShardLike) AsyncCheckpointRoot() (hashtree.Digest, int64, time.Time, bool) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for AsyncCheckpointRoot")
+	}
+
+	var r0 hashtree.Digest
+	var r1 int64
+	var r2 time.Time
+	var r3 bool
+	if rf, ok := ret.Get(0).(func() (hashtree.Digest, int64, time.Time, bool)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() hashtree.Digest); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(hashtree.Digest)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func() int64); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func() time.Time); ok {
+		r2 = rf()
+	} else {
+		r2 = ret.Get(2).(time.Time)
+	}
+
+	if rf, ok := ret.Get(3).(func() bool); ok {
+		r3 = rf()
+	} else {
+		r3 = ret.Get(3).(bool)
+	}
+
+	return r0, r1, r2, r3
+}
+
+// MockShardLike_AsyncCheckpointRoot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AsyncCheckpointRoot'
+type MockShardLike_AsyncCheckpointRoot_Call struct {
+	*mock.Call
+}
+
+// AsyncCheckpointRoot is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) AsyncCheckpointRoot() *MockShardLike_AsyncCheckpointRoot_Call {
+	return &MockShardLike_AsyncCheckpointRoot_Call{Call: _e.mock.On("AsyncCheckpointRoot")}
+}
+
+func (_c *MockShardLike_AsyncCheckpointRoot_Call) Run(run func()) *MockShardLike_AsyncCheckpointRoot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_AsyncCheckpointRoot_Call) Return(root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) *MockShardLike_AsyncCheckpointRoot_Call {
+	_c.Call.Return(root, cutoffMs, createdAt, ok)
+	return _c
+}
+
+func (_c *MockShardLike_AsyncCheckpointRoot_Call) RunAndReturn(run func() (hashtree.Digest, int64, time.Time, bool)) *MockShardLike_AsyncCheckpointRoot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockShardLike creates a new instance of MockShardLike. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockShardLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockShardLike {
+},
+) *MockShardLike {
 	mock := &MockShardLike{}
 	mock.Mock.Test(t)
 

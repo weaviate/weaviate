@@ -669,6 +669,27 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
+func (l *LazyLoadShard) CreateAsyncCheckpoint(cutoffMs int64, createdAt time.Time) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.CreateAsyncCheckpoint(cutoffMs, createdAt)
+}
+
+func (l *LazyLoadShard) DeleteAsyncCheckpoint() {
+	if !l.isLoaded() {
+		return
+	}
+	l.shard.DeleteAsyncCheckpoint()
+}
+
+func (l *LazyLoadShard) AsyncCheckpointRoot() (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return l.shard.AsyncCheckpointRoot()
+}
+
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

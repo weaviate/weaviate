@@ -552,6 +552,139 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 	return resp, err
 }
 
+// newHttpClassRequest creates an HTTP request targeting /replicas/indices/{index}/{suffix}.
+// Used for class-level (shardless) endpoints such as the batch checkpoint endpoints.
+func newHttpClassRequest(ctx context.Context, method, host, index, suffix string, body io.Reader) (*http.Request, error) {
+	path := fmt.Sprintf("/replicas/indices/%s/%s", index, suffix)
+	u := url.URL{Scheme: "http", Host: host, Path: path}
+	return http.NewRequestWithContext(ctx, method, u.String(), body)
+}
+
+// GetAsyncCheckpointStatus fetches checkpoint status for multiple shards from a
+// remote node via GET /replicas/indices/{index}/async-checkpoint?shards=s1&shards=s2.
+// Shard names are passed as repeated query parameters to avoid a non-standard GET body.
+func (c *replicationClient) GetAsyncCheckpointStatus(ctx context.Context, host, index string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	req, err := newHttpClassRequest(ctx, http.MethodGet, host, index, "async-checkpoint", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	q := req.URL.Query()
+	for _, s := range shardNames {
+		q.Add("shards", s)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if !successCode(res.StatusCode) {
+		body, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status %d: %s", res.StatusCode, body)
+	}
+
+	var wire map[string]struct {
+		Root        string `json:"root"`
+		CutoffMs    int64  `json:"cutoff_ms"`
+		CreatedAtMs int64  `json:"created_at_ms"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&wire); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	out := make(map[string]replica.AsyncCheckpointShardStatus, len(wire))
+	for shardName, entry := range wire {
+		if len(entry.Root) != 32 {
+			return nil, fmt.Errorf("shard %q: unexpected root length %d", shardName, len(entry.Root))
+		}
+		var d hashtree.Digest
+		if n, scanErr := fmt.Sscanf(entry.Root[:16], "%016x", &d[0]); n != 1 {
+			if scanErr != nil {
+				return nil, fmt.Errorf("shard %q: parse root high word %q: %w", shardName, entry.Root[:16], scanErr)
+			}
+			return nil, fmt.Errorf("shard %q: parse root high word %q: matched %d items, want 1", shardName, entry.Root[:16], n)
+		}
+		if n, scanErr := fmt.Sscanf(entry.Root[16:], "%016x", &d[1]); n != 1 {
+			if scanErr != nil {
+				return nil, fmt.Errorf("shard %q: parse root low word %q: %w", shardName, entry.Root[16:], scanErr)
+			}
+			return nil, fmt.Errorf("shard %q: parse root low word %q: matched %d items, want 1", shardName, entry.Root[16:], n)
+		}
+		var createdAt time.Time
+		if entry.CreatedAtMs != 0 {
+			createdAt = time.UnixMilli(entry.CreatedAtMs)
+		}
+		out[shardName] = replica.AsyncCheckpointShardStatus{
+			Root:      d,
+			CutoffMs:  entry.CutoffMs,
+			CreatedAt: createdAt,
+		}
+	}
+	return out, nil
+}
+
+// CreateAsyncCheckpoint creates or replaces the checkpoint for multiple shards
+// on a remote node in a single POST /replicas/indices/{index}/async-checkpoint request.
+func (c *replicationClient) CreateAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	payload := struct {
+		Shards      []string `json:"shards"`
+		CutoffMs    int64    `json:"cutoff_ms"`
+		CreatedAtMs int64    `json:"created_at_ms"`
+	}{Shards: shardNames, CutoffMs: cutoffMs, CreatedAtMs: createdAt.UnixMilli()}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := newHttpClassRequest(ctx, http.MethodPost, host, index, "async-checkpoint", bytes.NewReader(b))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if !successCode(res.StatusCode) {
+		body, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("status %d: %s", res.StatusCode, body)
+	}
+	return nil
+}
+
+// DeleteAsyncCheckpoint removes the checkpoint from multiple shards on a remote
+// node in a single DELETE /replicas/indices/{index}/async-checkpoint request.
+func (c *replicationClient) DeleteAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string) error {
+	payload := struct {
+		Shards []string `json:"shards"`
+	}{Shards: shardNames}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+	req, err := newHttpClassRequest(ctx, http.MethodDelete, host, index, "async-checkpoint", bytes.NewReader(b))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if !successCode(res.StatusCode) {
+		body, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("status %d: %s", res.StatusCode, body)
+	}
+	return nil
+}
+
 func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader, schemaVersion uint64) (*http.Request, error) {
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", index, shard)
 	if suffix != "" {

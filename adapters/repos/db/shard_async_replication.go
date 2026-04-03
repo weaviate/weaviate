@@ -486,6 +486,13 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	objCount := 0
 	prevProgressLogging := time.Now()
 
+	// Track the highest updateTime seen during the init scan locally. We assign
+	// it to s.hashtreeMaxUpdateTime under the write-lock below (after the scan),
+	// so that the field is always updated under write-lock — consistent with the
+	// guarantee documented on the field and with how updateHashtreeOnFlush
+	// updates it.
+	var initMaxUpdateTime int64
+
 	err = bucket.ApplyToOnDiskObjectDigests(ctx, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
@@ -505,6 +512,10 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.asyncReplicationRWMux.RUnlock()
 		if err != nil {
 			return err
+		}
+
+		if updateTime > initMaxUpdateTime {
+			initMaxUpdateTime = updateTime
 		}
 
 		objCount++
@@ -535,6 +546,12 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 
 	s.hashtreeFullyInitialized = true
 	s.hashbeatRegistered = true
+	// Commit the init-scan high-water mark under the write lock. Any flush
+	// callbacks that fired concurrently during the scan may have raised this
+	// value already; take the maximum to avoid rolling it back.
+	if initMaxUpdateTime > s.hashtreeMaxUpdateTime {
+		s.hashtreeMaxUpdateTime = initMaxUpdateTime
+	}
 	s.asyncReplicationRWMux.Unlock()
 
 	// Register is called outside the write lock: it sends on a channel received
@@ -630,7 +647,147 @@ func (s *Shard) updateHashtreeOnFlush(
 
 	for _, delta := range deltas {
 		s.hashtree.AggregateLeafWith(delta.leaf, delta.digest[:])
+		// Track the highest update time seen across all XOR-applied objects so
+		// CreateAsyncCheckpoint can validate that its cutoff is not below any
+		// update time already registered in the hashtree.
+		updateTime := int64(binary.BigEndian.Uint64(delta.digest[16:]))
+		if updateTime > s.hashtreeMaxUpdateTime {
+			s.hashtreeMaxUpdateTime = updateTime
+		}
 	}
+
+	// Apply the same deltas to the checkpoint hashtree, but only for objects
+	// whose updateTime falls within the checkpoint's cutoff window.
+	// Both the main hashtree and the checkpoint hashtree updates are done under
+	// the same write lock to keep them atomically consistent.
+	if s.asyncCheckpointHashtree != nil {
+		cpCutoff := s.asyncCheckpointCutoff
+		for _, delta := range deltas {
+			// Extract the update time from the digest bytes [16:24] (big-endian uint64).
+			updateTime := int64(binary.BigEndian.Uint64(delta.digest[16:]))
+			if updateTime > 0 && updateTime <= cpCutoff {
+				s.asyncCheckpointHashtree.AggregateLeafWith(delta.leaf, delta.digest[:])
+			}
+		}
+	}
+}
+
+// CreateAsyncCheckpoint clones the unbounded hashtree to create (or atomically
+// replace) a time-bounded checkpoint.
+//
+// createdAt is determined once by the index layer of the initiating node and
+// propagated to every replica, ensuring all copies of the checkpoint share the
+// same creation timestamp. It is used as a tie-breaker: if the shard already
+// holds an active checkpoint whose createdAt is ≥ the incoming createdAt, the
+// request is rejected (StatusConflict) so that a later initiating call cannot
+// be overwritten by an earlier in-flight fanout message.
+//
+// cutoffMs must be ≥ the newest object update time already registered in the
+// hashtree; a lower value would make the cloned tree inconsistent.
+func (s *Shard) CreateAsyncCheckpoint(cutoffMs int64, createdAt time.Time) error {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
+	if s.hashtree == nil {
+		return replica.NewError(replica.StatusNotReady,
+			fmt.Sprintf("async replication not active on shard %q: cannot create checkpoint", s.name))
+	}
+
+	if cutoffMs <= 0 {
+		return replica.NewError(replica.StatusPreconditionFailed,
+			fmt.Sprintf("checkpoint cutoff %d is not positive; cutoffMs must be > 0 so that CutoffMs==0 unambiguously means no active checkpoint", cutoffMs))
+	}
+
+	if createdAt.UnixMilli() <= 0 {
+		return replica.NewError(replica.StatusPreconditionFailed,
+			fmt.Sprintf("checkpoint createdAt %v is not a valid timestamp; createdAt must be a positive Unix millisecond timestamp", createdAt))
+	}
+
+	if s.hashtreeMaxUpdateTime > cutoffMs {
+		return replica.NewError(replica.StatusPreconditionFailed,
+			fmt.Sprintf("checkpoint cutoff %d is older than the newest update time %d already registered in the hashtree",
+				cutoffMs, s.hashtreeMaxUpdateTime))
+	}
+
+	// Truncate to millisecond precision so the stored value matches the wire
+	// format exactly. This makes the tie-breaker comparison reliable across
+	// nodes that received createdAt via UnixMilli round-trip.
+	createdAt = time.UnixMilli(createdAt.UnixMilli())
+
+	// Tie-breaker: reject if the existing checkpoint was created at the same
+	// time or later. This prevents a stale in-flight fanout from overwriting a
+	// checkpoint that was already created by a newer initiating request.
+	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
+		return replica.NewError(replica.StatusConflict,
+			fmt.Sprintf("checkpoint already exists with createdAt %v; refusing request with equal or older createdAt %v",
+				s.asyncCheckpointCreatedAt, createdAt))
+	}
+
+	// Observe lifetime of replaced checkpoint before discarding it.
+	// Clamp to 0: createdAt arrived from the initiating node so clock skew can
+	// make time.Since negative on this replica.
+	if s.asyncCheckpointHashtree != nil && !s.asyncCheckpointCreatedAt.IsZero() {
+		if lifetime := time.Since(s.asyncCheckpointCreatedAt); lifetime > 0 {
+			s.metrics.ObserveAsyncCheckpointLifetime(lifetime)
+		}
+	}
+
+	wasActive := s.asyncCheckpointHashtree != nil
+	s.asyncCheckpointHashtree = s.hashtree.Clone()
+	s.asyncCheckpointCutoff = cutoffMs
+	s.asyncCheckpointCreatedAt = createdAt
+
+	// Only increment when transitioning from no checkpoint to checkpoint.
+	// Overwrites (wasActive) keep the count unchanged.
+	if !wasActive {
+		s.metrics.IncAsyncCheckpointActive()
+	}
+
+	return nil
+}
+
+// DeleteAsyncCheckpoint removes the active checkpoint. Subsequent hashbeat
+// cycles revert to the unbounded hashtree. Idempotent: no-op if no checkpoint.
+func (s *Shard) DeleteAsyncCheckpoint() {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
+	s.clearAsyncCheckpointLocked()
+}
+
+// clearAsyncCheckpointLocked clears checkpoint state and updates metrics.
+// Must be called with asyncReplicationRWMux write-locked.
+func (s *Shard) clearAsyncCheckpointLocked() {
+	if s.asyncCheckpointHashtree == nil {
+		return
+	}
+	// Clamp to 0: createdAt arrived from the initiating node so clock skew can
+	// make time.Since negative on this replica.
+	if !s.asyncCheckpointCreatedAt.IsZero() {
+		if lifetime := time.Since(s.asyncCheckpointCreatedAt); lifetime > 0 {
+			s.metrics.ObserveAsyncCheckpointLifetime(lifetime)
+		}
+	}
+	s.asyncCheckpointHashtree = nil
+	s.asyncCheckpointCutoff = 0
+	s.asyncCheckpointCreatedAt = time.Time{}
+
+	s.metrics.DecAsyncCheckpointActive()
+}
+
+// AsyncCheckpointRoot returns the root digest, cutoff, and creation time of the
+// active checkpoint. Returns (zero, 0, time.Time{}, false) when no
+// checkpoint is active. createdAt uses millisecond precision (matching the
+// wire format) so callers can compare it against values received from remote
+// replicas without precision mismatches.
+func (s *Shard) AsyncCheckpointRoot() (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	if s.asyncCheckpointHashtree == nil {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true
 }
 
 func (s *Shard) mayStopAsyncReplication() {
@@ -656,6 +813,8 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 	s.hashtreeFlushFailed = false
 	s.hashbeatRegistered = false
+	s.hashtreeMaxUpdateTime = 0
+	s.clearAsyncCheckpointLocked()
 
 	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
 		bucket.SetObjectFlushCallback(nil)
@@ -725,6 +884,8 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 		s.hashtreeFullyInitialized = false
 		s.hashtreeFlushFailed = false
 		s.hashbeatRegistered = false
+		s.hashtreeMaxUpdateTime = 0
+		s.clearAsyncCheckpointLocked()
 		if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
 			bucket.SetObjectFlushCallback(nil)
 			bucket.SetFlushCallback(nil)
@@ -1213,6 +1374,8 @@ func (s *Shard) hashBeat(
 	}()
 
 	var ht hashtree.AggregatedHashTree
+	var cpht hashtree.AggregatedHashTree
+	var activeCutoff int64
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
@@ -1222,11 +1385,22 @@ func (s *Shard) hashBeat(
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 	ht = s.hashtree
+	cpht = s.asyncCheckpointHashtree
+	if cpht != nil {
+		activeCutoff = s.asyncCheckpointCutoff
+	}
 	// create a snapshot of targetNodeOverrides to use throughout hashbeat
 	if s.targetNodeOverrides != nil {
 		targetNodeOverridesSnapshot = slices.Clone(s.targetNodeOverrides)
 	}
 	s.asyncReplicationRWMux.RUnlock()
+
+	// Use the checkpoint hashtree first when a checkpoint is active;
+	// fall through to the unbounded tree when the checkpoint reports no diffs.
+	activeHT := ht
+	if cpht != nil {
+		activeHT = cpht
+	}
 
 	hashtreeDiffStart := time.Now()
 
@@ -1242,7 +1416,19 @@ func (s *Shard) hashBeat(
 		}
 	}
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot, skipStates)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, activeHT, config.diffPerNodeTimeout, targetNodeOverridesSnapshot, skipStates)
+
+	// When the checkpoint tree reports no differences (either signal), fall
+	// through to the unbounded tree. This allows this node to continue
+	// propagating post-T objects and also to receive bounded-tree objects from
+	// other replicas (driving convergence from the receiver side).
+	// ErrHashtreeRootUnchanged must also trigger the fallback so that post-cutoff
+	// objects do not stall while a checkpoint is active.
+	if cpht != nil && (errors.Is(err, replica.ErrNoDiffFound) || errors.Is(err, replica.ErrHashtreeRootUnchanged)) {
+		activeCutoff = 0
+		shardDiffReader, err = s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot, skipStates)
+	}
+
 	if err != nil {
 		if (errors.Is(err, replica.ErrNoDiffFound) || errors.Is(err, replica.ErrHashtreeRootUnchanged)) && len(targetNodeOverridesSnapshot) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(targetNodeOverridesSnapshot))
@@ -1307,6 +1493,7 @@ func (s *Shard) hashBeat(
 			finalLeaf,
 			config.propagationLimit-len(localObjectsToPropagate)-localDeletedCount,
 			targetNodeOverridesSnapshot,
+			activeCutoff,
 		)
 		if err != nil {
 			if objectDigestsDiffCtx.Err() != nil {
@@ -1394,6 +1581,13 @@ func (s *Shard) hashBeat(
 		}
 	}
 
+	// Observe checkpoint propagation duration when a checkpoint was active at
+	// the start of this cycle (regardless of whether it found diffs or fell
+	// through to the unbounded tree).
+	if cpht != nil {
+		s.metrics.ObserveAsyncCheckpointPropagationDuration(time.Since(start))
+	}
+
 	return []*hashBeatHostStats{
 		{
 			targetNodeName:               shardDiffReader.TargetNodeName,
@@ -1465,6 +1659,7 @@ type objectToPropagate struct {
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
+	asyncCheckpointCutoff int64,
 ) (localObjectsCount int, remoteObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
 	objectsToPropagate = make([]objectToPropagate, 0, limit)
 
@@ -1484,6 +1679,12 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	// between batches, producing inconsistent eligibility decisions for objects
 	// whose UpdateTime sits close to the boundary.
 	maxUpdateTime := s.getHashBeatMaxUpdateTime(targetNodeName, targetNodeOverrides)
+
+	// When driving propagation from a checkpoint, additionally cap at the
+	// checkpoint cutoff so only pre-cutoff objects are sent in this cycle.
+	if asyncCheckpointCutoff > 0 && asyncCheckpointCutoff < maxUpdateTime {
+		maxUpdateTime = asyncCheckpointCutoff
+	}
 
 	// localNodeName is used as a tiebreaker for equal-timestamp conflicts: the
 	// node with the lexicographically lower name wins and propagates its version.
