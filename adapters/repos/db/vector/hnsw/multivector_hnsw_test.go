@@ -92,6 +92,9 @@ func TestMultiVectorHnsw(t *testing.T) {
 				return multiVectors[id], nil
 			},
 			GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
+			TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+				return multiVectors[id], nil
+			},
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,
@@ -271,6 +274,9 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 			TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 				return multiVectors[id], nil
 			},
+			TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+				return multiVectors[id], nil
+			},
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,
@@ -362,6 +368,9 @@ func TestMultivectorPersistence(t *testing.T) {
 			return multiVectors[id], nil
 		},
 		GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
+		TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+			return multiVectors[id], nil
+		},
 	}, ent.UserConfig{
 		VectorCacheMaxObjects: 1e12,
 		MaxConnections:        maxConnections,
@@ -405,6 +414,9 @@ func TestMultivectorPersistence(t *testing.T) {
 			return multiVectors[id], nil
 		},
 		GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
+		TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+			return multiVectors[id], nil
+		},
 	}, ent.UserConfig{
 		VectorCacheMaxObjects: 1e12,
 		MaxConnections:        maxConnections,
@@ -444,6 +456,9 @@ func TestMuveraHnsw(t *testing.T) {
 				return multiVectors[id], nil
 			},
 			GetViewThunk: func() common.BucketView { return &multivectorNoopBucketView{} },
+			TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+				return multiVectors[id], nil
+			},
 		}, ent.UserConfig{
 			VectorCacheMaxObjects: 1e12,
 			MaxConnections:        maxConnections,
