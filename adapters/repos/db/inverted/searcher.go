@@ -283,6 +283,9 @@ func (s *Searcher) extractPropValuePair(
 		if err != nil {
 			return nil, err
 		}
+		if filter.Operator == filters.OperatorAnd {
+			children = groupNestedByProp(children, class)
+		}
 		out.children = children
 		out.operator = filter.Operator
 		return out, nil
@@ -408,6 +411,79 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 		return nil, ErrOnlyStopwords
 	}
 	return children, nil
+}
+
+// groupNestedByProp rewrites a flat slice of AND children so that conditions
+// targeting the same top-level nested property are grouped into a single
+// isCorrelatedNested AND node that the resolver will handle with position-aware
+// same-element semantics. Flat (non-nested) conditions and nested conditions
+// from different props are returned unchanged in their original order.
+//
+// A child is eligible for grouping when it is:
+//   - a direct nested leaf (isNested == true), or
+//   - a tokenization-produced compound AND (childrenFromTokenization == true)
+//     whose first grandchild is nested — all grandchildren share the same prop.
+//
+// If no nested children are found, the original slice is returned as-is.
+// Single-child groups are kept as plain children (no wrapper node created).
+// nestedPropName returns the root property name for a child eligible for
+// correlated grouping, or "" if the child is flat and should pass through.
+// Eligible children are direct nested leaves (isNested == true) or
+// tokenization-produced compound ANDs (isCorrelatedNested == true).
+func nestedPropName(child *propValuePair) string {
+	if child.isNested || child.isCorrelatedNested {
+		return child.prop
+	}
+	return ""
+}
+
+func groupNestedByProp(children []*propValuePair, class *models.Class) []*propValuePair {
+	// First pass: build groups per prop (preserving first-seen order).
+	groups := make(map[string][]*propValuePair)
+	var propOrder []string
+	for _, child := range children {
+		prop := nestedPropName(child)
+		if prop == "" {
+			continue
+		}
+		if _, seen := groups[prop]; !seen {
+			propOrder = append(propOrder, prop)
+		}
+		groups[prop] = append(groups[prop], child)
+	}
+	if len(groups) == 0 {
+		return children
+	}
+
+	// Second pass: reconstruct the children slice, replacing multi-condition
+	// nested groups with a single isCorrelatedNested AND node. Single-condition
+	// groups are kept as plain children. Flat conditions retain their position.
+	result := make([]*propValuePair, 0, len(children))
+	emitted := make(map[string]bool, len(propOrder))
+	for _, child := range children {
+		prop := nestedPropName(child)
+		if prop == "" {
+			result = append(result, child)
+			continue
+		}
+		if emitted[prop] {
+			continue
+		}
+		emitted[prop] = true
+		group := groups[prop]
+		if len(group) == 1 {
+			result = append(result, group[0])
+		} else {
+			result = append(result, &propValuePair{
+				operator:           filters.OperatorAnd,
+				isCorrelatedNested: true,
+				prop:               prop,
+				children:           group,
+				Class:              class,
+			})
+		}
+	}
+	return result
 }
 
 func (s *Searcher) extractReferenceFilter(prop *models.Property,

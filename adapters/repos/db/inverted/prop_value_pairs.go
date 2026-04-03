@@ -60,7 +60,11 @@ type propValuePair struct {
 	// property value and must share the same leaf position, so they are
 	// combined with raw AndAll rather than MaskLeafAndAll.
 	childrenFromTokenization bool
-	Class                    *models.Class // The schema
+	// isCorrelatedNested marks an AND node created during filter extraction to
+	// group nested conditions for a single root property. prop holds the root
+	// property name. All children require position-aware same-element resolution.
+	isCorrelatedNested bool
+	Class              *models.Class // The schema
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -75,41 +79,19 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		return nil, err
 	}
 
+	// Correlated nested AND created during extraction: all children target the
+	// same root property (stored in pv.prop) and require same-element semantics.
+	if pv.isCorrelatedNested {
+		return pv.resolveNestedCorrelated(ctx, s)
+	}
+
 	if pv.operator.OnValue() {
 		return pv.fetchDocIDs(ctx, s, limit)
 	}
 
 	ln := len(pv.children)
 	switch pv.operator {
-	case filters.OperatorAnd:
-		switch ln {
-		case 0:
-			return nil, fmt.Errorf("no children for operator %q", pv.operator.Name())
-		case 1:
-			return pv.children[0].resolveDocIDs(ctx, s, limit)
-		default:
-			if groups := pv.extractNestedCorrelatedGroups(); groups != nil {
-				// Resolve nested conditions with position-aware same-element semantics.
-				// pv.children now holds only the flat conditions (if any).
-				result, err := pv.resolveNestedCorrelatedAnd(ctx, s, groups)
-				if err != nil {
-					return nil, err
-				}
-				if len(pv.children) == 0 {
-					return result, nil
-				}
-				// AND in remaining flat conditions via the existing AND machinery.
-				remainingResult, err := pv.resolveDocIDsAndOr(ctx, s)
-				if err != nil {
-					return nil, err
-				}
-				result.docIDs.And(remainingResult.docIDs)
-				return result, nil
-			}
-			return pv.resolveDocIDsAndOr(ctx, s)
-		}
-
-	case filters.OperatorOr:
+	case filters.OperatorAnd, filters.OperatorOr:
 		switch ln {
 		case 0:
 			return nil, fmt.Errorf("no children for operator %q", pv.operator.Name())
@@ -452,40 +434,6 @@ func (pv *propValuePair) getBucketName() string {
 	return ""
 }
 
-// extractNestedCorrelatedGroups classifies pv's AND children for correlated
-// nested resolution. Nested conditions are grouped by root property name;
-// flat (non-nested) conditions remain in pv.children so that resolveDocIDsAndOr
-// can be called on the same instance if any are left.
-//
-// Returns nil when no nested groups were found (pv.children is unchanged).
-// On a non-nil return pv.children contains only the flat conditions.
-func (pv *propValuePair) extractNestedCorrelatedGroups() map[string][]*propValuePair {
-	if len(pv.children) == 0 {
-		return nil
-	}
-	groups := make(map[string][]*propValuePair)
-	var flat []*propValuePair
-	for _, child := range pv.children {
-		switch {
-		case child.isNested:
-			groups[child.prop] = append(groups[child.prop], child)
-		case child.operator == filters.OperatorAnd && child.childrenFromTokenization && len(child.children) > 0:
-			// Tokenization-produced compound AND (e.g. city = "New York" →
-			// AND[token:"new", token:"york"]): keep as a unit in its prop's group.
-			// childrenFromTokenization guarantees all tokens share one property.
-			groups[child.children[0].prop] = append(groups[child.children[0].prop], child)
-		default:
-			// Non-nested condition: keep in pv.children for regular resolution.
-			flat = append(flat, child)
-		}
-	}
-	if len(groups) == 0 {
-		return nil
-	}
-	pv.children = flat
-	return groups
-}
-
 // positionBitmaps groups pre-fetched raw position bitmaps for a single nested path,
 // split by origin so the executor can apply the correct combining strategy:
 //   - tokens: from childrenFromTokenization compound ANDs (multi-token text);
@@ -498,52 +446,14 @@ type positionBitmaps struct {
 	independent []*sroar.Bitmap
 }
 
-// resolveNestedCorrelatedAnd resolves only the nested correlated groups. For
-// each prop group it builds a resolution plan and executes it; the per-group
-// docID results are AND'd together. Flat (non-nested) conditions are not
-// handled here — the caller is responsible for combining this result with any
-// remaining conditions via the existing resolveDocIDsAndOr machinery.
-func (pv *propValuePair) resolveNestedCorrelatedAnd(
-	ctx context.Context,
-	s *Searcher,
-	groups map[string][]*propValuePair,
-) (*docBitmap, error) {
-	var result *sroar.Bitmap
-
-	for prop, children := range groups {
-		dbm, err := pv.resolveNestedCorrelatedAndGroup(ctx, s, prop, children)
-		if err != nil {
-			return nil, err
-		}
-		if result == nil {
-			result = dbm.docIDs
-		} else {
-			result.And(dbm.docIDs)
-		}
-	}
-
-	if result == nil {
-		empty := newDocBitmap()
-		return &empty, nil
-	}
-	out := newDocBitmap()
-	out.docIDs = result
-	return &out, nil
-}
-
-// resolveNestedCorrelatedAndGroup resolves one prop group using position-aware
+// resolveNestedCorrelated resolves one prop group using position-aware
 // correlation. It builds a resolutionPlan for the group's paths, pre-computes
 // raw position bitmaps, and executes the plan to enforce same-element semantics.
-func (pv *propValuePair) resolveNestedCorrelatedAndGroup(
-	ctx context.Context,
-	s *Searcher,
-	prop string,
-	children []*propValuePair,
-) (*docBitmap, error) {
+func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	// Build positionsByPath: fetch raw position bitmaps per pvp and route into
 	// the correct bucket slot based on origin (token vs independent).
-	positionsByPath := make(map[string]*positionBitmaps, len(children))
-	pathOrder := make([]string, 0, len(children))
+	positionsByPath := make(map[string]*positionBitmaps, len(pv.children))
+	pathOrder := make([]string, 0, len(pv.children))
 
 	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
 		dbm, err := leaf.fetchRawPositions(ctx, s, 0)
@@ -563,13 +473,15 @@ func (pv *propValuePair) resolveNestedCorrelatedAndGroup(
 		return nil
 	}
 
-	for _, child := range children {
+	for _, child := range pv.children {
 		if child.isNested {
-			if err := fetchAndRoute(child, false); err != nil {
+			// When pv itself is a tokenization compound AND, its children are tokens
+			// of the same value and must share the same leaf position → route as tokens.
+			if err := fetchAndRoute(child, pv.childrenFromTokenization); err != nil {
 				return nil, fmt.Errorf("nested correlated AND: fetch bitmap for %q: %w", child.nestedRelPath, err)
 			}
 		} else {
-			// Tokenization compound AND: grandchildren are tokens of the same value.
+			// Tokenization compound AND child: grandchildren are tokens of the same value.
 			for _, gc := range child.children {
 				if err := fetchAndRoute(gc, true); err != nil {
 					return nil, fmt.Errorf("nested correlated AND: fetch bitmap for %q: %w", gc.nestedRelPath, err)
@@ -579,22 +491,22 @@ func (pv *propValuePair) resolveNestedCorrelatedAndGroup(
 	}
 
 	// Find the root property's schema to build the resolution plan.
-	rootProp, err := schema.GetPropertyByName(pv.Class, prop)
+	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
 	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", prop, err)
+		return nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", pv.prop, err)
 	}
 	rootDT := schema.DataType(rootProp.DataType[0])
 
 	plan, err := newResolutionPlanBuilder(rootDT, rootProp.NestedProperties).build(pathOrder)
 	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", prop, err)
+		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
 	}
 
-	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(prop))
+	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
 
 	docIDs, err := newResolutionPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", prop, err)
+		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}
 
 	dbm := newDocBitmap()

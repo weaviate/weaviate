@@ -120,7 +120,7 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 	if len(pvps) == 1 {
 		return pvps[0], nil
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: pvps, childrenFromTokenization: true, Class: class}, nil
+	return &propValuePair{operator: filters.OperatorAnd, children: pvps, childrenFromTokenization: true, isCorrelatedNested: true, prop: propName, Class: class}, nil
 }
 
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
