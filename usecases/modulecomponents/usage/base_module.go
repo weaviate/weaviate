@@ -358,6 +358,14 @@ func (b *BaseModule) buildStorageConfig() StorageConfig {
 		config.Prefix = b.config.Usage.GCSPrefix.Get()
 	}
 
+	if b.config.Usage.DOBucket != nil {
+		config.Bucket = b.config.Usage.DOBucket.Get()
+	}
+
+	if b.config.Usage.DOPrefix != nil {
+		config.Prefix = b.config.Usage.DOPrefix.Get()
+	}
+
 	return config
 }
 
