@@ -154,28 +154,28 @@ func (e *resolutionPlanExecutor) runIdxLoop(
 }
 
 // resolutionPlanExecutor executes a resolutionPlan for a correlated nested AND.
-// bitmapsByPath maps each relative nested path to its pre-computed raw position
+// positionsByPath maps each relative nested path to its pre-computed raw position
 // bitmap. metaBucket is the _idx meta bucket for the root nested property; it
 // may be nil when no idxLoopAnd node is in the plan.
 //
-// TODO aliszka:nested_filtering bitmapsByPath holds bare *sroar.Bitmap values
-// with no associated release functions. Bitmaps fetched via fetchRawPositions
-// may be backed by pooled buffers that must be returned to the pool after use.
-// Add a releases []func() field and defer-call all of them at the end of
-// execute() so pooled buffers are correctly returned. See Option A in notes.
+// TODO aliszka:nested_filtering positionBitmaps bitmaps have no associated release
+// functions. Bitmaps fetched via fetchRawPositions may be backed by pooled
+// buffers that must be returned to the pool after use. Add a releases []func()
+// field and defer-call all of them at the end of execute() so pooled buffers
+// are correctly returned. See Option A in notes.
 type resolutionPlanExecutor struct {
 	plan          *resolutionPlan
-	bitmapsByPath map[string]*sroar.Bitmap
+	positionsByPath map[string]*positionBitmaps
 	metaBucket    *lsmkv.Bucket
 }
 
 // newResolutionPlanExecutor returns an executor ready to run a resolutionPlan.
 func newResolutionPlanExecutor(
 	plan *resolutionPlan,
-	bitmapsByPath map[string]*sroar.Bitmap,
+	positionsByPath map[string]*positionBitmaps,
 	metaBucket *lsmkv.Bucket,
 ) *resolutionPlanExecutor {
-	return &resolutionPlanExecutor{plan: plan, bitmapsByPath: bitmapsByPath, metaBucket: metaBucket}
+	return &resolutionPlanExecutor{plan: plan, positionsByPath: positionsByPath, metaBucket: metaBucket}
 }
 
 // execute runs the plan and returns a docID-only bitmap.
@@ -259,15 +259,53 @@ func (e *resolutionPlanExecutor) collectBitmaps(ctx context.Context, plan *resol
 	return bitmaps, nil
 }
 
-// fetchBitmaps returns the pre-computed position bitmap for each path.
+// fetchBitmaps returns one combined position bitmap per path by calling
+// combinePositionBitmaps. All merging logic is encapsulated here in the executor.
 func (e *resolutionPlanExecutor) fetchBitmaps(paths []string) ([]*sroar.Bitmap, error) {
 	bitmaps := make([]*sroar.Bitmap, 0, len(paths))
 	for _, path := range paths {
-		bm, ok := e.bitmapsByPath[path]
+		positions, ok := e.positionsByPath[path]
 		if !ok {
-			return nil, fmt.Errorf("fetchBitmaps: no bitmap for path %q", path)
+			return nil, fmt.Errorf("fetchBitmaps: no positions for path %q", path)
 		}
-		bitmaps = append(bitmaps, bm)
+		bitmaps = append(bitmaps, combinePositionBitmaps(positions))
 	}
 	return bitmaps, nil
+}
+
+// combinePositionBitmaps merges the pre-fetched bitmaps in a positionBitmaps into one bitmap:
+//   - tokens are combined with AndAll — all tokens must share the same leaf
+//     position (multi-token text values like "New York" → ["new", "york"]).
+//   - A single independent bitmap is returned raw — no combining needed.
+//   - Multiple independent bitmaps are combined with MaskLeafAndAll — the
+//     values may be at different leaf positions (scalar array elements) but
+//     must belong to the same parent element (same root_idx).
+//   - When both tokens and independent bitmaps are present, the two partial
+//     results are aligned at root+docID level via MaskLeafAndAll.
+func combinePositionBitmaps(positions *positionBitmaps) *sroar.Bitmap {
+	var tokensResult *sroar.Bitmap
+	if len(positions.tokens) > 0 {
+		tokensResult = nested.AndAll(positions.tokens)
+	}
+
+	var independentResult *sroar.Bitmap
+	switch len(positions.independent) {
+	case 0:
+		// nothing
+	case 1:
+		independentResult = positions.independent[0] // single value: keep raw
+	default:
+		independentResult = nested.AndAllMaskLeaf(positions.independent)
+	}
+
+	switch {
+	case tokensResult == nil:
+		return independentResult
+	case independentResult == nil:
+		return tokensResult
+	default:
+		// Both present: align at root+docID so they can be in different
+		// leaf positions within the same parent element.
+		return nested.AndAllMaskLeaf([]*sroar.Bitmap{tokensResult, independentResult})
+	}
 }
