@@ -53,6 +53,24 @@ func IsVectorIndexDropped(cfg models.VectorConfig) bool {
 	return cfg.VectorIndexType == "" && cfg.VectorIndexConfig == nil
 }
 
+// SetVectorIndexDeletedMarkers iterates over a class's VectorConfig and sets
+// the Deleted field to true for any entry whose index has been dropped.
+// This ensures backward compatibility for vectors dropped before the Deleted
+// field was introduced, as well as consistency for freshly dropped vectors.
+// It should be called before returning a class to external API consumers.
+func SetVectorIndexDeletedMarkers(class *models.Class) {
+	if class == nil {
+		return
+	}
+	for name, cfg := range class.VectorConfig {
+		if IsVectorIndexDropped(cfg) && (cfg.Deleted == nil || !*cfg.Deleted) {
+			deleted := true
+			cfg.Deleted = &deleted
+			class.VectorConfig[name] = cfg
+		}
+	}
+}
+
 func ClassUsesVectorisation(class *models.Class) bool {
 	needsVectorisation := func(name string) bool {
 		return name != "" && name != "none"

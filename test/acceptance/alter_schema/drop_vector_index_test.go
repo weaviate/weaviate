@@ -136,8 +136,11 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 			cls := helper.GetClass(t, className)
 			require.Len(t, cls.VectorConfig, 4)
 			for _, name := range []string{"hnsw", "hnsw_rq8", "flat", "flat_rq1"} {
-				_, ok := cls.VectorConfig[name]
+				cfg, ok := cls.VectorConfig[name]
 				assert.True(t, ok, "expected vector config %q", name)
+				if ok {
+					assert.Nil(t, cfg.Deleted, "Deleted should be nil for active vector index %q", name)
+				}
 			}
 		})
 
@@ -212,6 +215,10 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 							if ok {
 								assert.Empty(collect, cfg.VectorIndexType, "VectorIndexType should be empty for dropped index %q", tc.name)
 								assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for dropped index %q", tc.name)
+								assert.NotNil(collect, cfg.Deleted, "Deleted should be set for dropped index %q", tc.name)
+								if cfg.Deleted != nil {
+									assert.True(collect, *cfg.Deleted, "Deleted should be true for dropped index %q", tc.name)
+								}
 							}
 						}, 15*time.Second, 200*time.Millisecond, "schema should reflect dropped vector index %q", tc.name)
 					})
@@ -256,6 +263,10 @@ func testDropVectorIndex(compose *docker.DockerCompose, verifySchemaAfterDrop bo
 						if ok {
 							assert.Empty(collect, cfg.VectorIndexType, "VectorIndexType should be empty for %q", name)
 							assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for %q", name)
+							assert.NotNil(collect, cfg.Deleted, "Deleted should be set for %q", name)
+							if cfg.Deleted != nil {
+								assert.True(collect, *cfg.Deleted, "Deleted should be true for %q", name)
+							}
 						}
 					}
 				}, 15*time.Second, 200*time.Millisecond, "schema should reflect all dropped vector indexes")
