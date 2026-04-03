@@ -13,9 +13,11 @@ package schema
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"golang.org/x/text/unicode/norm"
 )
 
 type validatorNestedProperty func(property *models.NestedProperty,
@@ -29,6 +31,7 @@ var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyIndexFilterable,
 	validateNestedPropertyIndexSearchable,
 	validateNestedPropertyIndexRangeFilters,
+	validateNestedPropertyProcessing,
 }
 
 func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string) error {
@@ -193,6 +196,63 @@ func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 	if *property.IndexRangeFilters {
 		return fmt.Errorf("property '%s': `indexRangeFilters` is not allowed for other than number/int/date data types",
 			propName)
+	}
+
+	return nil
+}
+
+// validateNestedPropertyProcessing validates TextAnalyzerConfig on nested properties,
+// analogous to validatePropertyProcessing for top-level properties.
+func validateNestedPropertyProcessing(property *models.NestedProperty,
+	primitiveDataType, _ schema.DataType,
+	isPrimitive, _ bool, propNamePrefix string,
+) error {
+	propName := propNamePrefix + "." + property.Name
+
+	// Normalize empty config to nil.
+	if property.TextAnalyzer != nil && !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) == 0 {
+		property.TextAnalyzer = nil
+	}
+	if property.TextAnalyzer == nil {
+		return nil
+	}
+
+	if !isPrimitive {
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types", propName)
+	}
+	switch primitiveDataType {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// allowed
+	default:
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", propName, primitiveDataType)
+	}
+
+	if (property.IndexSearchable == nil || !*property.IndexSearchable) && (property.IndexFilterable == nil || !*property.IndexFilterable) {
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index", propName)
+	}
+
+	if !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("property '%s': asciiFoldIgnore requires asciiFold to be enabled", propName)
+	}
+
+	for _, entry := range property.TextAnalyzer.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
+				propName, entry)
+		}
+	}
+
+	if property.Tokenization != "" {
+		switch property.Tokenization {
+		case models.NestedPropertyTokenizationLowercase,
+			models.NestedPropertyTokenizationWord,
+			models.NestedPropertyTokenizationWhitespace,
+			models.NestedPropertyTokenizationField,
+			models.NestedPropertyTokenizationTrigram:
+			// supported
+		default:
+			return fmt.Errorf("property '%s': unsupported tokenization '%s' for textAnalyzer", propName, property.Tokenization)
+		}
 	}
 
 	return nil

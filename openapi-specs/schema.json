@@ -989,17 +989,11 @@
           ]
         },
         "analyzerConfig": {
-          "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
-        }
-      }
-    },
-    "TokenizeAnalyzerConfig": {
-      "description": "Analyzer configuration for the tokenize endpoint.",
-      "type": "object",
-      "properties": {
-        "stopwords": {
-          "description": "Stopword configuration to apply during tokenization.",
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
           "$ref": "#/definitions/StopwordConfig"
         }
       }
@@ -1013,8 +1007,12 @@
           "type": "string"
         },
         "analyzerConfig": {
-          "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "description": "The text analyzer configuration that was used, if any.",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -1638,8 +1636,30 @@
           "type": "boolean",
           "x-nullable": true,
           "default": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
+      "type": "object"
+    },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "x-omitempty": true,
       "type": "object"
     },
     "VectorConfig": {
@@ -1706,6 +1726,9 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
       "type": "object"
@@ -3450,7 +3473,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.37.0-dev"
+    "version": "1.37.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

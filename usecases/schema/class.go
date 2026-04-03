@@ -18,6 +18,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -719,6 +721,10 @@ func (h *Handler) validateProperty(
 			return err
 		}
 
+		if err := validatePropertyProcessing(property, propertyDataType); err != nil {
+			return err
+		}
+
 		if err := h.validatePropertyIndexing(property); err != nil {
 			return err
 		}
@@ -910,6 +916,61 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 				return fmt.Errorf("`indexRangeFilters` is allowed only for number/int/date data types. " +
 					"For other data types set false or leave empty")
 			}
+		}
+	}
+
+	return nil
+}
+
+func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType) error {
+	// Treat an empty config as absent — some client generators emit
+	// "textAnalyzer": {} by default and this should not block creation.
+	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 {
+		prop.TextAnalyzer = nil
+	}
+	if prop.TextAnalyzer == nil {
+		return nil
+	}
+
+	// processing only makes sense for text/text[] with searchable index
+	if !propertyDataType.IsPrimitive() {
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types", prop.Name)
+	}
+
+	dt := propertyDataType.AsPrimitive()
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// allowed
+	default:
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", prop.Name, dt)
+	}
+
+	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%s and IndexFilterable=%s",
+			prop.Name, fmtBoolPtr(prop.IndexSearchable), fmtBoolPtr(prop.IndexFilterable))
+	}
+
+	if !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("property '%s': asciiFoldIgnore requires asciiFold to be enabled", prop.Name)
+	}
+
+	for _, entry := range prop.TextAnalyzer.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
+				prop.Name, entry)
+		}
+	}
+
+	// explicitly check for support for tokenizers:
+	if prop.Tokenization != "" {
+		switch prop.Tokenization {
+		case models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationTrigram,
+			models.PropertyTokenizationWord,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField: // supported tokenizers, do nothing
+		default:
+			return fmt.Errorf("property '%s': unsupported tokenization '%s'", prop.Name, prop.Tokenization)
 		}
 	}
 
@@ -1109,6 +1170,16 @@ func structToMap(obj any) (objMap map[string]any) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &objMap) // Convert to a map
 	return objMap
+}
+
+func fmtBoolPtr(b *bool) string {
+	if b == nil {
+		return "<nil>"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 type immutableText struct {

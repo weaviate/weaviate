@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-dev"
+    "version": "1.37.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -8049,6 +8049,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "type": "string",
           "enum": [
@@ -8689,6 +8692,9 @@ func init() {
             "$ref": "#/definitions/NestedProperty"
           },
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
@@ -9602,15 +9608,24 @@ func init() {
         }
       }
     },
-    "TokenizeAnalyzerConfig": {
-      "description": "Analyzer configuration for the tokenize endpoint.",
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
-        "stopwords": {
-          "description": "Stopword configuration to apply during tokenization.",
-          "$ref": "#/definitions/StopwordConfig"
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
         }
-      }
+      },
+      "x-omitempty": true
     },
     "TokenizeRequest": {
       "description": "Request body for the generic tokenize endpoint.",
@@ -9621,8 +9636,12 @@ func init() {
       ],
       "properties": {
         "analyzerConfig": {
-          "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -9650,8 +9669,8 @@ func init() {
       "type": "object",
       "properties": {
         "analyzerConfig": {
-          "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "description": "The text analyzer configuration that was used, if any.",
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -9666,6 +9685,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "tokenization": {
           "description": "The tokenization method that was applied.",
@@ -10127,7 +10150,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-dev"
+    "version": "1.37.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -18421,6 +18444,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "type": "string",
           "enum": [
@@ -19234,6 +19260,9 @@ func init() {
             "$ref": "#/definitions/NestedProperty"
           },
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
@@ -20150,15 +20179,24 @@ func init() {
         }
       }
     },
-    "TokenizeAnalyzerConfig": {
-      "description": "Analyzer configuration for the tokenize endpoint.",
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
-        "stopwords": {
-          "description": "Stopword configuration to apply during tokenization.",
-          "$ref": "#/definitions/StopwordConfig"
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
         }
-      }
+      },
+      "x-omitempty": true
     },
     "TokenizeRequest": {
       "description": "Request body for the generic tokenize endpoint.",
@@ -20169,8 +20207,12 @@ func init() {
       ],
       "properties": {
         "analyzerConfig": {
-          "description": "Optional analyzer configuration, such as stopword settings.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -20198,8 +20240,8 @@ func init() {
       "type": "object",
       "properties": {
         "analyzerConfig": {
-          "description": "The analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TokenizeAnalyzerConfig"
+          "description": "The text analyzer configuration that was used, if any.",
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
@@ -20214,6 +20256,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "tokenization": {
           "description": "The tokenization method that was applied.",
