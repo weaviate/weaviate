@@ -258,3 +258,48 @@ func (o *ObjectsPatchInternalServerError) WriteResponse(rw http.ResponseWriter, 
 		}
 	}
 }
+
+// ObjectsPatchServiceUnavailableCode is the HTTP code returned for type ObjectsPatchServiceUnavailable
+const ObjectsPatchServiceUnavailableCode int = 503
+
+/*
+ObjectsPatchServiceUnavailable The operational mode of the server does not allow objects operations at this time.
+
+swagger:response objectsPatchServiceUnavailable
+*/
+type ObjectsPatchServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsPatchServiceUnavailable creates ObjectsPatchServiceUnavailable with default headers values
+func NewObjectsPatchServiceUnavailable() *ObjectsPatchServiceUnavailable {
+
+	return &ObjectsPatchServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the objects patch service unavailable response
+func (o *ObjectsPatchServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ObjectsPatchServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects patch service unavailable response
+func (o *ObjectsPatchServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsPatchServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -276,3 +276,48 @@ func (o *GetGroupsInternalServerError) WriteResponse(rw http.ResponseWriter, pro
 		}
 	}
 }
+
+// GetGroupsServiceUnavailableCode is the HTTP code returned for type GetGroupsServiceUnavailable
+const GetGroupsServiceUnavailableCode int = 503
+
+/*
+GetGroupsServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response getGroupsServiceUnavailable
+*/
+type GetGroupsServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetGroupsServiceUnavailable creates GetGroupsServiceUnavailable with default headers values
+func NewGetGroupsServiceUnavailable() *GetGroupsServiceUnavailable {
+
+	return &GetGroupsServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get groups service unavailable response
+func (o *GetGroupsServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetGroupsServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get groups service unavailable response
+func (o *GetGroupsServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetGroupsServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

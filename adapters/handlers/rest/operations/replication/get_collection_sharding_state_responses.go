@@ -318,3 +318,48 @@ func (o *GetCollectionShardingStateNotImplemented) WriteResponse(rw http.Respons
 		}
 	}
 }
+
+// GetCollectionShardingStateServiceUnavailableCode is the HTTP code returned for type GetCollectionShardingStateServiceUnavailable
+const GetCollectionShardingStateServiceUnavailableCode int = 503
+
+/*
+GetCollectionShardingStateServiceUnavailable The operational mode of the server does not allow replica movement operations at this time.
+
+swagger:response getCollectionShardingStateServiceUnavailable
+*/
+type GetCollectionShardingStateServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetCollectionShardingStateServiceUnavailable creates GetCollectionShardingStateServiceUnavailable with default headers values
+func NewGetCollectionShardingStateServiceUnavailable() *GetCollectionShardingStateServiceUnavailable {
+
+	return &GetCollectionShardingStateServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get collection sharding state service unavailable response
+func (o *GetCollectionShardingStateServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetCollectionShardingStateServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get collection sharding state service unavailable response
+func (o *GetCollectionShardingStateServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetCollectionShardingStateServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -208,3 +208,48 @@ func (o *ClassificationsGetInternalServerError) WriteResponse(rw http.ResponseWr
 		}
 	}
 }
+
+// ClassificationsGetServiceUnavailableCode is the HTTP code returned for type ClassificationsGetServiceUnavailable
+const ClassificationsGetServiceUnavailableCode int = 503
+
+/*
+ClassificationsGetServiceUnavailable The operational mode of the server does not allow classifications operations at this time.
+
+swagger:response classificationsGetServiceUnavailable
+*/
+type ClassificationsGetServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewClassificationsGetServiceUnavailable creates ClassificationsGetServiceUnavailable with default headers values
+func NewClassificationsGetServiceUnavailable() *ClassificationsGetServiceUnavailable {
+
+	return &ClassificationsGetServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the classifications get service unavailable response
+func (o *ClassificationsGetServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ClassificationsGetServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the classifications get service unavailable response
+func (o *ClassificationsGetServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ClassificationsGetServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

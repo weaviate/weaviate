@@ -253,3 +253,48 @@ func (o *GetRoleInternalServerError) WriteResponse(rw http.ResponseWriter, produ
 		}
 	}
 }
+
+// GetRoleServiceUnavailableCode is the HTTP code returned for type GetRoleServiceUnavailable
+const GetRoleServiceUnavailableCode int = 503
+
+/*
+GetRoleServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response getRoleServiceUnavailable
+*/
+type GetRoleServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetRoleServiceUnavailable creates GetRoleServiceUnavailable with default headers values
+func NewGetRoleServiceUnavailable() *GetRoleServiceUnavailable {
+
+	return &GetRoleServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get role service unavailable response
+func (o *GetRoleServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetRoleServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get role service unavailable response
+func (o *GetRoleServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetRoleServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

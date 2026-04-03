@@ -273,3 +273,48 @@ func (o *ForceDeleteReplicationsInternalServerError) WriteResponse(rw http.Respo
 		}
 	}
 }
+
+// ForceDeleteReplicationsServiceUnavailableCode is the HTTP code returned for type ForceDeleteReplicationsServiceUnavailable
+const ForceDeleteReplicationsServiceUnavailableCode int = 503
+
+/*
+ForceDeleteReplicationsServiceUnavailable The operational mode of the server does not allow replica movement operations at this time.
+
+swagger:response forceDeleteReplicationsServiceUnavailable
+*/
+type ForceDeleteReplicationsServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewForceDeleteReplicationsServiceUnavailable creates ForceDeleteReplicationsServiceUnavailable with default headers values
+func NewForceDeleteReplicationsServiceUnavailable() *ForceDeleteReplicationsServiceUnavailable {
+
+	return &ForceDeleteReplicationsServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the force delete replications service unavailable response
+func (o *ForceDeleteReplicationsServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ForceDeleteReplicationsServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the force delete replications service unavailable response
+func (o *ForceDeleteReplicationsServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ForceDeleteReplicationsServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -273,3 +273,48 @@ func (o *SchemaObjectsShardsUpdateInternalServerError) WriteResponse(rw http.Res
 		}
 	}
 }
+
+// SchemaObjectsShardsUpdateServiceUnavailableCode is the HTTP code returned for type SchemaObjectsShardsUpdateServiceUnavailable
+const SchemaObjectsShardsUpdateServiceUnavailableCode int = 503
+
+/*
+SchemaObjectsShardsUpdateServiceUnavailable The operational mode of the server does not allow schema operations at this time.
+
+swagger:response schemaObjectsShardsUpdateServiceUnavailable
+*/
+type SchemaObjectsShardsUpdateServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSchemaObjectsShardsUpdateServiceUnavailable creates SchemaObjectsShardsUpdateServiceUnavailable with default headers values
+func NewSchemaObjectsShardsUpdateServiceUnavailable() *SchemaObjectsShardsUpdateServiceUnavailable {
+
+	return &SchemaObjectsShardsUpdateServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the schema objects shards update service unavailable response
+func (o *SchemaObjectsShardsUpdateServiceUnavailable) WithPayload(payload *models.ErrorResponse) *SchemaObjectsShardsUpdateServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects shards update service unavailable response
+func (o *SchemaObjectsShardsUpdateServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SchemaObjectsShardsUpdateServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

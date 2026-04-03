@@ -70,6 +70,12 @@ func (o *BatchReferencesCreateReader) ReadResponse(response runtime.ClientRespon
 			return nil, err
 		}
 		return nil, result
+	case 503:
+		result := NewBatchReferencesCreateServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -458,6 +464,74 @@ func (o *BatchReferencesCreateInternalServerError) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewBatchReferencesCreateServiceUnavailable creates a BatchReferencesCreateServiceUnavailable with default headers values
+func NewBatchReferencesCreateServiceUnavailable() *BatchReferencesCreateServiceUnavailable {
+	return &BatchReferencesCreateServiceUnavailable{}
+}
+
+/*
+BatchReferencesCreateServiceUnavailable describes a response with status code 503, with default header values.
+
+The operational mode of the server does not allow objects operations at this time.
+*/
+type BatchReferencesCreateServiceUnavailable struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this batch references create service unavailable response has a 2xx status code
+func (o *BatchReferencesCreateServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch references create service unavailable response has a 3xx status code
+func (o *BatchReferencesCreateServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create service unavailable response has a 4xx status code
+func (o *BatchReferencesCreateServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch references create service unavailable response has a 5xx status code
+func (o *BatchReferencesCreateServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this batch references create service unavailable response a status code equal to that given
+func (o *BatchReferencesCreateServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the batch references create service unavailable response
+func (o *BatchReferencesCreateServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *BatchReferencesCreateServiceUnavailable) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *BatchReferencesCreateServiceUnavailable) String() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *BatchReferencesCreateServiceUnavailable) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *BatchReferencesCreateServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

@@ -276,3 +276,48 @@ func (o *ListReplicationNotImplemented) WriteResponse(rw http.ResponseWriter, pr
 		}
 	}
 }
+
+// ListReplicationServiceUnavailableCode is the HTTP code returned for type ListReplicationServiceUnavailable
+const ListReplicationServiceUnavailableCode int = 503
+
+/*
+ListReplicationServiceUnavailable The operational mode of the server does not allow replica movement operations at this time.
+
+swagger:response listReplicationServiceUnavailable
+*/
+type ListReplicationServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewListReplicationServiceUnavailable creates ListReplicationServiceUnavailable with default headers values
+func NewListReplicationServiceUnavailable() *ListReplicationServiceUnavailable {
+
+	return &ListReplicationServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the list replication service unavailable response
+func (o *ListReplicationServiceUnavailable) WithPayload(payload *models.ErrorResponse) *ListReplicationServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the list replication service unavailable response
+func (o *ListReplicationServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ListReplicationServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

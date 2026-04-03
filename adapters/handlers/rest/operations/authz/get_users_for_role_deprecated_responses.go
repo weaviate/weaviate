@@ -256,3 +256,48 @@ func (o *GetUsersForRoleDeprecatedInternalServerError) WriteResponse(rw http.Res
 		}
 	}
 }
+
+// GetUsersForRoleDeprecatedServiceUnavailableCode is the HTTP code returned for type GetUsersForRoleDeprecatedServiceUnavailable
+const GetUsersForRoleDeprecatedServiceUnavailableCode int = 503
+
+/*
+GetUsersForRoleDeprecatedServiceUnavailable The operational mode of the server does not allow users operations at this time.
+
+swagger:response getUsersForRoleDeprecatedServiceUnavailable
+*/
+type GetUsersForRoleDeprecatedServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetUsersForRoleDeprecatedServiceUnavailable creates GetUsersForRoleDeprecatedServiceUnavailable with default headers values
+func NewGetUsersForRoleDeprecatedServiceUnavailable() *GetUsersForRoleDeprecatedServiceUnavailable {
+
+	return &GetUsersForRoleDeprecatedServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get users for role deprecated service unavailable response
+func (o *GetUsersForRoleDeprecatedServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetUsersForRoleDeprecatedServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get users for role deprecated service unavailable response
+func (o *GetUsersForRoleDeprecatedServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetUsersForRoleDeprecatedServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

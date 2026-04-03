@@ -323,3 +323,48 @@ func (o *CancelReplicationNotImplemented) WriteResponse(rw http.ResponseWriter, 
 		}
 	}
 }
+
+// CancelReplicationServiceUnavailableCode is the HTTP code returned for type CancelReplicationServiceUnavailable
+const CancelReplicationServiceUnavailableCode int = 503
+
+/*
+CancelReplicationServiceUnavailable The operational mode of the server does not allow replica movement operations at this time.
+
+swagger:response cancelReplicationServiceUnavailable
+*/
+type CancelReplicationServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCancelReplicationServiceUnavailable creates CancelReplicationServiceUnavailable with default headers values
+func NewCancelReplicationServiceUnavailable() *CancelReplicationServiceUnavailable {
+
+	return &CancelReplicationServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the cancel replication service unavailable response
+func (o *CancelReplicationServiceUnavailable) WithPayload(payload *models.ErrorResponse) *CancelReplicationServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the cancel replication service unavailable response
+func (o *CancelReplicationServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CancelReplicationServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

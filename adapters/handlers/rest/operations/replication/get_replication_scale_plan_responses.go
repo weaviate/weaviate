@@ -318,3 +318,48 @@ func (o *GetReplicationScalePlanNotImplemented) WriteResponse(rw http.ResponseWr
 		}
 	}
 }
+
+// GetReplicationScalePlanServiceUnavailableCode is the HTTP code returned for type GetReplicationScalePlanServiceUnavailable
+const GetReplicationScalePlanServiceUnavailableCode int = 503
+
+/*
+GetReplicationScalePlanServiceUnavailable The operational mode of the server does not allow replica movement operations at this time.
+
+swagger:response getReplicationScalePlanServiceUnavailable
+*/
+type GetReplicationScalePlanServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetReplicationScalePlanServiceUnavailable creates GetReplicationScalePlanServiceUnavailable with default headers values
+func NewGetReplicationScalePlanServiceUnavailable() *GetReplicationScalePlanServiceUnavailable {
+
+	return &GetReplicationScalePlanServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the get replication scale plan service unavailable response
+func (o *GetReplicationScalePlanServiceUnavailable) WithPayload(payload *models.ErrorResponse) *GetReplicationScalePlanServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get replication scale plan service unavailable response
+func (o *GetReplicationScalePlanServiceUnavailable) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetReplicationScalePlanServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
