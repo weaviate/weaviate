@@ -1095,7 +1095,11 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		if _, ok := initial.VectorConfig[k]; !ok {
 			continue
 		}
-		if modelsext.IsVectorIndexDropped(v) {
+		initialVecCfg := initial.VectorConfig[k]
+		if modelsext.IsVectorIndexDropped(v) || modelsext.IsVectorIndexDropped(initialVecCfg) {
+			continue
+		}
+		if v.VectorIndexConfig == nil || initialVecCfg.VectorIndexConfig == nil {
 			continue
 		}
 
