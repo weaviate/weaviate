@@ -29,45 +29,45 @@ import (
 
 // directAndPlan builds a directAnd plan and bitmapsByPath from the given
 // bitmaps. Paths are auto-generated as "p1", "p2", …
-func directAndPlan(bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*sroar.Bitmap) {
+func directAndPlan(bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*positionBitmaps) {
 	paths := make([]string, len(bitmaps))
-	bitmapsByPath := make(map[string]*sroar.Bitmap, len(bitmaps))
+	positionsByPath := make(map[string]*positionBitmaps, len(bitmaps))
 	for i, bm := range bitmaps {
 		path := fmt.Sprintf("p%d", i+1)
 		paths[i] = path
-		bitmapsByPath[path] = bm
+		positionsByPath[path] = &positionBitmaps{independent: []*sroar.Bitmap{bm}}
 	}
-	return &resolutionPlan{op: directAnd, paths: paths}, bitmapsByPath
+	return &resolutionPlan{op: directAnd, paths: paths}, positionsByPath
 }
 
 // maskLeafAndPlan builds a maskLeafAnd interior plan where each bitmap becomes
 // one directAnd sub-group.
-func maskLeafAndPlan(bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*sroar.Bitmap) {
+func maskLeafAndPlan(bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*positionBitmaps) {
 	groups := make([]*resolutionPlan, len(bitmaps))
-	bitmapsByPath := make(map[string]*sroar.Bitmap, len(bitmaps))
+	positionsByPath := make(map[string]*positionBitmaps, len(bitmaps))
 	for i, bm := range bitmaps {
 		path := fmt.Sprintf("p%d", i+1)
 		groups[i] = &resolutionPlan{op: directAnd, paths: []string{path}}
-		bitmapsByPath[path] = bm
+		positionsByPath[path] = &positionBitmaps{independent: []*sroar.Bitmap{bm}}
 	}
-	return &resolutionPlan{op: maskLeafAnd, groups: groups}, bitmapsByPath
+	return &resolutionPlan{op: maskLeafAnd, groups: groups}, positionsByPath
 }
 
 // idxLoopAndPlan builds an idxLoopAnd plan where each bitmap becomes one
 // directAnd sub-group.
-func idxLoopAndPlan(lcaPath string, bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*sroar.Bitmap) {
+func idxLoopAndPlan(lcaPath string, bitmaps ...*sroar.Bitmap) (*resolutionPlan, map[string]*positionBitmaps) {
 	groups := make([]*resolutionPlan, len(bitmaps))
-	bitmapsByPath := make(map[string]*sroar.Bitmap, len(bitmaps))
+	positionsByPath := make(map[string]*positionBitmaps, len(bitmaps))
 	for i, bm := range bitmaps {
 		path := fmt.Sprintf("p%d", i+1)
 		groups[i] = &resolutionPlan{op: directAnd, paths: []string{path}}
-		bitmapsByPath[path] = bm
+		positionsByPath[path] = &positionBitmaps{independent: []*sroar.Bitmap{bm}}
 	}
-	return &resolutionPlan{op: idxLoopAnd, lcaPath: lcaPath, groups: groups}, bitmapsByPath
+	return &resolutionPlan{op: idxLoopAnd, lcaPath: lcaPath, groups: groups}, positionsByPath
 }
 
 // exec is a shorthand for executeResolutionPlan with no meta bucket.
-func exec(t *testing.T, plan *resolutionPlan, bitmapsByPath map[string]*sroar.Bitmap) *sroar.Bitmap {
+func exec(t *testing.T, plan *resolutionPlan, bitmapsByPath map[string]*positionBitmaps) *sroar.Bitmap {
 	t.Helper()
 	result, err := newResolutionPlanExecutor(plan, bitmapsByPath, nil).execute(context.Background())
 	require.NoError(t, err)
