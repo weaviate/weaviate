@@ -22,7 +22,7 @@ import (
 
 // nestedPvp builds a minimal nested leaf propValuePair.
 func nestedPvp(prop, relPath string) *propValuePair {
-	return &propValuePair{isNested: true, prop: prop, nestedRelPath: relPath}
+	return &propValuePair{nested: nestedInfo{isNested: true, relPath: relPath}, prop: prop}
 }
 
 // compoundAndPvp builds a compound AND propValuePair as produced by multi-token
@@ -33,7 +33,7 @@ func compoundAndPvp(children ...*propValuePair) *propValuePair {
 	if len(children) > 0 {
 		prop = children[0].prop
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: children, childrenFromTokenization: true, isCorrelatedNested: true, prop: prop}
+	return &propValuePair{operator: filters.OperatorAnd, children: children, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: prop}
 }
 
 // userNestedAndPvp builds a compound AND propValuePair as produced by user
@@ -293,12 +293,12 @@ func TestGroupNestedByProp(t *testing.T) {
 			for i, wc := range tt.want {
 				child := result[i]
 				if wc.correlatedProp != "" {
-					assert.True(t, child.isCorrelatedNested, "child[%d] should be correlated", i)
+					assert.True(t, child.nested.isCorrelated, "child[%d] should be correlated", i)
 					assert.Equal(t, filters.OperatorAnd, child.operator, "child[%d] operator", i)
 					assert.Equal(t, wc.correlatedProp, child.prop, "child[%d] prop", i)
 					assert.Len(t, child.children, wc.groupSize, "child[%d] group size", i)
 				} else {
-					assert.False(t, child.isCorrelatedNested, "child[%d] should not be correlated", i)
+					assert.False(t, child.nested.isCorrelated, "child[%d] should not be correlated", i)
 				}
 			}
 		})

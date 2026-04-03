@@ -99,8 +99,8 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	}
 
 	var rr *RowReaderRoaringSet
-	if pv.isNested {
-		rr = NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, nested.PathPrefix(pv.nestedRelPath))
+	if pv.nested.isNested {
+		rr = NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, nested.PathPrefix(pv.nested.relPath))
 	} else {
 		rr = NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
 	}

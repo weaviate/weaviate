@@ -164,9 +164,9 @@ func (e *resolutionPlanExecutor) runIdxLoop(
 // field and defer-call all of them at the end of execute() so pooled buffers
 // are correctly returned. See Option A in notes.
 type resolutionPlanExecutor struct {
-	plan          *resolutionPlan
+	plan            *resolutionPlan
 	positionsByPath map[string]*positionBitmaps
-	metaBucket    *lsmkv.Bucket
+	metaBucket      *lsmkv.Bucket
 }
 
 // newResolutionPlanExecutor returns an executor ready to run a resolutionPlan.
