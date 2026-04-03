@@ -27,9 +27,12 @@ func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest
 	})
 	log.Debug("listing tenants")
 
-	// Authorize the request
+	// Authorize the request: first check MCP-level permission, then collection-level data permission
 	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
+		return nil, err
+	}
+	if err := r.AuthorizeCollectionData(ctx, principal, authorization.READ, args.CollectionName, ""); err != nil {
 		return nil, err
 	}
 	tenants, err := r.schemaReader.GetConsistentTenants(ctx, principal, args.CollectionName, true, nil)

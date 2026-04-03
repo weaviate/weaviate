@@ -35,7 +35,6 @@ import (
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
@@ -50,14 +49,12 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	mcpops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -74,7 +71,6 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -1017,8 +1013,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.TelemetryPushInterval,
 	)
 
-	mcpServer := mcp.NewMCPServer(appState, objectsManager)
-
 	var grpcInstrument []grpc.ServerOption
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
@@ -1150,30 +1144,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	startGrpcServer(grpcServer, appState)
-	if appState.ServerConfig.Config.MCP.Enabled {
-		mcpHandler := mcpServer.Handler()
-		api.McpMcpPostHandler = mcpops.McpPostHandlerFunc(
-			func(params mcpops.McpPostParams, _ *models.Principal) middleware.Responder {
-				return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-					mcpHandler.ServeHTTP(w, params.HTTPRequest)
-				})
-			},
-		)
-		api.McpMcpGetHandler = mcpops.McpGetHandlerFunc(
-			func(params mcpops.McpGetParams, _ *models.Principal) middleware.Responder {
-				return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-					mcpHandler.ServeHTTP(w, params.HTTPRequest)
-				})
-			},
-		)
-		api.McpMcpDeleteHandler = mcpops.McpDeleteHandlerFunc(
-			func(params mcpops.McpDeleteParams, _ *models.Principal) middleware.Responder {
-				return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-					mcpHandler.ServeHTTP(w, params.HTTPRequest)
-				})
-			},
-		)
-	}
+	setupMCPHandlers(api, appState, objectsManager)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 

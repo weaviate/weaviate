@@ -38,7 +38,7 @@ func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
 	weaviateImage, hostname string,
-	exposeGRPCPort, exposeDebugPort, exposeMCPPort bool,
+	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
 ) (*DockerContainer, error) {
@@ -208,6 +208,7 @@ func startWeaviate(ctx context.Context,
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{httpPort, httpUri}
+	endpoints[MCP] = endpoint{httpPort, fmt.Sprintf("%s/v1/mcp", httpUri)}
 
 	// Map the cluster API endpoint if the port is exposed.
 	if hasClusterPort {
@@ -230,9 +231,6 @@ func startWeaviate(ctx context.Context,
 			return nil, fmt.Errorf("startWeaviate(%s): get debug endpoint: %w", containerName, err)
 		}
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
-	}
-	if exposeMCPPort {
-		endpoints[MCP] = endpoint{httpPort, fmt.Sprintf("%s/v1/mcp", httpUri)}
 	}
 	return &DockerContainer{
 		name:        containerName,

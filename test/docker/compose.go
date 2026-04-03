@@ -126,7 +126,6 @@ type Compose struct {
 	withQnATransformers         bool
 	withWeaviateExposeGRPCPort  bool
 	withWeaviateExposeDebugPort bool
-	withWeaviateExposeMCPPort   bool
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
@@ -548,7 +547,6 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 func (d *Compose) WithMCP() *Compose {
 	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
 	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_ENABLED", "true")
-	d.withWeaviateExposeMCPPort = true // still needed so McpURI() returns the derived endpoint
 	return d
 }
 
@@ -950,7 +948,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1114,7 +1112,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateExposeMCPPort, livenessEndpoint, d.weaviateFiles)
+				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

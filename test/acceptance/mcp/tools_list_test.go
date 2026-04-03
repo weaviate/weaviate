@@ -108,7 +108,7 @@ func startMCPWithConfig(t *testing.T, configFileName string) (mcpURL string, cle
 		Start(ctx)
 	require.NoError(t, err)
 
-	mcpURL = "http://" + compose.GetWeaviate().GetEndpoint(docker.MCP)
+	mcpURL = "http://" + compose.GetWeaviate().McpURI()
 	cleanup = func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Logf("failed to terminate test containers: %v", err)
