@@ -2758,6 +2758,54 @@ func init() {
         ]
       }
     },
+    "/mcp": {
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "produces": [
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
+      }
+    },
     "/meta": {
       "get": {
         "description": "Provides meta-information about the running Weaviate instance, including its version, loaded modules, and network hostname. This information can be useful for monitoring, compatibility checks, or inter-instance communication.",
@@ -8371,7 +8419,8 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -8446,6 +8495,10 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -10067,6 +10120,10 @@ func init() {
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
       "name": "replication"
+    },
+    {
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
+      "name": "mcp"
     }
   ],
   "externalDocs": {
@@ -12789,6 +12846,54 @@ func init() {
           "weaviate.network.query",
           "weaviate.network.query.meta"
         ]
+      }
+    },
+    "/mcp": {
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "produces": [
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
       }
     },
     "/meta": {
@@ -18726,7 +18831,8 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -18801,6 +18907,10 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -20593,6 +20703,10 @@ func init() {
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
       "name": "replication"
+    },
+    {
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
+      "name": "mcp"
     }
   ],
   "externalDocs": {

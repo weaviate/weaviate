@@ -544,6 +544,22 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMCP() *Compose {
+	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
+	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_ENABLED", "true")
+	return d
+}
+
+func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
+	d.weaviateFiles = append(d.weaviateFiles, testcontainers.ContainerFile{
+		HostFilePath:      hostPath,
+		ContainerFilePath: containerPath,
+		FileMode:          0o644,
+	})
+	d.WithWeaviateEnv("MCP_SERVER_CONFIG_PATH", containerPath)
+	return d
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeDebugPort = true

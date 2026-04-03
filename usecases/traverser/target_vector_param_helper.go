@@ -30,6 +30,9 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 	if len(targetVectors) == 0 {
 		class := sch.FindClassByName(schema.ClassName(className))
 
+		if class == nil {
+			return nil, fmt.Errorf("class %q not found in schema", className)
+		}
 		// If no target vectors provided, check whether legacy vector is configured.
 		// For backwards compatibility, we have to return legacy vector in case no named vectors configured.
 		if modelsext.ClassHasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {

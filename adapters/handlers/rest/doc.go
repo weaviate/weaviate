@@ -27,6 +27,7 @@
 //
 //	Produces:
 //	  - application/json
+//	  - text/event-stream
 //
 // swagger:meta
 package rest

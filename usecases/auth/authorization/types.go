@@ -51,6 +51,7 @@ const (
 	CollectionsDomain = "collections"
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
+	McpDomain         = "mcp"
 	ReplicateDomain   = "replicate"
 	AliasesDomain     = "aliases"
 )
@@ -145,6 +146,8 @@ var (
 	ReadAliases   = "read_aliases"
 	UpdateAliases = "update_aliases"
 	DeleteAliases = "delete_aliases"
+
+	ManageMcp = "manage_mcp"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -536,6 +539,18 @@ func Replications(class, shard string) string {
 		shard = "*"
 	}
 	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicateDomain, class, shard)
+}
+
+// Mcp generates a resource string covering the MCP endpoint.
+// For now, this gates nothing specific to the MCP server besides its entirety
+//
+// Returns:
+// - A string representing the resource path.
+//
+// Example outputs:
+// - mcp
+func Mcp() string {
+	return McpDomain
 }
 
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
