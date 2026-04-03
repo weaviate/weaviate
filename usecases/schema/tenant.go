@@ -40,6 +40,12 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
+	for i, tenant := range tenants {
+		if tenant == nil {
+			return 0, uco.NewErrInvalidUserInput("tenant at index %d is null", i)
+		}
+	}
+
 	tenantNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
 		tenantNames[i] = tenant.Name
@@ -78,6 +84,10 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 	}
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
+		if requested == nil {
+			err = uco.NewErrInvalidUserInput("tenant at index %d is null", i)
+			return validated, err
+		}
 		if errMsg := schema.ValidateTenantName(requested.Name); errMsg != nil {
 			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, errMsg.Error())
 			return validated, err
@@ -145,6 +155,12 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
+	for i, tenant := range tenants {
+		if tenant == nil {
+			return nil, uco.NewErrInvalidUserInput("tenant at index %d is null", i)
+		}
+	}
+
 	shardNames := make([]string, len(tenants))
 	for idx := range tenants {
 		shardNames[idx] = tenants[idx].Name
