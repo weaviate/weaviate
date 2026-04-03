@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
 )
@@ -1027,8 +1028,8 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 func localIndexNotReady(resp replica.SimpleResponse) bool {
 	if err := resp.FirstError(); err != nil {
-		var replicaErr *replica.Error
-		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
+		var replicaErr *replicaerrors.Error
+		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replicaerrors.StatusNotReady) {
 			return true
 		}
 	}

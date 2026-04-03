@@ -13,7 +13,6 @@ package replica
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -28,19 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-)
-
-var (
-	// ErrConflictFindDeleted object exists on one replica but is deleted on the other.
-	//
-	// It depends on the order of operations
-	// Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
-	// Created -> Deleted -> Created => propagating deletion will result in data lost
-
-	ErrConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
-
-	// ErrConflictObjectChanged object changed since last time and cannot be repaired
-	ErrConflictObjectChanged = errors.New("source object changed during repair")
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
@@ -112,7 +99,7 @@ func (r *repairer) repairOne(ctx context.Context,
 					return fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
 				}
 				if len(resp) > 0 && resp[0].Err != "" {
-					return fmt.Errorf("overwrite deleted object %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+					return fmt.Errorf("overwrite deleted object %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 				}
 				return nil
 			})
@@ -122,7 +109,7 @@ func (r *repairer) repairOne(ctx context.Context,
 	}
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
-		return nil, ErrConflictExistOrDeleted
+		return nil, replicaerrors.ErrConflictExistOrDeleted
 	}
 
 	// fetch most recent object
@@ -136,7 +123,7 @@ func (r *repairer) repairOne(ctx context.Context,
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.Sender, err)
 		}
 		if updates.UpdateTime() != lastUTime {
-			return nil, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, ErrConflictObjectChanged, err)
+			return nil, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, replicaerrors.ErrConflictObjectChanged, err)
 		}
 	}
 
@@ -186,7 +173,7 @@ func (r *repairer) repairOne(ctx context.Context,
 				return fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
 			}
 			if len(resp) > 0 && resp[0].Err != "" {
-				return fmt.Errorf("overwrite %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+				return fmt.Errorf("overwrite %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 			}
 			return nil
 		})
@@ -263,7 +250,7 @@ func (r *repairer) repairExist(ctx context.Context,
 					return fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
 				}
 				if len(resp) > 0 && resp[0].Err != "" {
-					return fmt.Errorf("overwrite deleted object %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+					return fmt.Errorf("overwrite deleted object %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 				}
 				return nil
 			})
@@ -273,7 +260,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	}
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
-		return false, ErrConflictExistOrDeleted
+		return false, replicaerrors.ErrConflictExistOrDeleted
 	}
 
 	// fetch most recent object
@@ -283,7 +270,7 @@ func (r *repairer) repairExist(ctx context.Context,
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.Sender, err)
 	}
 	if resp.UpdateTime() != lastUTime {
-		return false, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, ErrConflictObjectChanged, err)
+		return false, fmt.Errorf("fetch new state from %s: %w, %w", winner.Sender, replicaerrors.ErrConflictObjectChanged, err)
 	}
 
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
@@ -334,7 +321,7 @@ func (r *repairer) repairExist(ctx context.Context,
 				return fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
 			}
 			if len(resp) > 0 && resp[0].Err != "" {
-				return fmt.Errorf("overwrite %w %s: %s", ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+				return fmt.Errorf("overwrite %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
 			}
 
 			return nil

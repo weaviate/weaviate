@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const (
@@ -99,7 +99,7 @@ func StartBatchWorkers(
 }
 
 func (w *worker) isTransientReplicationError(err string) bool {
-	return strings.Contains(err, replica.ErrReplicas.Error()) || // coordinator: any error due to replicating to shutdown node
+	return strings.Contains(err, replicaerrors.ErrReplicas.Error()) || // coordinator: any error due to replicating to shutdown node
 		strings.Contains(err, "connect: Post") || // rest: failed to connect to shutdown node
 		strings.Contains(err, "status code: 404, error: request not found") || // rest: failed to find request on shutdown node
 		(strings.Contains(err, "resolve node name") && strings.Contains(err, "to host")) || // memberlist: failed to resolve to other shutdown node in cluster
