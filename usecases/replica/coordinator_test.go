@@ -14,15 +14,18 @@ package replica_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -504,4 +507,152 @@ func Test_coordinatorPull(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_coordinatorPull_retrySuccessIncrementsMetrics verifies that when an op
+// succeeds on retry (not the initial attempt), the successful counter is still
+// incremented and the readsSucceedAll metric is set correctly.
+func Test_coordinatorPull_retrySuccessIncrementsMetrics(t *testing.T) {
+	class := "C1"
+	shard := "S1"
+	requestId := "R1"
+	logger, _ := test.NewNullLogger()
+
+	// Use a fresh registry per test to avoid interference with the global registry.
+	reg := prometheus.NewRegistry()
+	m, err := replica.NewMetrics(&monitoring.PrometheusMetrics{Registerer: reg})
+	require.NoError(t, err)
+
+	cl := types.ConsistencyLevelOne
+	replicas := []types.Replica{
+		{NodeName: "node1", ShardName: shard, HostAddr: "node1:80"},
+		{NodeName: "node2", ShardName: shard, HostAddr: "node2:80"},
+		{NodeName: "node3", ShardName: shard, HostAddr: "node3:80"},
+	}
+
+	mockRouter := types.NewMockRouter(t)
+	routingPlanOptions := types.RoutingPlanBuildOptions{Shard: shard, Tenant: "", ConsistencyLevel: cl, DirectCandidateNode: ""}
+	mockRouter.EXPECT().BuildRoutingPlanOptions(shard, shard, cl, "").Return(routingPlanOptions).Once()
+	readRoutingPlan := types.ReadRoutingPlan{
+		Shard:               shard,
+		Tenant:              "",
+		ReplicaSet:          types.ReadReplicaSet{Replicas: replicas},
+		ConsistencyLevel:    cl,
+		IntConsistencyLevel: cl.ToInt(len(replicas)),
+	}
+	mockRouter.EXPECT().BuildReadRoutingPlan(routingPlanOptions).Return(readRoutingPlan, nil).Once()
+
+	// node1:80 (hosts[0]) fails on its first call; all other hosts succeed.
+	// This forces the single worker to retry via the hostRetryQueue, where it
+	// picks node2:80 and succeeds, exercising the retry-success path.
+	var mu sync.Mutex
+	callCounts := make(map[string]int)
+	mockOp := func(_ context.Context, host string, _ bool) (types.RepairResponse, error) {
+		mu.Lock()
+		callCounts[host]++
+		count := callCounts[host]
+		mu.Unlock()
+		if host == "node1:80" && count == 1 {
+			return types.RepairResponse{}, errors.New("temporary failure on first attempt")
+		}
+		return types.RepairResponse{ID: "test-id"}, nil
+	}
+
+	coordinator := replica.NewReadCoordinator[types.RepairResponse](
+		mockRouter, m, class, shard, requestId, logger,
+	)
+
+	ch, _, err := coordinator.Pull(context.Background(), cl, mockOp, "", 10*time.Second)
+	require.NoError(t, err)
+
+	// Drain the channel and wait for Pull to finish.
+	for range ch {
+	}
+
+	// With level=1 and successful=1, readsSucceedAll must be incremented.
+	require.Equal(t, float64(1), gatherCounterValue(t, reg, "weaviate_replication_coordinator_reads_succeed_all"),
+		"readsSucceedAll should be 1 after a retry-path success")
+	require.Equal(t, float64(0), gatherCounterValue(t, reg, "weaviate_replication_coordinator_reads_succeed_some"))
+	require.Equal(t, float64(0), gatherCounterValue(t, reg, "weaviate_replication_coordinator_reads_failed"))
+}
+
+// Test_coordinatorPull_contextCancellationExitsWorkers verifies that worker
+// goroutines exit promptly when the context is cancelled or times out, even
+// while blocked waiting on an empty retry queue or a backoff timer.
+func Test_coordinatorPull_contextCancellationExitsWorkers(t *testing.T) {
+	class := "C1"
+	shard := "S1"
+	requestId := "R1"
+	logger, _ := test.NewNullLogger()
+
+	promMetrics := monitoring.GetMetrics()
+	m, err := replica.NewMetrics(promMetrics)
+	require.NoError(t, err)
+
+	cl := types.ConsistencyLevelOne
+	replicas := []types.Replica{
+		{NodeName: "node1", ShardName: shard, HostAddr: "node1:80"},
+		{NodeName: "node2", ShardName: shard, HostAddr: "node2:80"},
+		{NodeName: "node3", ShardName: shard, HostAddr: "node3:80"},
+	}
+
+	mockRouter := types.NewMockRouter(t)
+	routingPlanOptions := types.RoutingPlanBuildOptions{Shard: shard, Tenant: "", ConsistencyLevel: cl, DirectCandidateNode: ""}
+	mockRouter.EXPECT().BuildRoutingPlanOptions(shard, shard, cl, "").Return(routingPlanOptions).Once()
+	readRoutingPlan := types.ReadRoutingPlan{
+		Shard:               shard,
+		Tenant:              "",
+		ReplicaSet:          types.ReadReplicaSet{Replicas: replicas},
+		ConsistencyLevel:    cl,
+		IntConsistencyLevel: cl.ToInt(len(replicas)),
+	}
+	mockRouter.EXPECT().BuildReadRoutingPlan(routingPlanOptions).Return(readRoutingPlan, nil).Once()
+
+	// op always fails immediately, pushing the worker into the retry/backoff loop.
+	mockOp := func(_ context.Context, _ string, _ bool) (types.RepairResponse, error) {
+		return types.RepairResponse{}, errors.New("always fails")
+	}
+
+	coordinator := replica.NewReadCoordinator[types.RepairResponse](
+		mockRouter, m, class, shard, requestId, logger,
+	)
+
+	// A very short per-worker timeout triggers context cancellation while the
+	// worker is waiting on a backoff timer, exercising the select-based exit path.
+	const workerTimeout = 50 * time.Millisecond
+	ch, _, err := coordinator.Pull(context.Background(), cl, mockOp, "", workerTimeout)
+	require.NoError(t, err)
+
+	// The channel must close promptly once the worker context times out.
+	// A 2-second wall-clock deadline gives plenty of margin.
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return // channel closed: all workers exited as expected
+			}
+		case <-timeout:
+			t.Fatal("timed out: Pull did not complete after worker context cancellation")
+		}
+	}
+}
+
+// gatherCounterValue retrieves the current value of a named counter from a
+// prometheus.Gatherer (e.g. a *prometheus.Registry). Returns 0 if the metric
+// is not found.
+func gatherCounterValue(t *testing.T, g prometheus.Gatherer, name string) float64 {
+	t.Helper()
+	mfs, err := g.Gather()
+	require.NoError(t, err)
+	for _, mf := range mfs {
+		if mf.GetName() == name {
+			for _, m := range mf.GetMetric() {
+				if c := m.GetCounter(); c != nil {
+					return c.GetValue()
+				}
+			}
+		}
+	}
+	return 0
 }
