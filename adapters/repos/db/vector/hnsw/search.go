@@ -82,6 +82,65 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
+
+	// If k > 10,000, we perform a brute-force scan to guarantee 100% recall.
+	// We implement this manually here to avoid the "nil allowList" panic
+	// present in the built-in h.flatSearch() function.
+	if k > 10000 {
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_manual_flat_search", true)
+
+		// Get the maximum possible ID
+		h.RLock()
+		maxLimit := len(h.nodes)
+		h.RUnlock()
+
+		// Initialize a Max-Heap to keep the best 'k' candidates
+		pq := priorityqueue.NewMax[any](k)
+
+		// Prepare the distancer (handles compression/caching)
+		var compressorDistancer compressionhelpers.CompressorDistancer
+		if h.compressed.Load() {
+			var returnFn compressionhelpers.ReturnDistancerFn
+			compressorDistancer, returnFn = h.compressor.NewDistancer(vector)
+			defer returnFn()
+		}
+
+		// Brute Force Loop (0 to MaxID)
+		for i := range maxLimit {
+			id := uint64(i)
+
+			// Skip deleted nodes (tombstones)
+			if h.hasTombstone(id) {
+				continue
+			}
+
+			// Calculate distance safely (returns error if node is nil/deleted)
+			dist, err := h.distToNode(compressorDistancer, id, vector)
+			if err != nil {
+				continue
+			}
+
+			// Maintain the Top-K heap
+			if pq.Len() < k {
+				pq.Insert(id, dist)
+			} else if dist < pq.Top().Dist {
+				pq.Pop()
+				pq.Insert(id, dist)
+			}
+		}
+
+		// Extract and Reverse results (Heap is Max, we need Min order)
+		ids := make([]uint64, pq.Len())
+		dists := make([]float32, pq.Len())
+		for i := pq.Len() - 1; i >= 0; i-- {
+			item := pq.Pop()
+			ids[i] = item.ID
+			dists[i] = item.Dist
+		}
+
+		return ids, dists, nil
+	}
+
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
