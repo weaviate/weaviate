@@ -118,18 +118,18 @@ func TestExtractNestedProp(t *testing.T) {
 			valueType: schema.DataTypeText, value: "hello world",
 			verify: func(t *testing.T, pv *propValuePair) {
 				// output:
-				// └── correlated(nested) ← isCorrelatedNested=true, childrenFromTokenization=true
+				// └── correlated(nested) ← nested.isCorrelated=true, nested.childrenFromTokenization=true
 				//     ├── title:"hello"
 				//     └── title:"world"
 				require.Equal(t, filters.OperatorAnd, pv.operator)
-				assert.True(t, pv.isCorrelatedNested, "compound AND should be marked isCorrelatedNested")
-				assert.True(t, pv.childrenFromTokenization, "compound AND should be marked childrenFromTokenization")
+				assert.True(t, pv.nested.isCorrelated, "compound AND should be marked nested.isCorrelated")
+				assert.True(t, pv.nested.childrenFromTokenization, "compound AND should be marked nested.childrenFromTokenization")
 				assert.Equal(t, "nested", pv.prop)
 				require.Len(t, pv.children, 2)
 				for _, child := range pv.children {
 					assert.Equal(t, "nested", child.prop)
-					assert.Equal(t, "title", child.nestedRelPath)
-					assert.True(t, child.isNested)
+					assert.Equal(t, "title", child.nested.relPath)
+					assert.True(t, child.nested.isNested)
 					assert.True(t, child.hasFilterableIndex)
 				}
 				assert.Equal(t, []byte("hello"), pv.children[0].value)
@@ -198,8 +198,8 @@ func TestExtractNestedProp(t *testing.T) {
 			}
 			relativePath := tt.path[strings.Index(tt.path, ".")+1:]
 			assert.Equal(t, tt.wantProp, pv.prop)
-			assert.Equal(t, relativePath, pv.nestedRelPath)
-			assert.True(t, pv.isNested)
+			assert.Equal(t, relativePath, pv.nested.relPath)
+			assert.True(t, pv.nested.isNested)
 			assert.True(t, pv.hasFilterableIndex)
 			if tt.wantValue != nil {
 				assert.Equal(t, tt.wantValue, pv.value)
@@ -210,7 +210,7 @@ func TestExtractNestedProp(t *testing.T) {
 
 // TestExtractPropValuePairNestedGrouping verifies that extractPropValuePair
 // correctly groups nested AND children via groupNestedByProp, with special
-// attention to multi-token text conditions (isCorrelatedNested + childrenFromTokenization).
+// attention to multi-token text conditions (nested.isCorrelated + nested.childrenFromTokenization).
 func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	s := newTestSearcher()
 
@@ -224,7 +224,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	t.Run("standalone multi-token nested text", func(t *testing.T) {
 		// input:  nested.title = "hello world"
 		// output:
-		// └── correlated(nested)  ← isCorrelatedNested=true, childrenFromTokenization=true
+		// └── correlated(nested)  ← nested.isCorrelated=true, nested.childrenFromTokenization=true
 		//     ├── title:"hello"
 		//     └── title:"world"
 		clause := makeNestedFilterClause("nested.title", filters.OperatorEqual, schema.DataTypeText, "hello world")
@@ -232,8 +232,8 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, filters.OperatorAnd, pv.operator)
-		assert.True(t, pv.isCorrelatedNested)
-		assert.True(t, pv.childrenFromTokenization)
+		assert.True(t, pv.nested.isCorrelated)
+		assert.True(t, pv.nested.childrenFromTokenization)
 		assert.Equal(t, "nested", pv.prop)
 		require.Len(t, pv.children, 2)
 		assert.Equal(t, []byte("hello"), pv.children[0].value)
@@ -243,8 +243,8 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	t.Run("multi-token nested text alongside scalar nested condition", func(t *testing.T) {
 		// input:  AND(nested.title = "hello world", nested.city = "berlin")
 		// output:
-		// └── correlated(nested)        ← isCorrelatedNested=true, childrenFromTokenization=false
-		//     ├── correlated(nested)    ← isCorrelatedNested=true, childrenFromTokenization=true (title tokens)
+		// └── correlated(nested)        ← nested.isCorrelated=true, nested.childrenFromTokenization=false
+		//     ├── correlated(nested)    ← nested.isCorrelated=true, nested.childrenFromTokenization=true (title tokens)
 		//     │   ├── title:"hello"
 		//     │   └── title:"world"
 		//     └── city:"berlin"
@@ -257,15 +257,15 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.Len(t, pv.children, 1, "both conditions grouped under one correlated(nested) node")
 
 		group := pv.children[0]
-		assert.True(t, group.isCorrelatedNested)
-		assert.False(t, group.childrenFromTokenization)
+		assert.True(t, group.nested.isCorrelated)
+		assert.False(t, group.nested.childrenFromTokenization)
 		assert.Equal(t, "nested", group.prop)
 		require.Len(t, group.children, 2)
 
 		// first child: the tokenization compound AND for "hello world"
 		tokenAnd := group.children[0]
-		assert.True(t, tokenAnd.isCorrelatedNested)
-		assert.True(t, tokenAnd.childrenFromTokenization)
+		assert.True(t, tokenAnd.nested.isCorrelated)
+		assert.True(t, tokenAnd.nested.childrenFromTokenization)
 		assert.Equal(t, filters.OperatorAnd, tokenAnd.operator)
 		require.Len(t, tokenAnd.children, 2)
 		assert.Equal(t, []byte("hello"), tokenAnd.children[0].value)
@@ -273,10 +273,10 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		// second child: the scalar city leaf
 		cityLeaf := group.children[1]
-		assert.True(t, cityLeaf.isNested)
-		assert.False(t, cityLeaf.isCorrelatedNested)
+		assert.True(t, cityLeaf.nested.isNested)
+		assert.False(t, cityLeaf.nested.isCorrelated)
 		assert.Equal(t, []byte("berlin"), cityLeaf.value)
-		assert.Equal(t, "city", cityLeaf.nestedRelPath)
+		assert.Equal(t, "city", cityLeaf.nested.relPath)
 	})
 }
 
@@ -329,8 +329,8 @@ func TestExtractPropValuePairNestedRouting(t *testing.T) {
 
 			relativePath := tt.path[strings.Index(tt.path, ".")+1:]
 			assert.Equal(t, tt.wantProp, pv.prop)
-			assert.Equal(t, tt.wantNested, pv.isNested)
-			assert.Equal(t, relativePath, pv.nestedRelPath)
+			assert.Equal(t, tt.wantNested, pv.nested.isNested)
+			assert.Equal(t, relativePath, pv.nested.relPath)
 			assert.Equal(t, tt.operator, pv.operator)
 		})
 	}

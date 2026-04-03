@@ -106,10 +106,9 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 		pvps = append(pvps, &propValuePair{
 			prop:               propName,
 			value:              []byte(term),
-			nestedRelPath:      relativePath,
 			operator:           filter.Operator,
 			hasFilterableIndex: true,
-			isNested:           true,
+			nested:             nestedInfo{isNested: true, relPath: relativePath},
 			Class:              class,
 		})
 	}
@@ -120,7 +119,7 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 	if len(pvps) == 1 {
 		return pvps[0], nil
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: pvps, childrenFromTokenization: true, isCorrelatedNested: true, prop: propName, Class: class}, nil
+	return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 }
 
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
@@ -158,10 +157,9 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, 
 	return &propValuePair{
 		prop:               propName,
 		value:              encodedValue,
-		nestedRelPath:      relativePath,
 		operator:           filter.Operator,
 		hasFilterableIndex: true,
-		isNested:           true,
+		nested:             nestedInfo{isNested: true, relPath: relativePath},
 		Class:              class,
 	}, nil
 }

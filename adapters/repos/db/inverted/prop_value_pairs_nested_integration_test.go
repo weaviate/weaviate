@@ -123,9 +123,8 @@ func makeLeafPvp(class *models.Class, prop, relPath, term string) *propValuePair
 		prop:               prop,
 		value:              []byte(term),
 		operator:           filters.OperatorEqual,
-		nestedRelPath:      relPath,
 		hasFilterableIndex: true,
-		isNested:           true,
+		nested:             nestedInfo{isNested: true, relPath: relPath},
 		Class:              class,
 	}
 }
@@ -134,7 +133,7 @@ func makeLeafPvp(class *models.Class, prop, relPath, term string) *propValuePair
 func makeCorrelatedPvp(class *models.Class, prop string, children ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		operator:           filters.OperatorAnd,
-		isCorrelatedNested: true,
+		nested:             nestedInfo{isCorrelated: true},
 		prop:               prop,
 		children:           children,
 		Class:              class,
@@ -240,8 +239,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		pv := makeCorrelatedPvp(class, "cars",
 			&propValuePair{
 				prop: "cars", value: widthVal, operator: filters.OperatorEqual,
-				nestedRelPath: "tires.width", hasFilterableIndex: true,
-				isNested: true, Class: class,
+				hasFilterableIndex: true,
+				nested: nestedInfo{isNested: true, relPath: "tires.width"}, Class: class,
 			},
 			makeLeafPvp(class, "cars", "accessories.type", "spoiler"),
 		)
@@ -275,8 +274,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		pv := makeCorrelatedPvp(class, "cars",
 			&propValuePair{
 				prop: "cars", value: widthVal, operator: filters.OperatorEqual,
-				nestedRelPath: "tires.width", hasFilterableIndex: true,
-				isNested: true, Class: class,
+				hasFilterableIndex: true,
+				nested: nestedInfo{isNested: true, relPath: "tires.width"}, Class: class,
 			},
 			makeLeafPvp(class, "cars", "accessories.type", "spoiler"),
 		)

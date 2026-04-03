@@ -415,23 +415,22 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 
 // groupNestedByProp rewrites a flat slice of AND children so that conditions
 // targeting the same top-level nested property are grouped into a single
-// isCorrelatedNested AND node that the resolver will handle with position-aware
+// nested.isCorrelated AND node that the resolver will handle with position-aware
 // same-element semantics. Flat (non-nested) conditions and nested conditions
 // from different props are returned unchanged in their original order.
 //
 // A child is eligible for grouping when it is:
-//   - a direct nested leaf (isNested == true), or
-//   - a tokenization-produced compound AND (childrenFromTokenization == true)
-//     whose first grandchild is nested — all grandchildren share the same prop.
+//   - a direct nested leaf (nested.isNested == true), or
+//   - a tokenization-produced compound AND (nested.isCorrelated == true)
 //
 // If no nested children are found, the original slice is returned as-is.
 // Single-child groups are kept as plain children (no wrapper node created).
 // nestedPropName returns the root property name for a child eligible for
 // correlated grouping, or "" if the child is flat and should pass through.
-// Eligible children are direct nested leaves (isNested == true) or
-// tokenization-produced compound ANDs (isCorrelatedNested == true).
+// Eligible children are direct nested leaves or tokenization compound ANDs
+// (both marked via nested.isNested or nested.isCorrelated respectively).
 func nestedPropName(child *propValuePair) string {
-	if child.isNested || child.isCorrelatedNested {
+	if child.nested.isNested || child.nested.isCorrelated {
 		return child.prop
 	}
 	return ""
@@ -476,7 +475,7 @@ func groupNestedByProp(children []*propValuePair, class *models.Class) []*propVa
 		} else {
 			result = append(result, &propValuePair{
 				operator:           filters.OperatorAnd,
-				isCorrelatedNested: true,
+				nested:             nestedInfo{isCorrelated: true},
 				prop:               prop,
 				children:           group,
 				Class:              class,

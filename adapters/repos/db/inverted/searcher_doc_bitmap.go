@@ -98,7 +98,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, nested.PathPrefix(pv.nestedRelPath))
+	rr := NewRowReaderRoaringSetWithPrefix(b, pv.value, pv.operator, false, nested.PathPrefix(pv.nested.relPath))
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
