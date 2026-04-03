@@ -21,11 +21,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -676,8 +677,13 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
-	if err := op.updateSchema(); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
+	schemaErr := op.updateSchema()
+	// ErrShardNotFound is a partial-success condition: the schema was updated for all
+	// tenants that exist, and req.Tenants was already filtered to only those valid tenants.
+	// We must still propagate the update to the DB for those valid tenants, so only
+	// hard failures cause an early return here.
+	if schemaErr != nil && !errors.Is(schemaErr, ErrShardNotFound) {
+		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
 	}
 
 	if op.enableSchemaCallback && s.db != nil {
@@ -690,6 +696,10 @@ func (s *SchemaManager) apply(op applyOp) error {
 		if err := op.updateStore(); err != nil {
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
+	}
+
+	if schemaErr != nil {
+		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
 	}
 
 	return nil

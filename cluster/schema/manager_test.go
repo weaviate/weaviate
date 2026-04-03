@@ -21,12 +21,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-
 	"github.com/stretchr/testify/require"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
-
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -325,6 +324,104 @@ func TestPropertiesMigration(t *testing.T) {
 	require.False(t, *(class.Properties[0].NestedProperties[0].IndexRangeFilters))
 	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
 	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
+}
+
+// TestApplyPartialTenantUpdate verifies that apply() correctly handles ErrShardNotFound
+// as a partial-success condition: updateStore must be called even when updateSchema returns
+// ErrShardNotFound (some tenants were missing), because req.Tenants is already filtered to
+// only the valid tenants by the time UpdateTenants returns.
+func TestApplyPartialTenantUpdate(t *testing.T) {
+	hardErr := fmt.Errorf("hard schema failure")
+	storeErr := fmt.Errorf("store failure")
+
+	tests := []struct {
+		name            string
+		op              applyOp
+		wantStoreCalled bool
+		wantErr         error
+	}{
+		{
+			name: "validation fails when op name is empty",
+			op: applyOp{
+				updateSchema: func() error { return nil },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: false,
+			wantErr:         fmt.Errorf("could not validate raft apply op"),
+		},
+		{
+			name: "hard schema error skips updateStore",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return hardErr },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: false,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "ErrShardNotFound calls updateStore and returns schema error",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return fmt.Errorf("%w: [Tenant-0]", ErrShardNotFound) },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: true,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "ErrShardNotFound with schemaOnly skips updateStore",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return fmt.Errorf("%w: [Tenant-0]", ErrShardNotFound) },
+				updateStore:  func() error { return nil },
+				schemaOnly:   true,
+			},
+			wantStoreCalled: false,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "both succeed returns no error",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return nil },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: true,
+			wantErr:         nil,
+		},
+		{
+			name: "store failure returns errDB",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return nil },
+				updateStore:  func() error { return storeErr },
+			},
+			wantStoreCalled: true,
+			wantErr:         errDB,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			storeCalled := false
+			origStore := tc.op.updateStore
+			tc.op.updateStore = func() error {
+				storeCalled = true
+				return origStore()
+			}
+
+			sm := &SchemaManager{}
+			err := sm.apply(tc.op)
+
+			assert.Equal(t, tc.wantStoreCalled, storeCalled, "updateStore called mismatch")
+			if tc.wantErr == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.wantErr.Error())
+			}
+		})
+	}
 }
 
 type MockShardReader struct {
