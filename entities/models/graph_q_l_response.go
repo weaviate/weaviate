@@ -35,6 +35,9 @@ type GraphQLResponse struct {
 
 	// Array with errors.
 	Errors []*GraphQLError `json:"errors,omitempty"`
+
+	// QueryVector is the vector used to search.
+	QueryVector []float32 `json:"query_vector,omitempty"`
 }
 
 // Validate validates this graph q l response

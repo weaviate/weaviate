@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -92,7 +93,15 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	if len(moduleParams) == 1 {
 		for name, value := range moduleParams {
-			return v.vectorFromModules(ctx, className, name, value, tenant, targetVector)
+			vec, err := v.vectorFromModules(ctx, className, name, value, tenant, targetVector)
+			if err == nil && ctx != nil {
+				if vPtr, ok := ctx.Value(dto.QueryVectorKey).(*[]float32); ok {
+					if floatVec, ok := vec.([]float32); ok {
+						*vPtr = floatVec
+					}
+				}
+			}
+			return vec, err
 		}
 	}
 
@@ -100,7 +109,15 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 		if index >= len(nearVector.Vectors) {
 			return nil, fmt.Errorf("nearVector.vectorFromParams was called with invalid index")
 		}
-		return nearVector.Vectors[index], nil
+		vec := nearVector.Vectors[index]
+		if ctx != nil {
+			if vPtr, ok := ctx.Value(dto.QueryVectorKey).(*[]float32); ok {
+				if floatVec, ok := vec.([]float32); ok {
+					*vPtr = floatVec
+				}
+			}
+		}
+		return vec, nil
 	}
 
 	if nearObject != nil {
@@ -109,6 +126,13 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
 
+		if ctx != nil {
+			if vPtr, ok := ctx.Value(dto.QueryVectorKey).(*[]float32); ok {
+				if floatVec, ok := vector.([]float32); ok {
+					*vPtr = floatVec
+				}
+			}
+		}
 		return vector, nil
 	}
 
