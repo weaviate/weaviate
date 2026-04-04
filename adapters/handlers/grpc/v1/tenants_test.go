@@ -26,23 +26,23 @@ func TestGRPCTenants(t *testing.T) {
 		activityStatus     string
 	}{
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE,
 			activityStatus:     models.TenantActivityStatusHOT,
 		},
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_INACTIVE,
 			activityStatus:     models.TenantActivityStatusCOLD,
 		},
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED,
 			activityStatus:     models.TenantActivityStatusFROZEN,
 		},
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADING,
 			activityStatus:     types.TenantActivityStatusFREEZING,
 		},
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFREEZING,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ONLOADING,
 			activityStatus:     types.TenantActivityStatusUNFREEZING,
 		},
 	}

@@ -59,6 +59,21 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 }
 
 func tenantToGRPC(tenant *models.Tenant) (*pb.Tenant, error) {
+	// switch deprecated names to new names
+	switch tenant.ActivityStatus {
+	case models.TenantActivityStatusHOT:
+		tenant.ActivityStatus = models.TenantActivityStatusACTIVE
+	case models.TenantActivityStatusCOLD:
+		tenant.ActivityStatus = models.TenantActivityStatusINACTIVE
+	case models.TenantActivityStatusFROZEN:
+		tenant.ActivityStatus = models.TenantActivityStatusOFFLOADED
+	case models.TenantActivityStatusFREEZING:
+		tenant.ActivityStatus = models.TenantActivityStatusOFFLOADING
+	case models.TenantActivityStatusUNFREEZING:
+		tenant.ActivityStatus = models.TenantActivityStatusONLOADING
+	default:
+	}
+
 	status, ok := pb.TenantActivityStatus_value[fmt.Sprintf("TENANT_ACTIVITY_STATUS_%s", tenant.ActivityStatus)]
 	if !ok {
 		return nil, fmt.Errorf("unknown tenant activity status %s", tenant.ActivityStatus)

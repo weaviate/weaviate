@@ -140,11 +140,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 				require.Nil(t, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED))
 		})
 
 		t.Run("verify tenant does not exists", func(t *testing.T) {
@@ -167,11 +167,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 				require.Nil(t, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_ACTIVE))
 		})
 
 		t.Run("verify object creation", func(t *testing.T) {
@@ -296,7 +296,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 			require.Nil(t, err)
 			for _, tn := range resp.Tenants {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD, tn.ActivityStatus)
+					require.Equal(t, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_INACTIVE, tn.ActivityStatus)
 					break
 				}
 			}
@@ -317,11 +317,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 				require.Nil(t, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_OFFLOADED))
 		})
 
 		t.Run("verify tenant does not exists", func(t *testing.T) {
@@ -344,11 +344,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 				require.Nil(t, err)
 				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_INACTIVE, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_INACTIVE))
 		})
 	})
 }
