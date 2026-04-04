@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
@@ -56,8 +57,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 
 	if existing == nil {
-		// nothing to do
-		return nil
+		return objects.NewErrNotFound("object with id '%s' not found", id)
 	}
 
 	// we need the doc ID so we can clean up inverted indices currently
