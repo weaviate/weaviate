@@ -126,7 +126,7 @@ func (h *hnsw) checkAndCompress() error {
 					if singleVector {
 						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 							func(index uint64) {
-								if data[index] == nil {
+								if len(data[index]) == 0 {
 									return
 								}
 								h.compressor.Preload(index, data[index])
