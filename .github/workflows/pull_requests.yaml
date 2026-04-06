@@ -99,7 +99,7 @@ jobs:
           echo "All security scans passed - proceeding with push"
 
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -146,7 +146,7 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -407,7 +407,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -485,7 +485,7 @@ jobs:
           go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -521,7 +521,7 @@ jobs:
           go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -677,7 +677,7 @@ jobs:
           go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -718,7 +718,7 @@ jobs:
           go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -765,7 +765,7 @@ jobs:
           go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
