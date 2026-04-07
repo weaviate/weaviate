@@ -355,8 +355,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// we'll return an error but any other successful shard will be updated.
 	// If we're not adding a new shard we'll then check if the activity status needs to be changed
 	// If the activity status is changed we will deep copy the tenant and update the status
-	missingShards := []string{}
-	transitionalErrors := []string{}
+	var partialErrs []error
 	writeIndex := 0
 
 	for i, requestTenant := range req.Tenants {
@@ -364,7 +363,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
-			missingShards = append(missingShards, requestTenant.Name)
+			partialErrs = append(partialErrs, fmt.Errorf("%w: %s", ErrShardNotFound, requestTenant.Name))
 			continue
 		}
 
@@ -380,8 +379,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == models.TenantActivityStatusFROZEN {
 				continue
 			}
-			transitionalErrors = append(transitionalErrors,
-				fmt.Sprintf("tenant %q is currently being frozen, cannot change status to %s", requestTenant.Name, requestTenant.Status))
+			partialErrs = append(partialErrs, fmt.Errorf("%w: tenant %q is currently being frozen, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, requestTenant.Status))
 			continue
 		case types.TenantActivityStatusUNFREEZING:
 			// Allow requests that match the status the ongoing unfreeze is targeting.
@@ -398,8 +397,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == statusInProgress {
 				continue
 			}
-			transitionalErrors = append(transitionalErrors,
-				fmt.Sprintf("tenant %q is currently being unfrozen to %s, cannot change status to %s", requestTenant.Name, statusInProgress, requestTenant.Status))
+			partialErrs = append(partialErrs, fmt.Errorf("%w: tenant %q is currently being unfrozen to %s, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, statusInProgress, requestTenant.Status))
 			continue
 		}
 
@@ -451,19 +450,15 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Remove the ignore tenants from the request to act as filter on the subsequent DB update
 	req.Tenants = req.Tenants[:writeIndex]
 
-	// Check for any missing shard or transitional-state conflict to return an error.
-	// Non-conflicting tenants in the same request are still processed (partial success).
+	// Wrap any partial errors (missing shards, transitional-state conflicts) so
+	// apply() knows to still call updateStore() for the tenants that succeeded.
 	var err error
-	if len(missingShards) > 0 {
-		err = &PartialUpdateError{Err: fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)}
-	}
-	if len(transitionalErrors) > 0 {
-		transitionalErr := fmt.Errorf("%w: %v", ErrTenantTransitionalState, strings.Join(transitionalErrors, "; "))
-		if err != nil {
-			err = fmt.Errorf("%w; %w", err, transitionalErr)
-		} else {
-			err = transitionalErr
+	if len(partialErrs) > 0 {
+		msgs := make([]string, len(partialErrs))
+		for i, e := range partialErrs {
+			msgs[i] = e.Error()
 		}
+		err = &PartialUpdateError{Errs: partialErrs, msg: strings.Join(msgs, "; ")}
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
