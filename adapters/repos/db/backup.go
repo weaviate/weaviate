@@ -251,7 +251,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	desc.StagingDir = stagingRoot
 
-	shardNames, err := i.localShardNames()
+	shardNames, state, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
@@ -293,7 +293,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		}
 	}
 
-	return i.marshalBackupMetadata(desc)
+	return i.marshalBackupMetadata(desc, state)
 }
 
 // backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
@@ -453,39 +453,26 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}()
 
-	shardNames, err := i.localShardNames()
+	shardNames, state, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
-	eg.SetLimit(_NUMCPU)
-	mu := sync.Mutex{}
 	shards := map[string]*backup.ShardDescriptor{}
-
 	for _, name := range shardNames {
-		eg.Go(func() error {
-			if i.closingCtx.Err() != nil {
+		if i.closingCtx.Err() != nil {
+			return fmt.Errorf("backup of %s aborted: %w", name, i.closingCtx.Err())
+		}
+		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
+		if err != nil {
+			if errors.Is(err, errFrozenShard) {
 				return nil
 			}
-			sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
-			if err != nil {
-				if errors.Is(err, errFrozenShard) {
-					return nil
-				}
-				return err
-			}
-			if sd != nil {
-				mu.Lock()
-				shards[name] = sd
-				mu.Unlock()
-			}
-			return nil
-		})
-	}
-
-	if err := eg.Wait(); err != nil {
-		return fmt.Errorf("backup shards without hardlinks: %w", err)
+			return err
+		}
+		if sd != nil {
+			shards[name] = sd
+		}
 	}
 
 	// Preserve original shard order from sharding state.
@@ -495,7 +482,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}
 
-	return i.marshalBackupMetadata(desc)
+	return i.marshalBackupMetadata(desc, state)
 }
 
 // backupShardWithoutHardlinks backs up a single shard without hardlinks. Compaction
@@ -610,9 +597,9 @@ func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*back
 }
 
 // marshalBackupMetadata marshals sharding state, schema, and aliases into the class descriptor.
-func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor) error {
+func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState *sharding.State) error {
 	var err error
-	if desc.ShardingState, err = i.marshalShardingState(); err != nil {
+	if desc.ShardingState, err = shardingState.JSON(); err != nil {
 		return fmt.Errorf("marshal sharding state %w", err)
 	}
 	if desc.Schema, err = i.marshalSchema(); err != nil {
@@ -729,27 +716,6 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 	return lastErr
 }
 
-func (i *Index) marshalShardingState() ([]byte, error) {
-	var jsonBytes []byte
-	err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("unable to retrieve sharding state for class %s", i.Config.ClassName.String())
-		}
-		bytes, jsonErr := state.JSON()
-		if jsonErr != nil {
-			return jsonErr
-		}
-
-		jsonBytes = bytes
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "marshal sharding state")
-	}
-
-	return jsonBytes, nil
-}
-
 func (i *Index) marshalSchema() ([]byte, error) {
 	b, err := i.getSchema.ReadOnlyClass(i.Config.ClassName.String()).MarshalBinary()
 	if err != nil {
@@ -759,25 +725,25 @@ func (i *Index) marshalSchema() ([]byte, error) {
 	return b, err
 }
 
-// localShardNames reads the sharding state and returns the names of all shards
-// that belong to this node, regardless of tenant status. This is used as the single
-// source of truth for which shards to back up, avoiding the race condition of
-// iterating two separate data structures.
-func (i *Index) localShardNames() ([]string, error) {
+// readSchema reads the sharding state and returns the names of all shards
+// that belong to this node, regardless of tenant status, and the overall sharding state.
+// This is used as the single source of truth for which shards to back up, avoiding the race condition
+// of iterating two separate data structures.
+func (i *Index) readSchema() (shards []string, state *sharding.State, err error) {
 	nodeName := i.getSchema.NodeName()
-	var names []string
-	err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
+	err = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, s *sharding.State) error {
+		if s == nil {
 			return nil
 		}
+		state = s
 		for shardName, phys := range state.Physical {
 			if phys.IsLocalShard(nodeName) {
-				names = append(names, shardName)
+				shards = append(shards, shardName)
 			}
 		}
 		return nil
 	})
-	return names, err
+	return
 }
 
 // listInactiveShardFiles reads an INACTIVE (unloaded) shard's data directly from the
