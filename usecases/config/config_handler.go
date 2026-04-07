@@ -594,6 +594,9 @@ type Export struct {
 	// Bucket is the storage bucket used for exports (e.g. S3 bucket name).
 	// Not required for backends that do not use buckets (e.g. filesystem).
 	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
+
+	// Path is the default path prefix within the bucket or filesystem for exports.
+	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
 }
 
 const (

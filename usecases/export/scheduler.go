@@ -131,7 +131,7 @@ func (s *Scheduler) StartShutdown() {
 }
 
 // Export starts a new export operation.
-func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, path string) (*models.ExportCreateResponse, error) {
+func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string) (*models.ExportCreateResponse, error) {
 	if !s.exportConfig.Enabled.Get() {
 		return nil, ErrExportDisabled
 	}
@@ -146,6 +146,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 	}
 
 	bucket := s.exportConfig.DefaultBucket.Get()
+	path := s.exportConfig.DefaultPath.Get()
 	if bucket == "" && requiresBucket(backend) {
 		return nil, fmt.Errorf("%w: EXPORT_DEFAULT_BUCKET is required for backend %q", ErrExportValidation, backend)
 	}
@@ -229,7 +230,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 // Status retrieves the status of an export.
 // Assembles status from metadata's NodeAssignments + per-node status files.
-func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, path string) (*models.ExportStatusResponse, error) {
+func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id string) (*models.ExportStatusResponse, error) {
 	if !s.exportConfig.Enabled.Get() {
 		return nil, ErrExportDisabled
 	}
@@ -237,6 +238,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 		return nil, err
 	}
 	bucket := s.exportConfig.DefaultBucket.Get()
+	path := s.exportConfig.DefaultPath.Get()
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
@@ -309,7 +311,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // is kept so operators can inspect what was exported before the cancellation
 // and to avoid the complexity of distributed garbage collection across
 // storage backends. The same applies to failed exports.
-func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, path string) error {
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id string) error {
 	if !s.exportConfig.Enabled.Get() {
 		return ErrExportDisabled
 	}
@@ -317,6 +319,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 	bucket := s.exportConfig.DefaultBucket.Get()
+	path := s.exportConfig.DefaultPath.Get()
 	backendStore, err := s.backends.BackupBackend(backend)
 	if err != nil {
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)

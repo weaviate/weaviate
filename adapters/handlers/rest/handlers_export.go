@@ -44,13 +44,8 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 	include := params.Body.Include
 	exclude := params.Body.Exclude
 
-	path := ""
-	if params.Body.Config != nil {
-		path = params.Body.Config.Path
-	}
-
 	// Start export
-	resp, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude, path)
+	resp, err := h.scheduler.Export(params.HTTPRequest.Context(), principal, id, backend, include, exclude)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
@@ -81,13 +76,8 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	path := ""
-	if params.Path != nil {
-		path = *params.Path
-	}
-
 	status, err := h.scheduler.Status(params.HTTPRequest.Context(), principal,
-		params.Backend, params.ID, path)
+		params.Backend, params.ID)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {
@@ -117,13 +107,8 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 func (h *exportHandlers) cancelExport(params export.ExportCancelParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	path := ""
-	if params.Path != nil {
-		path = *params.Path
-	}
-
 	err := h.scheduler.Cancel(params.HTTPRequest.Context(), principal,
-		params.Backend, params.ID, path)
+		params.Backend, params.ID)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch {

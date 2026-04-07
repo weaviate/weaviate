@@ -84,12 +84,6 @@ type ExportCancelParams struct {
 	*/
 	ID string
 
-	/* Path.
-
-	   Optional path prefix within the bucket.
-	*/
-	Path *string
-
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -165,17 +159,6 @@ func (o *ExportCancelParams) SetID(id string) {
 	o.ID = id
 }
 
-// WithPath adds the path to the export cancel params
-func (o *ExportCancelParams) WithPath(path *string) *ExportCancelParams {
-	o.SetPath(path)
-	return o
-}
-
-// SetPath adds the path to the export cancel params
-func (o *ExportCancelParams) SetPath(path *string) {
-	o.Path = path
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *ExportCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -192,23 +175,6 @@ func (o *ExportCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
-	}
-
-	if o.Path != nil {
-
-		// query param path
-		var qrPath string
-
-		if o.Path != nil {
-			qrPath = *o.Path
-		}
-		qPath := qrPath
-		if qPath != "" {
-
-			if err := r.SetQueryParam("path", qPath); err != nil {
-				return err
-			}
-		}
 	}
 
 	if len(res) > 0 {

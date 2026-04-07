@@ -1216,60 +1216,6 @@ func TestExport_ExcludeFilter(t *testing.T) {
 	})
 }
 
-func TestExport_CustomConfig(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
-		},
-		ShardingConfig: map[string]interface{}{
-			"desiredCount": float64(1),
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	objects := makeObjects(className, "", 10)
-	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-
-	// Export with a custom path prefix
-	fileFormat := models.ExportCreateRequestFileFormatParquet
-	_, err := exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
-		ID:         &exportID,
-		Include:    []string{className},
-		FileFormat: &fileFormat,
-		Config: &models.ExportCreateRequestConfig{
-			Path: "custom/prefix",
-		},
-	})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, "custom/prefix")
-
-	// Verify files landed under the custom prefix in the configured bucket
-	prefix := fmt.Sprintf("custom/prefix/%s/%s", exportID, className)
-	listResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(s3Bucket),
-		Prefix: aws.String(prefix),
-	})
-	require.NoError(t, err)
-
-	var keys []string
-	for _, obj := range listResp.Contents {
-		key := aws.ToString(obj.Key)
-		if strings.HasSuffix(key, ".parquet") {
-			keys = append(keys, key)
-		}
-	}
-	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, s3Bucket)
-}
-
 func TestExport_DuplicateID(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))

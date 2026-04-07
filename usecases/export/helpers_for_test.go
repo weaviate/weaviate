@@ -399,5 +399,6 @@ func testExportConfig() config.Export {
 	return config.Export{
 		Enabled:       configRuntime.NewDynamicValue(true),
 		DefaultBucket: configRuntime.NewDynamicValue("test-bucket"),
+		DefaultPath:   configRuntime.NewDynamicValue(""),
 	}
 }
