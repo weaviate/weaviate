@@ -587,8 +587,8 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 			},
 		}
 
-		// Tenant is not HOT, so activateTenantIfInactive will call UpdateTenants
-		status := map[string]string{tenantName: models.TenantActivityStatusFROZEN}
+		// Tenant is in FREEZING (mid-freeze), so activateTenantIfInactive will call UpdateTenants
+		status := map[string]string{tenantName: models.TenantActivityStatusFREEZING}
 		_, _, err := m.activateTenantIfInactive(ctx, className, status)
 
 		require.Error(t, err)
@@ -616,11 +616,11 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 			fmt.Errorf("%w: mid-freeze", clusterSchema.ErrTenantTransitionalState),
 		)
 
-		// Wrap with autoActivateSM so QueryTenantsShards returns a non-HOT status,
-		// which triggers auto-activation.
+		// Wrap with autoActivateSM so QueryTenantsShards returns FREEZING (mid-freeze),
+		// which triggers auto-activation and matches the transitional-state scenario.
 		asm := &autoActivateSM{
 			fakeSchemaManager: sm,
-			tenantStatuses:    map[string]string{tenantName: models.TenantActivityStatusFROZEN},
+			tenantStatuses:    map[string]string{tenantName: models.TenantActivityStatusFREEZING},
 		}
 
 		m := &Manager{
