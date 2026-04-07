@@ -54,6 +54,9 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 
 func validateStopwordPresets(presets map[string][]string) error {
 	for name, words := range presets {
+		if strings.TrimSpace(name) == "" {
+			return errors.Errorf("stopwordPresets: preset name must not be empty or whitespace-only")
+		}
 		if _, ok := stopwords.Presets[name]; ok {
 			return errors.Errorf("stopwordPresets: name %q conflicts with built-in preset", name)
 		}
