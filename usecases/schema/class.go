@@ -979,6 +979,10 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 	}
 
 	if prop.TextAnalyzer.StopwordPreset != "" {
+		if prop.Tokenization != models.PropertyTokenizationWord {
+			return fmt.Errorf("property '%s': stopwordPreset is only supported with tokenization %q, got %q",
+				prop.Name, models.PropertyTokenizationWord, prop.Tokenization)
+		}
 		_, builtIn := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]
 		_, userDefined := userPresets[prop.TextAnalyzer.StopwordPreset]
 		if !builtIn && !userDefined {

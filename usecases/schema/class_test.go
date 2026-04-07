@@ -3267,6 +3267,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "en",
 			},
@@ -3279,6 +3280,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "none",
 			},
@@ -3291,6 +3293,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "invalid_language",
 			},
@@ -3305,6 +3308,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "",
 			},
@@ -3318,6 +3322,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				ASCIIFold:      true,
 				StopwordPreset: "en",
@@ -3331,6 +3336,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "none",
 			},
@@ -3348,6 +3354,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "medical",
 			},
@@ -3363,6 +3370,7 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		prop := &models.Property{
 			Name:            "test",
 			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
 			TextAnalyzer: &models.TextAnalyzerConfig{
 				StopwordPreset: "nonexistent",
 			},
@@ -3370,6 +3378,29 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 		err := validatePropertyProcessing(prop, pdt, userPresets)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown stopword preset")
+	})
+
+	t.Run("stopwordPreset with non-word tokenization is rejected", func(t *testing.T) {
+		for _, tok := range []string{
+			models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField,
+			models.PropertyTokenizationTrigram,
+		} {
+			t.Run(tok, func(t *testing.T) {
+				prop := &models.Property{
+					Name:            "test",
+					IndexSearchable: &searchable,
+					Tokenization:    tok,
+					TextAnalyzer: &models.TextAnalyzerConfig{
+						StopwordPreset: "en",
+					},
+				}
+				err := validatePropertyProcessing(prop, pdt, nil)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "stopwordPreset is only supported with tokenization")
+			})
+		}
 	})
 }
 
