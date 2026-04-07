@@ -142,6 +142,7 @@ type Config struct {
 	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
 	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`
+	MCP                              MCP                      `json:"mcp" yaml:"mcp"`
 	Profiling                        Profiling                `json:"profiling" yaml:"profiling"`
 	ResourceUsage                    ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
@@ -250,6 +251,9 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
+	// Export configures the data export feature and its storage destination.
+	Export Export `json:"export" yaml:"export"`
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
@@ -425,6 +429,12 @@ type GRPC struct {
 	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
 }
 
+type MCP struct {
+	Enabled            bool   `json:"enabled" yaml:"enabled"`
+	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string `json:"configPath" yaml:"configPath"`
+}
+
 type Profiling struct {
 	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
@@ -572,6 +582,18 @@ type CORS struct {
 	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
 	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+// Export holds operator-level configuration for data exports.
+// Both fields support runtime overrides via the runtime config YAML
+// (using flat keys export_enabled / export_default_bucket).
+type Export struct {
+	// Enabled controls whether the export API is available. Defaults to false.
+	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+
+	// Bucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// Not required for backends that do not use buckets (e.g. filesystem).
+	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
 }
 
 const (

@@ -761,14 +761,26 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "drop commitlog")
 	}
 
+	if keepFiles {
+		return nil
+	}
+
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := l.fs.Stat(dir); err == nil && !keepFiles {
-		err := l.fs.RemoveAll(dir)
-		if err != nil {
+	if _, err := l.fs.Stat(dir); err == nil {
+		if err := l.fs.RemoveAll(dir); err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
 	}
+
+	// remove snapshot directory if exists
+	sDir := snapshotDirectory(l.rootPath, l.id)
+	if _, err := l.fs.Stat(sDir); err == nil {
+		if err := l.fs.RemoveAll(sDir); err != nil {
+			return errors.Wrap(err, "delete snapshot directory")
+		}
+	}
+
 	return nil
 }
 

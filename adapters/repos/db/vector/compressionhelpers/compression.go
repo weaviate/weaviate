@@ -777,7 +777,10 @@ func NewRQCompressor(
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		quantizer, err := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		if err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
 			quantizer:         quantizer,
 			compressedStore:   store,
@@ -894,7 +897,10 @@ func NewRQMultiCompressor(
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		quantizer, err := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		if err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
 			quantizer:         quantizer,
 			compressedStore:   store,

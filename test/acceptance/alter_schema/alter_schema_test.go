@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package properties
+package alterschema
 
 import (
 	"context"
@@ -41,6 +41,11 @@ func TestProperties_SingleNode(t *testing.T) {
 
 	t.Run("delete property's index empty collection", testDeletePropertyIndexEmpty())
 	t.Run("delete property's index multi-tenant", testDeletePropertyIndexMultiTenant(compose))
+	t.Run("drop vector index", testDropVectorIndex(compose, true))
+	t.Run("drop vector index multi-tenant", testDropVectorIndexMultiTenant(compose, true))
+	// NOTE: "delete property's index" must run last because it destabilises the
+	// Weaviate container (the class is not cleaned up and the text2vec-model2vec
+	// module may leave the server in a bad state for subsequent tests).
 	t.Run("delete property's index", testDeletePropertyIndex(compose))
 }
 
@@ -60,5 +65,7 @@ func TestProperties_Cluster(t *testing.T) {
 
 	t.Run("delete property's index empty collection", testDeletePropertyIndexEmpty())
 	t.Run("delete property's index multi-tenant", testDeletePropertyIndexMultiTenant(nil))
+	t.Run("drop vector index", testDropVectorIndex(nil, false))
+	t.Run("drop vector index multi-tenant", testDropVectorIndexMultiTenant(nil, false))
 	t.Run("delete property's index", testDeletePropertyIndex(nil))
 }

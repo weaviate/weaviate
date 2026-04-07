@@ -14,10 +14,12 @@ package schema
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -155,6 +157,53 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		return err
 	}
 	return nil
+}
+
+func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
+	class *models.Class, className, vectorIndexName string,
+) error {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if class == nil {
+		return fmt.Errorf("%w: class is nil", ErrNotFound)
+	}
+
+	if vectorIndexName == "" {
+		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
+	}
+
+	if len(class.VectorConfig) == 0 {
+		return fmt.Errorf("%w: class %q has no named vector configurations", ErrValidation, className)
+	}
+
+	cfg, exists := class.VectorConfig[vectorIndexName]
+	if !exists {
+		return fmt.Errorf("%w: vector index %q not found in class %q", ErrNotFound, vectorIndexName, className)
+	}
+
+	if modelsext.IsVectorIndexDropped(cfg) {
+		// Already dropped, nothing to do.
+		return nil
+	}
+
+	// Deep-copy the VectorConfig map before mutating to avoid corrupting the
+	// live schema state visible to concurrent readers. ReadOnlyClass returns a
+	// shallow copy, so class.VectorConfig still points to the live map.
+	newVectorConfig := make(map[string]models.VectorConfig, len(class.VectorConfig))
+	maps.Copy(newVectorConfig, class.VectorConfig)
+	// Keep the vector entry in the schema but clear the index configuration.
+	// This signals that the vector data still exists in the objects bucket but
+	// the search index has been removed. The executor's UpdateClass will detect
+	// the cleared config and call the migrator to drop the index from disk.
+	newVectorConfig[vectorIndexName] = models.VectorConfig{
+		Vectorizer: cfg.Vectorizer,
+	}
+	class.VectorConfig = newVectorConfig
+
+	_, err := h.schemaManager.UpdateClass(ctx, class, nil)
+	return err
 }
 
 // DeleteClassProperty from existing Schema

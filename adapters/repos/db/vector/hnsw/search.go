@@ -235,10 +235,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		took := time.Since(start)
 		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", level), took)
 	}()
-	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -285,9 +283,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
-			h.pools.visitedListsLock.RLock()
 			h.pools.visitedLists.Return(visited)
-			h.pools.visitedListsLock.RUnlock()
+			h.pools.visitedLists.Return(visitedExp)
 
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
 			return nil, err
@@ -376,12 +373,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							// skip if we've already visited this neighbor
 							continue
 						}
-						if !visitedExp.Visited(nodeId) {
+						if !visitedExp.CheckAndVisit(nodeId) {
 							if !isMultivec {
 								if allowList.Contains(nodeId) {
 									connectionsReusable[realLen] = nodeId
 									realLen++
-									visitedExp.Visit(nodeId)
 									continue
 								}
 							} else {
@@ -394,14 +390,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								if allowList.Contains(docID) {
 									connectionsReusable[realLen] = nodeId
 									realLen++
-									visitedExp.Visit(nodeId)
 									continue
 								}
 							}
 						} else {
 							continue
 						}
-						visitedExp.Visit(nodeId)
 
 						h.RLock()
 						h.shardedNodeLocks.RLock(nodeId)
@@ -414,7 +408,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						iterator := node.connections.ElementIterator(uint8(level))
 						for iterator.Next() {
 							_, expId := iterator.Current()
-							if visitedExp.Visited(expId) {
+							if visitedExp.CheckAndVisit(expId) {
 								continue
 							}
 							if visited.Visited(expId) {
@@ -427,11 +421,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 							if !isMultivec {
 								if allowList.Contains(expId) {
-									visitedExp.Visit(expId)
 									connectionsReusable[realLen] = expId
 									realLen++
 								} else if hop < maxHops {
-									visitedExp.Visit(expId)
 									pendingNextRound = append(pendingNextRound, expId)
 								}
 							} else {
@@ -442,11 +434,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 									docID, _ = h.cache.GetKeys(expId)
 								}
 								if allowList.Contains(docID) {
-									visitedExp.Visit(expId)
 									connectionsReusable[realLen] = expId
 									realLen++
 								} else if hop < maxHops {
-									visitedExp.Visit(expId)
 									pendingNextRound = append(pendingNextRound, expId)
 								}
 							}
@@ -462,13 +452,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
-			if ok := visited.Visited(neighborID); ok {
+			if visited.CheckAndVisit(neighborID) {
 				// skip if we've already visited this neighbor
 				continue
 			}
-
-			// make sure we never visit this neighbor again
-			visited.Visit(neighborID)
 
 			if strategy == RRE && level == 0 {
 				if isMultivec {
@@ -498,10 +485,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				} else {
-					h.pools.visitedListsLock.RLock()
 					h.pools.visitedLists.Return(visited)
 					h.pools.visitedLists.Return(visitedExp)
-					h.pools.visitedListsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
 			}
@@ -560,17 +545,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.pools.visitedListsLock.RLock()
 	h.pools.visitedLists.Return(visited)
 	h.pools.visitedLists.Return(visitedExp)
-	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList *visited.SparseSet, allowList helpers.AllowList,
 ) {
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {

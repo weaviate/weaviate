@@ -307,6 +307,11 @@
             }
           }
         },
+        "mcp": {
+          "type": "object",
+          "description": "resources applicable for MCP actions",
+          "properties": {}
+        },
         "action": {
           "type": "string",
           "description": "Allowed actions in weaviate.",
@@ -344,7 +349,8 @@
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         }
       },
@@ -609,10 +615,6 @@
           "type": "object",
           "description": "Backend-specific configuration",
           "properties": {
-            "bucket": {
-              "type": "string",
-              "description": "Bucket, container, or volume name for cloud storage backends"
-            },
             "path": {
               "type": "string",
               "description": "Path prefix within the bucket or filesystem"
@@ -959,6 +961,83 @@
               "target"
             ]
           }
+        }
+      }
+    },
+    "TokenizeRequest": {
+      "description": "Request body for the generic tokenize endpoint.",
+      "type": "object",
+      "required": ["text", "tokenization"],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize.",
+          "type": "string"
+        },
+        "tokenization": {
+          "description": "The tokenization method to apply.",
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field",
+            "trigram",
+            "gse",
+            "kagome_kr",
+            "kagome_ja",
+            "gse_ch"
+          ]
+        },
+        "analyzerConfig": {
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
+        }
+      }
+    },
+    "TokenizeResponse": {
+      "description": "Response from the tokenize endpoint.",
+      "type": "object",
+      "properties": {
+        "tokenization": {
+          "description": "The tokenization method that was applied.",
+          "type": "string"
+        },
+        "analyzerConfig": {
+          "description": "The text analyzer configuration that was used, if any.",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "indexed": {
+          "description": "The tokens as they would be stored in the inverted index.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PropertyTokenizeRequest": {
+      "description": "Request body for the property-specific tokenize endpoint.",
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize using the property's configured tokenization.",
+          "type": "string"
         }
       }
     },
@@ -1557,8 +1636,30 @@
           "type": "boolean",
           "x-nullable": true,
           "default": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
+      "type": "object"
+    },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "x-omitempty": true,
       "type": "object"
     },
     "VectorConfig": {
@@ -1625,6 +1726,9 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
       "type": "object"
@@ -3369,7 +3473,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.37.0-dev"
+    "version": "1.37.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -7602,6 +7706,58 @@
         "x-available-in-websocket": false
       }
     },
+    "/tokenize": {
+      "post": {
+        "summary": "Tokenize text",
+        "description": "Tokenizes the provided text using the specified tokenization method. This is a stateless utility endpoint useful for debugging and understanding how text will be processed during indexing and querying. The response includes both the indexed tokens (as stored in the inverted index) and query tokens (after optional stopword removal).",
+        "operationId": "tokenize",
+        "tags": [
+          "tokenize"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed request body."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema": {
       "get": {
         "summary": "Get all collection definitions",
@@ -7985,6 +8141,133 @@
           },
           "500": {
             "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/tokenize": {
+      "post": {
+        "summary": "Tokenize text using a property's configuration",
+        "description": "Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.",
+        "operationId": "schema.objects.properties.tokenize",
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class) containing the property.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "propertyName",
+            "description": "The name of the property whose tokenization configuration should be used.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PropertyTokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text using the property's configuration.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request body, missing required fields, or property does not have tokenization configured."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "summary": "Delete a collection's vector index.",
+        "description": "Deletes a specific vector index within a collection (`className`). The vector index to delete is identified by `vectorIndexName`.",
+        "operationId": "schema.objects.vectors.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class) containing the property.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "vectorIndexName",
+            "description": "The name of the vector index.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9315,13 +9598,6 @@
             "description": "The unique identifier of the export."
           },
           {
-            "name": "bucket",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket."
-          },
-          {
             "name": "path",
             "in": "query",
             "required": false,
@@ -9389,13 +9665,6 @@
             "required": true,
             "type": "string",
             "description": "The unique identifier of the export to cancel."
-          },
-          {
-            "name": "bucket",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional bucket name where the export is stored."
           },
           {
             "name": "path",
@@ -9738,6 +10007,35 @@
           "classifications"
         ]
       }
+    },
+    "/mcp": {
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "tags": ["mcp"],
+        "operationId": "mcp.post",
+        "consumes": ["application/json"],
+        "produces": ["application/json", "text/event-stream"],
+        "responses": {
+          "200": { "description": "JSON-RPC response or SSE stream" }
+        }
+      },
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "tags": ["mcp"],
+        "operationId": "mcp.get",
+        "produces": ["text/event-stream"],
+        "responses": {
+          "200": { "description": "SSE event stream" }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": ["mcp"],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": { "description": "Session terminated" }
+        }
+      }
     }
   },
   "produces": [
@@ -9799,6 +10097,10 @@
     {
       "name": "replication",
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks."
+    },
+    {
+      "name": "mcp",
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport."
     }
   ]
 }

@@ -143,6 +143,124 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func TestPropertyProcessingImmutability(t *testing.T) {
+	vTrue := true
+	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	baseProp := func(proc *models.TextAnalyzerConfig) *models.Property {
+		return &models.Property{
+			Name:            "title",
+			DataType:        []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			TextAnalyzer:    proc,
+		}
+	}
+
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	vic := enthnsw.NewDefaultUserConfig()
+
+	tests := []struct {
+		name        string
+		existing    *models.TextAnalyzerConfig
+		updated     *models.TextAnalyzerConfig
+		expectError bool
+	}{
+		{
+			name:        "no change - both nil",
+			existing:    nil,
+			updated:     nil,
+			expectError: false,
+		},
+		{
+			name:        "no change - both asciiFold true",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: false,
+		},
+		{
+			name:        "no change - both asciiFold false",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: false},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false},
+			expectError: false,
+		},
+		{
+			name:        "change asciiFold false to true",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: false},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: true,
+		},
+		{
+			name:        "change asciiFold true to false",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false},
+			expectError: true,
+		},
+		{
+			name:        "add processing where none existed",
+			existing:    nil,
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: true,
+		},
+		{
+			name:        "remove processing",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     nil,
+			expectError: true,
+		},
+		{
+			name:        "update asciiFoldIgnore is blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
+			expectError: true,
+		},
+		{
+			name:        "add asciiFoldIgnore is blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			expectError: true,
+		},
+		{
+			name:        "remove asciiFoldIgnore is blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: true,
+		},
+		{
+			name:        "change asciiFold while changing ignore is still blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := &models.Class{
+				Class:             "Test",
+				VectorIndexType:   hnswT,
+				VectorIndexConfig: vic,
+				ShardingConfig:    sc,
+				Properties:        []*models.Property{baseProp(tt.existing)},
+			}
+			update := &models.Class{
+				Class:             "Test",
+				VectorIndexType:   hnswT,
+				VectorIndexConfig: vic,
+				Properties:        []*models.Property{baseProp(tt.updated)},
+			}
+			_, err := p.ParseClassUpdate(old, update)
+			if tt.expectError {
+				require.Error(t, err, "expected error for: %s", tt.name)
+				require.ErrorIs(t, err, errPropertiesUpdatedInClassUpdate)
+			} else {
+				require.NoError(t, err, "unexpected error for: %s", tt.name)
+			}
+		})
+	}
+}
+
 func Test_asMap(t *testing.T) {
 	t.Run("not nil", func(t *testing.T) {
 		m, err := propertyAsMap(&models.Property{

@@ -13,18 +13,18 @@ jobs:
   update-headers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Get current year
         id: date
         run: echo "year=$(date +'%Y')" >> "$GITHUB_OUTPUT"
       - name: Install Go 1.26
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: '1.26'
       - name: Run license header update (go run)
         run: go run ./tools/license_headers/main.go
       - name: Create PR
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8
         with:
           commit-message: "chore: update license headers for ${{ steps.date.outputs.year }}"
           title: "Update license headers for ${{ steps.date.outputs.year }}"

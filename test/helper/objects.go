@@ -215,6 +215,16 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	return resp.Payload, nil
 }
 
+func CreateObjectWithResponseAuth(t *testing.T, object *models.Object, key string) (*models.Object, error) {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)

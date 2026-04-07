@@ -38,6 +38,27 @@ func GetCompressedBucketName(targetVector string) string {
 	return VectorsCompressedBucketLSM
 }
 
+func GetVectorsBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
+	}
+	return VectorsBucketLSM
+}
+
+func GetHNSWCommitLogDirName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))
+	}
+	return "main.hnsw.commitlog.d"
+}
+
+func GetHNSWSnapshotDirName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s.hnsw.snapshot.d", GetVectorsBucketName(targetVector))
+	}
+	return "main.hnsw.snapshot.d"
+}
+
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.
