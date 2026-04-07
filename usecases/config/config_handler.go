@@ -589,13 +589,16 @@ type CORS struct {
 // (using flat keys export_enabled / export_default_bucket).
 type Export struct {
 	// Enabled controls whether the export API is available. Defaults to false.
+	// Env: EXPORT_ENABLED, runtime config: export_enabled.
 	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
 
-	// Bucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// DefaultBucket is the storage bucket used for exports (e.g. S3 bucket name).
 	// Not required for backends that do not use buckets (e.g. filesystem).
+	// Env: EXPORT_DEFAULT_BUCKET, runtime config: export_default_bucket.
 	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
 
-	// Path is the default path prefix within the bucket or filesystem for exports.
+	// DefaultPath is the default path prefix within the bucket or filesystem for exports.
+	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
 	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
 }
 

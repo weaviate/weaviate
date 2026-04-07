@@ -1532,6 +1532,76 @@ func TestParsePositiveDuration(t *testing.T) {
 	}
 }
 
+func TestEnvironmentExportDefaultPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		expected string
+	}{
+		{
+			name:     "set",
+			envValue: []string{"custom/prefix"},
+			expected: "custom/prefix",
+		},
+		{
+			name:     "set with whitespace trimmed",
+			envValue: []string{"  some/path  "},
+			expected: "some/path",
+		},
+		{
+			name:     "not set defaults to empty",
+			envValue: []string{},
+			expected: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.envValue) == 1 {
+				t.Setenv("EXPORT_DEFAULT_PATH", tt.envValue[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Export.DefaultPath.Get())
+		})
+	}
+}
+
+func TestEnvironmentExportDefaultBucket(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		expected string
+	}{
+		{
+			name:     "set",
+			envValue: []string{"my-bucket"},
+			expected: "my-bucket",
+		},
+		{
+			name:     "set with whitespace trimmed",
+			envValue: []string{"  my-bucket  "},
+			expected: "my-bucket",
+		},
+		{
+			name:     "not set defaults to empty",
+			envValue: []string{},
+			expected: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.envValue) == 1 {
+				t.Setenv("EXPORT_DEFAULT_BUCKET", tt.envValue[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Export.DefaultBucket.Get())
+		})
+	}
+}
+
 func TestEnvironmentAsyncIndexing(t *testing.T) {
 	factors := []struct {
 		name     string
