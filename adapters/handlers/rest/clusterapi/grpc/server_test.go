@@ -32,12 +32,15 @@ import (
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/replica/types"
 	grpcext "google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 func Test_ServerReplicationService(t *testing.T) {
@@ -65,14 +68,17 @@ func Test_ServerReplicationService(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		name string
-		auth bool
+		name         string
+		auth         bool
+		requestQueue bool
 	}{
-		{name: "no auth", auth: false},
+		{name: "no auth"},
 		{name: "with auth", auth: true},
+		{name: "with request queue", requestQueue: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			grpcDialOpts := []grpcext.DialOption{grpcext.WithTransportCredentials(insecure.NewCredentials())}
+
 			if tt.auth {
 				pass := "password"
 				user := "username"
@@ -86,6 +92,17 @@ func Test_ServerReplicationService(t *testing.T) {
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Password = ""
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Username = ""
 			}
+
+			if tt.requestQueue {
+				state.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(true)
+				state.ServerConfig.Config.Cluster.RequestQueueConfig.NumWorkers = 10
+				state.ServerConfig.Config.Cluster.RequestQueueConfig.QueueSize = 100
+				state.ServerConfig.Config.Cluster.RequestQueueConfig.QueueFullHttpStatus = 503
+				state.ServerConfig.Config.Cluster.RequestQueueConfig.QueueShutdownTimeoutSeconds = 90
+			} else {
+				state.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled = configRuntime.NewDynamicValue(false)
+			}
+
 			mockReplicator := types.NewMockReplicator(t)
 
 			s := grpc.NewServer(grpc.Config{
@@ -339,4 +356,104 @@ func Test_ServerReplicationService(t *testing.T) {
 			})
 		})
 	}
+}
+
+func Test_ServerNodeNotReady(t *testing.T) {
+	port := 8000
+	host := fmt.Sprintf("localhost:%d", port)
+	logger, _ := test.NewNullLogger()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	state := &state.State{
+		ServerConfig: &config.WeaviateConfig{
+			Config: config.Config{
+				Cluster: cluster.Config{
+					DataBindPort: port,
+				},
+				GRPC: config.GRPC{
+					Port:         port,
+					MaxMsgSize:   1024 * 1024,
+					MaxOpenConns: 10,
+				},
+			},
+		},
+		Logger: logger,
+	}
+
+	mockReplicator := types.NewMockReplicator(t)
+
+	s := grpc.NewServer(grpc.Config{
+		State:                              state,
+		Replicator:                         mockReplicator,
+		MaintenanceModeEnabledForLocalhost: func() bool { return false },
+		NodeReady:                          func() bool { return false },
+	})
+
+	manager, err := grpcconn.NewConnManager(10, time.Second, nil, logger, grpcext.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	client := clients.NewGRPCReplicationClient(manager)
+
+	go s.Serve()
+	defer s.Close(ctx)
+
+	t.Run("DigestObjects returns error when node is not ready", func(t *testing.T) {
+		c := "C"
+		s := "S"
+		ids := []strfmt.UUID{"id1", "id2"}
+		_, err := client.DigestObjects(context.Background(), host, c, s, ids, 9)
+		require.Error(t, err)
+		require.Equal(t, codes.Unavailable, status.Code(err))
+	})
+}
+
+func Test_ServerInMaintenanceMode(t *testing.T) {
+	port := 8000
+	host := fmt.Sprintf("localhost:%d", port)
+	logger, _ := test.NewNullLogger()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	state := &state.State{
+		ServerConfig: &config.WeaviateConfig{
+			Config: config.Config{
+				Cluster: cluster.Config{
+					DataBindPort: port,
+				},
+				GRPC: config.GRPC{
+					Port:         port,
+					MaxMsgSize:   1024 * 1024,
+					MaxOpenConns: 10,
+				},
+			},
+		},
+		Logger: logger,
+	}
+
+	mockReplicator := types.NewMockReplicator(t)
+
+	s := grpc.NewServer(grpc.Config{
+		State:                              state,
+		Replicator:                         mockReplicator,
+		MaintenanceModeEnabledForLocalhost: func() bool { return true },
+		NodeReady:                          func() bool { return true },
+	})
+
+	manager, err := grpcconn.NewConnManager(10, time.Second, nil, logger, grpcext.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	client := clients.NewGRPCReplicationClient(manager)
+
+	go s.Serve()
+	defer s.Close(ctx)
+
+	t.Run("DigestObjects returns error when node is in maintenance mode", func(t *testing.T) {
+		c := "C"
+		s := "S"
+		ids := []strfmt.UUID{"id1", "id2"}
+		_, err := client.DigestObjects(context.Background(), host, c, s, ids, 9)
+		require.Error(t, err)
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	})
 }
