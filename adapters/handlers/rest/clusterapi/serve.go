@@ -99,6 +99,7 @@ func NewServer(appState *state.State) *Server {
 		FileReplicationRepo:                appState.DB,
 		FileReplicationSchema:              appState.ClusterService.SchemaReader(),
 		MaintenanceModeEnabledForLocalhost: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		NodeReady:                          appState.ClusterService.Ready,
 	})
 
 	var handler http.Handler
