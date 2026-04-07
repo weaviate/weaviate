@@ -551,7 +551,9 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 
 		// Allow dropping a vector index (clearing VectorIndexType to "").
 		// Once dropped, the entry stays in the schema but has no active index.
-		if modelsext.IsVectorIndexDropped(updatedCfg) {
+		// Also skip already-dropped vectors in the initial config to avoid
+		// false immutability violations when other vectors are being modified.
+		if modelsext.IsVectorIndexDropped(updatedCfg) || modelsext.IsVectorIndexDropped(initialCfg) {
 			continue
 		}
 
