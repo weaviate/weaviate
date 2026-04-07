@@ -42,7 +42,14 @@ func InvertedIndexConfigFromModel(m models.InvertedIndexConfig) InvertedIndexCon
 	if m.Stopwords != nil {
 		i.Stopwords = *m.Stopwords
 	}
-	i.StopwordPresets = m.StopwordPresets
+	if m.StopwordPresets != nil {
+		i.StopwordPresets = make(map[string][]string, len(m.StopwordPresets))
+		for name, words := range m.StopwordPresets {
+			wordsCopy := make([]string, len(words))
+			copy(wordsCopy, words)
+			i.StopwordPresets[name] = wordsCopy
+		}
+	}
 	i.CleanupIntervalSeconds = uint64(m.CleanupIntervalSeconds)
 	i.IndexTimestamps = m.IndexTimestamps
 	i.IndexNullState = m.IndexNullState
