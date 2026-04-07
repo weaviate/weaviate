@@ -183,7 +183,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 			"or check whether it is globally disabled at the cluster level", ErrExportValidation, noAsync)
 	}
 
-	backendStore, err := s.backends.BackupBackend(backend)
+	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
@@ -240,7 +240,7 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 	if err != nil {
 		return nil, err
 	}
-	backendStore, err := s.backends.BackupBackend(backend)
+	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
@@ -323,7 +323,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	if err != nil {
 		return err
 	}
-	backendStore, err := s.backends.BackupBackend(backend)
+	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)
 	if err != nil {
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}

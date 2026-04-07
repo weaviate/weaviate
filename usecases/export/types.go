@@ -27,7 +27,7 @@ import (
 
 // BackendProvider provides access to storage backends for export.
 type BackendProvider interface {
-	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
+	BackupBackend(backend string, useCase modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error)
 }
 
 // Selector provides access to shards and classes for export operations.

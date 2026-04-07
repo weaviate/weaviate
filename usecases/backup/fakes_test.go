@@ -44,7 +44,7 @@ type fakeBackupBackendProvider struct {
 	err     error
 }
 
-func (bsp *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+func (bsp *fakeBackupBackendProvider) BackupBackend(backend string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	return bsp.backend, bsp.err
 }
 

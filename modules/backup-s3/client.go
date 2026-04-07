@@ -91,7 +91,49 @@ func resolveCredentials(config *clientConfig, region string) (*credentials.Crede
 	return creds, nil
 }
 
+// refreshableAssumeRole is a credentials.Provider that re-resolves base
+// credentials (from env or IAM) on every refresh, then calls STS AssumeRole.
+// This ensures that rotating base credentials (e.g. IRSA tokens) are always
+// fresh when the assumed-role token needs renewal.
+type refreshableAssumeRole struct {
+	credentials.Expiry
+	config *clientConfig
+	region string
+}
+
+func (r *refreshableAssumeRole) Retrieve() (credentials.Value, error) {
+	return r.RetrieveWithCredContext(nil)
+}
+
+func (r *refreshableAssumeRole) RetrieveWithCredContext(_ *credentials.CredContext) (credentials.Value, error) {
+	creds, err := doSTSAssumeRole(r.config, r.region)
+	if err != nil {
+		return credentials.Value{}, err
+	}
+	val, err := creds.GetWithContext(nil)
+	if err != nil {
+		return credentials.Value{}, err
+	}
+	if !val.Expiration.IsZero() {
+		r.SetExpiration(val.Expiration, -1)
+	}
+	return val, nil
+}
+
 func newSTSAssumeRoleCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+	// Verify base credentials are available before returning the provider.
+	if _, err := doSTSAssumeRole(config, region); err != nil {
+		return nil, err
+	}
+	return credentials.New(&refreshableAssumeRole{
+		config: config,
+		region: region,
+	}), nil
+}
+
+// doSTSAssumeRole fetches fresh base credentials and creates a one-shot
+// STS AssumeRole credentials object.
+func doSTSAssumeRole(config *clientConfig, region string) (*credentials.Credentials, error) {
 	// Default to the regional STS endpoint for lower latency;
 	// fall back to the global endpoint if no region is set.
 	stsEndpoint := config.STSEndpoint
@@ -108,8 +150,7 @@ func newSTSAssumeRoleCredentials(config *clientConfig, region string) (*credenti
 		sessionName = "weaviate-backup-s3"
 	}
 
-	// Base credentials used to call STS. These come from the environment
-	// (static keys or IRSA-injected web identity / IAM).
+	// Fetch fresh base credentials (static env or IAM/IRSA).
 	var accessKey, secretKey, sessionToken string
 	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
 		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {

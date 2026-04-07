@@ -367,7 +367,7 @@ type fakeBackupBackendProvider struct {
 	backupsPath string
 }
 
-func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabilities.BackupBackend, error) {
+func (f *fakeBackupBackendProvider) BackupBackend(name string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	backend.setLocal(name == modstgfs.Name)
 	return backend, nil
 }

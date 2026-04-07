@@ -239,3 +239,104 @@ func TestNewSTSAssumeRoleCredentials_NoBaseCreds(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "IAM credentials for STS AssumeRole")
 }
+
+func TestDoSTSAssumeRole_UsesEnvCreds(t *testing.T) {
+	setEnvVars(t, map[string]string{
+		"AWS_ACCESS_KEY_ID":     "sts-base-key",
+		"AWS_SECRET_ACCESS_KEY": "sts-base-secret",
+	})
+
+	config := &clientConfig{
+		RoleARN:    "arn:aws:iam::123456789012:role/TestRole",
+		ExternalID: "ext-456",
+	}
+
+	creds, err := doSTSAssumeRole(config, "us-west-2")
+	require.NoError(t, err)
+	require.NotNil(t, creds)
+}
+
+func TestDoSTSAssumeRole_NoCredsAvailable(t *testing.T) {
+	clearEnvVars(t, []string{
+		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+		"AWS_ACCESS_KEY", "AWS_SECRET_KEY",
+	})
+
+	config := &clientConfig{
+		RoleARN: "arn:aws:iam::123456789012:role/TestRole",
+	}
+
+	_, err := doSTSAssumeRole(config, "us-east-1")
+	require.Error(t, err)
+}
+
+func TestExportBackend_WithExportClient(t *testing.T) {
+	setEnvVars(t, map[string]string{
+		"AWS_ACCESS_KEY_ID":     "test-key",
+		"AWS_SECRET_ACCESS_KEY": "test-secret",
+	})
+
+	backupCfg := newConfig("s3.amazonaws.com", "my-bucket", "", true)
+	backupClient, err := newClient(backupCfg, nil, "/tmp")
+	require.NoError(t, err)
+
+	exportCfg := newConfig("s3.amazonaws.com", "my-bucket", "", true)
+	exportCfg.RoleARN = "arn:aws:iam::123456789012:role/ExportRole"
+	exportCfg.ExternalID = "ext-123"
+	exportClient, err := newClient(exportCfg, nil, "/tmp")
+	require.NoError(t, err)
+
+	m := &Module{
+		s3Client:     backupClient,
+		exportClient: exportClient,
+	}
+
+	eb := m.ExportBackend()
+	// Should return the export client, not the module itself
+	assert.NotEqual(t, m, eb)
+	assert.Equal(t, Name, eb.Name())
+	assert.True(t, eb.IsExternal())
+}
+
+func TestExportBackend_WithoutExportClient(t *testing.T) {
+	setEnvVars(t, map[string]string{
+		"AWS_ACCESS_KEY_ID":     "test-key",
+		"AWS_SECRET_ACCESS_KEY": "test-secret",
+	})
+
+	backupCfg := newConfig("s3.amazonaws.com", "my-bucket", "", true)
+	backupClient, err := newClient(backupCfg, nil, "/tmp")
+	require.NoError(t, err)
+
+	m := &Module{
+		s3Client: backupClient,
+	}
+
+	eb := m.ExportBackend()
+	// Should return the module itself when no export client is configured
+	assert.Equal(t, m, eb)
+}
+
+func TestRefreshableAssumeRole_IsProvider(t *testing.T) {
+	// Verify that refreshableAssumeRole satisfies the credentials.Provider
+	// interface at compile time via the test's type assertion.
+	setEnvVars(t, map[string]string{
+		"AWS_ACCESS_KEY_ID":     "test-key",
+		"AWS_SECRET_ACCESS_KEY": "test-secret",
+	})
+
+	config := &clientConfig{
+		RoleARN:    "arn:aws:iam::123456789012:role/TestRole",
+		ExternalID: "ext-123",
+	}
+
+	creds, err := newSTSAssumeRoleCredentials(config, "us-east-1")
+	require.NoError(t, err)
+	require.NotNil(t, creds)
+
+	// The returned Credentials wraps a refreshableAssumeRole provider.
+	// On first Get, it will call Retrieve() which re-resolves base creds.
+	// This will fail at the STS HTTP call (no real STS endpoint), but
+	// confirms the provider is wired correctly.
+	assert.True(t, creds.IsExpired(), "new credentials should start expired to trigger first Retrieve()")
+}

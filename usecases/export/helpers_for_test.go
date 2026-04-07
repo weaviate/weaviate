@@ -274,7 +274,7 @@ type fakeBackendProvider struct {
 	backend modulecapabilities.BackupBackend
 }
 
-func (p *fakeBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
+func (p *fakeBackendProvider) BackupBackend(_ string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	return p.backend, nil
 }
 
