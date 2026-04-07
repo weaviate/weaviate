@@ -23,7 +23,8 @@ import (
 
 type validatorNestedProperty func(property *models.NestedProperty,
 	primitiveDataType, nestedDataType schema.DataType,
-	isPrimitive, isNested bool, propNamePrefix string) error
+	isPrimitive, isNested bool, propNamePrefix string,
+	userPresets map[string][]string) error
 
 var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyName,
@@ -35,7 +36,9 @@ var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyProcessing,
 }
 
-func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string) error {
+func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string,
+	userPresets map[string][]string,
+) error {
 	if len(properties) == 0 {
 		return fmt.Errorf("property '%s': At least one nested property is required for data type object/object[]",
 			propNamePrefix)
@@ -46,12 +49,12 @@ func validateNestedProperties(properties []*models.NestedProperty, propNamePrefi
 		nestedDataType, isNested := schema.AsNested(property.DataType)
 
 		for _, validator := range validatorsNestedProperty {
-			if err := validator(property, primitiveDataType, nestedDataType, isPrimitive, isNested, propNamePrefix); err != nil {
+			if err := validator(property, primitiveDataType, nestedDataType, isPrimitive, isNested, propNamePrefix, userPresets); err != nil {
 				return err
 			}
 		}
 		if isNested {
-			if err := validateNestedProperties(property.NestedProperties, propNamePrefix+"."+property.Name); err != nil {
+			if err := validateNestedProperties(property.NestedProperties, propNamePrefix+"."+property.Name, userPresets); err != nil {
 				return err
 			}
 		}
@@ -62,6 +65,7 @@ func validateNestedProperties(properties []*models.NestedProperty, propNamePrefi
 func validateNestedPropertyName(property *models.NestedProperty,
 	_, _ schema.DataType,
 	_, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	return schema.ValidateNestedPropertyName(property.Name, propNamePrefix)
 }
@@ -69,6 +73,7 @@ func validateNestedPropertyName(property *models.NestedProperty,
 func validateNestedPropertyDataType(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, isNested bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -94,6 +99,7 @@ func validateNestedPropertyDataType(property *models.NestedProperty,
 func validateNestedPropertyTokenization(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, isNested bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -128,6 +134,7 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -150,6 +157,7 @@ func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -178,6 +186,7 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -207,6 +216,7 @@ func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 func validateNestedPropertyProcessing(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	userPresets map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -257,7 +267,13 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 	}
 
 	if property.TextAnalyzer.StopwordPreset != "" {
-		if _, ok := stopwords.Presets[property.TextAnalyzer.StopwordPreset]; !ok {
+		if property.Tokenization != models.PropertyTokenizationWord {
+			return fmt.Errorf("property '%s': stopwordPreset is only supported with tokenization %q, got %q",
+				propName, models.PropertyTokenizationWord, property.Tokenization)
+		}
+		_, builtIn := stopwords.Presets[property.TextAnalyzer.StopwordPreset]
+		_, userDefined := userPresets[property.TextAnalyzer.StopwordPreset]
+		if !builtIn && !userDefined {
 			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
 				propName, property.TextAnalyzer.StopwordPreset)
 		}

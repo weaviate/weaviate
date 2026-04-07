@@ -706,8 +706,13 @@ func (h *Handler) validateProperty(
 			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
+		var userPresets map[string][]string
+		if class.InvertedIndexConfig != nil {
+			userPresets = class.InvertedIndexConfig.StopwordPresets
+		}
+
 		if propertyDataType.IsNested() {
-			if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			if err := validateNestedProperties(property.NestedProperties, property.Name, userPresets); err != nil {
 				return err
 			}
 		} else {
@@ -721,10 +726,6 @@ func (h *Handler) validateProperty(
 			return err
 		}
 
-		var userPresets map[string][]string
-		if class.InvertedIndexConfig != nil {
-			userPresets = class.InvertedIndexConfig.StopwordPresets
-		}
 		if err := validatePropertyProcessing(property, propertyDataType, userPresets); err != nil {
 			return err
 		}
