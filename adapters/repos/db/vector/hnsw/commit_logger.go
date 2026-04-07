@@ -745,15 +745,18 @@ func (l *hnswCommitLogger) logCombiningThreshold() int64 {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
+	// Unregister cycle manager callbacks before closing the file. The callbacks
+	// (e.g. switch_logs) access the underlying file; closing first while a
+	// callback is still running causes "file already closed" errors and then a
+	// context deadline exceeded when waiting for the callback to finish.
+	if err := l.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "drop commitlog")
+	}
+
 	l.Lock()
 	defer l.Unlock()
 	if err := l.commitLogger.Close(); err != nil {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
-	}
-
-	// stop all goroutines
-	if err := l.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "drop commitlog")
 	}
 
 	// remove commit log directory if exists

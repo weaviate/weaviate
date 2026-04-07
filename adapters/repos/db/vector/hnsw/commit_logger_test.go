@@ -203,3 +203,42 @@ func (f fakeAllocChecker) CheckMappingAndReserve(numberMappings int64, reservati
 	return nil
 }
 func (f fakeAllocChecker) Refresh(updateMappings bool) {}
+
+// TestDropDoesNotCloseFileBeforeUnregisteringCycleCallback is a regression test
+// for the race where Drop() closed the underlying commit log file before the
+// switch_logs cycle manager callback had finished (or been unregistered). This
+// caused "file already closed" errors inside the callback and a subsequent
+// context deadline exceeded when waiting for it to finish.
+//
+// The fix unregisters the callbacks (Shutdown) before acquiring the lock and
+// closing the file, ensuring no callback can access the file after it is closed.
+func TestDropDoesNotCloseFileBeforeUnregisteringCycleCallback(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	// Use a very fast ticker so the switch_logs callback fires frequently,
+	// maximising the chance of a concurrent execution during Drop.
+	cbg := cyclemanager.NewCallbackGroup("test", logger, 10)
+	ticker := cyclemanager.NewLinearTicker(1*time.Millisecond, 2*time.Millisecond, 1)
+	cm := cyclemanager.NewManager("commit-logger", ticker, cbg.CycleCallback, logger)
+
+	scratchDir := t.TempDir()
+	cl, err := NewCommitLogger(scratchDir, "main", logger, cbg)
+	require.NoError(t, err)
+
+	cl.InitMaintenance()
+	cm.Start()
+
+	// Let the cycle manager run a few iterations so the switch_logs callback
+	// is actively firing before we call Drop.
+	time.Sleep(20 * time.Millisecond)
+
+	// Drop must complete without error. The old code would either return
+	// "file already closed" (if the callback ran after Close but before
+	// Unregister) or "context deadline exceeded" (if waiting for the callback
+	// to finish timed out).
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, cl.Drop(ctx, false), "Drop should not return an error when the cycle manager is running")
+
+	cm.Stop(context.Background())
+}
