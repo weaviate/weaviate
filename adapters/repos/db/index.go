@@ -228,8 +228,11 @@ type Index struct {
 	schemaReader    schemaUC.SchemaReader
 	logger          logrus.FieldLogger
 	remote          *sharding.RemoteIndex
-	stopwords       *stopwords.Detector
-	stopwordPresets map[string]*stopwords.Detector
+	stopwords *stopwords.Detector
+	// stopwordPresets is replaced atomically when invertedIndexConfig is
+	// updated, so reads on hot query paths do not need to take
+	// invertedIndexConfigLock. Always access via getStopwordPresets().
+	stopwordPresets atomic.Pointer[map[string]*stopwords.Detector]
 	replicator      *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
@@ -381,7 +384,6 @@ func NewIndex(
 		invertedIndexConfig:     invertedIndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
-		stopwordPresets:         presetDetectors,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
 		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
@@ -401,6 +403,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
+	index.stopwordPresets.Store(&presetDetectors)
 
 	getDeletionStrategy := func() string {
 		return index.DeletionStrategy()
@@ -832,13 +835,22 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
-	i.stopwordPresets = presetDetectors
+	i.stopwordPresets.Store(&presetDetectors)
 
 	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
 	if err != nil {
 		return errors.Wrap(err, "updating inverted index config")
 	}
 
+	return nil
+}
+
+// getStopwordPresets returns the current map of user-defined stopword preset
+// detectors. Safe for concurrent use without invertedIndexConfigLock.
+func (i *Index) getStopwordPresets() map[string]*stopwords.Detector {
+	if p := i.stopwordPresets.Load(); p != nil {
+		return *p
+	}
 	return nil
 }
 

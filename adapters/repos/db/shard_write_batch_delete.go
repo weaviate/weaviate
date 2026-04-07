@@ -173,7 +173,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
-		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, s.index.stopwordPresets).
+		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, s.index.getStopwordPresets()).
 		DocIDsLimited(ctx, filters, additional.Properties{}, s.index.Config.ClassName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("docIds: %w", err)
