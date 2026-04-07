@@ -326,11 +326,11 @@ func TestPropertiesMigration(t *testing.T) {
 	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
 }
 
-// TestApplyPartialTenantUpdate verifies that apply() correctly handles ErrShardNotFound
-// as a partial-success condition: updateStore must be called even when updateSchema returns
-// ErrShardNotFound (some tenants were missing), because req.Tenants is already filtered to
-// only the valid tenants by the time UpdateTenants returns.
-func TestApplyPartialTenantUpdate(t *testing.T) {
+// TestApplyPartialSchemaErr verifies that apply() respects the partialSchemaErr flag:
+// when set, updateStore is called even when updateSchema returns an error, allowing
+// ops like UpdateTenants to commit DB changes for the tenants that were successfully
+// applied in the schema before the error is returned to the caller.
+func TestApplyPartialSchemaErr(t *testing.T) {
 	hardErr := fmt.Errorf("hard schema failure")
 	storeErr := fmt.Errorf("store failure")
 
@@ -350,7 +350,7 @@ func TestApplyPartialTenantUpdate(t *testing.T) {
 			wantErr:         fmt.Errorf("could not validate raft apply op"),
 		},
 		{
-			name: "hard schema error skips updateStore",
+			name: "schema error without flag skips updateStore",
 			op: applyOp{
 				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
 				updateSchema: func() error { return hardErr },
@@ -360,22 +360,34 @@ func TestApplyPartialTenantUpdate(t *testing.T) {
 			wantErr:         ErrSchema,
 		},
 		{
-			name: "ErrShardNotFound calls updateStore and returns schema error",
+			name: "PartialUpdateError with allowPartialSchemaErr calls updateStore",
 			op: applyOp{
-				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
-				updateSchema: func() error { return fmt.Errorf("%w: [Tenant-0]", ErrShardNotFound) },
-				updateStore:  func() error { return nil },
+				op:                    cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema:          func() error { return &PartialUpdateError{Err: ErrShardNotFound} },
+				updateStore:           func() error { return nil },
+				allowPartialSchemaErr: true,
 			},
 			wantStoreCalled: true,
 			wantErr:         ErrSchema,
 		},
 		{
-			name: "ErrShardNotFound with schemaOnly skips updateStore",
+			name: "PartialUpdateError without allowPartialSchemaErr skips updateStore",
 			op: applyOp{
 				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
-				updateSchema: func() error { return fmt.Errorf("%w: [Tenant-0]", ErrShardNotFound) },
+				updateSchema: func() error { return &PartialUpdateError{Err: ErrShardNotFound} },
 				updateStore:  func() error { return nil },
-				schemaOnly:   true,
+			},
+			wantStoreCalled: false,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "PartialUpdateError with allowPartialSchemaErr and schemaOnly skips updateStore",
+			op: applyOp{
+				op:                    cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema:          func() error { return &PartialUpdateError{Err: ErrShardNotFound} },
+				updateStore:           func() error { return nil },
+				schemaOnly:            true,
+				allowPartialSchemaErr: true,
 			},
 			wantStoreCalled: false,
 			wantErr:         ErrSchema,
@@ -418,7 +430,12 @@ func TestApplyPartialTenantUpdate(t *testing.T) {
 			if tc.wantErr == nil {
 				assert.NoError(t, err)
 			} else {
-				assert.ErrorContains(t, err, tc.wantErr.Error())
+				switch tc.wantErr {
+				case ErrSchema, errDB:
+					assert.ErrorIs(t, err, tc.wantErr)
+				default:
+					assert.ErrorContains(t, err, tc.wantErr.Error())
+				}
 			}
 		})
 	}

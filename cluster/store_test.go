@@ -465,6 +465,10 @@ func TestStoreApply(t *testing.T) {
 				// filtered (empty) tenant list before the schema error is propagated.
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
+			doAfter: func(ms *MockStore) error {
+				ms.indexer.AssertExpectations(t)
+				return nil
+			},
 		},
 		{
 			name: "UpdateTenant/HasOngoingReplication/true",

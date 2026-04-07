@@ -455,7 +455,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Non-conflicting tenants in the same request are still processed (partial success).
 	var err error
 	if len(missingShards) > 0 {
-		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
+		err = &PartialUpdateError{Err: fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)}
 	}
 	if len(transitionalErrors) > 0 {
 		transitionalErr := fmt.Errorf("%w: %v", ErrTenantTransitionalState, strings.Join(transitionalErrors, "; "))

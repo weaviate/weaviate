@@ -479,6 +479,7 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
 			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
+			allowPartialSchemaErr: true,
 		},
 	)
 }
@@ -634,6 +635,13 @@ type applyOp struct {
 	updateStore          func() error
 	schemaOnly           bool
 	enableSchemaCallback bool
+	// allowPartialSchemaErr, when true, allows updateStore to proceed when
+	// updateSchema returns a *PartialUpdateError. This is used for operations
+	// where the schema layer filters out invalid entries (e.g. missing or
+	// transitional-state tenants) and the DB must still be updated for the
+	// entries that were successfully applied.
+	// The schema error is returned to the caller after updateStore completes.
+	allowPartialSchemaErr bool
 }
 
 func (op applyOp) validate() error {
@@ -657,12 +665,11 @@ func (s *SchemaManager) apply(op applyOp) error {
 
 	// schema applied 1st to make sure any validation happen before applying it to db
 	schemaErr := op.updateSchema()
-	// ErrShardNotFound is a partial-success condition: the schema was updated for all
-	// tenants that exist, and req.Tenants was already filtered to only those valid tenants.
-	// We must still propagate the update to the DB for those valid tenants, so only
-	// hard failures cause an early return here.
-	if schemaErr != nil && !errors.Is(schemaErr, ErrShardNotFound) {
-		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
+	if schemaErr != nil {
+		var partialErr *PartialUpdateError
+		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
+			return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
+		}
 	}
 
 	if op.enableSchemaCallback && s.db != nil {
