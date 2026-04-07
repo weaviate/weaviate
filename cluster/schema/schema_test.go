@@ -220,7 +220,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 	}
 	newClass := func() *models.Class {
 		return &models.Class{
-			Class: className,
+			Class:              className,
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 		}
