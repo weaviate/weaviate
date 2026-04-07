@@ -31,12 +31,24 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/replica/types"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type Server struct {
 	*grpc.Server
 	state        *state.State
 	requestQueue *shared.RequestQueue[grpcQueueItem]
+}
+
+type Config struct {
+	State                              *state.State
+	Replicator                         types.Replicator
+	FileReplicationRepo                sharding.RemoteIncomingRepo
+	FileReplicationSchema              sharding.RemoteIncomingSchema
+	MaintenanceModeEnabledForLocalhost func() bool
+	NodeReady                          func() bool
+	GRPCServerOptions                  []grpc.ServerOption
 }
 
 type grpcQueueItem struct {
@@ -58,11 +70,14 @@ const (
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
-func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
-	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+func NewServer(
+	config Config,
+	options ...grpc.ServerOption,
+) *Server {
+	fileCopyChunkSize := config.State.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
-	maxSize := GetMaxMessageSize(state)
-	windowSize := GetInitialConnWindowSize(state)
+	maxSize := GetMaxMessageSize(config.State)
+	windowSize := GetInitialConnWindowSize(config.State)
 
 	o := append(options,
 		grpc.MaxRecvMsgSize(maxSize),
@@ -76,7 +91,7 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	// Both FileReplicationService and ReplicationService are internal cluster services
 	// that require basic auth when enabled.
 	servicePrefixes := []string{"/clusterapi.FileReplicationService", "/clusterapi.ReplicationService"}
-	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
+	basicAuth := config.State.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
 		o = append(o, grpc.ChainUnaryInterceptor(
 			basicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
@@ -85,19 +100,19 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 			basicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
-	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
-	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(config.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(config.MaintenanceModeEnabledForLocalhost)))
 
 	replicationPrefixes := []string{"/clusterapi.ReplicationService"}
 	o = append(o, grpc.ChainUnaryInterceptor(
-		makeNodeReadyUnaryInterceptor(state.ClusterService.Ready, replicationPrefixes),
+		makeNodeReadyUnaryInterceptor(config.NodeReady, replicationPrefixes),
 	))
 
-	rqc := state.ServerConfig.Config.Cluster.RequestQueueConfig
+	rqc := config.State.ServerConfig.Config.Cluster.RequestQueueConfig
 	if rqc.QueueSize == 0 {
 		rqc.QueueSize = cluster.DefaultRequestQueueSize
 	}
-	rq := shared.NewRequestQueue(rqc, state.Logger,
+	rq := shared.NewRequestQueue(rqc, config.State.Logger,
 		func(item grpcQueueItem) {
 			defer func() {
 				if r := recover(); r != nil {
@@ -119,13 +134,13 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 
 	s := grpc.NewServer(o...)
 
-	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
+	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
-	replicationService := NewReplicationService(state.DB)
+	replicationService := NewReplicationService(config.Replicator)
 	pb.RegisterReplicationServiceServer(s, replicationService)
 
-	return &Server{Server: s, state: state, requestQueue: rq}
+	return &Server{Server: s, state: config.State, requestQueue: rq}
 }
 
 func (s *Server) Serve() error {
