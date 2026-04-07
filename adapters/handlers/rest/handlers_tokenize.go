@@ -161,25 +161,30 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	var detector tokenizer.StopwordDetector
 	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
 		preset := prop.TextAnalyzer.StopwordPreset
-		d, err := stopwords.NewDetectorFromPreset(preset)
-		if err != nil {
-			// Not a built-in preset — check user-defined presets
-			if class.InvertedIndexConfig != nil {
-				if words, ok := class.InvertedIndexConfig.StopwordPresets[preset]; ok {
-					d, err = stopwords.NewDetectorFromPreset(stopwords.NoPreset)
-					if err == nil {
-						d.SetAdditions(words)
-					}
+		// Check user-defined presets first; fall back to built-in.
+		if class.InvertedIndexConfig != nil {
+			if words, ok := class.InvertedIndexConfig.StopwordPresets[preset]; ok {
+				d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
+				if err != nil {
+					logger.WithField("action", "create_stopword_detector").Error(err)
+					return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+						Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+					})
 				}
-			}
-			if d == nil {
-				logger.WithField("action", "create_stopword_detector").Error(err)
-				return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
-				})
+				d.SetAdditions(words)
+				detector = d
 			}
 		}
-		detector = d
+		if detector == nil {
+			d, err := stopwords.NewDetectorFromPreset(preset)
+			if err != nil {
+				// Neither a built-in nor a user-defined preset — surface as 422.
+				return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets", preset)}},
+				})
+			}
+			detector = d
+		}
 	} else if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
 		var err error
 		detector, err = stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
