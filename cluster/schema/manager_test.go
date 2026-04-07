@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -430,10 +431,9 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			if tc.wantErr == nil {
 				assert.NoError(t, err)
 			} else {
-				switch tc.wantErr {
-				case ErrSchema, errDB:
+				if errors.Is(tc.wantErr, ErrSchema) || errors.Is(tc.wantErr, errDB) {
 					assert.ErrorIs(t, err, tc.wantErr)
-				default:
+				} else {
 					assert.ErrorContains(t, err, tc.wantErr.Error())
 				}
 			}
