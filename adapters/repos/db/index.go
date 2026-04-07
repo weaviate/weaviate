@@ -224,11 +224,11 @@ type Index struct {
 	Config                  IndexConfig
 	globalreplicationConfig *replication.GlobalConfig
 
-	getSchema       schemaUC.SchemaGetter
-	schemaReader    schemaUC.SchemaReader
-	logger          logrus.FieldLogger
-	remote          *sharding.RemoteIndex
-	stopwords *stopwords.Detector
+	getSchema    schemaUC.SchemaGetter
+	schemaReader schemaUC.SchemaReader
+	logger       logrus.FieldLogger
+	remote       *sharding.RemoteIndex
+	stopwords    *stopwords.Detector
 	// stopwordPresets is replaced atomically when invertedIndexConfig is
 	// updated, so reads on hot query paths do not need to take
 	// invertedIndexConfigLock. Always access via getStopwordPresets().
