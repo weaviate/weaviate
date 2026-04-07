@@ -112,7 +112,7 @@ class TestGenericTokenize:
             {
                 "text": "The quick brown fox",
                 "tokenization": "word",
-                "stopwordConfig": {"preset": "en"},
+                "analyzerConfig": {"stopwordPreset": "en"},
             },
         )
         assert status == 200
@@ -127,7 +127,10 @@ class TestGenericTokenize:
             {
                 "text": "hello world test",
                 "tokenization": "word",
-                "stopwordConfig": {"additions": ["test"]},
+                "analyzerConfig": {"stopwordPreset": "custom"},
+                "stopwordPresets": {
+                    "custom": {"additions": ["test"]},
+                },
             },
         )
         assert status == 200
@@ -140,7 +143,10 @@ class TestGenericTokenize:
             {
                 "text": "the quick",
                 "tokenization": "word",
-                "stopwordConfig": {"preset": "en", "removals": ["the"]},
+                "analyzerConfig": {"stopwordPreset": "en-no-the"},
+                "stopwordPresets": {
+                    "en-no-the": {"preset": "en", "removals": ["the"]},
+                },
             },
         )
         assert status == 200
@@ -148,7 +154,7 @@ class TestGenericTokenize:
         assert body["query"] == ["the", "quick"]
 
     def test_analyzer_stopword_preset_en(self) -> None:
-        """analyzerConfig.stopwordPreset='en' works as shorthand for stopwordConfig."""
+        """analyzerConfig.stopwordPreset='en' applies the built-in English stopword list."""
         status, body = post_json(
             f"{WEAVIATE_URL}/v1/tokenize",
             {
@@ -190,22 +196,6 @@ class TestGenericTokenize:
         assert body["indexed"] == ["the", "ecole", "est", "fermee"]
         assert "the" not in body["query"]
         assert "ecole" in body["query"]
-
-    def test_stopword_config_overrides_analyzer_preset(self) -> None:
-        """Explicit stopwordConfig takes precedence over analyzerConfig.stopwordPreset."""
-        status, body = post_json(
-            f"{WEAVIATE_URL}/v1/tokenize",
-            {
-                "text": "The quick brown fox",
-                "tokenization": "word",
-                "analyzerConfig": {"stopwordPreset": "none"},
-                "stopwordConfig": {"preset": "en"},
-            },
-        )
-        assert status == 200
-        # stopwordConfig wins: "en" preset filters "the"
-        assert "the" not in body["query"]
-        assert "quick" in body["query"]
 
     def test_analyzer_invalid_stopword_preset(self) -> None:
         """Invalid stopwordPreset in analyzerConfig returns error."""
@@ -280,8 +270,7 @@ class TestGenericTokenize:
             {
                 "text": "The école est fermée",
                 "tokenization": "word",
-                "analyzerConfig": {"asciiFold": True},
-                "stopwordConfig": {"preset": "en"},
+                "analyzerConfig": {"asciiFold": True, "stopwordPreset": "en"},
             },
         )
         assert status == 200

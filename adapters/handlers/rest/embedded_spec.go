@@ -9655,10 +9655,6 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
-        "stopwordConfig": {
-          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
-          "$ref": "#/definitions/StopwordConfig"
-        },
         "stopwordPresets": {
           "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
           "type": "object",
@@ -20249,10 +20245,6 @@ func init() {
         "analyzerConfig": {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
-        },
-        "stopwordConfig": {
-          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
-          "$ref": "#/definitions/StopwordConfig"
         },
         "stopwordPresets": {
           "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
