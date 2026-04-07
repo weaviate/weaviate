@@ -425,20 +425,21 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		getSchema:              schemaGetter,
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
-		stopwords:        sd,
-		indexCheckpoints: checkpts,
-		allocChecker:     memwatch.NewDummyMonitor(),
-		shardCreateLocks: esync.NewKeyRWLocker(),
-		backupLock:       esync.NewKeyRWLocker(),
-		scheduler:        repo.scheduler,
-		shardLoadLimiter: loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		shardReindexer:   NewShardReindexerV3Noop(),
-		HFreshEnabled:    true,
-		replicator:       replicator,
-		router:           mockRouter,
+		stopwords:              sd,
+		indexCheckpoints:       checkpts,
+		allocChecker:           memwatch.NewDummyMonitor(),
+		shardCreateLocks:       esync.NewKeyRWLocker(),
+		backupLock:             esync.NewKeyRWLocker(),
+		scheduler:              repo.scheduler,
+		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		shardReindexer:         NewShardReindexerV3Noop(),
+		HFreshEnabled:          true,
+		replicator:             replicator,
+		router:                 mockRouter,
 	}
 	if class.InvertedIndexConfig != nil {
-		presetDetectors, _ := buildStopwordPresetDetectors(iic.StopwordPresets)
+		presetDetectors, err := buildStopwordPresetDetectors(iic.StopwordPresets)
+		require.NoError(t, err)
 		idx.stopwordPresets.Store(&presetDetectors)
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
