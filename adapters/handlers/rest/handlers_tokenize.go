@@ -109,6 +109,12 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 ) middleware.Responder {
 	className := schema.UppercaseClassName(params.ClassName)
 
+	// Resolve alias before authorization so authz uses the real collection name
+	// for permissions and error UX (matches Handler.ShardsStatus).
+	if resolved := schemaManager.ResolveAlias(className); resolved != "" {
+		className = resolved
+	}
+
 	// Authorize: reading collection metadata (same as other schema read operations)
 	err := schemaManager.Authorizer.Authorize(
 		params.HTTPRequest.Context(), principal, authorization.READ,

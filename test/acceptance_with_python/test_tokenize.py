@@ -36,6 +36,16 @@ def post_json(
         return e.code, resp_body
 
 
+def delete(url: str, timeout: float = REQUEST_TIMEOUT) -> int:
+    """DELETE request using urllib and return status code."""
+    req = urllib.request.Request(url, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
 class TestGenericTokenize:
     """Tests for POST /v1/tokenize."""
 
@@ -419,6 +429,30 @@ class TestPropertyTokenize:
         # 'le' and 'la' are NOT English stopwords, so they should appear in query
         assert "le" in body["query"]
         assert "la" in body["query"]
+
+    def test_property_tokenize_via_alias(self) -> None:
+        """The endpoint should resolve a collection alias to the underlying class."""
+        alias_name = self.collection_name + "Alias"
+        # Ensure no stale alias from a prior failed run
+        delete(f"{WEAVIATE_URL}/v1/aliases/{alias_name}")
+        status, _ = post_json(
+            f"{WEAVIATE_URL}/v1/aliases",
+            {"alias": alias_name, "class": self.collection_name},
+        )
+        assert status == 200
+        try:
+            status, body = post_json(
+                f"{WEAVIATE_URL}/v1/schema/{alias_name}/properties/title/tokenize",
+                {"text": "the quick brown fox"},
+            )
+            assert status == 200
+            assert body["tokenization"] == "word"
+            assert body["indexed"] == ["the", "quick", "brown", "fox"]
+            # title has stopwordPreset='en' so 'the' should be filtered from the query
+            assert "the" not in body["query"]
+            assert "quick" in body["query"]
+        finally:
+            delete(f"{WEAVIATE_URL}/v1/aliases/{alias_name}")
 
     def test_class_not_found(self) -> None:
         status, _ = post_json(
