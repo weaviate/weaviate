@@ -400,8 +400,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	if authConfig.BasicAuth.Enabled() {
 		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
 		grpcDialOpts = append(grpcDialOpts,
-			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
 		)
 	}
 
@@ -439,7 +439,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	)
 	replDialOpts := make([]grpc.DialOption, len(grpcDialOpts)+1)
 	copy(replDialOpts, grpcDialOpts)
-	replDialOpts[len(grpcDialOpts)] = grpc.WithUnaryInterceptor(replRetryInterceptor)
+	replDialOpts[len(grpcDialOpts)] = grpc.WithChainUnaryInterceptor(replRetryInterceptor)
 
 	replMetricsReg := prometheus.WrapRegistererWithPrefix("repl_", metricsRegisterer)
 	replConnManager, err := grpcconn.NewConnManager(

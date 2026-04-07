@@ -81,10 +81,7 @@ func Test_ServerReplicationService(t *testing.T) {
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Username = user
 
 				authHeader := grpcconn.BasicAuthHeader(user, pass)
-				grpcDialOpts = append(grpcDialOpts,
-					grpcext.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-					grpcext.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
-				)
+				grpcDialOpts = append(grpcDialOpts, grpcext.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)))
 			} else {
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Password = ""
 				state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth.Username = ""
