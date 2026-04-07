@@ -372,12 +372,18 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		case req.Tenants[i].Status:
 			continue
 		case types.TenantActivityStatusFREEZING:
-			// ignore multiple freezing
+			// Allow the in-flight freeze to complete (FROZEN is the expected terminal state).
+			// Reject any other status change (e.g. HOT/COLD) while freeze is in progress to
+			// prevent a race where UNFREEZE is triggered before the FREEZE goroutine finishes,
+			// which can lead to permanent data loss.
 			if requestTenant.Status == models.TenantActivityStatusFROZEN {
 				continue
 			}
+			return sc, fmt.Errorf("%w: tenant %q is currently being frozen, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, requestTenant.Status)
 		case types.TenantActivityStatusUNFREEZING:
-			// ignore multiple unfreezing
+			// Allow requests that match the status the ongoing unfreeze is targeting.
+			// Reject any conflicting status change while unfreeze is in progress.
 			req.ImplicitUpdateRequest = true
 			var statusInProgress string
 			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
@@ -390,6 +396,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == statusInProgress {
 				continue
 			}
+			return sc, fmt.Errorf("%w: tenant %q is currently being unfrozen to %s, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, statusInProgress, requestTenant.Status)
 		}
 
 		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {

@@ -31,12 +31,13 @@ import (
 )
 
 var (
-	ErrClassExists   = errors.New("class already exists")
-	ErrClassNotFound = errors.New("class not found")
-	ErrShardNotFound = errors.New("shard not found")
-	ErrAliasExists   = errors.New("alias already exists")
-	ErrAliasNotFound = errors.New("alias not found")
-	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
+	ErrClassExists              = errors.New("class already exists")
+	ErrClassNotFound            = errors.New("class not found")
+	ErrShardNotFound            = errors.New("shard not found")
+	ErrAliasExists              = errors.New("alias already exists")
+	ErrAliasNotFound            = errors.New("alias not found")
+	ErrMTDisabled               = errors.New("multi-tenancy is not enabled")
+	ErrTenantTransitionalState  = errors.New("tenant is in a transitional state")
 )
 
 type ClassInfo struct {
