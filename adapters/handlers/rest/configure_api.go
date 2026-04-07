@@ -1144,7 +1144,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	startGrpcServer(grpcServer, appState)
-
+	setupMCPHandlers(api, appState, objectsManager)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 

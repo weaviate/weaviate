@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: psf/black@35ea67920b7f6ac8e09be1c47278752b1e827f76 # stable
+      - uses: psf/black@c6755bb741b6481d6b3d3bb563c83fa060db96c9 # stable
         with:
           version: "24.2.0"
   custom:
