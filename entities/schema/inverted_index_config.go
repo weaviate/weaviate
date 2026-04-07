@@ -64,7 +64,14 @@ func InvertedIndexConfigToModel(i InvertedIndexConfig) models.InvertedIndexConfi
 	// Force a copy to avoid references
 	*m.Stopwords = i.Stopwords
 
-	m.StopwordPresets = i.StopwordPresets
+	if i.StopwordPresets != nil {
+		m.StopwordPresets = make(map[string][]string, len(i.StopwordPresets))
+		for name, words := range i.StopwordPresets {
+			wordsCopy := make([]string, len(words))
+			copy(wordsCopy, words)
+			m.StopwordPresets[name] = wordsCopy
+		}
+	}
 	m.CleanupIntervalSeconds = int64(i.CleanupIntervalSeconds)
 	m.IndexTimestamps = i.IndexTimestamps
 	m.IndexNullState = i.IndexNullState
