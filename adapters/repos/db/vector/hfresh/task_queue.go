@@ -363,6 +363,8 @@ func (t *AnalyzeTask) Key() uint64 {
 }
 
 func (t *AnalyzeTask) Execute(ctx context.Context) error {
+	defer t.idx.metrics.DequeueAnalyzeTask()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -372,7 +374,6 @@ func (t *AnalyzeTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueAnalyzeTask()
 	t.idx.metrics.IncAnalyzeCount()
 	return nil
 }
@@ -392,6 +393,8 @@ func (t *SplitTask) Key() uint64 {
 }
 
 func (t *SplitTask) Execute(ctx context.Context) error {
+	defer t.idx.metrics.DequeueSplitTask()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -401,7 +404,6 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueSplitTask()
 	t.idx.metrics.IncSplitCount()
 	return nil
 }
@@ -422,6 +424,8 @@ func (t *MergeTask) Key() uint64 {
 }
 
 func (t *MergeTask) Execute(ctx context.Context) error {
+	defer t.idx.metrics.DequeueMergeTask()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -431,7 +435,6 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueMergeTask()
 	t.idx.metrics.IncMergeCount()
 	return nil
 }
@@ -451,6 +454,8 @@ func (t *ReassignTask) Key() uint64 {
 }
 
 func (t *ReassignTask) Execute(ctx context.Context) error {
+	defer t.idx.metrics.DequeueReassignTask()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -460,7 +465,6 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueReassignTask()
 	t.idx.metrics.IncReassignCount()
 	return nil
 }
