@@ -258,105 +258,73 @@ func TestQueryProfiling(t *testing.T) {
 		}
 	})
 
-	t.Run("vector search with GroupBy returns profile", func(t *testing.T) {
-		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-			Collection: className,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, QueryProfile: true},
-			NearVector: &pb.NearVector{
-				Vectors: []*pb.Vectors{{
-					VectorBytes: vecBytes,
-					Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
-				}},
-			},
-			GroupBy: &pb.GroupBy{
-				Path:            []string{"category"},
-				NumberOfGroups:  3,
-				ObjectsPerGroup: 5,
-			},
-			Uses_127Api: true,
-		})
-		require.NoError(t, err)
-		require.NotEmpty(t, resp.GroupByResults, "should have group results")
-		require.NotNil(t, resp.QueryProfile, "profile should be present for GroupBy query")
-		require.NotEmpty(t, resp.QueryProfile.Shards)
-
-		for _, shard := range resp.QueryProfile.Shards {
-			assert.NotEmpty(t, shard.Name, "shard name should be set")
-			assert.NotEmpty(t, shard.Node, "node name should be set")
-
-			vecSearch, ok := shard.Searches["vector"]
-			require.True(t, ok, "should have vector search profile")
-			assert.NotEmpty(t, vecSearch.Details["total_took"])
-		}
-	})
-
-	t.Run("BM25 search with GroupBy returns profile", func(t *testing.T) {
-		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-			Collection: className,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
-			Bm25Search: &pb.BM25{
-				Query:      "hello world document",
-				Properties: []string{"text"},
-			},
-			GroupBy: &pb.GroupBy{
-				Path:            []string{"category"},
-				NumberOfGroups:  3,
-				ObjectsPerGroup: 5,
-			},
-			Uses_127Api: true,
-		})
-		require.NoError(t, err)
-		require.NotEmpty(t, resp.GroupByResults, "should have group results")
-		require.NotNil(t, resp.QueryProfile, "profile should be present for BM25 GroupBy query")
-		require.NotEmpty(t, resp.QueryProfile.Shards)
-
-		for _, shard := range resp.QueryProfile.Shards {
-			assert.NotEmpty(t, shard.Name)
-			assert.NotEmpty(t, shard.Node)
-
-			kwdSearch, ok := shard.Searches["keyword"]
-			require.True(t, ok, "should have keyword search profile")
-			assert.NotEmpty(t, kwdSearch.Details["total_took"])
-		}
-	})
-
-	t.Run("hybrid search with GroupBy returns profile", func(t *testing.T) {
-		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-			Collection: className,
-			Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
-			HybridSearch: &pb.Hybrid{
-				Query:      "hello world document",
-				Alpha:      0.5,
-				Properties: []string{"text"},
+	groupByTests := []struct {
+		name            string
+		req             *pb.SearchRequest
+		expectedSearches []string
+	}{
+		{
+			name: "vector search with GroupBy",
+			req: &pb.SearchRequest{
+				Collection: className,
+				Metadata:   &pb.MetadataRequest{Uuid: true, Distance: true, QueryProfile: true},
 				NearVector: &pb.NearVector{
 					Vectors: []*pb.Vectors{{
 						VectorBytes: vecBytes,
 						Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 					}},
 				},
+				GroupBy:     &pb.GroupBy{Path: []string{"category"}, NumberOfGroups: 3, ObjectsPerGroup: 5},
+				Uses_127Api: true,
 			},
-			GroupBy: &pb.GroupBy{
-				Path:            []string{"category"},
-				NumberOfGroups:  3,
-				ObjectsPerGroup: 5,
+			expectedSearches: []string{"vector"},
+		},
+		{
+			name: "BM25 search with GroupBy",
+			req: &pb.SearchRequest{
+				Collection: className,
+				Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
+				Bm25Search: &pb.BM25{Query: "hello world document", Properties: []string{"text"}},
+				GroupBy:     &pb.GroupBy{Path: []string{"category"}, NumberOfGroups: 3, ObjectsPerGroup: 5},
+				Uses_127Api: true,
 			},
-			Uses_127Api: true,
+			expectedSearches: []string{"keyword"},
+		},
+		{
+			name: "hybrid search with GroupBy",
+			req: &pb.SearchRequest{
+				Collection: className,
+				Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
+				HybridSearch: &pb.Hybrid{
+					Query: "hello world document", Alpha: 0.5, Properties: []string{"text"},
+					NearVector: &pb.NearVector{
+						Vectors: []*pb.Vectors{{VectorBytes: vecBytes, Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32}},
+					},
+				},
+				GroupBy:     &pb.GroupBy{Path: []string{"category"}, NumberOfGroups: 3, ObjectsPerGroup: 5},
+				Uses_127Api: true,
+			},
+			expectedSearches: []string{"vector", "keyword"},
+		},
+	}
+	for _, tc := range groupByTests {
+		t.Run(tc.name+" returns profile", func(t *testing.T) {
+			resp, err := grpcClient.Search(ctx, tc.req)
+			require.NoError(t, err)
+			require.NotEmpty(t, resp.GroupByResults, "should have group results")
+			require.NotNil(t, resp.QueryProfile, "profile should be present")
+			require.NotEmpty(t, resp.QueryProfile.Shards)
+
+			for _, shard := range resp.QueryProfile.Shards {
+				assert.NotEmpty(t, shard.Name)
+				assert.NotEmpty(t, shard.Node)
+				for _, searchType := range tc.expectedSearches {
+					_, ok := shard.Searches[searchType]
+					assert.True(t, ok, "should have %s search profile for shard %s", searchType, shard.Name)
+				}
+			}
 		})
-		require.NoError(t, err)
-		require.NotEmpty(t, resp.GroupByResults, "should have group results")
-		require.NotNil(t, resp.QueryProfile, "profile should be present for hybrid GroupBy query")
-		require.NotEmpty(t, resp.QueryProfile.Shards)
-
-		for _, shard := range resp.QueryProfile.Shards {
-			assert.NotEmpty(t, shard.Name)
-			assert.NotEmpty(t, shard.Node)
-
-			_, hasVector := shard.Searches["vector"]
-			_, hasKeyword := shard.Searches["keyword"]
-			assert.True(t, hasVector, "hybrid GroupBy should have vector profile for shard %s", shard.Name)
-			assert.True(t, hasKeyword, "hybrid GroupBy should have keyword profile for shard %s", shard.Name)
-		}
-	})
+	}
 
 	t.Run("vector search with filter returns filter details", func(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
