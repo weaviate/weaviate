@@ -84,12 +84,6 @@ type ExportStatusParams struct {
 	*/
 	ID string
 
-	/* Path.
-
-	   Optional path prefix within the bucket. If not specified, uses the backend's default path.
-	*/
-	Path *string
-
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -165,17 +159,6 @@ func (o *ExportStatusParams) SetID(id string) {
 	o.ID = id
 }
 
-// WithPath adds the path to the export status params
-func (o *ExportStatusParams) WithPath(path *string) *ExportStatusParams {
-	o.SetPath(path)
-	return o
-}
-
-// SetPath adds the path to the export status params
-func (o *ExportStatusParams) SetPath(path *string) {
-	o.Path = path
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *ExportStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -192,23 +175,6 @@ func (o *ExportStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
-	}
-
-	if o.Path != nil {
-
-		// query param path
-		var qrPath string
-
-		if o.Path != nil {
-			qrPath = *o.Path
-		}
-		qPath := qrPath
-		if qPath != "" {
-
-			if err := r.SetQueryParam("path", qPath); err != nil {
-				return err
-			}
-		}
 	}
 
 	if len(res) > 0 {

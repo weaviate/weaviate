@@ -610,16 +610,6 @@
             "type": "string"
           },
           "description": "List of collection names to exclude from the export. Cannot be used with 'include'."
-        },
-        "config": {
-          "type": "object",
-          "description": "Backend-specific configuration",
-          "properties": {
-            "path": {
-              "type": "string",
-              "description": "Path prefix within the bucket or filesystem"
-            }
-          }
         }
       }
     },
@@ -9596,13 +9586,6 @@
             "required": true,
             "type": "string",
             "description": "The unique identifier of the export."
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path."
           }
         ],
         "responses": {
@@ -9665,13 +9648,6 @@
             "required": true,
             "type": "string",
             "description": "The unique identifier of the export to cancel."
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional path prefix within the bucket."
           }
         ],
         "responses": {

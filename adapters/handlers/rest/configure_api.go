@@ -2172,6 +2172,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
+		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

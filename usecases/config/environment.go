@@ -1956,4 +1956,10 @@ func (c *Config) parseExportConfig() {
 	} else if c.Export.DefaultBucket == nil {
 		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
 	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultPath == nil {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
 }
