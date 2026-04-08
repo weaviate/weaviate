@@ -24,13 +24,13 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestCompactV2EndToEnd tests the complete compact pipeline:
+// TestCompactEndToEnd tests the complete compact pipeline:
 // 1. Write WAL commits to a raw file
 // 2. Read raw file and convert to sorted format
 // 3. Read multiple sorted files and merge using N-Way merger
 // 4. Write merged result to a snapshot
 // 5. Read snapshot back and verify all data matches
-func TestCompactV2EndToEnd(t *testing.T) {
+func TestCompactEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
@@ -180,9 +180,9 @@ func TestCompactV2EndToEnd(t *testing.T) {
 	}
 }
 
-// TestCompactV2WithSafeFileWriter tests that SafeFileWriter integrates correctly
+// TestCompactWithSafeFileWriter tests that SafeFileWriter integrates correctly
 // with all compact writers (WAL, Sorted, Snapshot).
-func TestCompactV2WithSafeFileWriter(t *testing.T) {
+func TestCompactWithSafeFileWriter(t *testing.T) {
 	dir := t.TempDir()
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
@@ -607,9 +607,9 @@ func assertSnapshotMatchesResult(t *testing.T, expected, snapshot *ent.Deseriali
 	}
 }
 
-// TestCompactV2RoundTrip tests that data survives a complete round-trip through
+// TestCompactRoundTrip tests that data survives a complete round-trip through
 // all compact formats: WAL -> Sorted -> Merged -> Snapshot -> Read.
-func TestCompactV2RoundTrip(t *testing.T) {
+func TestCompactRoundTrip(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
