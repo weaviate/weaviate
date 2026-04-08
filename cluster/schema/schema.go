@@ -51,7 +51,19 @@ type PartialUpdateError struct {
 	msg  string
 }
 
-func (e *PartialUpdateError) Error() string   { return e.msg }
+func (e *PartialUpdateError) Error() string {
+	if e.msg != "" {
+		return e.msg
+	}
+	msgs := make([]string, 0, len(e.Errs))
+	for _, err := range e.Errs {
+		if err != nil {
+			msgs = append(msgs, err.Error())
+		}
+	}
+	return strings.Join(msgs, "; ")
+}
+
 func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
 type ClassInfo struct {

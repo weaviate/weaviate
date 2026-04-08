@@ -340,6 +340,7 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 		op              applyOp
 		wantStoreCalled bool
 		wantErr         error
+		wantErrAlso     error // optional: combined error must also wrap this sentinel
 	}{
 		{
 			name: "validation fails when op name is empty",
@@ -400,6 +401,20 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			wantErr:         ErrSchema,
 		},
 		{
+			name: "PartialUpdateError with allowPartialSchemaErr and store failure returns both errors",
+			op: applyOp{
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+				},
+				updateStore:           func() error { return storeErr },
+				allowPartialSchemaErr: true,
+			},
+			wantStoreCalled: true,
+			wantErr:         ErrSchema,
+			wantErrAlso:     errDB,
+		},
+		{
 			name: "both succeed returns no error",
 			op: applyOp{
 				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
@@ -441,6 +456,9 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 					assert.ErrorIs(t, err, tc.wantErr)
 				} else {
 					assert.ErrorContains(t, err, tc.wantErr.Error())
+				}
+				if tc.wantErrAlso != nil {
+					assert.ErrorIs(t, err, tc.wantErrAlso)
 				}
 			}
 		})

@@ -680,6 +680,14 @@ func (s *SchemaManager) apply(op applyOp) error {
 
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
+			if schemaErr != nil {
+				// Both the schema update (partial) and the DB update failed.
+				// Return both so the caller is informed of what was skipped
+				// and what failed.
+				return fmt.Errorf("%w: %s: %w; %w: %s: %w",
+					ErrSchema, op.op, schemaErr,
+					errDB, op.op, err)
+			}
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
 	}
