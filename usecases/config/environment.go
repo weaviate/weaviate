@@ -284,6 +284,11 @@ func FromEnv(config *Config) error {
 			skipClientCheck = true
 		}
 
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
 			issuer = v
 		}
@@ -320,6 +325,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -660,6 +666,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.parseExportConfig()
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -933,6 +941,17 @@ func FromEnv(config *Config) error {
 		DefaultGRPCIdleConnTimeout,
 	); err != nil {
 		return err
+	}
+
+	// MCP Server Configuration
+	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+	}
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
 	}
 
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
@@ -1543,6 +1562,8 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultAsyncReplicationClusterMaxWorkers   = 15
@@ -1914,4 +1935,18 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
 }

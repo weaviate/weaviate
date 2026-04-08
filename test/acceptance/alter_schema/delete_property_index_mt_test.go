@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package properties
+package alterschema
 
 import (
 	"fmt"

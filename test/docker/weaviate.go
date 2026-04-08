@@ -208,6 +208,7 @@ func startWeaviate(ctx context.Context,
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{httpPort, httpUri}
+	endpoints[MCP] = endpoint{httpPort, fmt.Sprintf("%s/v1/mcp", httpUri)}
 
 	// Map the cluster API endpoint if the port is exposed.
 	if hasClusterPort {

@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -149,7 +150,8 @@ type shards interface {
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
-	) ([]*storobj.Object, []float32, error)
+		selection *searchparams.Selection,
+	) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
@@ -796,7 +798,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, err := IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -809,8 +811,8 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
-		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
+		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -820,7 +822,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		resBytes, err := IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional)
+		resBytes, err := IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional, queryProfiles)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

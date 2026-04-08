@@ -55,17 +55,14 @@ func CreateExportRaw(t *testing.T, backend string, body *models.ExportCreateRequ
 
 func ExportStatus(t *testing.T, backend, exportID string) (*export.ExportStatusOK, error) {
 	t.Helper()
-	return ExportStatusWithConfig(t, backend, exportID, "", "")
+	return ExportStatusWithConfig(t, backend, exportID, "")
 }
 
-func ExportStatusWithConfig(t *testing.T, backend, exportID, bucket, path string) (*export.ExportStatusOK, error) {
+func ExportStatusWithConfig(t *testing.T, backend, exportID, path string) (*export.ExportStatusOK, error) {
 	t.Helper()
 	params := export.NewExportStatusParams().
 		WithBackend(backend).
 		WithID(exportID)
-	if bucket != "" {
-		params = params.WithBucket(&bucket)
-	}
 	if path != "" {
 		params = params.WithPath(&path)
 	}
@@ -125,17 +122,17 @@ func VerifyStatusResponse(t *testing.T, resp *models.ExportStatusResponse, backe
 
 func ExpectExportEventuallySucceeded(t *testing.T, backend, exportID string) {
 	t.Helper()
-	ExpectExportEventuallySucceededWithConfig(t, backend, exportID, "", "")
+	ExpectExportEventuallySucceededWithConfig(t, backend, exportID, "")
 }
 
-func ExpectExportEventuallySucceededWithConfig(t *testing.T, backend, exportID, bucket, path string) {
+func ExpectExportEventuallySucceededWithConfig(t *testing.T, backend, exportID, path string) {
 	t.Helper()
 
 	deadline := 60 * time.Second
 	interval := 500 * time.Millisecond
 
 	require.EventuallyWithTf(t, func(c *assert.CollectT) {
-		resp, err := ExportStatusWithConfig(t, backend, exportID, bucket, path)
+		resp, err := ExportStatusWithConfig(t, backend, exportID, path)
 		require.NoError(c, err, "fetch export status")
 		require.NotNil(c, resp.Payload, "empty response")
 

@@ -14,6 +14,8 @@ package errors
 import (
 	"errors"
 	"fmt"
+
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func IsTransient(err error) bool {
@@ -22,6 +24,10 @@ func IsTransient(err error) bool {
 	}
 
 	if errors.Is(err, ErrNotEnoughMappings) {
+		return true
+	}
+
+	if errors.Is(err, storagestate.ErrStatusReadOnly) {
 		return true
 	}
 

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-dev"
+    "version": "1.37.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -2526,12 +2526,6 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket.",
-            "name": "bucket",
-            "in": "query"
-          },
-          {
-            "type": "string",
             "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path.",
             "name": "path",
             "in": "query"
@@ -2597,12 +2591,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional bucket name where the export is stored.",
-            "name": "bucket",
-            "in": "query"
           },
           {
             "type": "string",
@@ -2768,6 +2756,54 @@ func init() {
           "weaviate.network.query",
           "weaviate.network.query.meta"
         ]
+      }
+    },
+    "/mcp": {
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "produces": [
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
       }
     },
     "/meta": {
@@ -5298,6 +5334,78 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/properties/{propertyName}/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Tokenize text using a property's configuration",
+        "operationId": "schema.objects.properties.tokenize",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose tokenization configuration should be used.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PropertyTokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text using the property's configuration.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request body, missing required fields, or property does not have tokenization configured."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ]
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
@@ -5789,6 +5897,61 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "description": "Deletes a specific vector index within a collection (` + "`" + `className` + "`" + `). The vector index to delete is identified by ` + "`" + `vectorIndexName` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a collection's vector index.",
+        "operationId": "schema.objects.vectors.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the vector index.",
+            "name": "vectorIndexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -5819,6 +5982,58 @@ func init() {
         "x-serviceIds": [
           "weaviate.distributedTasks.get"
         ]
+      }
+    },
+    "/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the specified tokenization method. This is a stateless utility endpoint useful for debugging and understanding how text will be processed during indexing and querying. The response includes both the indexed tokens (as stored in the inverted index) and query tokens (after optional stopword removal).",
+        "tags": [
+          "tokenize"
+        ],
+        "summary": "Tokenize text",
+        "operationId": "tokenize",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed request body."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/users/db": {
@@ -7443,10 +7658,6 @@ func init() {
           "description": "Backend-specific configuration",
           "type": "object",
           "properties": {
-            "bucket": {
-              "description": "Bucket, container, or volume name for cloud storage backends",
-              "type": "string"
-            },
             "path": {
               "description": "Path prefix within the bucket or filesystem",
               "type": "string"
@@ -7838,6 +8049,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "type": "string",
           "enum": [
@@ -8205,7 +8419,8 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -8280,6 +8495,10 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -8474,6 +8693,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
@@ -8494,6 +8716,19 @@ func init() {
     "PropertySchema": {
       "description": "Names and values of an individual property. A returned response may also contain additional metadata, such as from classification or feature projection.",
       "type": "object"
+    },
+    "PropertyTokenizeRequest": {
+      "description": "Request body for the property-specific tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize using the property's configured tokenization.",
+          "type": "string"
+        }
+      }
     },
     "RaftStatistics": {
       "description": "The definition of Raft statistics.",
@@ -9373,6 +9608,94 @@ func init() {
         }
       }
     },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "type": "object",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        }
+      },
+      "x-omitempty": true
+    },
+    "TokenizeRequest": {
+      "description": "Request body for the generic tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text",
+        "tokenization"
+      ],
+      "properties": {
+        "analyzerConfig": {
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "text": {
+          "description": "The text to tokenize.",
+          "type": "string"
+        },
+        "tokenization": {
+          "description": "The tokenization method to apply.",
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field",
+            "trigram",
+            "gse",
+            "kagome_kr",
+            "kagome_ja",
+            "gse_ch"
+          ]
+        }
+      }
+    },
+    "TokenizeResponse": {
+      "description": "Response from the tokenize endpoint.",
+      "type": "object",
+      "properties": {
+        "analyzerConfig": {
+          "description": "The text analyzer configuration that was used, if any.",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "indexed": {
+          "description": "The tokens as they would be stored in the inverted index.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "tokenization": {
+          "description": "The tokenization method that was applied.",
+          "type": "string"
+        }
+      }
+    },
     "TokenizerUserDictConfig": {
       "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
       "type": "object",
@@ -9797,6 +10120,10 @@ func init() {
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
       "name": "replication"
+    },
+    {
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
+      "name": "mcp"
     }
   ],
   "externalDocs": {
@@ -9823,7 +10150,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-dev"
+    "version": "1.37.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -12289,12 +12616,6 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket.",
-            "name": "bucket",
-            "in": "query"
-          },
-          {
-            "type": "string",
             "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path.",
             "name": "path",
             "in": "query"
@@ -12360,12 +12681,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional bucket name where the export is stored.",
-            "name": "bucket",
-            "in": "query"
           },
           {
             "type": "string",
@@ -12531,6 +12846,54 @@ func init() {
           "weaviate.network.query",
           "weaviate.network.query.meta"
         ]
+      }
+    },
+    "/mcp": {
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "produces": [
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
       }
     },
     "/meta": {
@@ -15171,6 +15534,78 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/properties/{propertyName}/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Tokenize text using a property's configuration",
+        "operationId": "schema.objects.properties.tokenize",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose tokenization configuration should be used.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PropertyTokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text using the property's configuration.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request body, missing required fields, or property does not have tokenization configured."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ]
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "description": "Retrieves the status of all shards associated with the specified collection (` + "`" + `className` + "`" + `). For multi-tenant collections, use the ` + "`" + `tenant` + "`" + ` query parameter to retrieve status for a specific tenant's shards.",
@@ -15662,6 +16097,61 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "description": "Deletes a specific vector index within a collection (` + "`" + `className` + "`" + `). The vector index to delete is identified by ` + "`" + `vectorIndexName` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a collection's vector index.",
+        "operationId": "schema.objects.vectors.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the vector index.",
+            "name": "vectorIndexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -15692,6 +16182,58 @@ func init() {
         "x-serviceIds": [
           "weaviate.distributedTasks.get"
         ]
+      }
+    },
+    "/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the specified tokenization method. This is a stateless utility endpoint useful for debugging and understanding how text will be processed during indexing and querying. The response includes both the indexed tokens (as stored in the inverted index) and query tokens (after optional stopword removal).",
+        "tags": [
+          "tokenize"
+        ],
+        "summary": "Tokenize text",
+        "operationId": "tokenize",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed request body."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/users/db": {
@@ -17468,10 +18010,6 @@ func init() {
           "description": "Backend-specific configuration",
           "type": "object",
           "properties": {
-            "bucket": {
-              "description": "Bucket, container, or volume name for cloud storage backends",
-              "type": "string"
-            },
             "path": {
               "description": "Path prefix within the bucket or filesystem",
               "type": "string"
@@ -17509,10 +18047,6 @@ func init() {
       "description": "Backend-specific configuration",
       "type": "object",
       "properties": {
-        "bucket": {
-          "description": "Bucket, container, or volume name for cloud storage backends",
-          "type": "string"
-        },
         "path": {
           "description": "Path prefix within the bucket or filesystem",
           "type": "string"
@@ -17910,6 +18444,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "type": "string",
           "enum": [
@@ -18294,7 +18831,8 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "manage_mcp"
           ]
         },
         "aliases": {
@@ -18369,6 +18907,10 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
+        },
+        "mcp": {
+          "description": "resources applicable for MCP actions",
+          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -18719,6 +19261,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
@@ -18739,6 +19284,19 @@ func init() {
     "PropertySchema": {
       "description": "Names and values of an individual property. A returned response may also contain additional metadata, such as from classification or feature projection.",
       "type": "object"
+    },
+    "PropertyTokenizeRequest": {
+      "description": "Request body for the property-specific tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize using the property's configured tokenization.",
+          "type": "string"
+        }
+      }
     },
     "RaftStatistics": {
       "description": "The definition of Raft statistics.",
@@ -19621,6 +20179,94 @@ func init() {
         }
       }
     },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "type": "object",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        }
+      },
+      "x-omitempty": true
+    },
+    "TokenizeRequest": {
+      "description": "Request body for the generic tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text",
+        "tokenization"
+      ],
+      "properties": {
+        "analyzerConfig": {
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordConfig": {
+          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "text": {
+          "description": "The text to tokenize.",
+          "type": "string"
+        },
+        "tokenization": {
+          "description": "The tokenization method to apply.",
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field",
+            "trigram",
+            "gse",
+            "kagome_kr",
+            "kagome_ja",
+            "gse_ch"
+          ]
+        }
+      }
+    },
+    "TokenizeResponse": {
+      "description": "Response from the tokenize endpoint.",
+      "type": "object",
+      "properties": {
+        "analyzerConfig": {
+          "description": "The text analyzer configuration that was used, if any.",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "indexed": {
+          "description": "The tokens as they would be stored in the inverted index.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stopwordConfig": {
+          "description": "The stopword configuration that was used, if any.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "tokenization": {
+          "description": "The tokenization method that was applied.",
+          "type": "string"
+        }
+      }
+    },
     "TokenizerUserDictConfig": {
       "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
       "type": "object",
@@ -20057,6 +20703,10 @@ func init() {
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
       "name": "replication"
+    },
+    {
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
+      "name": "mcp"
     }
   ],
   "externalDocs": {

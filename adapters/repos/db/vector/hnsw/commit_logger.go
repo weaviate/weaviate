@@ -515,14 +515,18 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "drop commitlog")
 	}
 
+	if keepFiles {
+		return nil
+	}
+
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := os.Stat(dir); err == nil && !keepFiles {
-		err := os.RemoveAll(dir)
-		if err != nil {
+	if _, err := os.Stat(dir); err == nil {
+		if err := os.RemoveAll(dir); err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
 	}
+
 	return nil
 }
 

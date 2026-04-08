@@ -45,7 +45,7 @@ func TestParticipant_ShutdownWritesFailedNodeStatusViaPrepareCommit(t *testing.T
 	}
 
 	participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -119,7 +119,7 @@ func TestParticipant_CancelDuringSnapshot(t *testing.T) {
 			selector := newBlockingSelector()
 
 			participant := NewParticipant(selector, &fakeBackendProvider{backend: backend}, logger,
-				&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 
 			exportID := "test-cancel-snap-" + tc.name
 			req := &ExportRequest{
@@ -450,7 +450,7 @@ func TestParticipant_NodeStatusWrittenWithSuccess(t *testing.T) {
 	selector := &fakeSelector{classList: []string{"TestClass"}}
 	backends := &fakeBackendProvider{backend: backend}
 	participant := NewParticipant(selector, backends, logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1")
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics())
 
 	req := &ExportRequest{
 		ID:       "test-export",
@@ -488,7 +488,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 			selector := &fakeSelector{classList: []string{"TestClass"}}
 			backends := &fakeBackendProvider{backend: backend}
 			participant := NewParticipant(selector, backends, logger,
-				&fakeExportClient{}, &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}, "node1")
+				&fakeExportClient{}, &fakeNodeResolver{nodes: map[string]string{"node1": "host1:8080"}}, "node1", testMetrics())
 
 			resolver := &fakeNodeResolver{
 				nodes: map[string]string{
@@ -505,6 +505,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 			s := &Scheduler{
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				selector:     selector,
 				backends:     backends,
 				participant:  participant,
@@ -541,7 +542,7 @@ func TestScheduler_CancelAndExportRace(t *testing.T) {
 			require.NoError(t, participant.Commit(context.Background(), "test-export"))
 
 			// Fire Cancel concurrently.
-			cancelErr := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+			cancelErr := s.Cancel(context.Background(), nil, "s3", "test-export", "")
 
 			// Wait for the export goroutine to finish
 			require.Eventually(t, func() bool {
