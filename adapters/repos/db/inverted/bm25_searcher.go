@@ -274,7 +274,10 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				sw = resolveStopwordDetector(pi.prop, b.stopwordPresets, b.stopWordDetector)
+				sw, err = resolveStopwordDetector(pi.prop, b.stopwordPresets, b.stopWordDetector)
+				if err != nil {
+					return false, 0, nil, nil, nil, nil, 0, err
+				}
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
 			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)

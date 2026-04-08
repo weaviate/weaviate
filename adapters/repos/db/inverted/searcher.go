@@ -69,18 +69,15 @@ func resolveStopwordDetector(
 	prop *models.Property,
 	cachedPresets map[string]*stopwords.Detector,
 	fallback stopwords.StopwordDetector,
-) stopwords.StopwordDetector {
+) (stopwords.StopwordDetector, error) {
 	if prop.TextAnalyzer == nil || prop.TextAnalyzer.StopwordPreset == "" {
-		return fallback
+		return fallback, nil
 	}
 	preset := prop.TextAnalyzer.StopwordPreset
 	if d, ok := cachedPresets[preset]; ok {
-		return d
+		return d, nil
 	}
-	if d, err := stopwords.NewDetectorFromPreset(preset); err == nil {
-		return d
-	}
-	return fallback
+	return stopwords.NewDetectorFromPreset(preset)
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
@@ -690,7 +687,11 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		} else {
 			var sw tokenizer.StopwordDetector
 			if prop.Tokenization == models.PropertyTokenizationWord {
-				sw = resolveStopwordDetector(prop, s.stopwordPresets, s.stopwords)
+				var err error
+				sw, err = resolveStopwordDetector(prop, s.stopwordPresets, s.stopwords)
+				if err != nil {
+					return nil, err
+				}
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
 			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
