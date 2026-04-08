@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compactv2"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -39,11 +40,13 @@ type hnswCommitLogger struct {
 	rootPath string
 	id       string
 	logger   logrus.FieldLogger
+	fs       common.FS
 
 	// File management
-	currentFile   *os.File
-	currentWriter *bufio.Writer
-	walWriter     *compactv2.WALWriter
+	currentFile     common.File
+	currentFileName string
+	currentWriter   *bufio.Writer
+	walWriter       *compactv2.WALWriter
 
 	// Compaction (replaces condensor + combiner)
 	compactor *compactv2.Compactor
@@ -65,6 +68,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		rootPath:             rootPath,
 		id:                   name,
 		logger:               logger,
+		fs:                   common.NewOSFS(),
 		maintenanceCallbacks: maintenanceCallbacks,
 
 		// can be overwritten using functional options
@@ -79,26 +83,26 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 
 	// Ensure the commit log directory exists
 	dir := commitLogDirectory(rootPath, name)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+	if err := l.fs.MkdirAll(dir, os.ModePerm); err != nil {
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
 	// Create or open the current commit log file.
 	// If forceNewFile is set (e.g., after crash recovery), always create a new file.
-	fd, err := getLatestCommitFileOrCreate(rootPath, name, l.forceNewFile)
+	fd, fileName, err := getLatestCommitFileOrCreate(rootPath, name, l.forceNewFile, l.fs)
 	if err != nil {
 		return nil, err
 	}
 
 	l.currentFile = fd
+	l.currentFileName = fileName
 	l.currentWriter = bufio.NewWriter(fd)
 	l.walWriter = compactv2.NewWALWriter(l.currentWriter)
 
 	// Create compactor for maintenance
-	l.compactor = compactv2.NewCompactor(
-		compactv2.DefaultCompactorConfig(dir),
-		logger,
-	)
+	compactorCfg := compactv2.DefaultCompactorConfig(dir)
+	compactorCfg.FS = l.fs
+	l.compactor = compactv2.NewCompactor(compactorCfg, logger)
 
 	return l, nil
 }
@@ -122,16 +126,16 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func getLatestCommitFileOrCreate(rootPath, name string, forceNewFile bool) (*os.File, error) {
+func getLatestCommitFileOrCreate(rootPath, name string, forceNewFile bool, fs common.FS) (common.File, string, error) {
 	dir := commitLogDirectory(rootPath, name)
-	err := os.MkdirAll(dir, os.ModePerm)
+	err := fs.MkdirAll(dir, os.ModePerm)
 	if err != nil {
-		return nil, errors.Wrap(err, "create commit logger directory")
+		return nil, "", errors.Wrap(err, "create commit logger directory")
 	}
 
 	fileName, ok, err := getCurrentCommitLogFileName(dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "find commit logger file in directory")
+		return nil, "", errors.Wrap(err, "find commit logger file in directory")
 	}
 
 	if !ok || forceNewFile {
@@ -141,13 +145,13 @@ func getLatestCommitFileOrCreate(rootPath, name string, forceNewFile bool) (*os.
 		fileName = fmt.Sprintf("%d", time.Now().Unix())
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	filePath := commitLogFileName(rootPath, name, fileName)
+	fd, err := fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
-		return nil, errors.Wrap(err, "create commit log file")
+		return nil, "", errors.Wrap(err, "create commit log file")
 	}
 
-	return fd, nil
+	return fd, filePath, nil
 }
 
 // getCurrentCommitLogFileName returns the fileName and true if a file was
@@ -453,7 +457,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 		return false, nil
 	}
 
-	oldFileName := l.currentFile.Name()
+	oldFileName := l.currentFileName
 
 	// Flush and close current file
 	if err := l.currentWriter.Flush(); err != nil {
@@ -485,13 +489,14 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 			Info("commit log size crossed threshold, switching to new file")
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	filePath := commitLogFileName(l.rootPath, l.id, fileName)
+	fd, err := l.fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return true, errors.Wrap(err, "create commit log file")
 	}
 
 	l.currentFile = fd
+	l.currentFileName = filePath
 	l.currentWriter = bufio.NewWriter(fd)
 	l.walWriter = compactv2.NewWALWriter(l.currentWriter)
 
@@ -521,8 +526,8 @@ func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
-	if _, err := os.Stat(dir); err == nil {
-		if err := os.RemoveAll(dir); err != nil {
+	if _, err := l.fs.Stat(dir); err == nil {
+		if err := l.fs.RemoveAll(dir); err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
 	}

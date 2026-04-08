@@ -11,6 +11,8 @@
 
 package hnsw
 
+import "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+
 type CommitlogOption func(l *hnswCommitLogger) error
 
 func WithCommitlogThreshold(size int64) CommitlogOption {
@@ -26,6 +28,13 @@ func WithCommitlogThreshold(size int64) CommitlogOption {
 func WithForceNewFile() CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.forceNewFile = true
+		return nil
+	}
+}
+
+func WithFS(fs common.FS) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.fs = fs
 		return nil
 	}
 }
