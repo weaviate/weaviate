@@ -24,7 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compactv2"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -46,10 +46,10 @@ type hnswCommitLogger struct {
 	currentFile     common.File
 	currentFileName string
 	currentWriter   *bufio.Writer
-	walWriter       *compactv2.WALWriter
+	walWriter       *compact.WALWriter
 
 	// Compaction (replaces condensor + combiner)
-	compactor *compactv2.Compactor
+	compactor *compact.Compactor
 
 	// Maintenance
 	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
@@ -97,12 +97,12 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	l.currentFile = fd
 	l.currentFileName = fileName
 	l.currentWriter = bufio.NewWriter(fd)
-	l.walWriter = compactv2.NewWALWriter(l.currentWriter)
+	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	// Create compactor for maintenance
-	compactorCfg := compactv2.DefaultCompactorConfig(dir)
+	compactorCfg := compact.DefaultCompactorConfig(dir)
 	compactorCfg.FS = l.fs
-	l.compactor = compactv2.NewCompactor(compactorCfg, logger)
+	l.compactor = compact.NewCompactor(compactorCfg, logger)
 
 	return l, nil
 }
@@ -429,7 +429,7 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 			Error("hnsw commit log maintenance (compaction) failed")
 	}
 
-	return action != compactv2.ActionNone
+	return action != compact.ActionNone
 }
 
 func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
@@ -498,7 +498,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	l.currentFile = fd
 	l.currentFileName = filePath
 	l.currentWriter = bufio.NewWriter(fd)
-	l.walWriter = compactv2.NewWALWriter(l.currentWriter)
+	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	return true, nil
 }

@@ -85,7 +85,7 @@ func (v *vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[node
 }
 
 // convertEntityNodes converts entity Vertex slice to internal vertex slice.
-// This is used when loading state from compactv2 which uses the shared entity types.
+// This is used when loading state from compact which uses the shared entity types.
 func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 	nodes := make([]*vertex, len(entNodes))
 	for i, en := range entNodes {

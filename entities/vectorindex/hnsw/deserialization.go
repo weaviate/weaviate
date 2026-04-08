@@ -29,7 +29,7 @@ type Vertex struct {
 // HNSW commit logs or snapshots.
 //
 // This structure is designed to be shared between different HNSW implementations
-// (e.g., the main hnsw adapter and compactv2) to enable interoperability and
+// (e.g., the main hnsw adapter and compact) to enable interoperability and
 // migration between formats.
 //
 // It composes GraphState (graph structure) and compression.State (optional compression data)

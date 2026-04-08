@@ -21,7 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compactv2"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -59,7 +59,7 @@ func (h *hnsw) init(cfg Config) error {
 	return nil
 }
 
-// restoreFromDisk loads the HNSW state from commit log files using compactv2.Loader.
+// restoreFromDisk loads the HNSW state from commit log files using compact.Loader.
 // If a truncated/corrupt WAL file is detected, it sets h.recoveredFromCrash to true.
 func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
@@ -79,14 +79,14 @@ func (h *hnsw) restoreFromDisk() error {
 		return errors.Wrap(err, "create commit log directory")
 	}
 
-	loader := compactv2.NewLoader(compactv2.LoaderConfig{
+	loader := compact.NewLoader(compact.LoaderConfig{
 		Dir:    dir,
 		Logger: h.logger,
 	})
 
 	loadResult, err := loader.Load()
 	if err != nil {
-		return errors.Wrap(err, "load commit logs with compactv2")
+		return errors.Wrap(err, "load commit logs with compact")
 	}
 
 	h.cachePrefilled.Store(loadResult == nil || loadResult.State == nil)
