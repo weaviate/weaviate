@@ -363,8 +363,10 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 		{
 			name: "PartialUpdateError with allowPartialSchemaErr calls updateStore",
 			op: applyOp{
-				op:                    cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
-				updateSchema:          func() error { return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()} },
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+				},
 				updateStore:           func() error { return nil },
 				allowPartialSchemaErr: true,
 			},
@@ -374,9 +376,11 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 		{
 			name: "PartialUpdateError without allowPartialSchemaErr skips updateStore",
 			op: applyOp{
-				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
-				updateSchema: func() error { return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()} },
-				updateStore:  func() error { return nil },
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+				},
+				updateStore: func() error { return nil },
 			},
 			wantStoreCalled: false,
 			wantErr:         ErrSchema,
@@ -384,8 +388,10 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 		{
 			name: "PartialUpdateError with allowPartialSchemaErr and schemaOnly skips updateStore",
 			op: applyOp{
-				op:                    cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
-				updateSchema:          func() error { return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()} },
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+				},
 				updateStore:           func() error { return nil },
 				schemaOnly:            true,
 				allowPartialSchemaErr: true,

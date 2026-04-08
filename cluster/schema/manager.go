@@ -476,9 +476,9 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
+			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			schemaOnly:            schemaOnly,
 			allowPartialSchemaErr: true,
 		},
 	)

@@ -46,16 +46,12 @@ var (
 // transitional-state tenants), but the remaining entries were applied and the
 // DB update should still proceed for them. The wrapped errors are returned to
 // the caller after the DB update completes.
-//
-// Implementing Unwrap() []error makes errors.Is/As traverse all wrapped errors,
-// so callers can still do errors.Is(err, ErrShardNotFound) or
-// errors.Is(err, ErrTenantTransitionalState) to detect the partial-failure kind.
 type PartialUpdateError struct {
 	Errs []error
 	msg  string
 }
 
-func (e *PartialUpdateError) Error() string  { return e.msg }
+func (e *PartialUpdateError) Error() string   { return e.msg }
 func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
 type ClassInfo struct {
