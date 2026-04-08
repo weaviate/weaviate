@@ -28,11 +28,13 @@ import (
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/minio/minio-go/v7"
 	minioCredentials "github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"
 	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -631,7 +633,8 @@ func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID stri
 	cfg := helper.DefaultBackupConfig()
 
 	// Start backup
-	go func() {
+	logger, _ := test.NewNullLogger()
+	enterrors.GoWrapper(func() {
 		resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
 		if err != nil {
 			// Try to extract detailed error message from the response
@@ -649,7 +652,7 @@ func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID stri
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Payload)
 		assert.Equal(t, backupID, resp.Payload.ID)
-	}()
+	}, logger)
 
 	if s.config.MultiTenant.Enabled && s.config.MultiTenant.WithMidBackupActivations {
 		// Activate/deactivate tenants in the middle of backup to test activity status handling
