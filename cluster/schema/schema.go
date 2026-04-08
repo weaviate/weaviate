@@ -48,13 +48,9 @@ var (
 // the caller after the DB update completes.
 type PartialUpdateError struct {
 	Errs []error
-	msg  string
 }
 
 func (e *PartialUpdateError) Error() string {
-	if e.msg != "" {
-		return e.msg
-	}
 	msgs := make([]string, 0, len(e.Errs))
 	for _, err := range e.Errs {
 		if err != nil {

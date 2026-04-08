@@ -366,7 +366,7 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			op: applyOp{
 				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
 				updateSchema: func() error {
-					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
 				},
 				updateStore:           func() error { return nil },
 				allowPartialSchemaErr: true,
@@ -379,7 +379,7 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			op: applyOp{
 				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
 				updateSchema: func() error {
-					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
 				},
 				updateStore: func() error { return nil },
 			},
@@ -391,7 +391,7 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			op: applyOp{
 				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
 				updateSchema: func() error {
-					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
 				},
 				updateStore:           func() error { return nil },
 				schemaOnly:            true,
@@ -405,7 +405,7 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			op: applyOp{
 				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
 				updateSchema: func() error {
-					return &PartialUpdateError{Errs: []error{ErrShardNotFound}, msg: ErrShardNotFound.Error()}
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
 				},
 				updateStore:           func() error { return storeErr },
 				allowPartialSchemaErr: true,

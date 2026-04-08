@@ -454,11 +454,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// apply() knows to still call updateStore() for the tenants that succeeded.
 	var err error
 	if len(partialErrs) > 0 {
-		msgs := make([]string, len(partialErrs))
-		for i, e := range partialErrs {
-			msgs[i] = e.Error()
-		}
-		err = &PartialUpdateError{Errs: partialErrs, msg: strings.Join(msgs, "; ")}
+		err = &PartialUpdateError{Errs: partialErrs}
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
