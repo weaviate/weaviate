@@ -259,8 +259,8 @@ func TestQueryProfiling(t *testing.T) {
 	})
 
 	groupByTests := []struct {
-		name            string
-		req             *pb.SearchRequest
+		name             string
+		req              *pb.SearchRequest
 		expectedSearches []string
 	}{
 		{
@@ -282,9 +282,9 @@ func TestQueryProfiling(t *testing.T) {
 		{
 			name: "BM25 search with GroupBy",
 			req: &pb.SearchRequest{
-				Collection: className,
-				Metadata:   &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
-				Bm25Search: &pb.BM25{Query: "hello world document", Properties: []string{"text"}},
+				Collection:  className,
+				Metadata:    &pb.MetadataRequest{Uuid: true, Score: true, QueryProfile: true},
+				Bm25Search:  &pb.BM25{Query: "hello world document", Properties: []string{"text"}},
 				GroupBy:     &pb.GroupBy{Path: []string{"category"}, NumberOfGroups: 3, ObjectsPerGroup: 5},
 				Uses_127Api: true,
 			},
