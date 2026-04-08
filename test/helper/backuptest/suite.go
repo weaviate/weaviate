@@ -429,11 +429,28 @@ func (s *BackupTestSuite) ActivateSomeTestTenants(t *testing.T) {
 	rand.Shuffle(len(tenants), func(i, j int) { tenants[i], tenants[j] = tenants[j], tenants[i] })
 	// Randomly select half of the inactive tenants to activate
 	numToActivate := len(tenants) / 2
-	toActivate := make([]*models.Tenant, 0, numToActivate)
+	toActivate := make([]string, 0, numToActivate)
 	for i := 0; i < numToActivate; i++ {
-		toActivate = append(toActivate, &models.Tenant{Name: tenants[i], ActivityStatus: models.TenantActivityStatusACTIVE})
+		toActivate = append(toActivate, tenants[i])
 	}
-	helper.UpdateTenants(t, s.config.ClassName, toActivate)
+	// Read some data to cause auto-tenant activation to kick-in
+	for _, tenant := range toActivate {
+		resp, err := helper.Client(t).Graphql.GraphqlPost(&gql.GraphqlPostParams{
+			Body: &models.GraphQLQuery{
+				Query: fmt.Sprintf(`{ Aggregate { %s (tenant: "%s") { meta { count } } } }`, s.config.ClassName, tenant),
+			},
+		}, nil)
+		require.NoError(t, err, "should search tenant %s without error", tenant)
+		require.NotNil(t, resp, "should get a response for tenant %s", tenant)
+		var errmsg string
+		if len(resp.Payload.Errors) > 0 {
+			errmsg = resp.Payload.Errors[0].Message
+		}
+		require.Len(t, resp.Payload.Errors, 0, "should not have errors for tenant %s: %s", tenant, errmsg)
+		count, err := resp.Payload.Data["Aggregate"].(map[string]any)[s.config.ClassName].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
+		require.NoError(t, err, "should parse count for tenant %s without error", tenant)
+		require.Equal(t, count, int64(s.config.MultiTenant.ObjectsPerTenant), "tenant %s should have %d objects, got %v", tenant, s.config.MultiTenant.ObjectsPerTenant, count)
+	}
 }
 
 // VerifyTenantActivitiesRestored checks that tenant activity statuses are correctly restored after backup/restore.
@@ -614,23 +631,25 @@ func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID stri
 	cfg := helper.DefaultBackupConfig()
 
 	// Start backup
-	resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
-	if err != nil {
-		// Try to extract detailed error message from the response
-		t.Logf("Backup creation failed with error type: %T", err)
+	go func() {
+		resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
+		if err != nil {
+			// Try to extract detailed error message from the response
+			t.Logf("Backup creation failed with error type: %T", err)
 
-		// Check for unprocessable entity error
-		var uerr *backups.BackupsCreateUnprocessableEntity
-		if errors.As(err, &uerr) && uerr.Payload != nil {
-			for i, e := range uerr.Payload.Error {
-				t.Logf("Error[%d]: %s", i, e.Message)
+			// Check for unprocessable entity error
+			var uerr *backups.BackupsCreateUnprocessableEntity
+			if errors.As(err, &uerr) && uerr.Payload != nil {
+				for i, e := range uerr.Payload.Error {
+					t.Logf("Error[%d]: %s", i, e.Message)
+				}
 			}
 		}
-	}
-	require.NoError(t, err, "create backup should succeed")
-	require.NotNil(t, resp)
-	require.NotNil(t, resp.Payload)
-	assert.Equal(t, backupID, resp.Payload.ID)
+		require.NoError(t, err, "create backup should succeed")
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Payload)
+		assert.Equal(t, backupID, resp.Payload.ID)
+	}()
 
 	if s.config.MultiTenant.Enabled && s.config.MultiTenant.WithMidBackupActivations {
 		// Activate/deactivate tenants in the middle of backup to test activity status handling
