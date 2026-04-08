@@ -1003,8 +1003,7 @@ func validatePropertyProcessing(prop *models.Property, propertyDataType schema.P
 func validateStopwordPresetsStillReferenced(properties []*models.Property,
 	updatedPresets map[string][]string,
 ) error {
-	var check func(propName, presetName string) error
-	check = func(propName, presetName string) error {
+	check := func(propName, presetName string) error {
 		if presetName == "" {
 			return nil
 		}
