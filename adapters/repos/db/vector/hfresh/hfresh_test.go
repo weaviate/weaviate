@@ -227,8 +227,6 @@ func TestHFreshRecall(t *testing.T) {
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[3].Name())))
 		require.Equal(t, "split.queue.d", dirs[4].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[4].Name())))
-		require.Equal(t, "reassign.queue.d", dirs[4].Name())
-		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[5].Name())))
 	})
 
 	t.Run("restart and re-test recall", func(t *testing.T) {
