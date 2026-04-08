@@ -319,6 +319,14 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, fmt.Errorf("inverted index config: %w", err)
 	}
 
+	var updatedPresets map[string][]string
+	if update.InvertedIndexConfig != nil {
+		updatedPresets = update.InvertedIndexConfig.StopwordPresets
+	}
+	if err := validateStopwordPresetsStillReferenced(class.Properties, updatedPresets); err != nil {
+		return nil, fmt.Errorf("inverted index config: %w", err)
+	}
+
 	return update, nil
 }
 

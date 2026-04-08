@@ -3404,6 +3404,88 @@ func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
 	})
 }
 
+func TestValidateStopwordPresetsStillReferenced(t *testing.T) {
+	propWithPreset := func(name, preset string) *models.Property {
+		return &models.Property{
+			Name:         name,
+			Tokenization: models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: preset},
+		}
+	}
+
+	t.Run("removed preset still referenced by top-level property is rejected", func(t *testing.T) {
+		props := []*models.Property{propWithPreset("title", "fr")}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot remove preset "fr"`)
+		assert.Contains(t, err.Error(), `property "title"`)
+	})
+
+	t.Run("removed preset replaced by built-in is rejected", func(t *testing.T) {
+		// 'en' is built-in so even an empty updated map should be fine for it.
+		props := []*models.Property{propWithPreset("title", "en")}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("preset still present in updated config is accepted", func(t *testing.T) {
+		props := []*models.Property{propWithPreset("title", "fr")}
+		updated := map[string][]string{"fr": {"le", "la"}}
+		err := validateStopwordPresetsStillReferenced(props, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("property with no stopwordPreset is ignored", func(t *testing.T) {
+		props := []*models.Property{
+			{Name: "title", Tokenization: models.PropertyTokenizationWord},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("removed preset still referenced by nested property is rejected", func(t *testing.T) {
+		props := []*models.Property{
+			{
+				Name: "doc",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:         "body",
+						Tokenization: models.PropertyTokenizationWord,
+						TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: "fr"},
+					},
+				},
+			},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot remove preset "fr"`)
+		assert.Contains(t, err.Error(), `property "doc.body"`)
+	})
+
+	t.Run("removed preset still referenced by deeply nested property is rejected", func(t *testing.T) {
+		props := []*models.Property{
+			{
+				Name: "doc",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name: "section",
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:         "title",
+								Tokenization: models.PropertyTokenizationWord,
+								TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: "fr"},
+							},
+						},
+					},
+				},
+			},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `property "doc.section.title"`)
+	})
+}
+
 func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
 	searchable := true
 	pdt := newFakePrimitivePDT(schema.DataTypeText)

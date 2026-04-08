@@ -46,6 +46,48 @@ def delete(url: str, timeout: float = REQUEST_TIMEOUT) -> int:
         return e.code
 
 
+def get_json(
+    url: str, timeout: float = REQUEST_TIMEOUT
+) -> tuple[int, dict[str, Any] | None]:
+    """GET JSON using urllib and return (status_code, parsed_body_or_None)."""
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        resp_body = None
+        try:
+            resp_body = json.loads(e.read())
+        except Exception:
+            pass
+        return e.code, resp_body
+
+
+def put_json(
+    url: str,
+    data: dict[str, Any],
+    timeout: float = REQUEST_TIMEOUT,
+) -> tuple[int, dict[str, Any] | None]:
+    """PUT JSON using urllib and return (status_code, parsed_body_or_None)."""
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        resp_body = None
+        try:
+            resp_body = json.loads(e.read())
+        except Exception:
+            pass
+        return e.code, resp_body
+
+
 class TestGenericTokenize:
     """Tests for POST /v1/tokenize."""
 
@@ -453,6 +495,100 @@ class TestPropertyTokenize:
             assert "quick" in body["query"]
         finally:
             delete(f"{WEAVIATE_URL}/v1/aliases/{alias_name}")
+
+    def test_cannot_remove_stopword_preset_in_use(self) -> None:
+        """Removing a stopwordPreset still referenced by a property must be rejected."""
+        # Fetch the current class definition
+        status, class_def = get_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}"
+        )
+        assert status == 200
+        assert class_def is not None
+        # Sanity check: title_fr references the 'fr' user-defined preset
+        assert "fr" in class_def["invertedIndexConfig"]["stopwordPresets"]
+
+        # Attempt to drop the 'fr' preset while title_fr still references it
+        class_def["invertedIndexConfig"]["stopwordPresets"] = {}
+        status, body = put_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}",
+            class_def,
+        )
+        assert status == 422, f"expected 422, got {status}: {body}"
+        # Error message should mention the preset name and the offending property
+        err = json.dumps(body)
+        assert "fr" in err
+        assert "title_fr" in err
+
+        # The original preset should still be present after the rejected update
+        status, class_def_after = get_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}"
+        )
+        assert status == 200
+        assert class_def_after is not None
+        assert "fr" in class_def_after["invertedIndexConfig"]["stopwordPresets"]
+
+        # Tokenization through title_fr should still work using the 'fr' preset
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title_fr/tokenize",
+            {"text": "le chat"},
+        )
+        assert status == 200
+        assert body is not None
+        assert "le" not in body["query"]
+        assert "chat" in body["query"]
+
+    def test_update_stopword_preset_contents(self) -> None:
+        """Updating words in an existing stopword preset takes effect at query time."""
+        # Baseline: 'le' is in the 'fr' preset and should be filtered, 'yo' is not.
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title_fr/tokenize",
+            {"text": "le yo chat"},
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["le", "yo", "chat"]
+        assert "le" not in body["query"]
+        assert "yo" in body["query"]
+        assert "chat" in body["query"]
+
+        # Update the 'fr' preset: remove 'le', add 'yo'.
+        status, class_def = get_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}"
+        )
+        assert status == 200
+        assert class_def is not None
+        class_def["invertedIndexConfig"]["stopwordPresets"]["fr"] = [
+            "la",
+            "les",
+            "yo",
+        ]
+        status, _ = put_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}",
+            class_def,
+        )
+        assert status == 200
+
+        # After update: 'le' should pass through, 'yo' should be filtered.
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title_fr/tokenize",
+            {"text": "le yo chat"},
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["le", "yo", "chat"]
+        assert "le" in body["query"]
+        assert "yo" not in body["query"]
+        assert "chat" in body["query"]
+
+        # 'la' is still in the preset, so it should still be filtered.
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/schema/{self.collection_name}/properties/title_fr/tokenize",
+            {"text": "la souris"},
+        )
+        assert status == 200
+        assert body is not None
+        assert "la" not in body["query"]
+        assert "souris" in body["query"]
 
     def test_class_not_found(self) -> None:
         status, _ = post_json(
