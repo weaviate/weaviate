@@ -21,6 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -605,6 +608,266 @@ func assertSnapshotMatchesResult(t *testing.T, expected, snapshot *ent.Deseriali
 		assert.Equal(t, expectedNode.ID, snapshotNode.ID, "snapshot node %d ID mismatch", i)
 		assert.Equal(t, expectedNode.Level, snapshotNode.Level, "snapshot node %d level mismatch", i)
 	}
+}
+
+// TestCompactCompressionPreserved tests that compression and encoder data
+// (PQ, SQ, RQ, BRQ, Muvera) survive the full compact pipeline:
+// WAL -> Sorted -> Merged -> Snapshot -> Read.
+func TestCompactCompressionPreserved(t *testing.T) {
+	// writeGraphCommits writes a minimal graph into the WAL so the pipeline has
+	// something to compact alongside the compression commit.
+	writeGraphCommits := func(t *testing.T, w *WALWriter) {
+		t.Helper()
+		require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 1))
+		require.NoError(t, w.WriteAddNode(0, 1))
+		require.NoError(t, w.WriteAddNode(1, 0))
+		require.NoError(t, w.WriteReplaceLinksAtLevel(0, 0, []uint64{1}))
+		require.NoError(t, w.WriteReplaceLinksAtLevel(1, 0, []uint64{0}))
+	}
+
+	// runPipeline writes a WAL with graph + compression commits, converts to
+	// sorted, merges, writes a snapshot, and reads it back.
+	runPipeline := func(t *testing.T, writeCompression func(*WALWriter)) *ent.DeserializationResult {
+		t.Helper()
+		dir := t.TempDir()
+		logger := logrus.New()
+		logger.SetLevel(logrus.ErrorLevel)
+
+		// Write WAL
+		rawPath := filepath.Join(dir, "log.raw")
+		writeRawLog(t, rawPath, func(w *WALWriter) {
+			writeGraphCommits(t, w)
+			writeCompression(w)
+		})
+
+		// Convert to sorted
+		sortedPath := filepath.Join(dir, "log.sorted")
+		convertRawToSorted(t, rawPath, sortedPath, logger)
+
+		// Write snapshot from sorted file
+		snapshotPath := filepath.Join(dir, "final.snapshot")
+		writeSnapshotFromSortedFiles(t, []string{sortedPath}, snapshotPath, logger)
+
+		// Read snapshot back
+		reader := NewSnapshotReader(logger)
+		result, err := reader.ReadFromFile(snapshotPath)
+		require.NoError(t, err)
+		return result
+	}
+
+	t.Run("SQ", func(t *testing.T) {
+		sqData := &compression.SQData{A: 0.25, B: 0.75, Dimensions: 128}
+
+		result := runPipeline(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddSQ(sqData))
+		})
+
+		require.True(t, result.Compressed(), "compression flag should be set")
+		got := result.CompressionSQData()
+		require.NotNil(t, got, "SQ data should be present")
+		assert.Equal(t, sqData.A, got.A)
+		assert.Equal(t, sqData.B, got.B)
+		assert.Equal(t, sqData.Dimensions, got.Dimensions)
+	})
+
+	t.Run("PQ/TileEncoder", func(t *testing.T) {
+		pqData := &compression.PQData{
+			Dimensions:          128,
+			EncoderType:         compression.UseTileEncoder,
+			Ks:                  256,
+			M:                   4,
+			EncoderDistribution: 1,
+			UseBitsEncoding:     true,
+			Encoders:            make([]compression.PQSegmentEncoder, 4),
+		}
+		for i := uint16(0); i < pqData.M; i++ {
+			pqData.Encoders[i] = compressionhelpers.RestoreTileEncoder(
+				256.0, 0.5, 1.0, 1000.0, 0.1, 0.9, i, pqData.EncoderDistribution,
+			)
+		}
+
+		result := runPipeline(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddPQ(pqData))
+		})
+
+		require.True(t, result.Compressed())
+		got := result.CompressionPQData()
+		require.NotNil(t, got, "PQ data should be present")
+		assert.Equal(t, pqData.Dimensions, got.Dimensions)
+		assert.Equal(t, pqData.EncoderType, got.EncoderType)
+		assert.Equal(t, pqData.Ks, got.Ks)
+		assert.Equal(t, pqData.M, got.M)
+		assert.Equal(t, pqData.EncoderDistribution, got.EncoderDistribution)
+		assert.Equal(t, pqData.UseBitsEncoding, got.UseBitsEncoding)
+		require.Len(t, got.Encoders, len(pqData.Encoders))
+		for i := range pqData.Encoders {
+			assert.Equal(t, pqData.Encoders[i].ExposeDataForRestore(), got.Encoders[i].ExposeDataForRestore(),
+				"encoder %d data mismatch", i)
+		}
+	})
+
+	t.Run("RQ", func(t *testing.T) {
+		rqData := &compression.RQData{
+			InputDim: 128,
+			Bits:     4,
+			Rotation: compression.FastRotation{
+				OutputDim: 64,
+				Rounds:    2,
+				Swaps:     make([][]compression.Swap, 2),
+				Signs:     make([][]float32, 2),
+			},
+		}
+		for i := uint32(0); i < rqData.Rotation.Rounds; i++ {
+			rqData.Rotation.Swaps[i] = make([]compression.Swap, rqData.Rotation.OutputDim/2)
+			for j := uint32(0); j < rqData.Rotation.OutputDim/2; j++ {
+				rqData.Rotation.Swaps[i][j] = compression.Swap{I: uint16(j * 2), J: uint16(j*2 + 1)}
+			}
+			rqData.Rotation.Signs[i] = make([]float32, rqData.Rotation.OutputDim)
+			for j := uint32(0); j < rqData.Rotation.OutputDim; j++ {
+				rqData.Rotation.Signs[i][j] = float32(j) * 0.1
+			}
+		}
+
+		result := runPipeline(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddRQ(rqData))
+		})
+
+		require.True(t, result.Compressed())
+		got := result.CompressionRQData()
+		require.NotNil(t, got, "RQ data should be present")
+		assert.Equal(t, rqData.InputDim, got.InputDim)
+		assert.Equal(t, rqData.Bits, got.Bits)
+		assert.Equal(t, rqData.Rotation.OutputDim, got.Rotation.OutputDim)
+		assert.Equal(t, rqData.Rotation.Rounds, got.Rotation.Rounds)
+		for i := range rqData.Rotation.Swaps {
+			require.Equal(t, len(rqData.Rotation.Swaps[i]), len(got.Rotation.Swaps[i]))
+			for j := range rqData.Rotation.Swaps[i] {
+				assert.Equal(t, rqData.Rotation.Swaps[i][j], got.Rotation.Swaps[i][j])
+			}
+			assert.Equal(t, rqData.Rotation.Signs[i], got.Rotation.Signs[i])
+		}
+	})
+
+	t.Run("BRQ", func(t *testing.T) {
+		brqData := &compression.BRQData{
+			InputDim: 128,
+			Rotation: compression.FastRotation{
+				OutputDim: 64,
+				Rounds:    2,
+				Swaps:     make([][]compression.Swap, 2),
+				Signs:     make([][]float32, 2),
+			},
+			Rounding: make([]float32, 64),
+		}
+		for i := uint32(0); i < brqData.Rotation.Rounds; i++ {
+			brqData.Rotation.Swaps[i] = make([]compression.Swap, brqData.Rotation.OutputDim/2)
+			for j := uint32(0); j < brqData.Rotation.OutputDim/2; j++ {
+				brqData.Rotation.Swaps[i][j] = compression.Swap{I: uint16(j * 2), J: uint16(j*2 + 1)}
+			}
+			brqData.Rotation.Signs[i] = make([]float32, brqData.Rotation.OutputDim)
+			for j := uint32(0); j < brqData.Rotation.OutputDim; j++ {
+				brqData.Rotation.Signs[i][j] = float32(j) * 0.05
+			}
+		}
+		for i := range brqData.Rounding {
+			brqData.Rounding[i] = float32(i) * 0.01
+		}
+
+		result := runPipeline(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddBRQ(brqData))
+		})
+
+		require.True(t, result.Compressed())
+		got := result.CompressionBRQData()
+		require.NotNil(t, got, "BRQ data should be present")
+		assert.Equal(t, brqData.InputDim, got.InputDim)
+		assert.Equal(t, brqData.Rotation.OutputDim, got.Rotation.OutputDim)
+		assert.Equal(t, brqData.Rotation.Rounds, got.Rotation.Rounds)
+		for i := range brqData.Rotation.Swaps {
+			require.Equal(t, len(brqData.Rotation.Swaps[i]), len(got.Rotation.Swaps[i]))
+			for j := range brqData.Rotation.Swaps[i] {
+				assert.Equal(t, brqData.Rotation.Swaps[i][j], got.Rotation.Swaps[i][j])
+			}
+			assert.Equal(t, brqData.Rotation.Signs[i], got.Rotation.Signs[i])
+		}
+		assert.Equal(t, brqData.Rounding, got.Rounding)
+	})
+
+	t.Run("Muvera", func(t *testing.T) {
+		muveraData := &multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   8,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    make([][][]float32, 2),
+			S:            make([][][]float32, 2),
+		}
+		for i := uint32(0); i < muveraData.Repetitions; i++ {
+			muveraData.Gaussians[i] = make([][]float32, muveraData.KSim)
+			for j := uint32(0); j < muveraData.KSim; j++ {
+				muveraData.Gaussians[i][j] = make([]float32, muveraData.Dimensions)
+				for k := uint32(0); k < muveraData.Dimensions; k++ {
+					muveraData.Gaussians[i][j][k] = float32(i*100+j*10) + float32(k)*0.1
+				}
+			}
+			muveraData.S[i] = make([][]float32, muveraData.DProjections)
+			for j := uint32(0); j < muveraData.DProjections; j++ {
+				muveraData.S[i][j] = make([]float32, muveraData.Dimensions)
+				for k := uint32(0); k < muveraData.Dimensions; k++ {
+					muveraData.S[i][j][k] = float32(i*200+j*20) + float32(k)*0.2
+				}
+			}
+		}
+
+		result := runPipeline(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddMuvera(muveraData))
+		})
+
+		require.True(t, result.MuveraEnabled(), "muvera flag should be set")
+		got := result.EncoderMuvera()
+		require.NotNil(t, got, "Muvera data should be present")
+		assert.Equal(t, muveraData.KSim, got.KSim)
+		assert.Equal(t, muveraData.NumClusters, got.NumClusters)
+		assert.Equal(t, muveraData.Dimensions, got.Dimensions)
+		assert.Equal(t, muveraData.DProjections, got.DProjections)
+		assert.Equal(t, muveraData.Repetitions, got.Repetitions)
+		for i := range muveraData.Gaussians {
+			for j := range muveraData.Gaussians[i] {
+				assert.Equal(t, muveraData.Gaussians[i][j], got.Gaussians[i][j],
+					"gaussians[%d][%d] mismatch", i, j)
+			}
+		}
+		for i := range muveraData.S {
+			for j := range muveraData.S[i] {
+				assert.Equal(t, muveraData.S[i][j], got.S[i][j],
+					"S[%d][%d] mismatch", i, j)
+			}
+		}
+	})
+
+	t.Run("SQ+Muvera", func(t *testing.T) {
+		sqData := &compression.SQData{A: 1.5, B: 2.5, Dimensions: 64}
+		muveraData := &multivector.MuveraData{
+			KSim: 1, NumClusters: 2, Dimensions: 4, DProjections: 1, Repetitions: 1,
+			Gaussians: [][][]float32{{{0.1, 0.2, 0.3, 0.4}}},
+			S:         [][][]float32{{{0.5, 0.6, 0.7, 0.8}}},
+		}
+
+		result := runPipeline(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddSQ(sqData))
+			require.NoError(t, w.WriteAddMuvera(muveraData))
+		})
+
+		require.True(t, result.Compressed())
+		require.True(t, result.MuveraEnabled())
+		gotSQ := result.CompressionSQData()
+		require.NotNil(t, gotSQ)
+		assert.Equal(t, sqData.A, gotSQ.A)
+		gotMuvera := result.EncoderMuvera()
+		require.NotNil(t, gotMuvera)
+		assert.Equal(t, muveraData.KSim, gotMuvera.KSim)
+	})
 }
 
 // TestCompactRoundTrip tests that data survives a complete round-trip through
