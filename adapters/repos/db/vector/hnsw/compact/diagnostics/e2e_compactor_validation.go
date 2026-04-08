@@ -58,7 +58,7 @@ func main() {
 
 	startTotal := time.Now()
 
-	fmt.Println("=== Compactor V2 E2E Validation (Using Orchestrator) ===\n")
+	fmt.Printf("=== Compactor V2 E2E Validation (Using Orchestrator) ===\n")
 
 	// Paths
 	backupDir := "../test_data.bak.d"

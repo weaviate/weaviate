@@ -76,7 +76,7 @@ func main() {
 		}
 
 		fmt.Printf("  ✓ Created %s (tombstones: %d, deleted: %d)\n",
-			filepath.Base(sortedPath), len(res.Tombstones), len(res.TombstonesDeleted))
+			filepath.Base(sortedPath), len(res.Graph.Tombstones), len(res.Graph.TombstonesDeleted))
 	}
 
 	fmt.Println("\n✓ All .sorted files regenerated successfully!")
