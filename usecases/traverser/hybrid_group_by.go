@@ -22,6 +22,12 @@ import (
 )
 
 func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, groupBy *searchparams.GroupBy) (search.Results, error) {
+	var queryProfileRaw, queryProfile interface{}
+	if len(sr) > 0 && sr[0].AdditionalProperties != nil {
+		queryProfileRaw = sr[0].AdditionalProperties["queryProfileRaw"]
+		queryProfile = sr[0].AdditionalProperties["queryProfile"]
+	}
+
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 
@@ -113,6 +119,18 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 		first.AdditionalProperties["group"] = group
 
 		out = append(out, first)
+	}
+
+	if len(out) > 0 && (queryProfileRaw != nil || queryProfile != nil) {
+		if out[0].AdditionalProperties == nil {
+			out[0].AdditionalProperties = make(models.AdditionalProperties)
+		}
+		if queryProfileRaw != nil {
+			out[0].AdditionalProperties["queryProfileRaw"] = queryProfileRaw
+		}
+		if queryProfile != nil {
+			out[0].AdditionalProperties["queryProfile"] = queryProfile
+		}
 	}
 
 	return out, nil
