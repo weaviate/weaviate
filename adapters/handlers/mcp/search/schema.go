@@ -11,6 +11,14 @@
 
 package search
 
+import (
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
+)
+
+// Request types
+
 type QueryHybridArgs struct {
 	Query            string         `json:"query" jsonschema:"required" jsonschema_description:"The plain-text query to search the collection on"`
 	CollectionName   string         `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to search from"`
@@ -22,4 +30,26 @@ type QueryHybridArgs struct {
 	ReturnProperties []string       `json:"return_properties,omitempty" jsonschema_description:"Properties to return in the result"`
 	ReturnMetadata   []string       `json:"return_metadata,omitempty" jsonschema_description:"Metadata to return (e.g., 'id', 'vector', 'distance', 'score', 'creationTimeUnix', 'lastUpdateTimeUnix')"`
 	Filters          map[string]any `json:"filters,omitempty" jsonschema:"-"`
+}
+
+// Response types
+
+type QueryHybridResp struct {
+	Results []any `json:"results" jsonschema_description:"The search results matching the query"`
+}
+
+// Tool registration
+
+func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig) []server.ServerTool {
+	toolName := "weaviate-query-hybrid"
+	tool := mcp.NewTool(
+		toolName,
+		mcp.WithDescription(internal.GetDescription(configs, toolName,
+			"Performs hybrid search (vector + keyword) for data in a collection.")),
+		mcp.WithInputSchema[QueryHybridArgs](),
+	)
+	internal.ApplySchemaDescriptions(&tool, toolName, configs)
+	return []server.ServerTool{
+		{Tool: tool, Handler: mcp.NewStructuredToolHandler(searcher.Hybrid)},
+	}
 }
