@@ -29,6 +29,21 @@ func validateNestedProp(prop *models.Property, propName schema.PropertyName, isP
 		return fmt.Errorf("property length filtering is not supported for nested properties")
 	}
 
+	if cw.getOperator() == OperatorIsNull {
+		if !cw.isType(schema.DataTypeBoolean) {
+			return errors.Errorf("operator IsNull requires a booleanValue, got %v instead",
+				cw.getValueNameFromType())
+		}
+		// Root-level IsNull (e.g. "addresses IsNull true") has no sub-path — valid.
+		if !strings.Contains(string(propName), ".") {
+			return nil
+		}
+		// Sub-property IsNull (e.g. "addresses.city IsNull true"): walk the path
+		// to verify it exists but skip leaf type validation (IsNull accepts boolean
+		// for any property type).
+		return validateNestedPathClause(prop, propName, cw)
+	}
+
 	if !strings.Contains(string(propName), ".") {
 		return fmt.Errorf("property %q is of type %q; use dot notation to filter on a sub-property",
 			propName, schema.DataType(prop.DataType[0]))
@@ -64,6 +79,11 @@ func validateNestedPathClause(prop *models.Property, propName schema.PropertyNam
 			}
 			nestedProps = np.NestedProperties
 		} else {
+			// IsNull on any leaf type — including object/object[] — is valid:
+			// it checks existence, not value.
+			if cw.getOperator() == OperatorIsNull {
+				return nil
+			}
 			// Leaf sub-property must be a filterable primitive, not object/object[].
 			if schema.IsNested(dt) {
 				return fmt.Errorf("nested path %q: sub-property %q is of type %q; "+
@@ -98,6 +118,12 @@ func findNestedProp(props []*models.NestedProperty, name string) *models.NestedP
 // the primitive leaf NestedProperty. Mirrors the type-check logic in
 // validateClause for flat properties.
 func validateNestedLeafType(propName schema.PropertyName, np *models.NestedProperty, cw *clauseWrapper) error {
+	// IsNull checks existence, not value — its boolean value is valid for any
+	// leaf type regardless of the property's data type.
+	if cw.getOperator() == OperatorIsNull {
+		return nil
+	}
+
 	if isUUIDType(np.DataType[0]) {
 		return validateUUIDType(propName, cw)
 	}

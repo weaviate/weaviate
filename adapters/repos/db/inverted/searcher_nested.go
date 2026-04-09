@@ -29,7 +29,13 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 	prop *models.Property, class *models.Class,
 ) (*propValuePair, error) {
 	if filter.Operator == filters.OperatorIsNull {
-		return nil, fmt.Errorf("IsNull is not yet supported for nested properties")
+		// relPath is "" for top-level existence (e.g. "addresses IsNull true")
+		// or the sub-path (e.g. "city" for "addresses.city IsNull true").
+		var relPath string
+		if strings.HasPrefix(path, prop.Name+".") {
+			relPath = path[len(prop.Name)+1:]
+		}
+		return s.buildNestedIsNullPair(filter, prop.Name, relPath, class)
 	}
 
 	segments := strings.Split(path, ".")
@@ -183,6 +189,23 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, 
 		hasFilterableIndex: true,
 		nested:             nestedInfo{isNested: true, relPath: relativePath},
 		Class:              class,
+	}, nil
+}
+
+// buildNestedIsNullPair builds a propValuePair for an IsNull filter on a
+// nested property. relPath is "" for top-level existence (e.g. "addresses IsNull")
+// or the dot-notation sub-path (e.g. "city" for "addresses.city IsNull").
+func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, class *models.Class) (*propValuePair, error) {
+	value, err := s.extractBoolValue(filter.Value.Value)
+	if err != nil {
+		return nil, fmt.Errorf("nested IsNull %q: encode bool: %w", propName, err)
+	}
+	return &propValuePair{
+		prop:     propName,
+		value:    value,
+		operator: filters.OperatorIsNull,
+		nested:   nestedInfo{isNested: true, relPath: relPath},
+		Class:    class,
 	}, nil
 }
 

@@ -92,6 +92,12 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		return pv.resolveNestedCorrelated(ctx, s)
 	}
 
+	// Nested IsNull reads _exists entries from the metadata bucket rather than
+	// going through the standard value-bucket path.
+	if pv.operator == filters.OperatorIsNull && pv.nested.isNested {
+		return pv.fetchNestedIsNull(s)
+	}
+
 	if pv.operator.OnValue() {
 		return pv.fetchDocIDs(ctx, s, limit)
 	}
@@ -354,6 +360,32 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 		dbm.docIDs = nested.MaskRootLeaf(dbm.docIDs)
 	}
 	return dbm, nil
+}
+
+// fetchNestedIsNull resolves an IsNull filter for a nested property by reading
+// the existence bitmap from the metadata bucket. relPath="" checks root-level
+// existence (e.g. "addresses IsNull"); a non-empty relPath checks sub-property
+// existence (e.g. "addresses.city IsNull").
+//
+// IsNull=false (property exists) → allowlist of matching docIDs.
+// IsNull=true  (property absent) → denylist (complement) of matching docIDs.
+func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
+	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
+	if metaBucket == nil {
+		return nil, errors.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
+	}
+
+	positions, release, err := metaBucket.RoaringSetGet(nested.ExistsKey(pv.nested.relPath))
+	if err != nil {
+		return nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
+	}
+	defer release()
+
+	dbm := newDocBitmap()
+	dbm.docIDs = nested.MaskRootLeaf(positions)
+	// pv.value is a little-endian bool: 0x01 = true (IsNull — property absent → denylist).
+	dbm.isDenyList = len(pv.value) > 0 && pv.value[0] == 0x01
+	return &dbm, nil
 }
 
 // fetchRawPositions is like fetchDocIDs but returns the raw position bitmap

@@ -317,3 +317,313 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 }
+
+// ---------------------------------------------------------------------------
+// IsNull tests
+// ---------------------------------------------------------------------------
+
+// isNullTestClass returns a class used across IsNull integration tests:
+//
+//	addresses: object[] { city: text }
+//	meta:      object   { isbn: text }
+//	container: object[] {
+//	  owner: object   { name: text }   ← intermediate object
+//	  items: object[] { tag:  text }   ← intermediate object[]
+//	}
+func isNullTestClass() *models.Class {
+	vTrue := true
+	return &models.Class{
+		Class: "TestClass",
+		Properties: []*models.Property{
+			{
+				Name:     "addresses",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "city", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+				},
+			},
+			{
+				Name:     "meta",
+				DataType: schema.DataTypeObject.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "isbn", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+				},
+			},
+			{
+				Name:     "container",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:     "owner",
+						DataType: schema.DataTypeObject.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "name", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+						},
+					},
+					{
+						Name:     "items",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "tag", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// writeNestedExists writes an _exists metadata entry to a meta bucket.
+func writeNestedExists(t *testing.T, bucket *lsmkv.Bucket, relPath string, positions []uint64) {
+	t.Helper()
+	require.NoError(t, bucket.RoaringSetAddList(nested.ExistsKey(relPath), positions))
+}
+
+// makeIsNullPvp builds a propValuePair for a nested IsNull filter.
+func makeIsNullPvp(class *models.Class, prop, relPath string, isNullTrue bool) *propValuePair {
+	var val byte
+	if isNullTrue {
+		val = 0x01
+	}
+	return &propValuePair{
+		prop:     prop,
+		value:    []byte{val},
+		operator: filters.OperatorIsNull,
+		nested:   nestedInfo{isNested: true, relPath: relPath},
+		Class:    class,
+	}
+}
+
+func TestNestedIsNull(t *testing.T) {
+	// position helpers — docID is the identifying part after MaskRootLeaf
+	pos := func(docID uint64) uint64 { return nested.Encode(1, 1, docID) }
+
+	t.Run("object[] — root IsNull", func(t *testing.T) {
+		// output:
+		// addresses IsNull false → {doc1, doc2}  (have at least one element)
+		// addresses IsNull true  → denylist {doc1, doc2}  (complement = doc3 and beyond)
+		const (
+			doc1 = uint64(1) // has addresses with city
+			doc2 = uint64(2) // has addresses without city
+		)
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		mb := store.Bucket(metaBucket)
+		// doc1 has addresses with city; doc2 has addresses without city; doc3 has none.
+		writeNestedExists(t, mb, "", []uint64{pos(doc1), pos(doc2)})
+		writeNestedExists(t, mb, "city", []uint64{pos(doc1)})
+
+		for _, tt := range []struct {
+			name           string
+			isNull         bool
+			wantIsDenyList bool
+			wantDocIDs     []uint64 // bitmap contents (denylist bitmap or allowlist bitmap)
+		}{
+			{"IsNull false — allowlist of docs with addresses", false, false, []uint64{doc1, doc2}},
+			{"IsNull true  — denylist of docs with addresses", true, true, []uint64{doc1, doc2}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pv := makeIsNullPvp(class, "addresses", "", tt.isNull)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
+				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
+			})
+		}
+	})
+
+	t.Run("object[] — sub-property IsNull", func(t *testing.T) {
+		// output:
+		// addresses.city IsNull false → allowlist {doc1}        (has at least one address with city)
+		// addresses.city IsNull true  → denylist  {doc1}        (complement = doc2, doc3, …)
+		const (
+			doc1 = uint64(1) // has addresses with city
+			doc2 = uint64(2) // has addresses without city
+		)
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		mb := store.Bucket(metaBucket)
+		// doc1 has addresses with city; doc2 has addresses but no city; doc3 has none.
+		writeNestedExists(t, mb, "", []uint64{pos(doc1), pos(doc2)})
+		writeNestedExists(t, mb, "city", []uint64{pos(doc1)})
+
+		for _, tt := range []struct {
+			name           string
+			isNull         bool
+			wantIsDenyList bool
+			wantDocIDs     []uint64
+		}{
+			{"IsNull false — allowlist of docs with city", false, false, []uint64{doc1}},
+			{"IsNull true  — denylist of docs with city", true, true, []uint64{doc1}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pv := makeIsNullPvp(class, "addresses", "city", tt.isNull)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
+				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
+			})
+		}
+	})
+
+	t.Run("object — root IsNull", func(t *testing.T) {
+		// output:
+		// meta IsNull false → allowlist {doc4, doc6}       (both have meta)
+		// meta IsNull true  → denylist  {doc4, doc6}       (complement = doc5 and beyond)
+		const (
+			doc4 = uint64(4) // has meta with isbn
+			doc6 = uint64(6) // has meta but no isbn
+		)
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("meta")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		mb := store.Bucket(metaBucket)
+		// doc4 has meta with isbn; doc6 has meta but no isbn; doc5 has no meta.
+		writeNestedExists(t, mb, "", []uint64{pos(doc4), pos(doc6)})
+		writeNestedExists(t, mb, "isbn", []uint64{pos(doc4)})
+
+		for _, tt := range []struct {
+			name           string
+			isNull         bool
+			wantIsDenyList bool
+			wantDocIDs     []uint64
+		}{
+			{"IsNull false — allowlist of docs with meta", false, false, []uint64{doc4, doc6}},
+			{"IsNull true  — denylist of docs with meta", true, true, []uint64{doc4, doc6}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pv := makeIsNullPvp(class, "meta", "", tt.isNull)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
+				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
+			})
+		}
+	})
+
+	t.Run("object — sub-property IsNull", func(t *testing.T) {
+		// output:
+		// meta.isbn IsNull false → allowlist {doc4}         (has isbn)
+		// meta.isbn IsNull true  → denylist  {doc4}         (complement = doc6, doc5, …)
+		// doc6 has meta but no isbn → not in ExistsKey("isbn"), returned by IsNull true via complement
+		const (
+			doc4 = uint64(4) // has meta with isbn
+			doc6 = uint64(6) // has meta but no isbn
+		)
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("meta")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		mb := store.Bucket(metaBucket)
+		// doc4 has meta with isbn; doc6 has meta but no isbn; doc5 has no meta.
+		writeNestedExists(t, mb, "", []uint64{pos(doc4), pos(doc6)})
+		writeNestedExists(t, mb, "isbn", []uint64{pos(doc4)})
+
+		for _, tt := range []struct {
+			name           string
+			isNull         bool
+			wantIsDenyList bool
+			wantDocIDs     []uint64
+		}{
+			{"IsNull false — allowlist of docs with isbn", false, false, []uint64{doc4}},
+			{"IsNull true  — denylist of docs with isbn", true, true, []uint64{doc4}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pv := makeIsNullPvp(class, "meta", "isbn", tt.isNull)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
+				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
+			})
+		}
+	})
+
+	t.Run("object[] — intermediate object sub-property IsNull", func(t *testing.T) {
+		// output:
+		// container.owner IsNull false → allowlist {doc7}  (has owner)
+		// container.owner IsNull true  → denylist  {doc7}  (complement = doc8, doc9, …)
+		// doc8 has container with items but no owner → in complement for IsNull true
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("container")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		const (
+			doc7 = uint64(7) // container with owner (no items)
+			doc8 = uint64(8) // container with items (no owner)
+		)
+
+		mb := store.Bucket(metaBucket)
+		// doc7: container element exists, owner exists
+		// doc8: container element exists, items exist, but no owner
+		writeNestedExists(t, mb, "", []uint64{pos(doc7), pos(doc8)})
+		writeNestedExists(t, mb, "owner", []uint64{pos(doc7)})
+		writeNestedExists(t, mb, "items", []uint64{pos(doc8)})
+
+		for _, tt := range []struct {
+			name           string
+			isNull         bool
+			wantIsDenyList bool
+			wantDocIDs     []uint64
+		}{
+			{"IsNull false — allowlist of docs with owner", false, false, []uint64{doc7}},
+			{"IsNull true  — denylist of docs with owner", true, true, []uint64{doc7}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pv := makeIsNullPvp(class, "container", "owner", tt.isNull)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
+				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
+			})
+		}
+	})
+
+	t.Run("object[] — intermediate object[] sub-property IsNull", func(t *testing.T) {
+		// output:
+		// container.items IsNull false → allowlist {doc8}  (has items)
+		// container.items IsNull true  → denylist  {doc8}  (complement = doc7, doc9, …)
+		// doc7 has container with owner but no items → in complement for IsNull true
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("container")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		const (
+			doc7 = uint64(7) // container with owner (no items)
+			doc8 = uint64(8) // container with items (no owner)
+		)
+
+		mb := store.Bucket(metaBucket)
+		writeNestedExists(t, mb, "", []uint64{pos(doc7), pos(doc8)})
+		writeNestedExists(t, mb, "owner", []uint64{pos(doc7)})
+		writeNestedExists(t, mb, "items", []uint64{pos(doc8)})
+
+		for _, tt := range []struct {
+			name           string
+			isNull         bool
+			wantIsDenyList bool
+			wantDocIDs     []uint64
+		}{
+			{"IsNull false — allowlist of docs with items", false, false, []uint64{doc8}},
+			{"IsNull true  — denylist of docs with items", true, true, []uint64{doc8}},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				pv := makeIsNullPvp(class, "container", "items", tt.isNull)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
+				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
+			})
+		}
+	})
+}

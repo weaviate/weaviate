@@ -162,10 +162,52 @@ func TestExtractNestedProp(t *testing.T) {
 			wantProp: "nested", wantValue: []byte("Alice"),
 		},
 		{
-			name: "IsNull returns error",
+			name: "root IsNull false — relPath is empty",
+			path: "nested", operator: filters.OperatorIsNull,
+			valueType: schema.DataTypeBoolean, value: false,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "", pv.nested.relPath) // root-level existence
+				assert.Equal(t, []byte{0x00}, pv.value)
+			},
+		},
+		{
+			name: "root IsNull true — relPath is empty, denylist value",
+			path: "nested", operator: filters.OperatorIsNull,
+			valueType: schema.DataTypeBoolean, value: true,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "", pv.nested.relPath) // root-level existence
+				assert.Equal(t, []byte{0x01}, pv.value)
+			},
+		},
+		{
+			name: "IsNull false — produces nested isNull pair",
+			path: "nested.city", operator: filters.OperatorIsNull,
+			valueType: schema.DataTypeBoolean, value: false,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "city", pv.nested.relPath)
+				assert.Equal(t, []byte{0x00}, pv.value) // false = property exists
+			},
+		},
+		{
+			name: "IsNull true — produces nested isNull pair with denylist value",
 			path: "nested.city", operator: filters.OperatorIsNull,
 			valueType: schema.DataTypeBoolean, value: true,
-			wantErr: "IsNull",
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "city", pv.nested.relPath)
+				assert.Equal(t, []byte{0x01}, pv.value) // true = property absent
+			},
 		},
 		{
 			name: "non-filterable leaf returns error",

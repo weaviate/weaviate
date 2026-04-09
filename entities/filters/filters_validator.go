@@ -86,16 +86,16 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 		return err
 	}
 
+	if _, ok := schema.AsNested(prop.DataType); ok {
+		return validateNestedProp(prop, propName, isPropLengthFilter, cw)
+	}
+
 	if cw.getOperator() == OperatorIsNull {
 		if !cw.isType(schema.DataTypeBoolean) {
 			return errors.Errorf("operator IsNull requires a booleanValue, got %v instead",
 				cw.getValueNameFromType())
 		}
 		return nil
-	}
-
-	if _, ok := schema.AsNested(prop.DataType); ok {
-		return validateNestedProp(prop, propName, isPropLengthFilter, cw)
 	}
 
 	if isPropLengthFilter {

@@ -224,13 +224,77 @@ func TestValidateNestedLengthFilter(t *testing.T) {
 }
 
 func TestValidateNestedIsNull(t *testing.T) {
-	// IsNull is validated by the existing check before the nested path
-	// delegation, so it passes for any property type including nested.
-	cl := &Clause{
-		Operator: OperatorIsNull,
-		Value:    &Value{Value: true, Type: schema.DataTypeBoolean},
-		On:       &Path{Class: "Article", Property: "nested.name"},
+	isNullClause := func(propName string) *Clause {
+		return &Clause{
+			Operator: OperatorIsNull,
+			Value:    &Value{Value: true, Type: schema.DataTypeBoolean},
+			On:       &Path{Class: "Article", Property: schema.PropertyName(propName)},
+		}
 	}
-	err := validateClause(nestedGetClass, newClauseWrapper(cl))
-	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		propName string
+		wantErr  string
+	}{
+		// root-level IsNull (no dot notation) — checks object existence
+		{
+			name:     "root object IsNull — no dot, valid",
+			propName: "nested",
+		},
+		// sub-property IsNull on text — bool value accepted regardless of leaf type
+		{
+			name:     "sub-property text IsNull",
+			propName: "nested.name",
+		},
+		// sub-property IsNull on int — bool value accepted regardless of leaf type
+		{
+			name:     "sub-property int IsNull",
+			propName: "nested.count",
+		},
+		// sub-property IsNull on text[] — bool value accepted regardless of leaf type
+		{
+			name:     "sub-property textArray IsNull",
+			propName: "nested.tags",
+		},
+		// sub-property inside nested object[]
+		{
+			name:     "nested object[] sub-property IsNull",
+			propName: "nested.addresses.city",
+		},
+		// nested object sub-property IsNull — leaf is object, valid for IsNull
+		{
+			name:     "nested object sub-property (nested.owner) IsNull",
+			propName: "nested.owner",
+		},
+		// nested object[] sub-property IsNull — leaf is object[], valid for IsNull
+		{
+			name:     "nested object[] sub-property (nested.addresses) IsNull",
+			propName: "nested.addresses",
+		},
+		// two-level path through nested object, int leaf
+		{
+			name:     "two-level path nested.owner.age IsNull",
+			propName: "nested.owner.age",
+		},
+		// non-existent sub-property is now rejected — path is validated
+		{
+			name:     "non-existent sub-property rejected",
+			propName: "nested.missing",
+			wantErr:  `"missing" not found`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := isNullClause(tt.propName)
+			err := validateClause(nestedGetClass, newClauseWrapper(cl))
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
