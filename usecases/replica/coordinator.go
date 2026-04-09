@@ -160,7 +160,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			errs := fmt.Errorf("errors: %s", strings.Join(broadcastErrors, ", "))
+			errs := fmt.Sprintf("errors: %s", strings.Join(broadcastErrors, ", "))
 			resChan <- Result[string]{Err: fmt.Errorf("%s; broadcast: %w", errs, ErrReplicas)}
 		}
 	}
