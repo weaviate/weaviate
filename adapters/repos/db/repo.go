@@ -255,6 +255,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
 		OnClose: db.shutDownWg.Done,
+		Metrics: promMetrics,
 	})
 	db.scheduler.Start()
 
