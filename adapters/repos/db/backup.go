@@ -43,6 +43,18 @@ type BackupState struct {
 
 var errFrozenShard = errors.New("shard is frozen")
 
+const (
+	LSMDir        = "lsm"
+	MigrationsExt = ".migrations"
+	DBExt         = ".db"
+	BloomExt      = ".bloom"
+	TmpExt        = ".tmp"
+	CNAExt        = ".cna"
+	MetadataExt   = ".metadata"
+	CondensedExt  = ".condensed"
+	SnapshotExt   = ".snapshot"
+)
+
 // Backupable returns whether all given class can be backed up.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
@@ -403,20 +415,20 @@ func isImmutableFile(relPath string) bool {
 
 	// LSM segment data files — written once during flush/compaction, never modified.
 	// Excludes meta*.db (flat index BoltDB, mmap writes) and index.db (dynamic index BoltDB).
-	if ext == ".db" && !strings.HasPrefix(base, "meta") && base != "index.db" {
+	if ext == DBExt && !strings.HasPrefix(base, "meta") && base != "index.db" {
 		return true
 	}
 	// LSM segment companion files — written once during segment init, never modified.
 	// .bloom = bloom filter, .cna = count net additions, .metadata = combined metadata.
-	if ext == ".bloom" || ext == ".cna" || ext == ".metadata" {
+	if ext == BloomExt || ext == CNAExt || ext == MetadataExt {
 		return true
 	}
 	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
-	if ext == ".condensed" {
+	if ext == CondensedExt {
 		return true
 	}
 	// HNSW snapshots — point-in-time captures, never modified after creation.
-	if ext == ".snapshot" {
+	if ext == SnapshotExt {
 		return true
 	}
 	return false
@@ -794,7 +806,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	// List LSM store files. Unlike the ACTIVE path (Bucket.listFiles), we include
 	// .wal files because Bucket.Shutdown may use flushWAL() instead of flush()
 	// for small memtables (shouldReuseWAL), making the WAL the only data copy.
-	lsmDir := filepath.Join(shardDir, "lsm")
+	lsmDir := filepath.Join(shardDir, LSMDir)
 	lsmFiles, err := listInactiveLSMFiles(lsmDir, rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("list lsm files: %w", err)
@@ -810,7 +822,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 		return nil, fmt.Errorf("read shard dir: %w", err)
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "lsm" {
+		if !entry.IsDir() || entry.Name() == LSMDir {
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())
@@ -821,7 +833,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			if d.IsDir() {
 				return nil
 			}
-			if filepath.Ext(d.Name()) == ".tmp" {
+			if filepath.Ext(d.Name()) == TmpExt {
 				return nil
 			}
 			relPath, relErr := filepath.Rel(rootPath, fpath)
@@ -856,7 +868,7 @@ func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
 	for _, entry := range entries {
 		entryPath := filepath.Join(lsmDir, entry.Name())
 
-		if entry.Name() == ".migrations" {
+		if entry.Name() == MigrationsExt {
 			// Walk migrations recursively, same as Store.listMigrationFiles.
 			if err := filepath.WalkDir(entryPath, func(fpath string, d os.DirEntry, err error) error {
 				if err != nil || d == nil || d.IsDir() {
@@ -893,7 +905,7 @@ func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
 			if be.IsDir() {
 				continue
 			}
-			if filepath.Ext(be.Name()) == ".tmp" {
+			if filepath.Ext(be.Name()) == TmpExt {
 				continue
 			}
 			files = append(files, filepath.Join(basePath, be.Name()))

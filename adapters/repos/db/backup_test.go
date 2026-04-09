@@ -119,7 +119,7 @@ func TestListInactiveLSMFiles(t *testing.T) {
 		{
 			name: "migrations directory is walked recursively",
 			setup: func(t *testing.T, lsmDir string) {
-				migDir := filepath.Join(lsmDir, ".migrations")
+				migDir := filepath.Join(lsmDir, MigrationsExt)
 				require.NoError(t, os.MkdirAll(filepath.Join(migDir, "sub"), 0o755))
 				require.NoError(t, os.WriteFile(filepath.Join(migDir, "m1.json"), []byte("m"), 0o644))
 				require.NoError(t, os.WriteFile(filepath.Join(migDir, "sub", "m2.json"), []byte("m"), 0o644))
@@ -129,8 +129,8 @@ func TestListInactiveLSMFiles(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment.db"), []byte("d"), 0o644))
 			},
 			expected: []string{
-				".migrations/m1.json",
-				".migrations/sub/m2.json",
+				filepath.Join(MigrationsExt, "m1.json"),
+				filepath.Join(MigrationsExt, "sub", "m2.json"),
 				"objects/segment.db",
 			},
 		},
