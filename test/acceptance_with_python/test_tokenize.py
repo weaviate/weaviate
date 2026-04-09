@@ -645,3 +645,190 @@ class TestPropertyTokenize:
             {},
         )
         assert status == 422
+
+
+class TestStopwordPresetReferenceValidation:
+    """Explicit coverage for validateStopwordPresetsStillReferenced.
+
+    Each test creates its own collection so the scenarios are independent.
+    """
+
+    @pytest.fixture
+    def collection_name(self, request, weaviate_client) -> Generator[str, None, None]:
+        client = weaviate_client()
+        name = _sanitize_collection_name(request.node.name)
+        client.collections.delete(name)
+        yield name
+        client.collections.delete(name)
+        client.close()
+
+    def _create(self, name: str, body: dict[str, Any]) -> None:
+        body = {**body, "class": name}
+        status, resp = post_json(f"{WEAVIATE_URL}/v1/schema", body)
+        assert status == 200, f"failed to create collection: {status} {resp}"
+
+    def _update(self, name: str, body: dict[str, Any]) -> tuple[int, dict[str, Any] | None]:
+        return put_json(f"{WEAVIATE_URL}/v1/schema/{name}", body)
+
+    def test_remove_unused_preset_is_allowed(self, collection_name: str) -> None:
+        """Removing a preset that no property references must succeed."""
+        self._create(
+            collection_name,
+            {
+                "vectorizer": "none",
+                "invertedIndexConfig": {
+                    "stopwordPresets": {
+                        "fr": ["le", "la", "les"],
+                        "es": ["el", "la", "los"],
+                    },
+                },
+                "properties": [
+                    {
+                        "name": "title",
+                        "dataType": ["text"],
+                        "tokenization": "word",
+                        "textAnalyzer": {"stopwordPreset": "fr"},
+                    },
+                ],
+            },
+        )
+        # Drop only 'es' (unused). 'fr' is still referenced by title.
+        status, class_def = get_json(f"{WEAVIATE_URL}/v1/schema/{collection_name}")
+        assert status == 200 and class_def is not None
+        class_def["invertedIndexConfig"]["stopwordPresets"] = {"fr": ["le", "la", "les"]}
+        status, body = self._update(collection_name, class_def)
+        assert status == 200, f"expected 200, got {status}: {body}"
+
+    def test_remove_preset_referenced_by_top_level_property_is_rejected(
+        self, collection_name: str
+    ) -> None:
+        """A removed preset still referenced by a top-level property must be rejected,
+        and the rejection must mention both the preset name and the property name."""
+        self._create(
+            collection_name,
+            {
+                "vectorizer": "none",
+                "invertedIndexConfig": {
+                    "stopwordPresets": {"fr": ["le", "la", "les"]},
+                },
+                "properties": [
+                    {
+                        "name": "title",
+                        "dataType": ["text"],
+                        "tokenization": "word",
+                        "textAnalyzer": {"stopwordPreset": "fr"},
+                    },
+                ],
+            },
+        )
+        status, class_def = get_json(f"{WEAVIATE_URL}/v1/schema/{collection_name}")
+        assert status == 200 and class_def is not None
+        class_def["invertedIndexConfig"]["stopwordPresets"] = {}
+        status, body = self._update(collection_name, class_def)
+        assert status == 422, f"expected 422, got {status}: {body}"
+        err = json.dumps(body)
+        assert "fr" in err
+        assert "title" in err
+
+    def test_remove_preset_referenced_by_nested_property_is_rejected(
+        self, collection_name: str
+    ) -> None:
+        """A removed preset still referenced by a nested property must be rejected,
+        with the dotted nested-property path in the error message."""
+        self._create(
+            collection_name,
+            {
+                "vectorizer": "none",
+                "invertedIndexConfig": {
+                    "stopwordPresets": {"fr": ["le", "la", "les"]},
+                },
+                "properties": [
+                    {
+                        "name": "doc",
+                        "dataType": ["object"],
+                        "nestedProperties": [
+                            {
+                                "name": "body",
+                                "dataType": ["text"],
+                                "tokenization": "word",
+                                "textAnalyzer": {"stopwordPreset": "fr"},
+                            },
+                        ],
+                    },
+                ],
+            },
+        )
+        status, class_def = get_json(f"{WEAVIATE_URL}/v1/schema/{collection_name}")
+        assert status == 200 and class_def is not None
+        class_def["invertedIndexConfig"]["stopwordPresets"] = {}
+        status, body = self._update(collection_name, class_def)
+        assert status == 422, f"expected 422, got {status}: {body}"
+        err = json.dumps(body)
+        assert "fr" in err
+        # Error should reference the nested property by dotted path
+        assert "doc.body" in err
+
+    def test_rename_preset_breaks_reference_and_is_rejected(
+        self, collection_name: str
+    ) -> None:
+        """Renaming a preset (effectively removing the old name) while a property
+        still references the old name must be rejected."""
+        self._create(
+            collection_name,
+            {
+                "vectorizer": "none",
+                "invertedIndexConfig": {
+                    "stopwordPresets": {"fr": ["le", "la", "les"]},
+                },
+                "properties": [
+                    {
+                        "name": "title",
+                        "dataType": ["text"],
+                        "tokenization": "word",
+                        "textAnalyzer": {"stopwordPreset": "fr"},
+                    },
+                ],
+            },
+        )
+        status, class_def = get_json(f"{WEAVIATE_URL}/v1/schema/{collection_name}")
+        assert status == 200 and class_def is not None
+        # Replace 'fr' with 'french' — same words, different name. The property
+        # still points at 'fr', so this should be rejected.
+        class_def["invertedIndexConfig"]["stopwordPresets"] = {
+            "french": ["le", "la", "les"]
+        }
+        status, body = self._update(collection_name, class_def)
+        assert status == 422, f"expected 422, got {status}: {body}"
+        err = json.dumps(body)
+        assert "fr" in err
+        assert "title" in err
+
+    def test_builtin_preset_reference_does_not_block_user_preset_removal(
+        self, collection_name: str
+    ) -> None:
+        """A property using the built-in 'en' preset must not block removal of an
+        unrelated user-defined preset."""
+        self._create(
+            collection_name,
+            {
+                "vectorizer": "none",
+                "invertedIndexConfig": {
+                    "stopwordPresets": {"fr": ["le", "la", "les"]},
+                },
+                "properties": [
+                    {
+                        "name": "title",
+                        "dataType": ["text"],
+                        "tokenization": "word",
+                        # Built-in 'en' — never appears in user-defined presets.
+                        "textAnalyzer": {"stopwordPreset": "en"},
+                    },
+                ],
+            },
+        )
+        status, class_def = get_json(f"{WEAVIATE_URL}/v1/schema/{collection_name}")
+        assert status == 200 and class_def is not None
+        # 'fr' is unused (only 'en' is referenced) → removing it must succeed.
+        class_def["invertedIndexConfig"]["stopwordPresets"] = {}
+        status, body = self._update(collection_name, class_def)
+        assert status == 200, f"expected 200, got {status}: {body}"
