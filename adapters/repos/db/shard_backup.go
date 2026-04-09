@@ -95,6 +95,18 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("flush geo index queues: %w", err)
 	}
 
+	// Flush memtables again after draining the queues. Queue tasks (e.g. HNSW
+	// insertions) may have written compressed vectors to the LSM store between
+	// the initial FlushMemtables call above and the point where the queues were
+	// fully drained/paused by PrepareForBackup. Without a second flush those
+	// compressed vectors would be absent from the backup while the HNSW commit
+	// log (captured below) references the corresponding nodes as part of the
+	// graph — including potentially as the entrypoint. On restore this leads to
+	// "entrypoint was deleted in the object store" errors on every search.
+	if err = s.store.FlushMemtables(ctx); err != nil {
+		return fmt.Errorf("flush memtables after queue drain: %w", err)
+	}
+
 	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		if err = index.PrepareForBackup(ctx); err != nil {
