@@ -12,43 +12,55 @@
 package read
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/sirupsen/logrus"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (*GetCollectionConfigResp, error) {
-	log := r.logger.WithFields(logrus.Fields{
-		"tool":       "weaviate-collections-get-config",
-		"collection": args.CollectionName,
-	})
-	log.Debug("getting collection config")
+// Request types
 
-	// Authorize the request
-	principal, err := r.Authorize(ctx, req, authorization.READ)
-	if err != nil {
-		return nil, err
-	}
-	res, err := r.schemaReader.GetConsistentSchema(ctx, principal, true)
-	if err != nil {
-		log.Warnf("failed to get schema: %v", err)
-		return nil, fmt.Errorf("failed to get schema: %w", err)
-	}
+type GetCollectionConfigArgs struct {
+	CollectionName string `json:"collection_name,omitempty" jsonschema_description:"Name of specific collection to get config for. If not provided, returns all collections"`
+}
 
-	// If collection_name is specified, filter to just that collection
-	if args.CollectionName != "" {
-		for _, class := range res.Objects.Classes {
-			if class.Class == args.CollectionName {
-				return &GetCollectionConfigResp{Collections: []*models.Class{class}}, nil
-			}
-		}
-		return nil, fmt.Errorf("collection %q not found", args.CollectionName)
-	}
+type GetTenantsArgs struct {
+	CollectionName string `json:"collection_name" jsonschema:"required" jsonschema_description:"Name of collection to get tenants from"`
+}
 
-	// Return all collections
-	return &GetCollectionConfigResp{Collections: res.Objects.Classes}, nil
+// Response types
+
+type GetCollectionConfigResp struct {
+	Collections []*models.Class `json:"collections" jsonschema_description:"The returned collection configurations"`
+}
+
+type GetTenantsResp struct {
+	Tenants []*models.Tenant `json:"tenants" jsonschema_description:"The returned tenants"`
+}
+
+// Tool registration
+
+func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig) []server.ServerTool {
+	getConfigName := "weaviate-collections-get-config"
+	getConfigTool := mcp.NewTool(
+		getConfigName,
+		mcp.WithDescription(internal.GetDescription(configs, getConfigName,
+			"Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections.")),
+		mcp.WithInputSchema[GetCollectionConfigArgs](),
+	)
+	internal.ApplySchemaDescriptions(&getConfigTool, getConfigName, configs)
+
+	tenantsName := "weaviate-tenants-list"
+	tenantsTool := mcp.NewTool(
+		tenantsName,
+		mcp.WithDescription(internal.GetDescription(configs, tenantsName,
+			"Lists the tenants of a collection in the database.")),
+		mcp.WithInputSchema[GetTenantsArgs](),
+	)
+	internal.ApplySchemaDescriptions(&tenantsTool, tenantsName, configs)
+
+	return []server.ServerTool{
+		{Tool: getConfigTool, Handler: mcp.NewStructuredToolHandler(reader.GetCollectionConfig)},
+		{Tool: tenantsTool, Handler: mcp.NewStructuredToolHandler(reader.GetTenants)},
+	}
 }

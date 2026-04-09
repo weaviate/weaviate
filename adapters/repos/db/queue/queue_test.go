@@ -739,6 +739,7 @@ func TestEnableMaintenanceModeCrashRecovery(t *testing.T) {
 
 	// reopen the queue — Init() should clean up the tombstoned chunk
 	q2 := makeQueueWith(t, s, decoder, 50, tmpDir)
+	q2.Pause(t.Context())
 	require.Equal(t, int64(3), q2.Size()) // only the second chunk remains
 
 	// tombstoned chunk and its tombstone are gone
