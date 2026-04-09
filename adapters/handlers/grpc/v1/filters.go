@@ -13,6 +13,7 @@ package v1
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/weaviate/weaviate/entities/filters"
@@ -173,13 +174,21 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 		if dataType == schema.DataTypeInt {
 			switch v := val.(type) {
 			case float64:
-				val = int(v)
+				iVal, err := floatToInt(v)
+				if err != nil {
+					return filters.Clause{}, err
+				}
+				val = iVal
 			case string:
 				fVal, err := strconv.ParseFloat(v, 64)
 				if err != nil {
 					return filters.Clause{}, fmt.Errorf("expected an integer value, but could not parse string '%v' as int: %w", v, err)
 				}
-				val = int(fVal)
+				iVal, err := floatToInt(fVal)
+				if err != nil {
+					return filters.Clause{}, err
+				}
+				val = iVal
 			// correct type for containsXXX in case users send floats for a []int type
 			case []float64:
 				if !returnFilter.Operator.IsContains() {
@@ -187,10 +196,11 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 				}
 				valInt := make([]int, len(v))
 				for i := 0; i < len(v); i++ {
-					if float64(int(v[i])) != v[i] {
-						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", v[i])
+					iVal, err := floatToInt(v[i])
+					if err != nil {
+						return filters.Clause{}, err
 					}
-					valInt[i] = int(v[i])
+					valInt[i] = iVal
 				}
 				val = valInt
 			}
@@ -321,4 +331,27 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 	default:
 		return nil, "", fmt.Errorf("unknown target type %v", target)
 	}
+}
+
+// floatToInt safely converts a float64 to int for use as an integer filter
+// value. It rejects NaN, ±Inf, values outside the int64 range, and fractional
+// values. This allows whole-number floats (e.g. 2.0 or "2.0") to be accepted
+// as a convenience, while avoiding Go's implementation-defined behavior for
+// out-of-range float→int conversions and silent truncation of fractional
+// values.
+//
+// Note: float64 cannot represent every int64 exactly. Values near the int64
+// boundary that ParseFloat rounds up to float64(math.MaxInt64) = 2^63 are
+// rejected as out of range. Callers that need exact large integers should
+// use the native integer filter value instead of float/text.
+func floatToInt(v float64) (int, error) {
+	switch {
+	case math.IsNaN(v) || math.IsInf(v, 0):
+		return 0, fmt.Errorf("filtering for integer, but received a non-finite number %v", v)
+	case v < float64(math.MinInt64) || v >= float64(math.MaxInt64):
+		return 0, fmt.Errorf("filtering for integer, but received a value out of range %v", v)
+	case math.Trunc(v) != v:
+		return 0, fmt.Errorf("filtering for integer, but received a floating point number %v", v)
+	}
+	return int(v), nil
 }
