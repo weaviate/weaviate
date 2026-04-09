@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -81,7 +82,9 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 		propName = schema.PropertyName(lengthPropName)
 	}
 
-	prop, err := schema.GetPropertyByName(class, propName.String())
+	// Strip any [N] index from the first path segment so that "nested[0].city"
+	// correctly resolves to the "nested" property in the schema.
+	prop, err := schema.GetPropertyByName(class, nested.RootPropName(propName.String()))
 	if err != nil {
 		return err
 	}

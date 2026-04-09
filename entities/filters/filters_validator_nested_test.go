@@ -68,6 +68,15 @@ func nestedClass() *models.Class {
 					},
 				},
 			},
+			{
+				// object[] at the top level — valid target for root [N] indexing
+				Name:     "items",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "value", DataType: schema.DataTypeText.PropString(), IndexFilterable: &boolTrue},
+					{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &boolTrue},
+				},
+			},
 		},
 	}
 }
@@ -183,6 +192,69 @@ func TestValidateNestedPathClause(t *testing.T) {
 			valueType: schema.DataTypeText,
 			value:     "x",
 			wantErr:   `property "nested" is of type "object"; use dot notation to filter on a sub-property`,
+		},
+		// --- indexed paths: [N] stripped before schema lookup ---
+		{
+			// nested is DataTypeObject (not object[]) — use items which is object[]
+			name:      "root index on object[] — items[1].value",
+			propName:  "items[1].value",
+			valueType: schema.DataTypeText,
+			value:     "hello",
+		},
+		{
+			name:      "sub-property index — nested.tags[1]",
+			propName:  "nested.tags[1]",
+			valueType: schema.DataTypeText,
+			value:     "tag",
+		},
+		{
+			// items[1].tags[0]: root object[] index + scalar array sub-property index
+			name:      "multi-level indexes — items[1].tags[0]",
+			propName:  "items[1].tags[0]",
+			valueType: schema.DataTypeText,
+			value:     "tag",
+		},
+		{
+			name:      "object array sub-property with index — nested.addresses[0].city",
+			propName:  "nested.addresses[0].city",
+			valueType: schema.DataTypeText,
+			value:     "Berlin",
+		},
+		{
+			name:      "non-existent sub-property with index still rejected",
+			propName:  "nested.missing[1]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `sub-property "missing" not found`,
+		},
+		// --- index on non-array types is rejected ---
+		{
+			name:      "root object (not object[]) with index rejected",
+			propName:  "nested[0].city",
+			valueType: schema.DataTypeText,
+			value:     "Berlin",
+			wantErr:   `"nested" is of type "object" — [N] indexing requires an array type`,
+		},
+		{
+			name:      "scalar sub-property with index rejected",
+			propName:  "nested.name[1]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `sub-property "name" is of type "text" — [N] indexing requires an array type`,
+		},
+		{
+			name:      "int sub-property with index rejected",
+			propName:  "nested.count[0]",
+			valueType: schema.DataTypeInt,
+			value:     42,
+			wantErr:   `sub-property "count" is of type "int" — [N] indexing requires an array type`,
+		},
+		{
+			name:      "object (not object[]) sub-property with index rejected",
+			propName:  "nested.owner[0].firstname",
+			valueType: schema.DataTypeText,
+			value:     "Alice",
+			wantErr:   `sub-property "owner" is of type "object" — [N] indexing requires an array type`,
 		},
 	}
 

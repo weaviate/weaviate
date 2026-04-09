@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -364,7 +365,11 @@ func (s *Searcher) extractPropValuePair(
 
 	// on value or non-nested filter
 	props := filter.On.Slice()
-	propName := props[0]
+	// Strip any arr[N] index from the first segment so that "addresses[1].city"
+	// correctly resolves to the "addresses" property in the schema.
+	// Only the first segment is cleaned here; extractNestedProp receives the
+	// original props[0] so that [N] indices on sub-paths are preserved.
+	propName := nested.RootPropName(props[0])
 
 	if s.onInternalProp(propName) {
 		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator, class)
@@ -389,7 +394,7 @@ func (s *Searcher) extractPropValuePair(
 	}
 
 	if _, ok := schema.AsNested(property.DataType); ok {
-		return s.extractNestedProp(filter, propName, property, class)
+		return s.extractNestedProp(filter, props[0], property, class)
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {

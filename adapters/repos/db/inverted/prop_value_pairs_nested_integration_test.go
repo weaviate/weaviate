@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	filternested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -312,6 +313,69 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 				makeLeafPvp(class, "addresses", "city", "berlin"),
 			),
 		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+	})
+
+	t.Run("correlated AND with arr[N] — cars[1].make AND cars[1].tires.width same car element", func(t *testing.T) {
+		// Both conditions target cars[1] (root=2). The arr[N] restriction is
+		// applied inside fetchNestedPositions before the correlated AND executes,
+		// so the resolution plan sees already-restricted bitmaps and correctly
+		// enforces same-element semantics within the indexed car.
+		//
+		// doc5: cars[0] (root=1): make="tesla", no tires
+		//       cars[1] (root=2): make="bmw",   tires[0].width=205
+		// doc7: cars[0] (root=1): make="bmw",   tires[0].width=205 (wrong car index)
+		// filter: cars[1].make="bmw" AND cars[1].tires.width=205 → only doc5
+
+		nestedBucket := helpers.BucketNestedFromPropNameLSM("cars")
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("cars")
+		searcher, store := newNestedTestSearcher(t, nestedBucket, metaBucket)
+		class := correlationTestClass()
+
+		nb := store.Bucket(nestedBucket)
+		// doc5 cars[0].make=tesla (root=1), cars[1].make=bmw (root=2)
+		writeNestedValue(t, nb, "make", "tesla", []uint64{nested.Encode(1, 1, doc5)})
+		writeNestedValue(t, nb, "make", "bmw", []uint64{nested.Encode(2, 1, doc5), nested.Encode(1, 1, doc7)})
+		// doc5 cars[1].tires[0].width=205 (root=2,leaf=2); doc7 cars[0].tires[0].width=205 (root=1,leaf=2)
+		widthVal := make([]byte, 8)
+		widthVal[7] = 205
+		require.NoError(t, nb.RoaringSetAddList(nested.ValueKey("tires.width", widthVal),
+			[]uint64{nested.Encode(2, 2, doc5), nested.Encode(1, 2, doc7)}))
+
+		mb := store.Bucket(metaBucket)
+		// root-level idx: cars[0] and cars[1]
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 0),
+			[]uint64{nested.Encode(1, 1, doc5), nested.Encode(1, 2, doc7), nested.Encode(1, 1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 1),
+			[]uint64{nested.Encode(2, 1, doc5), nested.Encode(2, 2, doc5)}))
+		// tires idx within any car
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tires", 0),
+			[]uint64{nested.Encode(2, 2, doc5), nested.Encode(1, 2, doc7)}))
+		// meta idx for correlated AND
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("cars", 0),
+			[]uint64{nested.Encode(1, 1, doc5), nested.Encode(1, 1, doc7), nested.Encode(1, 2, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("cars", 1),
+			[]uint64{nested.Encode(2, 1, doc5), nested.Encode(2, 2, doc5)}))
+
+		makePvp := func(relPath, value string) *propValuePair {
+			pv := makeLeafPvp(class, "cars", relPath, value)
+			pv.nested.arrayIndices = []filternested.ArrayIndex{{RelPath: "", Index: 1}}
+			return pv
+		}
+		widthPvp := &propValuePair{
+			prop: "cars", value: widthVal, operator: filters.OperatorEqual,
+			hasFilterableIndex: true,
+			nested: nestedInfo{
+				isNested:     true,
+				relPath:      "tires.width",
+				arrayIndices: []filternested.ArrayIndex{{RelPath: "", Index: 1}},
+			},
+			Class: class,
+		}
+
+		pv := makeCorrelatedPvp(class, "cars", makePvp("make", "bmw"), widthPvp)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
@@ -625,5 +689,278 @@ func TestNestedIsNull(t *testing.T) {
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
 		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// arr[N] positional filtering tests
+// ---------------------------------------------------------------------------
+
+func TestNestedArrayIndexFilter(t *testing.T) {
+	const (
+		doc1 = uint64(1) // addresses[0].city="berlin", addresses[1].city="paris"
+		doc2 = uint64(2) // addresses[0].city="paris"  (no second address)
+	)
+
+	posAddr := func(root uint16, leaf uint16, docID uint64) uint64 {
+		return nested.Encode(root, leaf, docID)
+	}
+
+	t.Run("root index — addresses[1].city = berlin", func(t *testing.T) {
+		// output:
+		// addresses[1].city = "berlin"
+		// → only doc1 has a second address (root=2) with city=berlin
+		// → doc2 has no second address → empty
+
+		valueBucket := helpers.BucketNestedFromPropNameLSM("addresses")
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
+		searcher, store := newNestedTestSearcher(t, valueBucket, metaBucket)
+		class := isNullTestClass()
+
+		vb := store.Bucket(valueBucket)
+		// doc1: addresses[0] root=1 leaf=1, addresses[1] root=2 leaf=1
+		writeNestedValue(t, vb, "city", "berlin", []uint64{
+			posAddr(1, 1, doc1), // addresses[0].city=berlin (doc1)
+			posAddr(2, 1, doc1), // addresses[1].city=berlin (doc1)
+		})
+		writeNestedValue(t, vb, "city", "paris", []uint64{
+			posAddr(1, 1, doc2), // addresses[0].city=paris (doc2)
+		})
+
+		// _idx entries: IdxKey("", 0) → all positions in addresses[0]
+		//               IdxKey("", 1) → all positions in addresses[1]
+		mb := store.Bucket(metaBucket)
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 0), []uint64{
+			posAddr(1, 1, doc1), posAddr(1, 1, doc2),
+		}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 1), []uint64{
+			posAddr(2, 1, doc1), // only doc1 has a second address
+		}))
+
+		pv := makeLeafPvp(class, "addresses", "city", "berlin")
+		pv.nested.arrayIndices = []filternested.ArrayIndex{{RelPath: "", Index: 1}}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("root index out of range — addresses[5].city returns empty", func(t *testing.T) {
+		valueBucket := helpers.BucketNestedFromPropNameLSM("addresses")
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
+		searcher, store := newNestedTestSearcher(t, valueBucket, metaBucket)
+		class := isNullTestClass()
+
+		vb := store.Bucket(valueBucket)
+		writeNestedValue(t, vb, "city", "berlin", []uint64{posAddr(1, 1, doc1)})
+
+		mb := store.Bucket(metaBucket)
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 0), []uint64{posAddr(1, 1, doc1)}))
+		// No IdxKey("", 5) entry → intersection will be empty
+
+		pv := makeLeafPvp(class, "addresses", "city", "berlin")
+		pv.nested.arrayIndices = []filternested.ArrayIndex{{RelPath: "", Index: 5}}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.True(t, result.docIDs.IsEmpty())
+	})
+
+	t.Run("IsNull with root index — addresses[1] IsNull false", func(t *testing.T) {
+		// addresses[1] IsNull false → docs that have a second address element
+		// doc1: addresses[0] (root=1) and addresses[1] (root=2)
+		// doc2: addresses[0] (root=1) only
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		mb := store.Bucket(metaBucket)
+		writeNestedExists(t, mb, "", []uint64{posAddr(1, 1, doc1), posAddr(2, 1, doc1), posAddr(1, 1, doc2)})
+		writeNestedExists(t, mb, "city", []uint64{posAddr(1, 1, doc1), posAddr(2, 1, doc1), posAddr(1, 1, doc2)})
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 0), []uint64{posAddr(1, 1, doc1), posAddr(1, 1, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 1), []uint64{posAddr(2, 1, doc1)}))
+
+		pv := makeIsNullPvp(class, "addresses", "", false)
+		pv.nested.arrayIndices = []filternested.ArrayIndex{{RelPath: "", Index: 1}}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.False(t, result.isDenyList)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull with sub-property index — addresses[1].city IsNull false", func(t *testing.T) {
+		// addresses[1].city IsNull false → docs where the second address has city set
+		// doc1: addresses[0].city set, addresses[1].city set
+		// doc2: addresses[0].city set, no second address
+		// doc3: addresses[0] exists but no city, addresses[1].city set → doc3 has second address with city
+
+		const doc3 = uint64(3)
+
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
+		searcher, store := newNestedTestSearcher(t, metaBucket)
+		class := isNullTestClass()
+
+		mb := store.Bucket(metaBucket)
+		// root-level exists: doc1 has two addresses, doc2 and doc3 have one each
+		writeNestedExists(t, mb, "", []uint64{posAddr(1, 1, doc1), posAddr(2, 1, doc1), posAddr(1, 1, doc2), posAddr(1, 1, doc3), posAddr(2, 1, doc3)})
+		// city exists: doc1 both addresses, doc2 first address, doc3 only second address
+		writeNestedExists(t, mb, "city", []uint64{posAddr(1, 1, doc1), posAddr(2, 1, doc1), posAddr(1, 1, doc2), posAddr(2, 1, doc3)})
+		// root idx entries
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 0), []uint64{posAddr(1, 1, doc1), posAddr(1, 1, doc2), posAddr(1, 1, doc3)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 1), []uint64{posAddr(2, 1, doc1), posAddr(2, 1, doc3)}))
+
+		pv := makeIsNullPvp(class, "addresses", "city", false)
+		pv.nested.arrayIndices = []filternested.ArrayIndex{{RelPath: "", Index: 1}}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		// doc1 and doc3 both have addresses[1].city set; doc2 has no addresses[1]
+		assert.False(t, result.isDenyList)
+		assert.Equal(t, []uint64{doc1, doc3}, result.docIDs.ToArray())
+	})
+}
+
+func TestNestedArrayIndexFilterIntermediate(t *testing.T) {
+	vTrue := true
+	carsClass := func() *models.Class {
+		return &models.Class{
+			Class: "TestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "cars",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+						{
+							Name:     "tires",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	posAt := func(root, leaf uint16, docID uint64) uint64 { return nested.Encode(root, leaf, docID) }
+
+	const (
+		doc1 = uint64(1)
+		doc2 = uint64(2)
+	)
+
+	t.Run("scalar array index — cars.tags[2] = german", func(t *testing.T) {
+		// doc1: cars[0].tags = ["english", "premium", "german"]
+		//   tags[0]=posAt(1,1,doc1)  tags[1]=posAt(1,2,doc1)  tags[2]=posAt(1,3,doc1)
+		// doc2: cars[0].tags = ["german", "luxury"]
+		//   tags[0]=posAt(1,1,doc2)  tags[1]=posAt(1,2,doc2)
+		// filter: cars.tags[2] = "german" → only doc1 (doc2's "german" is at tags[0])
+
+		valueBucket := helpers.BucketNestedFromPropNameLSM("cars")
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("cars")
+		searcher, store := newNestedTestSearcher(t, valueBucket, metaBucket)
+		class := carsClass()
+
+		vb := store.Bucket(valueBucket)
+		writeNestedValue(t, vb, "tags", "english", []uint64{posAt(1, 1, doc1)})
+		writeNestedValue(t, vb, "tags", "premium", []uint64{posAt(1, 2, doc1)})
+		writeNestedValue(t, vb, "tags", "german", []uint64{posAt(1, 3, doc1), posAt(1, 1, doc2)})
+		writeNestedValue(t, vb, "tags", "luxury", []uint64{posAt(1, 2, doc2)})
+
+		mb := store.Bucket(metaBucket)
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tags", 0), []uint64{posAt(1, 1, doc1), posAt(1, 1, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tags", 1), []uint64{posAt(1, 2, doc1), posAt(1, 2, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tags", 2), []uint64{posAt(1, 3, doc1)}))
+
+		pv := makeLeafPvp(class, "cars", "tags", "german")
+		pv.nested.arrayIndices = []filternested.ArrayIndex{{RelPath: "tags", Index: 2}}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("object array index — cars.tires[0].width = 205", func(t *testing.T) {
+		// doc1: cars[0].tires[0].width=205 (posAt(1,1,doc1)), tires[1].width=225 (posAt(1,2,doc1))
+		// doc2: cars[0].tires[0].width=225 (posAt(1,1,doc2)), tires[1].width=205 (posAt(1,2,doc2))
+		// filter: cars.tires[0].width = 205 → only doc1
+		// (doc2 has width=205 but only at tires[1], not tires[0])
+
+		valueBucket := helpers.BucketNestedFromPropNameLSM("cars")
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("cars")
+		searcher, store := newNestedTestSearcher(t, valueBucket, metaBucket)
+		class := carsClass()
+
+		widthVal205 := make([]byte, 8)
+		widthVal205[7] = 205
+		widthVal225 := make([]byte, 8)
+		widthVal225[7] = 225
+
+		vb := store.Bucket(valueBucket)
+		require.NoError(t, vb.RoaringSetAddList(nested.ValueKey("tires.width", widthVal205), []uint64{posAt(1, 1, doc1), posAt(1, 2, doc2)}))
+		require.NoError(t, vb.RoaringSetAddList(nested.ValueKey("tires.width", widthVal225), []uint64{posAt(1, 2, doc1), posAt(1, 1, doc2)}))
+
+		mb := store.Bucket(metaBucket)
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tires", 0), []uint64{posAt(1, 1, doc1), posAt(1, 1, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tires", 1), []uint64{posAt(1, 2, doc1), posAt(1, 2, doc2)}))
+
+		pv := &propValuePair{
+			prop: "cars", value: widthVal205, operator: filters.OperatorEqual,
+			hasFilterableIndex: true,
+			nested: nestedInfo{
+				isNested:     true,
+				relPath:      "tires.width",
+				arrayIndices: []filternested.ArrayIndex{{RelPath: "tires", Index: 0}},
+			},
+			Class: class,
+		}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("multi-level indexes — cars[1].tags[2] = german", func(t *testing.T) {
+		// doc1: cars[0] (root=1): tags=["english"]
+		//       cars[1] (root=2): tags=["english","premium","german"]
+		//         tags[0]=posAt(2,1,doc1)  tags[1]=posAt(2,2,doc1)  tags[2]=posAt(2,3,doc1)
+		// doc2: cars[0] (root=1): tags=["german","luxury"]
+		//         tags[0]=posAt(1,1,doc2)  tags[1]=posAt(1,2,doc2)
+		// filter: cars[1].tags[2] = "german" → only doc1
+		// (doc2's "german" is in cars[0].tags[0], wrong car AND wrong tag index)
+
+		valueBucket := helpers.BucketNestedFromPropNameLSM("cars")
+		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("cars")
+		searcher, store := newNestedTestSearcher(t, valueBucket, metaBucket)
+		class := carsClass()
+
+		vb := store.Bucket(valueBucket)
+		writeNestedValue(t, vb, "tags", "english", []uint64{posAt(1, 1, doc1), posAt(2, 1, doc1)})
+		writeNestedValue(t, vb, "tags", "premium", []uint64{posAt(2, 2, doc1)})
+		writeNestedValue(t, vb, "tags", "german", []uint64{posAt(2, 3, doc1), posAt(1, 1, doc2)})
+		writeNestedValue(t, vb, "tags", "luxury", []uint64{posAt(1, 2, doc2)})
+
+		mb := store.Bucket(metaBucket)
+		// root-level cars elements
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 0), []uint64{posAt(1, 1, doc1), posAt(1, 1, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("", 1), []uint64{posAt(2, 1, doc1), posAt(2, 2, doc1), posAt(2, 3, doc1)}))
+		// tags positions per index within their parent car
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tags", 0), []uint64{posAt(1, 1, doc1), posAt(2, 1, doc1), posAt(1, 1, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tags", 1), []uint64{posAt(2, 2, doc1), posAt(1, 2, doc2)}))
+		require.NoError(t, mb.RoaringSetAddList(nested.IdxKey("tags", 2), []uint64{posAt(2, 3, doc1)}))
+
+		pv := makeLeafPvp(class, "cars", "tags", "german")
+		pv.nested.arrayIndices = []filternested.ArrayIndex{
+			{RelPath: "", Index: 1},     // cars[1]
+			{RelPath: "tags", Index: 2}, // tags[2]
+		}
+
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
 }

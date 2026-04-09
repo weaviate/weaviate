@@ -13,34 +13,29 @@ package inverted
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 )
 
 // extractNestedProp builds a propValuePair for a dot-notation nested property
-// filter such as "addresses.city = 'Berlin'". It walks the schema to find the
-// leaf NestedProperty, encodes the filter value, and sets isNested=true so
-// the execution path uses the nested bucket and strips positions to docIDs.
+// filter such as "addresses.city = 'Berlin'" or "addresses[1].city = 'Berlin'".
+// It walks the schema to find the leaf NestedProperty, encodes the filter value,
+// and sets isNested=true so the execution path uses the nested bucket and strips
+// positions to docIDs. Any arr[N] index markers are parsed into arrayIndices.
 func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 	prop *models.Property, class *models.Class,
 ) (*propValuePair, error) {
+	cleanRelPath, cleanRelSegs, arrayIndices := nested.ParseIndexedPath(path)
+
 	if filter.Operator == filters.OperatorIsNull {
-		// relPath is "" for top-level existence (e.g. "addresses IsNull true")
-		// or the sub-path (e.g. "city" for "addresses.city IsNull true").
-		var relPath string
-		if strings.HasPrefix(path, prop.Name+".") {
-			relPath = path[len(prop.Name)+1:]
-		}
-		return s.buildNestedIsNullPair(filter, prop.Name, relPath, class)
+		return s.buildNestedIsNullPair(filter, prop.Name, cleanRelPath, arrayIndices, class)
 	}
 
-	segments := strings.Split(path, ".")
-	// segments[0] is the top-level prop already fetched; walk segments[1:] to the leaf.
-	leaf, err := findNestedLeaf(segments[1:], prop.NestedProperties)
+	leaf, err := findNestedLeaf(cleanRelSegs, prop.NestedProperties)
 	if err != nil {
 		return nil, fmt.Errorf("nested path %q: %w", path, err)
 	}
@@ -55,14 +50,14 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 		return nil, fmt.Errorf("nested property %q is not filterable", path)
 	}
 
-	return s.buildNestedFilterPair(filter, path, segments[0], leaf, class)
+	return s.buildNestedFilterPair(filter, prop.Name, path, cleanRelPath, arrayIndices, leaf, class)
 }
 
 // findNestedLeaf walks segments through nestedProps to locate the leaf
 // NestedProperty. Returns an error if any segment is not found.
 func findNestedLeaf(segments []string, props []*models.NestedProperty) (*models.NestedProperty, error) {
 	for i, seg := range segments {
-		found := findNestedPropByName(props, seg)
+		found := nested.FindNestedProp(props, seg)
 		if found == nil {
 			return nil, fmt.Errorf("sub-property %q not found", seg)
 		}
@@ -76,19 +71,15 @@ func findNestedLeaf(segments []string, props []*models.NestedProperty) (*models.
 
 // buildNestedFilterPair encodes the filter value for the given leaf type and
 // returns the corresponding propValuePair(s).
-func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, path, propName string,
-	leaf *models.NestedProperty, class *models.Class,
+func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
+	arrayIndices []nested.ArrayIndex, leaf *models.NestedProperty, class *models.Class,
 ) (*propValuePair, error) {
-	// Keys in the nested bucket use only the path relative to the top-level
-	// property (e.g. "city", "owner.firstname"), not the full filter path
-	// (e.g. "event.city"). Strip the top-level property name.
-	relativePath := strings.TrimPrefix(path, propName+".")
 	dt := schema.DataType(leaf.DataType[0])
 	switch dt {
 	case schema.DataTypeText, schema.DataTypeTextArray:
-		return s.buildNestedTextFilterPair(filter, path, propName, leaf, relativePath, class)
+		return s.buildNestedTextFilterPair(filter, propName, fullPath, relPath, leaf, arrayIndices, class)
 	default:
-		return s.buildNestedPrimitiveFilterPair(filter, path, propName, dt, relativePath, class)
+		return s.buildNestedPrimitiveFilterPair(filter, propName, fullPath, relPath, dt, arrayIndices, class)
 	}
 }
 
@@ -99,12 +90,12 @@ func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, path, propName 
 // TODO aliszka:nested_filtering the tokenization pipeline here (stopwords,
 // ASCII folding, wildcard handling) was aligned with extractTokenizableProp
 // manually. Consider extracting a shared helper to avoid future divergence.
-func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propName string,
-	leaf *models.NestedProperty, relativePath string, class *models.Class,
+func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
+	leaf *models.NestedProperty, arrayIndices []nested.ArrayIndex, class *models.Class,
 ) (*propValuePair, error) {
 	valueStr, ok := filter.Value.Value.(string)
 	if !ok {
-		return nil, fmt.Errorf("nested path %q: expected string value, got %T", path, filter.Value.Value)
+		return nil, fmt.Errorf("nested path %q: expected string value, got %T", fullPath, filter.Value.Value)
 	}
 
 	var terms []string
@@ -120,7 +111,7 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 		if leaf.Tokenization == models.PropertyTokenizationWord {
 			d, err := s.stopwordProvider.GetForNested(leaf)
 			if err != nil {
-				return nil, fmt.Errorf("nested path %q: get stopwords: %w", path, err)
+				return nil, fmt.Errorf("nested path %q: get stopwords: %w", fullPath, err)
 			}
 			sw = d
 		}
@@ -136,7 +127,7 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 			value:              []byte(term),
 			operator:           filter.Operator,
 			hasFilterableIndex: true,
-			nested:             nestedInfo{isNested: true, relPath: relativePath},
+			nested:             nestedInfo{isNested: true, relPath: relPath, arrayIndices: arrayIndices},
 			Class:              class,
 		})
 	}
@@ -152,8 +143,8 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
 // number, bool, date and their array variants).
-func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, propName string,
-	dt schema.DataType, relativePath string, class *models.Class,
+func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
+	dt schema.DataType, arrayIndices []nested.ArrayIndex, class *models.Class,
 ) (*propValuePair, error) {
 	// Map array types to their scalar equivalent — each array element is stored
 	// individually in the nested bucket, so filtering works the same way.
@@ -176,10 +167,10 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, 
 	case schema.DataTypeDate:
 		encodedValue, err = s.extractDateValue(filter.Value.Value)
 	default:
-		return nil, fmt.Errorf("nested path %q: unsupported leaf type %q", path, dt)
+		return nil, fmt.Errorf("nested path %q: unsupported leaf type %q", fullPath, dt)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("nested path %q: encode value: %w", path, err)
+		return nil, fmt.Errorf("nested path %q: encode value: %w", fullPath, err)
 	}
 
 	return &propValuePair{
@@ -187,15 +178,16 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, 
 		value:              encodedValue,
 		operator:           filter.Operator,
 		hasFilterableIndex: true,
-		nested:             nestedInfo{isNested: true, relPath: relativePath},
+		nested:             nestedInfo{isNested: true, relPath: relPath, arrayIndices: arrayIndices},
 		Class:              class,
 	}, nil
 }
 
 // buildNestedIsNullPair builds a propValuePair for an IsNull filter on a
-// nested property. relPath is "" for top-level existence (e.g. "addresses IsNull")
+// nested property. relPath is "" for root-level existence (e.g. "addresses IsNull")
 // or the dot-notation sub-path (e.g. "city" for "addresses.city IsNull").
-func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, class *models.Class) (*propValuePair, error) {
+// arrayIndices carries any arr[N] constraints from the filter path.
+func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, arrayIndices []nested.ArrayIndex, class *models.Class) (*propValuePair, error) {
 	value, err := s.extractBoolValue(filter.Value.Value)
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull %q: encode bool: %w", propName, err)
@@ -204,17 +196,7 @@ func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPa
 		prop:     propName,
 		value:    value,
 		operator: filters.OperatorIsNull,
-		nested:   nestedInfo{isNested: true, relPath: relPath},
+		nested:   nestedInfo{isNested: true, relPath: relPath, arrayIndices: arrayIndices},
 		Class:    class,
 	}, nil
-}
-
-// findNestedPropByName returns the NestedProperty with the given name, or nil.
-func findNestedPropByName(props []*models.NestedProperty, name string) *models.NestedProperty {
-	for _, np := range props {
-		if np.Name == name {
-			return np
-		}
-	}
-	return nil
 }
