@@ -301,6 +301,34 @@ class TestGenericTokenize:
         # 'and' is still an en stopword
         assert "and" not in body["query"]
 
+    def test_request_preset_overrides_builtin_of_same_name(self) -> None:
+        """A request-level stopwordPreset sharing a name with a built-in
+        replaces the built-in entirely (matches collection-level semantics
+        where invertedIndexConfig.stopwordPresets['en'] overrides the
+        built-in 'en' for properties of that collection)."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "the quick hello world",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "en"},
+                "stopwordPresets": {
+                    # No explicit base → defaults to "none". The user-defined
+                    # "en" is used as-is, so the built-in en list is ignored.
+                    "en": {"additions": ["hello"]},
+                },
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick", "hello", "world"]
+        # built-in 'en' is no longer applied, so 'the' stays in query
+        assert "the" in body["query"]
+        # 'hello' was added by the override, so it is filtered
+        assert "hello" not in body["query"]
+        assert "quick" in body["query"]
+        assert "world" in body["query"]
+
     def test_custom_preset_not_found(self) -> None:
         """Referencing a preset not in stopwordPresets returns 422."""
         status, body = post_json(

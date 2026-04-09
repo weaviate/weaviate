@@ -70,28 +70,41 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 
 	var detector tokenizer.StopwordDetector
 	if params.Body.AnalyzerConfig != nil && params.Body.AnalyzerConfig.StopwordPreset != "" {
-		// Fall back to analyzerConfig.stopwordPreset: check built-in, then request-level presets
 		preset := params.Body.AnalyzerConfig.StopwordPreset
-		d, err := stopwords.NewDetectorFromPreset(preset)
-		if err != nil {
-			// Not a built-in preset — check request-level stopwordPresets
-			if cfg, ok := params.Body.StopwordPresets[preset]; ok {
-				if cfg.Preset == "" {
-					cfg.Preset = "none"
-				}
-				d, err = stopwords.NewDetectorFromConfig(cfg)
-				if err != nil {
-					return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-						Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopwordPresets[%q]: %s", preset, err.Error())}},
-					})
-				}
-			} else {
+		_, isBuiltIn := stopwords.Presets[preset]
+		cfg, hasUserCfg := params.Body.StopwordPresets[preset]
+
+		switch {
+		case hasUserCfg:
+			// Request-level entry exists. It fully overrides any built-in
+			// preset of the same name (matches collection-level semantics
+			// in invertedIndexConfig.stopwordPresets, where a user-defined
+			// "en" replaces the built-in "en" entirely). If the user did
+			// not specify their own base preset, default to "none" so
+			// additions/removals are evaluated against an empty list.
+			if cfg.Preset == "" {
+				cfg.Preset = "none"
+			}
+			d, err := stopwords.NewDetectorFromConfig(cfg)
+			if err != nil {
 				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; provide it in stopwordPresets or use a built-in preset ('en', 'none')", preset)}},
+					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopwordPresets[%q]: %s", preset, err.Error())}},
 				})
 			}
+			detector = d
+		case isBuiltIn:
+			d, err := stopwords.NewDetectorFromPreset(preset)
+			if err != nil {
+				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopword preset %q: %s", preset, err.Error())}},
+				})
+			}
+			detector = d
+		default:
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; provide it in stopwordPresets or use a built-in preset ('en', 'none')", preset)}},
+			})
 		}
-		detector = d
 	}
 
 	result := tokenizer.Analyze(*params.Body.Text, *params.Body.Tokenization, "", prepared, detector)

@@ -222,6 +222,26 @@ func TestHandleGenericTokenize(t *testing.T) {
 			},
 			wantOK: false,
 		},
+		{
+			name: "request-level preset fully overrides built-in of same name",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello world"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "en",
+				},
+				StopwordPresets: map[string]models.StopwordConfig{
+					// No explicit Preset → defaults to "none". The
+					// user-defined "en" replaces the built-in entirely:
+					// only "hello" is filtered, "the" stays in the query
+					// because the built-in en list is no longer applied.
+					"en": {Additions: []string{"hello"}},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "hello", "world"},
+			wantQuery:   []string{"the", "quick", "world"},
+		},
 	}
 
 	for _, tt := range tests {

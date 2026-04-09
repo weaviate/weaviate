@@ -57,9 +57,8 @@ func validateStopwordPresets(presets map[string][]string) error {
 		if strings.TrimSpace(name) == "" {
 			return errors.Errorf("stopwordPresets: preset name must not be empty or whitespace-only")
 		}
-		if _, ok := stopwords.Presets[name]; ok {
-			return errors.Errorf("stopwordPresets: name %q conflicts with built-in preset", name)
-		}
+		// Names that match a built-in preset are allowed: the user-defined
+		// list overrides the built-in for properties of this collection.
 		if len(words) == 0 {
 			return errors.Errorf("stopwordPresets: preset %q must have at least one word", name)
 		}
