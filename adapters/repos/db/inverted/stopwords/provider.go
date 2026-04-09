@@ -12,8 +12,30 @@
 package stopwords
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// BuildPresetDetectors creates a Detector for each user-defined stopword
+// preset so they can be reused without per-query allocation. The input map is
+// the collection-level (or per-request) stopwordPresets, where each value is
+// the full word list for that preset name. Returns nil for an empty input.
+func BuildPresetDetectors(presets map[string][]string) (map[string]*Detector, error) {
+	if len(presets) == 0 {
+		return nil, nil
+	}
+	detectors := make(map[string]*Detector, len(presets))
+	for name, words := range presets {
+		d, err := NewDetectorFromPreset(NoPreset)
+		if err != nil {
+			return nil, fmt.Errorf("stopwordPresets[%q]: %w", name, err)
+		}
+		d.SetAdditions(words)
+		detectors[name] = d
+	}
+	return detectors, nil
+}
 
 // Provider bundles a collection-level fallback detector together with the
 // per-collection cache of user-defined preset detectors. Call sites that

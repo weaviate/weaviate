@@ -356,7 +356,7 @@ func NewIndex(
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
-	presetDetectors, err := buildStopwordPresetDetectors(invertedIndexConfig.StopwordPresets)
+	presetDetectors, err := stopwords.BuildPresetDetectors(invertedIndexConfig.StopwordPresets)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
@@ -832,7 +832,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
 
-	presetDetectors, err := buildStopwordPresetDetectors(updated.StopwordPresets)
+	presetDetectors, err := stopwords.BuildPresetDetectors(updated.StopwordPresets)
 	if err != nil {
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
@@ -851,25 +851,6 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 // detectors. Safe for concurrent use without invertedIndexConfigLock.
 func (i *Index) getStopwordProvider() *stopwords.Provider {
 	return i.stopwordProvider.Load()
-}
-
-// buildStopwordPresetDetectors creates a Detector for each user-defined
-// stopword preset so they can be reused across queries without per-query
-// allocation.
-func buildStopwordPresetDetectors(presets map[string][]string) (map[string]*stopwords.Detector, error) {
-	if len(presets) == 0 {
-		return nil, nil
-	}
-	detectors := make(map[string]*stopwords.Detector, len(presets))
-	for name, words := range presets {
-		d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
-		if err != nil {
-			return nil, fmt.Errorf("stopwordPresets[%q]: %w", name, err)
-		}
-		d.SetAdditions(words)
-		detectors[name] = d
-	}
-	return detectors, nil
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {

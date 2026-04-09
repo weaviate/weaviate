@@ -441,7 +441,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		var presetDetectors map[string]*stopwords.Detector
 		if class.InvertedIndexConfig != nil {
 			var err error
-			presetDetectors, err = buildStopwordPresetDetectors(iic.StopwordPresets)
+			presetDetectors, err = stopwords.BuildPresetDetectors(iic.StopwordPresets)
 			require.NoError(t, err)
 		}
 		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))

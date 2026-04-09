@@ -164,42 +164,39 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		})
 	}
 
-	var detector tokenizer.StopwordDetector
-	if prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != "" {
-		preset := prop.TextAnalyzer.StopwordPreset
-		// Check user-defined presets first; fall back to built-in.
-		if class.InvertedIndexConfig != nil {
-			if words, ok := class.InvertedIndexConfig.StopwordPresets[preset]; ok {
-				d, err := stopwords.NewDetectorFromPreset(stopwords.NoPreset)
-				if err != nil {
-					logger.WithField("action", "create_stopword_detector").Error(err)
-					return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
-						Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
-					})
-				}
-				d.SetAdditions(words)
-				detector = d
-			}
-		}
-		if detector == nil {
-			d, err := stopwords.NewDetectorFromPreset(preset)
-			if err != nil {
-				// Neither a built-in nor a user-defined preset — surface as 422.
-				return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets", preset)}},
-				})
-			}
-			detector = d
-		}
-	} else if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		var err error
-		detector, err = stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
+	// Build a Provider from the collection-level stopword config and resolve
+	// the property-level detector through it. This collapses the
+	// per-property/preset/built-in/fallback resolution into a single Get call,
+	// matching the production query path in adapters/repos/db/inverted.
+	var fallback stopwords.StopwordDetector
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
+		d, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {
 			logger.WithField("action", "create_stopword_detector").Error(err)
 			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
 				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
 			})
 		}
+		fallback = d
+	}
+	var presetDetectors map[string]*stopwords.Detector
+	if class.InvertedIndexConfig != nil {
+		d, err := stopwords.BuildPresetDetectors(class.InvertedIndexConfig.StopwordPresets)
+		if err != nil {
+			logger.WithField("action", "create_stopword_detector").Error(err)
+			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
+		}
+		presetDetectors = d
+	}
+	provider := stopwords.NewProvider(fallback, presetDetectors)
+	detector, err := provider.Get(prop)
+	if err != nil {
+		// Property names a preset that is neither built-in nor user-defined.
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets", prop.TextAnalyzer.StopwordPreset)}},
+		})
 	}
 
 	prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
