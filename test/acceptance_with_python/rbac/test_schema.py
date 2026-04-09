@@ -106,29 +106,30 @@ def test_rbac_schema_read(
 
     admin_client.collections.delete(name)
 
+
 def test_rbac_schema_read_filtered_collections(
     admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
-):    
+):
     base_name = _sanitize_role_name(request.node.name)
     allowed_collection = f"{base_name}_allowed"
     restricted_collection = f"{base_name}_restricted"
-    
+
     for name in [allowed_collection, restricted_collection]:
         admin_client.collections.delete(name)
         admin_client.collections.create(name=name)
 
-
     required_permission = Permissions.collections(collection=allowed_collection, read_config=True)
     with role_wrapper(admin_client, request, required_permission):
-        collections = custom_client.collections.list_all()    
+        collections = custom_client.collections.list_all()
         collection_names = {name.lower() for name in collections.keys()}
         assert len(collection_names) == 1
         assert allowed_collection.lower() in collection_names
         assert restricted_collection.lower() not in collection_names
-    
+
     admin_client.collections.delete(allowed_collection)
     admin_client.collections.delete(restricted_collection)
-    
+
+
 def test_rbac_collection_update(
     admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
