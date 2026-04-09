@@ -18,7 +18,9 @@ import (
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -42,6 +44,8 @@ type gcsClient struct {
 	projectID string
 	dataPath  string
 	logger    logrus.FieldLogger
+	nodeID    string        // hostname, used to make access-check paths unique across nodes
+	counter   atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
 func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
@@ -103,7 +107,11 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		storage.WithPolicy(storage.RetryAlways),
 		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
-	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath, logger: logger}, nil
+	nodeID, err := os.Hostname()
+	if err != nil {
+		nodeID = strconv.Itoa(os.Getpid())
+	}
+	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath, logger: logger, nodeID: nodeID}, nil
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
@@ -254,7 +262,10 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	key := "access-check"
+	// Each call gets a unique access-check file so concurrent Initialize calls
+	// from different nodes (or the same node) never interfere with each other.
+	seq := g.counter.Add(1)
+	key := "access-check-" + g.nodeID + "-" + strconv.FormatUint(seq, 10)
 
 	if err := g.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v", overrideBucket, overridePath, backupID, key)
