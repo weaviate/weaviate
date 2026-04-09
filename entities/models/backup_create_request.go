@@ -22,7 +22,6 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // BackupCreateRequest Request body for creating a backup for a set of collections.
@@ -37,14 +36,12 @@ type BackupCreateRequest struct {
 	Exclude []string `json:"exclude"`
 
 	// The ID of the backup (required). Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
-	// Pattern: ^[a-z0-9_-]+$
 	ID string `json:"id,omitempty"`
 
 	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`.
 	Include []string `json:"include"`
 
-	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup. Must follow the same format as `id` (lowercase letters, numbers, underscore, minus characters only).
-	// Pattern: ^[a-z0-9_-]+$
+	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.
 	IncrementalBaseBackupID *string `json:"incremental_base_backup_id,omitempty"`
 }
 
@@ -53,14 +50,6 @@ func (m *BackupCreateRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateConfig(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateIncrementalBaseBackupID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -84,30 +73,6 @@ func (m *BackupCreateRequest) validateConfig(formats strfmt.Registry) error {
 			}
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (m *BackupCreateRequest) validateID(formats strfmt.Registry) error {
-	if swag.IsZero(m.ID) { // not required
-		return nil
-	}
-
-	if err := validate.Pattern("id", "body", m.ID, `^[a-z0-9_-]+$`); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *BackupCreateRequest) validateIncrementalBaseBackupID(formats strfmt.Registry) error {
-	if swag.IsZero(m.IncrementalBaseBackupID) { // not required
-		return nil
-	}
-
-	if err := validate.Pattern("incremental_base_backup_id", "body", *m.IncrementalBaseBackupID, `^[a-z0-9_-]+$`); err != nil {
-		return err
 	}
 
 	return nil

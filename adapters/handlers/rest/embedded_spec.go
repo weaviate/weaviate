@@ -6086,8 +6086,7 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup (required). Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string",
-          "pattern": "^[a-z0-9_-]+$"
+          "type": "string"
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `.",
@@ -6097,9 +6096,8 @@ func init() {
           }
         },
         "incremental_base_backup_id": {
-          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup. Must follow the same format as ` + "`" + `id` + "`" + ` (lowercase letters, numbers, underscore, minus characters only).",
+          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
-          "pattern": "^[a-z0-9_-]+$",
           "x-nullable": true
         }
       }
@@ -15565,8 +15563,7 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup (required). Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string",
-          "pattern": "^[a-z0-9_-]+$"
+          "type": "string"
         },
         "include": {
           "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `.",
@@ -15576,9 +15573,8 @@ func init() {
           }
         },
         "incremental_base_backup_id": {
-          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup. Must follow the same format as ` + "`" + `id` + "`" + ` (lowercase letters, numbers, underscore, minus characters only).",
+          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
-          "pattern": "^[a-z0-9_-]+$",
           "x-nullable": true
         }
       }
