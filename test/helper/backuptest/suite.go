@@ -474,10 +474,16 @@ func (s *BackupTestSuite) VerifyTenantActivitiesRestored(t *testing.T) {
 }
 
 // CreateTestObjects creates test objects and stores their IDs.
-func (s *BackupTestSuite) CreateTestObjects(t *testing.T) {
+func (s *BackupTestSuite) CreateTestObjects(t *testing.T, saveObjects bool) {
 	t.Helper()
 
 	objects := s.dataGen.GenerateAllObjects()
+	helper.CreateObjectsBatch(t, objects)
+
+	if !saveObjects {
+		return
+	}
+
 	s.objects = objects
 	s.objectIDs = make([]string, len(objects))
 	s.objectTenants = make(map[string]string, len(objects))
@@ -487,9 +493,6 @@ func (s *BackupTestSuite) CreateTestObjects(t *testing.T) {
 		s.objectIDs[i] = id
 		s.objectTenants[id] = obj.Tenant // Empty string for non-MT
 	}
-
-	// Batch create objects
-	helper.CreateObjectsBatch(t, objects)
 }
 
 // VerifyObjectsExist checks that all created objects still exist using aggregate count.
@@ -626,15 +629,21 @@ func (s *BackupTestSuite) VerifyCompressedVectorsRestored(t *testing.T, sampleSi
 	}
 }
 
+type createBackupResult struct {
+	resp *backups.BackupsCreateOK
+	err  error
+}
+
 // CreateBackup creates a backup and waits for it to complete.
 func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID string) {
 	t.Helper()
 
 	cfg := helper.DefaultBackupConfig()
 
-	// Start backup
+	ch := make(chan createBackupResult)
 	logger, _ := test.NewNullLogger()
 	enterrors.GoWrapper(func() {
+		defer close(ch)
 		resp, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, backupID, baseBackupID)
 		if err != nil {
 			// Try to extract detailed error message from the response
@@ -648,10 +657,7 @@ func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID stri
 				}
 			}
 		}
-		require.NoError(t, err, "create backup should succeed")
-		require.NotNil(t, resp)
-		require.NotNil(t, resp.Payload)
-		assert.Equal(t, backupID, resp.Payload.ID)
+		ch <- createBackupResult{resp: resp, err: err}
 	}, logger)
 
 	if s.config.MultiTenant.Enabled && s.config.MultiTenant.WithMidBackupActivations {
@@ -663,6 +669,12 @@ func (s *BackupTestSuite) CreateBackup(t *testing.T, backupID, baseBackupID stri
 	// Wait for backup to complete
 	helper.ExpectBackupEventuallyCreated(t, backupID, s.config.BackendType, nil,
 		helper.WithDeadline(s.config.BackupTimeout))
+
+	result := <-ch
+	require.NoError(t, result.err, "create backup should succeed")
+	require.NotNil(t, result.resp)
+	require.NotNil(t, result.resp.Payload)
+	assert.Equal(t, backupID, result.resp.Payload.ID)
 }
 
 // RestoreBackup restores a backup and waits for it to complete.
@@ -742,7 +754,7 @@ func (s *BackupTestSuite) RunIncrementalTestAndRestore(t *testing.T) {
 func (s *BackupTestSuite) RunIncrementalTestAndRestoreErrors(t *testing.T) {
 	t.Run("base backup does not exist", func(t *testing.T) {
 		s.CreateTestClass(t)
-		s.CreateTestObjects(t)
+		s.CreateTestObjects(t, true)
 		cfg := helper.DefaultBackupConfig()
 
 		_, err := helper.CreateBackupWithBase(t, cfg, s.config.ClassName, s.config.BackendType, "incremental-no-base-"+s.config.BackupID, "non-existent-base-backup"+s.config.BackupID)
@@ -850,7 +862,7 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 	}
 
 	t.Run("create objects", func(t *testing.T) {
-		s.CreateTestObjects(t)
+		s.CreateTestObjects(t, true)
 	})
 
 	// Enable compression if configured (must be after objects exist)
@@ -880,6 +892,10 @@ func (s *BackupTestSuite) RunBasicBackupRestoreTest(t *testing.T) {
 
 	t.Run("create backup", func(t *testing.T) {
 		s.CreateBackup(t, backupID, "")
+	})
+
+	t.Run("add objects post backup", func(t *testing.T) {
+		s.CreateTestObjects(t, false) // Create objects but don't save their IDs since they shouldn't be in the backup
 	})
 
 	t.Run("delete class", func(t *testing.T) {
@@ -936,7 +952,7 @@ func (s *BackupTestSuite) RunCancellationTest(t *testing.T) {
 	}
 
 	t.Run("create objects", func(t *testing.T) {
-		s.CreateTestObjects(t)
+		s.CreateTestObjects(t, true)
 	})
 
 	t.Run("create and cancel backup", func(t *testing.T) {

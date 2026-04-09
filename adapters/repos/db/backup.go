@@ -251,7 +251,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	desc.StagingDir = stagingRoot
 
-	shardNames, state, err := i.readSchema()
+	shardNames, stateBytes, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
@@ -263,9 +263,6 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 
 	for _, name := range shardNames {
 		eg.Go(func() error {
-			if i.closingCtx.Err() != nil {
-				return nil
-			}
 			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot)
 			if err != nil {
 				if errors.Is(err, errFrozenShard) {
@@ -293,7 +290,7 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		}
 	}
 
-	return i.marshalBackupMetadata(desc, state)
+	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
 // backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
@@ -409,6 +406,11 @@ func isImmutableFile(relPath string) bool {
 	if ext == ".db" && !strings.HasPrefix(base, "meta") && base != "index.db" {
 		return true
 	}
+	// LSM segment companion files — written once during segment init, never modified.
+	// .bloom = bloom filter, .cna = count net additions, .metadata = combined metadata.
+	if ext == ".bloom" || ext == ".cna" || ext == ".metadata" {
+		return true
+	}
 	// Condensed HNSW commitlogs — produced by compaction, never reopened for writes.
 	if ext == ".condensed" {
 		return true
@@ -453,20 +455,17 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}()
 
-	shardNames, state, err := i.readSchema()
+	shardNames, stateBytes, err := i.readSchema()
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
-		if i.closingCtx.Err() != nil {
-			return fmt.Errorf("backup of %s aborted: %w", name, i.closingCtx.Err())
-		}
 		sd, err := i.backupShardWithoutHardlinks(ctx, name, classBaseDescrs)
 		if err != nil {
 			if errors.Is(err, errFrozenShard) {
-				return nil
+				continue
 			}
 			return err
 		}
@@ -482,7 +481,7 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 		}
 	}
 
-	return i.marshalBackupMetadata(desc, state)
+	return i.marshalBackupMetadata(desc, stateBytes)
 }
 
 // backupShardWithoutHardlinks backs up a single shard without hardlinks. Compaction
@@ -597,11 +596,9 @@ func (i *Index) collectShardBaseDescrs(shardName string, classBaseDescrs []*back
 }
 
 // marshalBackupMetadata marshals sharding state, schema, and aliases into the class descriptor.
-func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState *sharding.State) error {
+func (i *Index) marshalBackupMetadata(desc *backup.ClassDescriptor, shardingState []byte) error {
 	var err error
-	if desc.ShardingState, err = shardingState.JSON(); err != nil {
-		return fmt.Errorf("marshal sharding state %w", err)
-	}
+	desc.ShardingState = shardingState
 	if desc.Schema, err = i.marshalSchema(); err != nil {
 		return fmt.Errorf("marshal schema %w", err)
 	}
@@ -729,14 +726,17 @@ func (i *Index) marshalSchema() ([]byte, error) {
 // that belong to this node, regardless of tenant status, and the overall sharding state.
 // This is used as the single source of truth for which shards to back up, avoiding the race condition
 // of iterating two separate data structures.
-func (i *Index) readSchema() (shards []string, state *sharding.State, err error) {
+func (i *Index) readSchema() (shards []string, state []byte, err error) {
 	nodeName := i.getSchema.NodeName()
 	err = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, s *sharding.State) error {
 		if s == nil {
 			return nil
 		}
-		state = s
-		for shardName, phys := range state.Physical {
+		state, err = s.JSON()
+		if err != nil {
+			return fmt.Errorf("marshal sharding state: %w", err)
+		}
+		for shardName, phys := range s.Physical {
 			if phys.IsLocalShard(nodeName) {
 				shards = append(shards, shardName)
 			}
@@ -802,6 +802,9 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	files = append(files, lsmFiles...)
 
 	// List vector index files (all non-lsm subdirectories of the shard).
+	// Note: this reads shardDir, not lsmDir — the two ReadDir calls in this
+	// function and listInactiveLSMFiles operate on different directories with
+	// different traversal semantics.
 	entries, err := os.ReadDir(shardDir)
 	if err != nil {
 		return nil, fmt.Errorf("read shard dir: %w", err)

@@ -264,7 +264,7 @@ func TestIsImmutableFile(t *testing.T) {
 		{"myclass/shard1/main/meta.db", false, "flat index BoltDB (single vector)"},
 		{"myclass/shard1/main_custom/meta_custom.db", false, "flat index BoltDB (multi-vector)"},
 		{"myclass/shard1/main.hnsw.commitlog.d/1709203456", false, "non-condensed HNSW commitlog"},
-		{"myclass/shard1/main.queue.d/1709203456000000", false, "async indexing queue chunk"},
+		{"myclass/shard1/main.queue.d/chunk-1709203456000000.bin", false, "async indexing queue chunk"},
 		{"myclass/shard1/index.db", false, "dynamic vector index BoltDB"},
 
 		// Unknown files default to mutable (safe — will be copied):
