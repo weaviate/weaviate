@@ -169,6 +169,14 @@ func (m *Metrics) AddPostings(delta int) {
 	m.postings.Add(float64(delta))
 }
 
+func (m *Metrics) SetPostings(count int) {
+	if !m.enabled {
+		return
+	}
+
+	m.postings.Set(float64(count))
+}
+
 func (m *Metrics) ObservePostingSize(size float64) {
 	if !m.enabled {
 		return

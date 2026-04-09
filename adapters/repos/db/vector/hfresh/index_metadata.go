@@ -223,7 +223,7 @@ func (h *HFresh) restoreMetrics() error {
 
 	postingsCount := h.PostingMap.Size()
 	h.Centroids.counter.Store(int32(postingsCount))
-	h.metrics.AddPostings(postingsCount)
+	h.metrics.SetPostings(postingsCount)
 
 	return nil
 }
