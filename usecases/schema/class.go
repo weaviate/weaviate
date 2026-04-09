@@ -1020,6 +1020,9 @@ func validateStopwordPresetsStillReferenced(properties []*models.Property,
 	var walkNested func(parentName string, nested []*models.NestedProperty) error
 	walkNested = func(parentName string, nested []*models.NestedProperty) error {
 		for _, np := range nested {
+			if np == nil {
+				continue
+			}
 			fullName := parentName + "." + np.Name
 			if np.TextAnalyzer != nil {
 				if err := check(fullName, np.TextAnalyzer.StopwordPreset); err != nil {
