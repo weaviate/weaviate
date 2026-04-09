@@ -234,7 +234,7 @@ type Index struct {
 	// invertedIndexConfig is updated, so reads on hot query paths do not need
 	// to take invertedIndexConfigLock. Always access via getStopwordProvider().
 	stopwordProvider atomic.Pointer[stopwords.Provider]
-	replicator      *replica.Replicator
+	replicator       *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
