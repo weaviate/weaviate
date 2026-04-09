@@ -70,6 +70,42 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
+	t.Run("ValidateBaseBackupID", func(t *testing.T) {
+		tests := []struct {
+			name            string
+			baseID          string
+			wantBaseIDError bool
+		}{
+			{"empty string is skipped", "", false},
+			{"valid lowercase accepted", "valid_id-123", false},
+			{"uppercase rejected", "BadID", true},
+			{"special characters rejected", "bad*id", true},
+			{"whitespace rejected", "bad id", true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				// Include + Exclude is set so that valid/empty base IDs trip
+				// the downstream errIncludeExclude check (mirroring the
+				// IncludeExclude sub-test above), giving us a predictable
+				// non-mock failure path that cannot mention "base backup id".
+				_, err := s.Backup(ctx, nil, &BackupRequest{
+					Backend:      backendName,
+					ID:           "1234",
+					Include:      []string{cls},
+					Exclude:      []string{cls},
+					BaseBackupID: tc.baseID,
+				})
+				assert.NotNil(t, err)
+				if tc.wantBaseIDError {
+					assert.ErrorContains(t, err, "base backup id:")
+					assert.ErrorContains(t, err, "invalid backup id")
+				} else {
+					assert.NotContains(t, err.Error(), "base backup id:")
+				}
+			})
+		}
+	})
+
 	t.Run("RequestIncludeHasDuplicate", func(t *testing.T) {
 		_, err := s.Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
