@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -103,8 +104,8 @@ func TestObjects(t *testing.T) {
 		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(docIDCounter))
 
 		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, nil)
+			stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 		t.Run("NotEqual", func(t *testing.T) {
 			t.Parallel()
@@ -158,8 +159,8 @@ func TestObjects(t *testing.T) {
 		docIDsToRemove := map[uint64]strfmt.UUID{}
 
 		searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, nil)
+			stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 		t.Run("sanity check", func(t *testing.T) {
 			bm, release := bitmapFactory.GetBitmap()
@@ -312,8 +313,8 @@ func TestDocIDs(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(docIDCounter-1))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, nil)
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type testCase struct {
 		expectedMatches int
@@ -435,8 +436,8 @@ func TestSearcher_ResolveDocIds(t *testing.T) {
 		maxDocID := uint64(12)
 		bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 		searcher = NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-			fakeStopwordDetector{}, 2, func() bool { return false }, "",
-			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, nil)
+			stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
+			config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 		bucketName := helpers.BucketFromPropNameLSM(propName)
 		require.NoError(tt, store.CreateOrLoadBucket(context.Background(), bucketName,
@@ -901,8 +902,8 @@ func TestFilterASCIIFold(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(docID))
 	searcher := NewSearcher(logger, store, accentSchema.GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, nil)
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	makeFilter := func(prop string, op filters.Operator, val string) *filters.LocalFilter {
 		return &filters.LocalFilter{Root: &filters.Clause{

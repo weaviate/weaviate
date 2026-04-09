@@ -229,10 +229,11 @@ type Index struct {
 	logger       logrus.FieldLogger
 	remote       *sharding.RemoteIndex
 	stopwords    *stopwords.Detector
-	// stopwordPresets is replaced atomically when invertedIndexConfig is
-	// updated, so reads on hot query paths do not need to take
-	// invertedIndexConfigLock. Always access via getStopwordPresets().
-	stopwordPresets atomic.Pointer[map[string]*stopwords.Detector]
+	// stopwordProvider bundles the collection-level stopword detector and the
+	// cached user-defined preset detectors. It is replaced atomically when
+	// invertedIndexConfig is updated, so reads on hot query paths do not need
+	// to take invertedIndexConfigLock. Always access via getStopwordProvider().
+	stopwordProvider atomic.Pointer[stopwords.Provider]
 	replicator      *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
@@ -403,7 +404,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
-	index.stopwordPresets.Store(&presetDetectors)
+	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
 		return index.DeletionStrategy()
@@ -835,7 +836,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
-	i.stopwordPresets.Store(&presetDetectors)
+	i.stopwordProvider.Store(stopwords.NewProvider(i.stopwords, presetDetectors))
 
 	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
 	if err != nil {
@@ -845,13 +846,11 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
-// getStopwordPresets returns the current map of user-defined stopword preset
+// getStopwordProvider returns the current stopword provider, which bundles
+// the collection-level fallback detector and the cached user-defined preset
 // detectors. Safe for concurrent use without invertedIndexConfigLock.
-func (i *Index) getStopwordPresets() map[string]*stopwords.Detector {
-	if p := i.stopwordPresets.Load(); p != nil {
-		return *p
-	}
-	return nil
+func (i *Index) getStopwordProvider() *stopwords.Provider {
+	return i.stopwordProvider.Load()
 }
 
 // buildStopwordPresetDetectors creates a Detector for each user-defined

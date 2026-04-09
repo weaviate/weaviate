@@ -437,10 +437,14 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		replicator:             replicator,
 		router:                 mockRouter,
 	}
-	if class.InvertedIndexConfig != nil {
-		presetDetectors, err := buildStopwordPresetDetectors(iic.StopwordPresets)
-		require.NoError(t, err)
-		idx.stopwordPresets.Store(&presetDetectors)
+	{
+		var presetDetectors map[string]*stopwords.Detector
+		if class.InvertedIndexConfig != nil {
+			var err error
+			presetDetectors, err = buildStopwordPresetDetectors(iic.StopwordPresets)
+			require.NoError(t, err)
+		}
+		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

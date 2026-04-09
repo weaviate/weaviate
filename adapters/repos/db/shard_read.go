@@ -414,9 +414,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if filters != nil {
 			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
-				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
-				s.bitmapFactory, s.index.getStopwordPresets()).
+				s.bitmapFactory).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
@@ -429,8 +429,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.stopwords,
-			s.GetPropertyLengthTracker(), logger, s.versioner.Version(), s.index.getStopwordPresets())
+			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
+			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
@@ -445,9 +445,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
-		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory,
-		s.index.getStopwordPresets()).
+		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
 			s.index.Config.InvertedSorterDisabled)
 	return objs, nil, err
@@ -836,9 +835,8 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
-		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory,
-		s.index.getStopwordPresets()).
+		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")

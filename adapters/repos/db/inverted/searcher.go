@@ -48,8 +48,7 @@ type Searcher struct {
 	getClass               func(string) *models.Class
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	stopwords              stopwords.StopwordDetector
-	stopwordPresets        map[string]*stopwords.Detector
+	stopwordProvider       *stopwords.Provider
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
@@ -61,31 +60,11 @@ type Searcher struct {
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
 	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
-// resolveStopwordDetector returns a property-level stopword detector when the
-// property has a stopwordPreset configured, otherwise returns the fallback
-// (collection-level) detector.  Cached user-defined presets are checked first,
-// then built-in presets.
-func resolveStopwordDetector(
-	prop *models.Property,
-	cachedPresets map[string]*stopwords.Detector,
-	fallback stopwords.StopwordDetector,
-) (stopwords.StopwordDetector, error) {
-	if prop.TextAnalyzer == nil || prop.TextAnalyzer.StopwordPreset == "" {
-		return fallback, nil
-	}
-	preset := prop.TextAnalyzer.StopwordPreset
-	if d, ok := cachedPresets[preset]; ok {
-		return d, nil
-	}
-	return stopwords.NewDetectorFromPreset(preset)
-}
-
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, sw stopwords.StopwordDetector,
+	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
-	swPresets map[string]*stopwords.Detector,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -93,8 +72,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		getClass:               getClass,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		stopwords:              sw,
-		stopwordPresets:        swPresets,
+		stopwordProvider:       stopwordProvider,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
@@ -687,11 +665,11 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		} else {
 			var sw tokenizer.StopwordDetector
 			if prop.Tokenization == models.PropertyTokenizationWord {
-				var err error
-				sw, err = resolveStopwordDetector(prop, s.stopwordPresets, s.stopwords)
+				d, err := s.stopwordProvider.Get(prop)
 				if err != nil {
 					return nil, err
 				}
+				sw = d
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
 			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)

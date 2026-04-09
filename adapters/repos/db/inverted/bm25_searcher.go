@@ -52,8 +52,7 @@ type BM25Searcher struct {
 	propLenTracker   propLengthRetriever
 	logger           logrus.FieldLogger
 	shardVersion     uint16
-	stopWordDetector stopwords.StopwordDetector
-	stopwordPresets  map[string]*stopwords.Detector
+	stopwordProvider *stopwords.Provider
 }
 
 type propLengthRetriever interface {
@@ -70,9 +69,8 @@ type termListRequest struct {
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, sw stopwords.StopwordDetector, propLenTracker propLengthRetriever,
+	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
-	swPresets map[string]*stopwords.Detector,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:           config,
@@ -83,8 +81,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker:   propLenTracker,
 		logger:           logger.WithField("action", "bm25_search"),
 		shardVersion:     shardVersion,
-		stopWordDetector: sw,
-		stopwordPresets:  swPresets,
+		stopwordProvider: stopwordProvider,
 	}
 }
 
@@ -230,10 +227,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 	}
 
 	// Second pass: tokenize query only for needed tokenizations
+	fallbackStopwords := b.stopwordProvider.Fallback()
 	for tok := range neededTokenizations {
 		var sw tokenizer.StopwordDetector
 		if tok == models.PropertyTokenizationWord {
-			sw = b.stopWordDetector
+			sw = fallbackStopwords
 		}
 		queryTerms, dupBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, nil, sw)
 		queryTermsByTokenization[tok] = queryTerms
@@ -247,7 +245,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		asciiKey := asciiTokenizationKey(tok)
 		var sw tokenizer.StopwordDetector
 		if tok == models.PropertyTokenizationWord {
-			sw = b.stopWordDetector
+			sw = fallbackStopwords
 		}
 		asciiTerms, asciiBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, tok, class.Class, foldNoIgnore, sw)
 		queryTermsByTokenization[asciiKey] = asciiTerms
@@ -274,10 +272,11 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if hasCustomASCIIFoldIgnore || hasCustomStopwords {
 			var sw tokenizer.StopwordDetector
 			if pi.prop.Tokenization == models.PropertyTokenizationWord {
-				sw, err = resolveStopwordDetector(pi.prop, b.stopwordPresets, b.stopWordDetector)
+				d, err := b.stopwordProvider.Get(pi.prop)
 				if err != nil {
 					return false, 0, nil, nil, nil, nil, 0, err
 				}
+				sw = d
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(pi.prop.TextAnalyzer)
 			propTerms, propBoosts := tokenizer.AnalyzeAndCountDuplicates(params.Query, pi.prop.Tokenization, class.Class, prepared, sw)
