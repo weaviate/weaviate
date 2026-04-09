@@ -389,6 +389,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
+	if req.BaseBackupID != "" {
+		if err := validateID(req.BaseBackupID); err != nil {
+			return nil, fmt.Errorf("base backup id: %w", err)
+		}
+	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
 	}
