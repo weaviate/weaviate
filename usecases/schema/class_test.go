@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -149,6 +150,27 @@ func Test_AddClass(t *testing.T) {
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
+	})
+
+	t.Run("reject none vector index type on new class", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: vectorindex.VectorIndexTypeNone,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "internal sentinel for dropped indexes")
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {

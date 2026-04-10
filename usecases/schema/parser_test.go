@@ -443,3 +443,146 @@ func TestParseTargetVectorsIndexConfigErrors(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestParseGivenVectorIndexConfig_RejectsNone(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	_, err := p.parseGivenVectorIndexConfig(
+		vectorindex.VectorIndexTypeNone, nil, false, nil,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "internal sentinel for dropped indexes")
+}
+
+func TestParseTargetVectorsIndexConfig_SkipsDroppedEntry(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	class := &models.Class{
+		Class: "Test",
+		VectorConfig: map[string]models.VectorConfig{
+			"active": {
+				VectorIndexType: hnswT,
+				Vectorizer: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{},
+				},
+			},
+			"dropped": {
+				VectorIndexType: vectorindex.VectorIndexTypeNone,
+				Vectorizer: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{},
+				},
+			},
+		},
+	}
+
+	err := p.parseTargetVectorsIndexConfig(class)
+	require.NoError(t, err)
+
+	// The active vector should have been parsed (VectorIndexConfig populated).
+	require.NotNil(t, class.VectorConfig["active"].VectorIndexConfig)
+	// The dropped vector should be left untouched — no VectorIndexConfig set.
+	require.Nil(t, class.VectorConfig["dropped"].VectorIndexConfig)
+}
+
+func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	makeVecCfg := func(indexType string) models.VectorConfig {
+		return models.VectorConfig{
+			VectorIndexType: indexType,
+			Vectorizer: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{},
+			},
+		}
+	}
+
+	t.Run("both sides dropped — no error", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("initial dropped, updated active — reject re-creation", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cannot re-create a dropped vector index")
+	})
+
+	t.Run("initial active, updated dropped — allowed (drop path)", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("both active, same type — allowed", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("both active, different type — reject", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg("flat"),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "vector index type of vector")
+	})
+}

@@ -14,13 +14,13 @@ package schema
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strings"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -160,18 +160,27 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 }
 
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
-	class *models.Class, className, vectorIndexName string,
+	className, vectorIndexName string,
 ) error {
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
 
-	if class == nil {
-		return fmt.Errorf("%w: class is nil", ErrNotFound)
-	}
-
 	if vectorIndexName == "" {
 		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
+	}
+
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	if err != nil {
+		return fmt.Errorf("querying class %q: %w", className, err)
+	}
+	vcls, ok := vclasses[className]
+	if !ok {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+	class := vcls.Class
+	if class == nil {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if len(class.VectorConfig) == 0 {
@@ -188,21 +197,16 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return nil
 	}
 
-	// Deep-copy the VectorConfig map before mutating to avoid corrupting the
-	// live schema state visible to concurrent readers. ReadOnlyClass returns a
-	// shallow copy, so class.VectorConfig still points to the live map.
-	newVectorConfig := make(map[string]models.VectorConfig, len(class.VectorConfig))
-	maps.Copy(newVectorConfig, class.VectorConfig)
-	// Keep the vector entry in the schema but clear the index configuration.
+	// Keep the vector entry in the schema but set VectorIndexType to "none".
 	// This signals that the vector data still exists in the objects bucket but
 	// the search index has been removed. The executor's UpdateClass will detect
-	// the cleared config and call the migrator to drop the index from disk.
-	newVectorConfig[vectorIndexName] = models.VectorConfig{
-		Vectorizer: cfg.Vectorizer,
+	// the "none" type and call the migrator to drop the index from disk.
+	class.VectorConfig[vectorIndexName] = models.VectorConfig{
+		Vectorizer:      cfg.Vectorizer,
+		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
-	class.VectorConfig = newVectorConfig
 
-	_, err := h.schemaManager.UpdateClass(ctx, class, nil)
+	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
 	return err
 }
 

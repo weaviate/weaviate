@@ -28,7 +28,7 @@ func newVectorDropIndexHelper() *vectorDropIndexHelper {
 }
 
 // ensureFilesAreRemovedForDroppedVectorIndexes removes vector index files
-// for named vectors whose index has been dropped (VectorIndexType cleared to "").
+// for named vectors whose index has been dropped (VectorIndexType set to "none").
 // This handles two cases:
 // - tenant was inactive during a drop vector index operation, so files remain on disk
 // - an error occurred during the drop operation and files were not fully cleaned up

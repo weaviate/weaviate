@@ -94,7 +94,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "DeleteClassVectorIndex",
-			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", "somevector"},
+			additionalArgs:    []any{"classname", "somevector"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},

@@ -126,8 +126,11 @@ func testDropVectorIndexMultiTenant(compose *docker.DockerCompose, verifySchemaA
 			cls := helper.GetClass(t, className)
 			require.Len(t, cls.VectorConfig, 2)
 			for _, name := range []string{"flat_bq", "hnsw_rq8"} {
-				_, ok := cls.VectorConfig[name]
+				cfg, ok := cls.VectorConfig[name]
 				assert.True(t, ok, "expected vector config %q", name)
+				if ok {
+					assert.NotEqual(t, "none", cfg.VectorIndexType, "VectorIndexType should not be 'none' for active vector index %q", name)
+				}
 			}
 		})
 
@@ -185,7 +188,7 @@ func testDropVectorIndexMultiTenant(compose *docker.DockerCompose, verifySchemaA
 						cfg, ok := cls.VectorConfig[name]
 						assert.True(collect, ok, "vector config %q should still exist", name)
 						if ok {
-							assert.Empty(collect, cfg.VectorIndexType, "VectorIndexType should be empty for %q", name)
+							assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none' for %q", name)
 							assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil for %q", name)
 						}
 					}

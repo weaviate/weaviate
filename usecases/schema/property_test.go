@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 func TestHandler_AddProperty(t *testing.T) {
@@ -780,4 +781,100 @@ func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
 
 func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 	return false
+}
+
+func TestHandler_DeleteClassVectorIndex(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("class not found returns error", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+			Return(map[string]versioned.Class{}, nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("empty vector index name returns error", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "")
+		require.ErrorIs(t, err, ErrValidation)
+	})
+
+	t.Run("class with no vector config returns error", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+			Return(map[string]versioned.Class{
+				"TestClass": {Class: &models.Class{Class: "TestClass"}},
+			}, nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
+		require.ErrorIs(t, err, ErrValidation)
+	})
+
+	t.Run("non-existent vector index returns error", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+			Return(map[string]versioned.Class{
+				"TestClass": {Class: &models.Class{
+					Class: "TestClass",
+					VectorConfig: map[string]models.VectorConfig{
+						"other": {VectorIndexType: "hnsw"},
+					},
+				}},
+			}, nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("already dropped vector index is a no-op", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+			Return(map[string]versioned.Class{
+				"TestClass": {Class: &models.Class{
+					Class: "TestClass",
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {VectorIndexType: "none"},
+					},
+				}},
+			}, nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
+		require.NoError(t, err)
+	})
+
+	t.Run("successful drop sets VectorIndexType to none", func(t *testing.T) {
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+			Return(map[string]versioned.Class{
+				"TestClass": {Class: &models.Class{
+					Class: "TestClass",
+					VectorConfig: map[string]models.VectorConfig{
+						"vec1": {
+							VectorIndexType: "hnsw",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+						"vec2": {
+							VectorIndexType: "flat",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+					},
+				}},
+			}, nil)
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+
+		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
+		require.NoError(t, err)
+
+		// Verify UpdateClass was called with vec1 set to "none".
+		call := fakeSchemaManager.Calls[len(fakeSchemaManager.Calls)-1]
+		updatedClass := call.Arguments[0].(*models.Class)
+		require.Equal(t, "none", updatedClass.VectorConfig["vec1"].VectorIndexType)
+		require.Equal(t, "flat", updatedClass.VectorConfig["vec2"].VectorIndexType)
+		require.NotNil(t, updatedClass.VectorConfig["vec1"].Vectorizer)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
 }
