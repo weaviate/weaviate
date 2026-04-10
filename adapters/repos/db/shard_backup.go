@@ -75,6 +75,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
 	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
 	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
 		if err = q.PrepareForBackup(ctx); err != nil {
