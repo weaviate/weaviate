@@ -206,6 +206,15 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 					"index":      name[len(backup.DeleteMarker):],
 				}).Info("removed partially deleted index directory: " + name + "Did Weaviate crash?")
 			}
+			if strings.HasPrefix(name, backup.BackupStagingPrefix) {
+				if err := os.RemoveAll(filepath.Join(config.RootPath, name)); err != nil {
+					return nil, err
+				}
+				logger.WithFields(logrus.Fields{
+					"action":    "startup",
+					"directory": name,
+				}).Info("removed orphaned backup staging directory")
+			}
 		}
 	}
 
@@ -248,6 +257,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
 		OnClose: db.shutDownWg.Done,
+		Metrics: promMetrics,
 	})
 	db.scheduler.Start()
 
@@ -264,33 +274,37 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 }
 
 type Config struct {
-	RootPath                            string
-	QueryLimit                          int64
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	MaxImportGoroutinesFactor           float64
-	LazySegmentsDisabled                bool
-	SegmentInfoIntoFileNameEnabled      bool
-	WriteMetadataFilesEnabled           bool
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	MaxSegmentSize                      int64
-	TrackVectorDimensions               bool
-	TrackVectorDimensionsInterval       time.Duration
-	UsageEnabled                        bool
-	ServerVersion                       string
-	GitHash                             string
-	AvoidMMap                           bool
-	EnableLazyLoadShards                bool
+	RootPath                       string
+	QueryLimit                     int64
+	QueryMaximumResults            int64
+	QueryHybridMaximumResults      int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MaxImportGoroutinesFactor      float64
+	LazySegmentsDisabled           bool
+	SegmentInfoIntoFileNameEnabled bool
+	WriteMetadataFilesEnabled      bool
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	MinMMapSize                    int64
+	MaxReuseWalSize                int64
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	MaxSegmentSize                 int64
+	TrackVectorDimensions          bool
+	TrackVectorDimensionsInterval  time.Duration
+	UsageEnabled                   bool
+	ServerVersion                  string
+	GitHash                        string
+	AvoidMMap                      bool
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	EnableLazyLoadShards                *bool
+	LazyLoadShardCountThreshold         int
+	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
@@ -326,6 +340,8 @@ type Config struct {
 
 	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
+
+	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -349,6 +365,27 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	}, utils.NewBackoff())
 
 	return index
+}
+
+// GetLocalShardNames returns the names of all shards local to this node for
+// the given collection. Returns an error if the collection is not found or has
+// no local shards.
+func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+	index := db.GetIndex(schema.ClassName(collection))
+	if index == nil {
+		return nil, fmt.Errorf("collection %q not found", collection)
+	}
+	var names []string
+	if err := index.ForEachShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	}
+	return names, nil
 }
 
 // IndexExists returns if an index exists

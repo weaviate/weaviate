@@ -36,7 +36,6 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
-	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
 	s.index.logger.WithFields(logrus.Fields{
@@ -64,6 +63,16 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Drop(ctx); err != nil {
 			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Drop(ctx); err != nil {
+			return fmt.Errorf("close geo queue of prop %q at %s: %w", propName, s.path(), err)
 		}
 		return nil
 	})
@@ -134,7 +143,10 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		}
 	}
 
-	s.metrics.baseMetrics.FinishUnloadingShard()
+	// Only update metrics if the shard was properly registered
+	if s.metricsRegistered.Load() {
+		s.metrics.baseMetrics.DeleteLoadedShard()
+	}
 
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",

@@ -28,6 +28,8 @@ make mocks
 
 ## Testing
 
+When creating tests prefer table-driven tests.
+
 ### Unit Tests
 ```bash
 # Run a single package's tests

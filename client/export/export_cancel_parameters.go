@@ -78,12 +78,6 @@ type ExportCancelParams struct {
 	*/
 	Backend string
 
-	/* Bucket.
-
-	   Optional bucket name where the export is stored.
-	*/
-	Bucket *string
-
 	/* ID.
 
 	   The unique identifier of the export to cancel.
@@ -160,17 +154,6 @@ func (o *ExportCancelParams) SetBackend(backend string) {
 	o.Backend = backend
 }
 
-// WithBucket adds the bucket to the export cancel params
-func (o *ExportCancelParams) WithBucket(bucket *string) *ExportCancelParams {
-	o.SetBucket(bucket)
-	return o
-}
-
-// SetBucket adds the bucket to the export cancel params
-func (o *ExportCancelParams) SetBucket(bucket *string) {
-	o.Bucket = bucket
-}
-
 // WithID adds the id to the export cancel params
 func (o *ExportCancelParams) WithID(id string) *ExportCancelParams {
 	o.SetID(id)
@@ -204,23 +187,6 @@ func (o *ExportCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 	// path param backend
 	if err := r.SetPathParam("backend", o.Backend); err != nil {
 		return err
-	}
-
-	if o.Bucket != nil {
-
-		// query param bucket
-		var qrBucket string
-
-		if o.Bucket != nil {
-			qrBucket = *o.Bucket
-		}
-		qBucket := qrBucket
-		if qBucket != "" {
-
-			if err := r.SetQueryParam("bucket", qBucket); err != nil {
-				return err
-			}
-		}
 	}
 
 	// path param id

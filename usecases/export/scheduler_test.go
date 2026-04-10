@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -37,8 +39,18 @@ func (b *errorBackend) GetObject(context.Context, string, string, string, string
 	return nil, b.err
 }
 
+// failInitBackend embeds fakeBackend but overrides Initialize to return an error.
+type failInitBackend struct {
+	fakeBackend
+	err error
+}
+
+func (b *failInitBackend) Initialize(context.Context, string, string, string) error {
+	return b.err
+}
+
 func TestScheduler_ResolveClasses(t *testing.T) {
-	selector := &emptySelector{classList: []string{"Article", "Product", "Author"}}
+	selector := &fakeSelector{classList: []string{"Article", "Product", "Author"}}
 
 	s := &Scheduler{selector: selector}
 	ctx := context.Background()
@@ -49,11 +61,16 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 		assert.Equal(t, []string{"Article", "Product"}, classes)
 	})
 
-	t.Run("include nonexistent", func(t *testing.T) {
-		_, err := s.resolveClasses(ctx, []string{"DoesNotExist"}, nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "DoesNotExist")
-		assert.Contains(t, err.Error(), "does not exist")
+	t.Run("include nonexistent silently ignored", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, []string{"DoesNotExist"}, nil)
+		require.NoError(t, err)
+		assert.Empty(t, classes)
+	})
+
+	t.Run("include mix of existent and nonexistent", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, []string{"Article", "DoesNotExist"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article"}, classes)
 	})
 
 	t.Run("exclude valid", func(t *testing.T) {
@@ -62,11 +79,10 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 		assert.Equal(t, []string{"Article", "Author"}, classes)
 	})
 
-	t.Run("exclude nonexistent", func(t *testing.T) {
-		_, err := s.resolveClasses(ctx, nil, []string{"DoesNotExist"})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "DoesNotExist")
-		assert.Contains(t, err.Error(), "does not exist")
+	t.Run("exclude nonexistent silently ignored", func(t *testing.T) {
+		classes, err := s.resolveClasses(ctx, nil, []string{"DoesNotExist"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Article", "Product", "Author"}, classes)
 	})
 
 	t.Run("both include and exclude", func(t *testing.T) {
@@ -82,77 +98,158 @@ func TestScheduler_ResolveClasses(t *testing.T) {
 	})
 }
 
-func TestScheduler_StatusReturnsNotFoundWhenNothingExists(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+func TestScheduler_ExportDisabled(t *testing.T) {
+	s := &Scheduler{} // zero-value: Enabled defaults to false
 
-	s := &Scheduler{
-		shutdownCtx:  context.Background(),
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
-	}
-
-	_, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	t.Run("Export", func(t *testing.T) {
+		_, err := s.Export(context.Background(), nil, "test", "s3", nil, nil, "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+	t.Run("Status", func(t *testing.T) {
+		_, err := s.Status(context.Background(), nil, "s3", "test", "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
+	t.Run("Cancel", func(t *testing.T) {
+		err := s.Cancel(context.Background(), nil, "s3", "test", "")
+		require.ErrorIs(t, err, ErrExportDisabled)
+	})
 }
 
-func TestScheduler_StatusPropagatesBackendError(t *testing.T) {
+func TestScheduler_ExportIDValidation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &errorBackend{err: fmt.Errorf("connection refused")}
-
 	s := &Scheduler{
-		shutdownCtx:  context.Background(),
 		logger:       logger,
 		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
+		exportConfig: testExportConfig(),
+		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
 		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+		selector:     &fakeSelector{classList: []string{"Article"}},
+		metrics:      testMetrics(),
 	}
 
-	_, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection refused")
-	assert.NotContains(t, err.Error(), "not found")
+	tests := []struct {
+		name         string
+		id           string
+		wantErr      bool
+		wantContains string
+	}{
+		{name: "valid short id", id: "my-export", wantErr: false},
+		{name: "valid 128 chars", id: strings.Repeat("a", 128), wantErr: false},
+		{name: "too long 129 chars", id: strings.Repeat("a", 129), wantErr: true, wantContains: "too long"},
+		{name: "too long 256 chars", id: strings.Repeat("a", 256), wantErr: true, wantContains: "too long"},
+		{name: "invalid chars uppercase", id: "MyExport", wantErr: true, wantContains: "invalid export id"},
+		{name: "invalid chars space", id: "my export", wantErr: true, wantContains: "invalid export id"},
+		{name: "empty id", id: "", wantErr: true, wantContains: "invalid export id"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, method := range []string{"export", "status", "cancel"} {
+				t.Run(method, func(t *testing.T) {
+					var err error
+					switch method {
+					case "export":
+						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil, "")
+					case "status":
+						_, err = s.Status(context.Background(), nil, "s3", tc.id, "")
+					case "cancel":
+						err = s.Cancel(context.Background(), nil, "s3", tc.id, "")
+					}
+					if tc.wantErr {
+						require.Error(t, err)
+						assert.ErrorIs(t, err, ErrExportValidation)
+						assert.Contains(t, err.Error(), tc.wantContains)
+					} else if err != nil {
+						// Valid IDs may still fail downstream (e.g. no metadata found),
+						// but they must NOT fail on validation.
+						assert.NotErrorIs(t, err, ErrExportValidation)
+					}
+				})
+			}
+		})
+	}
 }
 
-func TestScheduler_CancelPropagatesBackendError(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &errorBackend{err: fmt.Errorf("permission denied")}
-
-	s := &Scheduler{
-		shutdownCtx:  context.Background(),
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+func TestScheduler_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name         string
+		backend      modulecapabilities.BackupBackend
+		method       string // "status" or "cancel"
+		wantIs       error  // nil means no ErrorIs check
+		wantNotIs    error  // nil means no NotErrorIs check
+		wantContains string // substring the error must contain
+	}{
+		{
+			name:         "status returns not found when nothing exists",
+			backend:      &fakeBackend{},
+			method:       "status",
+			wantContains: "not found",
+		},
+		{
+			name:    "status init failure wraps validation",
+			backend: &failInitBackend{err: fmt.Errorf("permission denied")},
+			method:  "status",
+			wantIs:  ErrExportValidation,
+		},
+		{
+			name:    "cancel init failure wraps validation",
+			backend: &failInitBackend{err: fmt.Errorf("permission denied")},
+			method:  "cancel",
+			wantIs:  ErrExportValidation,
+		},
+		{
+			name:         "status propagates backend error",
+			backend:      &errorBackend{err: fmt.Errorf("connection refused")},
+			method:       "status",
+			wantContains: "connection refused",
+		},
+		{
+			name:      "cancel propagates backend error",
+			backend:   &errorBackend{err: fmt.Errorf("permission denied")},
+			method:    "cancel",
+			wantNotIs: ErrExportNotFound,
+		},
+		{
+			name:    "cancel returns not found when metadata missing",
+			backend: &fakeBackend{},
+			method:  "cancel",
+			wantIs:  ErrExportNotFound,
+		},
 	}
 
-	err := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "permission denied")
-	assert.NotErrorIs(t, err, ErrExportNotFound)
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			s := &Scheduler{
+				logger:       logger,
+				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
+				backends:     &fakeBackendProvider{backend: tc.backend},
+				client:       &fakeExportClient{},
+				nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+			}
 
-func TestScheduler_CancelReturnsNotFoundWhenPlanMissing(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+			var err error
+			switch tc.method {
+			case "status":
+				_, err = s.Status(context.Background(), nil, "s3", "test-export", "")
+			case "cancel":
+				err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
+			}
 
-	s := &Scheduler{
-		shutdownCtx:  context.Background(),
-		logger:       logger,
-		authorizer:   mocks.NewMockAuthorizer(),
-		backends:     &fakeBackendProvider{backend: backend},
-		client:       &fakeExportClient{},
-		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+			require.Error(t, err)
+			if tc.wantIs != nil {
+				assert.ErrorIs(t, err, tc.wantIs)
+			}
+			if tc.wantNotIs != nil {
+				assert.NotErrorIs(t, err, tc.wantNotIs)
+			}
+			if tc.wantContains != "" {
+				assert.Contains(t, err.Error(), tc.wantContains)
+			}
+		})
 	}
-
-	err := s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
-	require.ErrorIs(t, err, ErrExportNotFound)
 }
 
 // TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed verifies that
@@ -165,10 +262,11 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 		written: map[string][]byte{},
 	}
 
-	// Store a plan so Cancel() can find it.
-	plan := &ExportPlan{
+	// Store initial metadata so Cancel() can find it.
+	initialMeta := &ExportMetadata{
 		ID:      "test-export",
 		Backend: "s3",
+		Status:  export.Started,
 		Classes: []string{"TestClass"},
 		NodeAssignments: map[string]map[string][]string{
 			"node1": {"TestClass": {"shard0"}},
@@ -176,9 +274,9 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 		},
 		StartedAt: time.Now().UTC(),
 	}
-	planData, err := json.Marshal(plan)
+	metaData, err := json.Marshal(initialMeta)
 	require.NoError(t, err)
-	backend.written[exportPlanFile] = planData
+	backend.written[exportMetadataFile] = metaData
 
 	// Both nodes reported terminal Failed status.
 	for _, nodeName := range []string{"node1", "node2"} {
@@ -193,22 +291,22 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 	}
 
 	s := &Scheduler{
-		shutdownCtx: context.Background(),
-		logger:      logger,
-		authorizer:  mocks.NewMockAuthorizer(),
-		backends:    &fakeBackendProvider{backend: backend},
-		client:      &fakeExportClient{},
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: testExportConfig(),
+		backends:     &fakeBackendProvider{backend: backend},
+		client:       &fakeExportClient{},
 		nodeResolver: &fakeNodeResolver{nodes: map[string]string{
 			"node1": "host1:8080",
 			"node2": "host2:8080",
 		}},
 	}
 
-	err = s.Cancel(context.Background(), nil, "s3", "test-export", "", "")
+	err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
 	require.ErrorIs(t, err, ErrExportAlreadyFinished)
 
 	// Verify the status is still FAILED, not overwritten with CANCELED.
-	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "")
 	require.NoError(t, err)
 	assert.Equal(t, string(export.Failed), resp.Status)
 }
@@ -226,27 +324,16 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			backend := &fakeBackend{}
 
-			// Write export plan — required for Status() to enter assemble path.
-			plan := &ExportPlan{
-				ID:      "test-export",
-				Backend: "s3",
-				Classes: []string{"TestClass"},
-				NodeAssignments: map[string]map[string][]string{
-					"node1": {"TestClass": {"shard0"}},
-				},
-				StartedAt: time.Now().UTC().Add(-10 * time.Second),
-			}
-			planData, err := json.Marshal(plan)
-			require.NoError(t, err)
-			_, err = backend.Write(context.Background(), "test-export", exportPlanFile, "", "", newBytesReadCloser(planData))
-			require.NoError(t, err)
-
-			// Write STARTED metadata — the stale state we want promoted.
+			// Write STARTED metadata with NodeAssignments — the stale state we want promoted.
 			startedMeta := &ExportMetadata{
 				ID:      "test-export",
 				Backend: "s3",
 				Status:  export.Started,
 				Classes: []string{"TestClass"},
+				NodeAssignments: map[string]map[string][]string{
+					"node1": {"TestClass": {"shard0"}},
+				},
+				StartedAt: time.Now().UTC().Add(-10 * time.Second),
 			}
 			metaData, err := json.Marshal(startedMeta)
 			require.NoError(t, err)
@@ -281,15 +368,15 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 			}
 
 			s := &Scheduler{
-				shutdownCtx:  context.Background(),
 				logger:       logger,
 				authorizer:   mocks.NewMockAuthorizer(),
+				exportConfig: testExportConfig(),
 				backends:     &fakeBackendProvider{backend: backend},
 				client:       client,
 				nodeResolver: resolver,
 			}
 
-			status, err := s.Status(context.Background(), nil, "s3", "test-export", "", "")
+			status, err := s.Status(context.Background(), nil, "s3", "test-export", "")
 			require.NoError(t, err)
 			assert.Equal(t, string(tc.expectedStatus), status.Status)
 

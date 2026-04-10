@@ -16,64 +16,12 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/export"
 )
-
-// shardSelector is a test Selector that returns pre-configured testShard
-// instances from AcquireShardForExport.
-type shardSelector struct {
-	// shards maps className → shardName → testShard.
-	shards map[string]map[string]*testShard
-	// skipped maps className → shardName for shards that should be skipped.
-	skipped map[string]map[string]string
-	// mt tracks which classes are multi-tenant.
-	mt map[string]bool
-}
-
-func (s *shardSelector) ListClasses(context.Context) []string { return nil }
-
-func (s *shardSelector) ShardOwnership(context.Context, string) (map[string][]string, error) {
-	return nil, nil
-}
-
-func (s *shardSelector) ExportShardNames(string) ([]string, bool, error) {
-	return nil, false, nil
-}
-
-func (s *shardSelector) IsMultiTenant(_ context.Context, className string) bool {
-	return s.mt[className]
-}
-
-func (s *shardSelector) AcquireShardForExport(_ context.Context, className, shardName string) (ShardLike, func(), string, error) {
-	if s.skipped != nil {
-		if reasons, ok := s.skipped[className]; ok {
-			if reason, ok := reasons[shardName]; ok {
-				return nil, nil, reason, nil
-			}
-		}
-	}
-	if classShards, ok := s.shards[className]; ok {
-		if shard, ok := classShards[shardName]; ok {
-			return shard, func() {}, "", nil
-		}
-	}
-	return nil, nil, "shard not found", nil
-}
-
-// shardSpec defines a shard with its object count for table-driven tests.
-type shardSpec struct {
-	name       string
-	numObjects int
-}
-
-// expectedFile defines an expected parquet output file and its row count.
-type expectedFile struct {
-	key     string
-	numRows int
-}
 
 func TestDoExport(t *testing.T) {
 	t.Parallel()
@@ -93,8 +41,8 @@ func TestDoExport(t *testing.T) {
 				},
 			},
 			expected: []expectedFile{
-				{key: "Article_shard0.parquet", numRows: 300},
-				{key: "Article_shard1.parquet", numRows: 200},
+				{key: "Article_shard0_0000.parquet", numRows: 300},
+				{key: "Article_shard1_0000.parquet", numRows: 200},
 			},
 		},
 		{
@@ -104,8 +52,8 @@ func TestDoExport(t *testing.T) {
 				"Product": {{name: "shard0", numObjects: 150}},
 			},
 			expected: []expectedFile{
-				{key: "Article_shard0.parquet", numRows: 100},
-				{key: "Product_shard0.parquet", numRows: 150},
+				{key: "Article_shard0_0000.parquet", numRows: 100},
+				{key: "Product_shard0_0000.parquet", numRows: 150},
 			},
 		},
 		{
@@ -113,9 +61,7 @@ func TestDoExport(t *testing.T) {
 			classes: map[string][]shardSpec{
 				"Article": {{name: "shard0", numObjects: 0}},
 			},
-			expected: []expectedFile{
-				{key: "Article_shard0.parquet", numRows: 0},
-			},
+			expected: nil, // no parquet file for empty shards
 		},
 		{
 			name: "multi-tenant",
@@ -124,7 +70,25 @@ func TestDoExport(t *testing.T) {
 			},
 			mt: map[string]bool{"Article": true},
 			expected: []expectedFile{
-				{key: "Article_tenantA.parquet", numRows: 50},
+				{key: "Article_tenantA_0000.parquet", numRows: 50},
+			},
+		},
+		{
+			name: "single object",
+			classes: map[string][]shardSpec{
+				"Article": {{name: "shard0", numObjects: 1}},
+			},
+			expected: []expectedFile{
+				{key: "Article_shard0_0000.parquet", numRows: 1},
+			},
+		},
+		{
+			name: "larger dataset",
+			classes: map[string][]shardSpec{
+				"Article": {{name: "shard0", numObjects: 2500}},
+			},
+			expected: []expectedFile{
+				{key: "Article_shard0_0000.parquet", numRows: 2500},
 			},
 		},
 	}
@@ -136,13 +100,15 @@ func TestDoExport(t *testing.T) {
 			backend := &fakeBackend{}
 
 			// Build selector from class/shard specs.
-			sel := &shardSelector{
-				shards: make(map[string]map[string]*testShard),
-				mt:     tc.mt,
+			sel := &fakeSelector{
+				shards:        make(map[string]map[string]*testShard),
+				mt:            tc.mt,
+				snapshotsRoot: t.TempDir(),
 			}
 			reqShards := make(map[string][]string)
 			var classNames []string
 
+			var expectedObjects int
 			for className, specs := range tc.classes {
 				classNames = append(classNames, className)
 				sel.shards[className] = make(map[string]*testShard)
@@ -151,10 +117,11 @@ func TestDoExport(t *testing.T) {
 					t.Cleanup(func() { store.Shutdown(context.Background()) })
 					sel.shards[className][spec.name] = &testShard{store: store, name: spec.name}
 					reqShards[className] = append(reqShards[className], spec.name)
+					expectedObjects += spec.numObjects
 				}
 			}
 
-			p := NewParticipant(context.Background(), sel, nil, logger)
+			p := NewParticipant(sel, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil)
 			req := &ExportRequest{
 				ID:       "test-export",
 				Backend:  "fake",
@@ -165,8 +132,13 @@ func TestDoExport(t *testing.T) {
 				NodeName: "node1",
 			}
 
-			err := p.doExport(context.Background(), backend, req)
+			snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+			require.NoError(t, snapErr)
+
+			err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 			require.NoError(t, err)
+
+			assert.Equal(t, float64(expectedObjects), testutil.ToFloat64(p.metrics.ObjectsTotal), "ExportObjectsTotal")
 
 			for _, ef := range tc.expected {
 				data := backend.getWritten(ef.key)
@@ -195,7 +167,7 @@ func TestDoExport_SkippedShard(t *testing.T) {
 	store0, _ := createTestStore(t, 100)
 	defer store0.Shutdown(context.Background())
 
-	selector := &shardSelector{
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
 				"shard0": {store: store0, name: "shard0"},
@@ -206,9 +178,10 @@ func TestDoExport_SkippedShard(t *testing.T) {
 				"shard1": "tenant is COLD",
 			},
 		},
+		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil)
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
@@ -219,16 +192,19 @@ func TestDoExport_SkippedShard(t *testing.T) {
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req)
+	snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+	require.NoError(t, snapErr)
+
+	err := p.doExport(context.Background(), backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 	require.NoError(t, err)
 
 	// Exported shard should have data.
-	data0 := backend.getWritten("Article_shard0.parquet")
+	data0 := backend.getWritten("Article_shard0_0000.parquet")
 	require.NotNil(t, data0)
 	assert.Len(t, readParquetRows(t, data0), 100)
 
 	// Skipped shard should not produce a file.
-	assert.Nil(t, backend.getWritten("Article_shard1.parquet"))
+	assert.Nil(t, backend.getWritten("Article_shard1_0000.parquet"))
 
 	// Status should show shard1 as skipped.
 	statusData := backend.getWritten("node_node1_status.json")
@@ -248,58 +224,71 @@ func TestDoExport_ContextCanceled(t *testing.T) {
 	store0, _ := createTestStore(t, 500)
 	defer store0.Shutdown(context.Background())
 
-	selector := &shardSelector{
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
 				"shard0": {store: store0, name: "shard0"},
 			},
 		},
+		snapshotsRoot: t.TempDir(),
 	}
+
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil)
+	req := &ExportRequest{
+		ID:       "test-export",
+		Backend:  "fake",
+		Classes:  []string{"Article"},
+		Shards:   map[string][]string{"Article": {"shard0"}},
+		Bucket:   "bucket",
+		Path:     "path",
+		NodeName: "node1",
+	}
+
+	// Create snapshots with a valid context, then cancel before doExport.
+	snapshots, skipped, snapErr := p.snapshotAllShards(context.Background(), req)
+	require.NoError(t, snapErr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
-	req := &ExportRequest{
-		ID:       "test-export",
-		Backend:  "fake",
-		Classes:  []string{"Article"},
-		Shards:   map[string][]string{"Article": {"shard0"}},
-		Bucket:   "bucket",
-		Path:     "path",
-		NodeName: "node1",
-	}
-
-	err := p.doExport(ctx, backend, req)
+	err := p.doExport(ctx, backend, req, newTestNodeStatus(req.NodeName), snapshots, skipped)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestDoExport_NilStore(t *testing.T) {
+// TestSnapshotAllShards_Error verifies that errors from SnapshotShards
+// propagate correctly through snapshotAllShards.
+func TestSnapshotAllShards_Error(t *testing.T) {
 	t.Parallel()
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
 
-	selector := &shardSelector{
+	store0, _ := createTestStore(t, 100)
+	defer store0.Shutdown(context.Background())
+
+	// shard0 succeeds, shard1 has a nil store which causes SnapshotShards to
+	// return an error.
+	selector := &fakeSelector{
 		shards: map[string]map[string]*testShard{
 			"Article": {
-				"shard0": {store: nil, name: "shard0"},
+				"shard0": {store: store0, name: "shard0"},
+				"shard1": {store: nil, name: "shard1"},
 			},
 		},
+		snapshotsRoot: t.TempDir(),
 	}
 
-	p := NewParticipant(context.Background(), selector, nil, logger)
+	p := NewParticipant(selector, nil, logger, &fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil)
 	req := &ExportRequest{
 		ID:       "test-export",
 		Backend:  "fake",
 		Classes:  []string{"Article"},
-		Shards:   map[string][]string{"Article": {"shard0"}},
+		Shards:   map[string][]string{"Article": {"shard0", "shard1"}},
 		Bucket:   "bucket",
 		Path:     "path",
 		NodeName: "node1",
 	}
 
-	err := p.doExport(context.Background(), backend, req)
+	_, _, err := p.snapshotAllShards(context.Background(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "store not found")
 }

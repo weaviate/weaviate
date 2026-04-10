@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -81,6 +82,10 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		}).Debugf("sparse object search query completed in %s", took)
 	}()
 
+	if params.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -127,15 +132,26 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
+	if params.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	res, scores, err := db.SparseObjectSearch(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
 	res, scores = db.getStoreObjectsWithScores(res, scores, params.Pagination)
-	return db.ResolveReferences(ctx,
+	results, err := db.ResolveReferences(ctx,
 		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	if params.AdditionalProperties.QueryProfile {
+		results = helpers.AttachQueryProfileToResults(ctx, results)
+	}
+	return results, nil
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
@@ -156,6 +172,10 @@ func (db *DB) VectorSearch(ctx context.Context,
 		return results, err
 	}
 
+	if params.AdditionalProperties.QueryProfile {
+		ctx = helpers.InitQueryProfileCollector(ctx)
+	}
+
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination params: %w", err)
@@ -169,7 +189,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames())
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames(), params.Selection)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -178,10 +198,17 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Pagination.Limit = len(res)
 	}
 
-	return db.ResolveReferences(ctx,
+	results, err := db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
 			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	if params.AdditionalProperties.QueryProfile {
+		results = helpers.AttachQueryProfileToResults(ctx, results)
+	}
+	return results, nil
 }
 
 func isEmptyVector(searchVector models.Vector) bool {
@@ -229,7 +256,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "", nil, nil)
+				additional.Properties{}, nil, "", nil, nil, nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))

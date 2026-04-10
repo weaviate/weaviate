@@ -27,8 +27,8 @@ type ListSet struct {
 // Len returns the number of elements in the list.
 func (l ListSet) Len() int { return len(l.set) - 1 }
 
-// free allocated slice. This list should not be reusable after this call.
-func (l *ListSet) free() { l.set = nil }
+// Free allocated slice. This list should not be reusable after this call.
+func (l *ListSet) Free() { l.set = nil }
 
 // NewList creates a new list. It allocates memory for elements and marker
 func NewList(size int) ListSet {
@@ -50,6 +50,14 @@ func (l *ListSet) Visit(node uint64) {
 // Visited checks if l contains the specified node
 func (l *ListSet) Visited(node uint64) bool {
 	return int(node) < l.Len() && l.set[node+1] == l.set[0]
+}
+
+func (l *ListSet) CheckAndVisit(node uint64) bool {
+	v := l.Visited(node)
+	if !v {
+		l.Visit(node)
+	}
+	return v
 }
 
 // Reset list only in case of an overflow.

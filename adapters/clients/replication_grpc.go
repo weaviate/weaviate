@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
@@ -186,7 +187,7 @@ func (c *grpcReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 		Shard:                 shard,
 		RequestId:             requestID,
 		SchemaVersion:         schemaVersion,
-		Uuids:                 uuidsToStrings(uuids),
+		Uuids:                 clusterapi.UUIDsToStrings(uuids),
 		DeletionTimeUnixMilli: deletionTime.UnixMilli(),
 		DryRun:                dryRun,
 	})
@@ -277,7 +278,7 @@ func (c *grpcReplicationClient) Abort(ctx context.Context, host, index, shard, r
 // ── Read operations (RClient) ────────────────────────────────────────────────
 
 func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, shard string,
-	id strfmt.UUID, _ search.SelectProperties, _ additional.Properties, _ int,
+	id strfmt.UUID, _ search.SelectProperties, _ additional.Properties, numRetries int,
 ) (replica.Replica, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -291,7 +292,7 @@ func (c *grpcReplicationClient) FetchObject(ctx context.Context, host, index, sh
 		Index: index,
 		Shard: shard,
 		Uuid:  id.String(),
-	})
+	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return replica.Replica{}, fmt.Errorf("gRPC FetchObject: %w", err)
 	}
@@ -311,13 +312,15 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
+	// Use COMMIT_TIMEOUT_VALUE (90s) to match the REST transport, since FetchObjects
+	// is used for consistency repair and may need more time under load.
+	ctx, cancel := context.WithTimeout(ctx, COMMIT_TIMEOUT_VALUE*time.Second)
 	defer cancel()
 
 	resp, err := client.FetchObjects(ctx, &protocol.FetchObjectsRequest{
 		Index: index,
 		Shard: shard,
-		Uuids: uuidsToStrings(ids),
+		Uuids: clusterapi.UUIDsToStrings(ids),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gRPC FetchObjects: %w", err)
@@ -331,7 +334,7 @@ func (c *grpcReplicationClient) FetchObjects(ctx context.Context, host, index, s
 }
 
 func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID, _ int,
+	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
 	client, err := c.getClient(host)
 	if err != nil {
@@ -344,8 +347,8 @@ func (c *grpcReplicationClient) DigestObjects(ctx context.Context, host, index, 
 	resp, err := client.DigestObjects(ctx, &protocol.DigestObjectsRequest{
 		Index: index,
 		Shard: shard,
-		Ids:   uuidsToStrings(ids),
-	})
+		Ids:   clusterapi.UUIDsToStrings(ids),
+	}, grpc_retry.WithMax(uint(numRetries)))
 	if err != nil {
 		return nil, fmt.Errorf("gRPC DigestObjects: %w", err)
 	}
@@ -422,20 +425,19 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
-	defer cancel()
-
+	// No explicit timeout — relies on caller's context deadline, matching REST behavior.
+	// Disable retries to match REST behavior, which had no retries for FindUUIDs.
 	resp, err := client.FindUUIDs(ctx, &protocol.FindUUIDsRequest{
 		Index:      index,
 		Shard:      shard,
 		FilterJson: filterJSON,
 		Limit:      int32(limit),
-	})
+	}, grpc_retry.Disable())
 	if err != nil {
 		return nil, fmt.Errorf("gRPC FindUUIDs: %w", err)
 	}
 
-	return stringsToUUIDs(resp.GetUuids()), nil
+	return clusterapi.StringsToUUIDs(resp.GetUuids()), nil
 }
 
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
@@ -519,20 +521,4 @@ func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairRe
 		}
 	}
 	return out
-}
-
-func uuidsToStrings(uuids []strfmt.UUID) []string {
-	ss := make([]string, len(uuids))
-	for i, u := range uuids {
-		ss[i] = u.String()
-	}
-	return ss
-}
-
-func stringsToUUIDs(ss []string) []strfmt.UUID {
-	uuids := make([]strfmt.UUID, len(ss))
-	for i, s := range ss {
-		uuids[i] = strfmt.UUID(s)
-	}
-	return uuids
 }

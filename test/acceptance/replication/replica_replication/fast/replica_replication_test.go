@@ -148,7 +148,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
 		require.NoError(t, clientErr)
 		require.NotNil(t, body.Payload)
-		targetNode := "node3"
+		targetNode := docker.Weaviate2
 		hasFoundNode := false
 		hasFoundShard := false
 

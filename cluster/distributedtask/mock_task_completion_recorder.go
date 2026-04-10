@@ -32,17 +32,17 @@ func (_m *MockTaskCompletionRecorder) EXPECT() *MockTaskCompletionRecorder_Expec
 	return &MockTaskCompletionRecorder_Expecter{mock: &_m.Mock}
 }
 
-// RecordDistributedTaskNodeCompletion provides a mock function with given fields: ctx, namespace, taskID, version
-func (_m *MockTaskCompletionRecorder) RecordDistributedTaskNodeCompletion(ctx context.Context, namespace string, taskID string, version uint64) error {
-	ret := _m.Called(ctx, namespace, taskID, version)
+// RecordDistributedTaskUnitCompletion provides a mock function with given fields: ctx, namespace, taskID, version, nodeID, unitID
+func (_m *MockTaskCompletionRecorder) RecordDistributedTaskUnitCompletion(ctx context.Context, namespace string, taskID string, version uint64, nodeID string, unitID string) error {
+	ret := _m.Called(ctx, namespace, taskID, version, nodeID, unitID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for RecordDistributedTaskNodeCompletion")
+		panic("no return value specified for RecordDistributedTaskUnitCompletion")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64) error); ok {
-		r0 = rf(ctx, namespace, taskID, version)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64, string, string) error); ok {
+		r0 = rf(ctx, namespace, taskID, version, nodeID, unitID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -50,48 +50,50 @@ func (_m *MockTaskCompletionRecorder) RecordDistributedTaskNodeCompletion(ctx co
 	return r0
 }
 
-// MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordDistributedTaskNodeCompletion'
-type MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call struct {
+// MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordDistributedTaskUnitCompletion'
+type MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call struct {
 	*mock.Call
 }
 
-// RecordDistributedTaskNodeCompletion is a helper method to define mock.On call
+// RecordDistributedTaskUnitCompletion is a helper method to define mock.On call
 //   - ctx context.Context
 //   - namespace string
 //   - taskID string
 //   - version uint64
-func (_e *MockTaskCompletionRecorder_Expecter) RecordDistributedTaskNodeCompletion(ctx interface{}, namespace interface{}, taskID interface{}, version interface{}) *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call {
-	return &MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call{Call: _e.mock.On("RecordDistributedTaskNodeCompletion", ctx, namespace, taskID, version)}
+//   - nodeID string
+//   - unitID string
+func (_e *MockTaskCompletionRecorder_Expecter) RecordDistributedTaskUnitCompletion(ctx interface{}, namespace interface{}, taskID interface{}, version interface{}, nodeID interface{}, unitID interface{}) *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call {
+	return &MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call{Call: _e.mock.On("RecordDistributedTaskUnitCompletion", ctx, namespace, taskID, version, nodeID, unitID)}
 }
 
-func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call) Run(run func(ctx context.Context, namespace string, taskID string, version uint64)) *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call {
+func (_c *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call) Run(run func(ctx context.Context, namespace string, taskID string, version uint64, nodeID string, unitID string)) *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64), args[4].(string), args[5].(string))
 	})
 	return _c
 }
 
-func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call) Return(_a0 error) *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call {
+func (_c *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call) Return(_a0 error) *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call) RunAndReturn(run func(context.Context, string, string, uint64) error) *MockTaskCompletionRecorder_RecordDistributedTaskNodeCompletion_Call {
+func (_c *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call) RunAndReturn(run func(context.Context, string, string, uint64, string, string) error) *MockTaskCompletionRecorder_RecordDistributedTaskUnitCompletion_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// RecordDistributedTaskNodeFailure provides a mock function with given fields: ctx, namespace, taskID, version, errMsg
-func (_m *MockTaskCompletionRecorder) RecordDistributedTaskNodeFailure(ctx context.Context, namespace string, taskID string, version uint64, errMsg string) error {
-	ret := _m.Called(ctx, namespace, taskID, version, errMsg)
+// RecordDistributedTaskUnitFailure provides a mock function with given fields: ctx, namespace, taskID, version, nodeID, unitID, errMsg
+func (_m *MockTaskCompletionRecorder) RecordDistributedTaskUnitFailure(ctx context.Context, namespace string, taskID string, version uint64, nodeID string, unitID string, errMsg string) error {
+	ret := _m.Called(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
 
 	if len(ret) == 0 {
-		panic("no return value specified for RecordDistributedTaskNodeFailure")
+		panic("no return value specified for RecordDistributedTaskUnitFailure")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64, string) error); ok {
-		r0 = rf(ctx, namespace, taskID, version, errMsg)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64, string, string, string) error); ok {
+		r0 = rf(ctx, namespace, taskID, version, nodeID, unitID, errMsg)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -99,34 +101,88 @@ func (_m *MockTaskCompletionRecorder) RecordDistributedTaskNodeFailure(ctx conte
 	return r0
 }
 
-// MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordDistributedTaskNodeFailure'
-type MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call struct {
+// MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordDistributedTaskUnitFailure'
+type MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call struct {
 	*mock.Call
 }
 
-// RecordDistributedTaskNodeFailure is a helper method to define mock.On call
+// RecordDistributedTaskUnitFailure is a helper method to define mock.On call
 //   - ctx context.Context
 //   - namespace string
 //   - taskID string
 //   - version uint64
+//   - nodeID string
+//   - unitID string
 //   - errMsg string
-func (_e *MockTaskCompletionRecorder_Expecter) RecordDistributedTaskNodeFailure(ctx interface{}, namespace interface{}, taskID interface{}, version interface{}, errMsg interface{}) *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call {
-	return &MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call{Call: _e.mock.On("RecordDistributedTaskNodeFailure", ctx, namespace, taskID, version, errMsg)}
+func (_e *MockTaskCompletionRecorder_Expecter) RecordDistributedTaskUnitFailure(ctx interface{}, namespace interface{}, taskID interface{}, version interface{}, nodeID interface{}, unitID interface{}, errMsg interface{}) *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call {
+	return &MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call{Call: _e.mock.On("RecordDistributedTaskUnitFailure", ctx, namespace, taskID, version, nodeID, unitID, errMsg)}
 }
 
-func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call) Run(run func(ctx context.Context, namespace string, taskID string, version uint64, errMsg string)) *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call {
+func (_c *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call) Run(run func(ctx context.Context, namespace string, taskID string, version uint64, nodeID string, unitID string, errMsg string)) *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64), args[4].(string), args[5].(string), args[6].(string))
 	})
 	return _c
 }
 
-func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call) Return(_a0 error) *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call {
+func (_c *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call) Return(_a0 error) *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call) RunAndReturn(run func(context.Context, string, string, uint64, string) error) *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call {
+func (_c *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call) RunAndReturn(run func(context.Context, string, string, uint64, string, string, string) error) *MockTaskCompletionRecorder_RecordDistributedTaskUnitFailure_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateDistributedTaskUnitProgress provides a mock function with given fields: ctx, namespace, taskID, version, nodeID, unitID, progress
+func (_m *MockTaskCompletionRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace string, taskID string, version uint64, nodeID string, unitID string, progress float32) error {
+	ret := _m.Called(ctx, namespace, taskID, version, nodeID, unitID, progress)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateDistributedTaskUnitProgress")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, uint64, string, string, float32) error); ok {
+		r0 = rf(ctx, namespace, taskID, version, nodeID, unitID, progress)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateDistributedTaskUnitProgress'
+type MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call struct {
+	*mock.Call
+}
+
+// UpdateDistributedTaskUnitProgress is a helper method to define mock.On call
+//   - ctx context.Context
+//   - namespace string
+//   - taskID string
+//   - version uint64
+//   - nodeID string
+//   - unitID string
+//   - progress float32
+func (_e *MockTaskCompletionRecorder_Expecter) UpdateDistributedTaskUnitProgress(ctx interface{}, namespace interface{}, taskID interface{}, version interface{}, nodeID interface{}, unitID interface{}, progress interface{}) *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call {
+	return &MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call{Call: _e.mock.On("UpdateDistributedTaskUnitProgress", ctx, namespace, taskID, version, nodeID, unitID, progress)}
+}
+
+func (_c *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call) Run(run func(ctx context.Context, namespace string, taskID string, version uint64, nodeID string, unitID string, progress float32)) *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(uint64), args[4].(string), args[5].(string), args[6].(float32))
+	})
+	return _c
+}
+
+func (_c *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call) Return(_a0 error) *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call) RunAndReturn(run func(context.Context, string, string, uint64, string, string, float32) error) *MockTaskCompletionRecorder_UpdateDistributedTaskUnitProgress_Call {
 	_c.Call.Return(run)
 	return _c
 }

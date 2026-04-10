@@ -32,6 +32,13 @@ const (
 	SchemaVersionKey = "schema_version"
 )
 
+// DigestObjectsInRangeRecordLength is the size in bytes of a single binary
+// record returned by the digestsInRange endpoint. Each record encodes a UUID
+// (16 bytes, RFC-4122 binary form) followed by the object's UpdateTime (8
+// bytes, int64 big-endian). The Err and Deleted fields of RepairResponse are
+// not populated by ObjectDigestsInRange and are therefore omitted.
+const DigestObjectsInRangeRecordLength = 24
+
 // Client is used to read and write objects on replicas
 type Client interface {
 	RClient

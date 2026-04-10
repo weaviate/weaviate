@@ -84,5 +84,11 @@ func (ic *classSettings) Properties() ([]string, error) {
 }
 
 func (ic *classSettings) Validate() error {
-	return ic.base.ValidateMultiModal(fields)
+	if err := ic.base.ValidateMultiModal(fields); err != nil {
+		return err
+	}
+	if err := ic.base.ValidateBaseURL(ic.BaseURL()); err != nil {
+		return err
+	}
+	return nil
 }

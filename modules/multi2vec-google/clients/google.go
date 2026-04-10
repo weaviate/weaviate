@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -50,11 +51,9 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		urlBuilderFn: buildURL,
-		logger:       logger,
+		httpClient:    modulecomponents.NewBaseHttpClient(timeout),
+		urlBuilderFn:  buildURL,
+		logger:        logger,
 	}
 }
 
@@ -249,7 +248,7 @@ func (v *google) getEmbeddingsFromVertexResponse(statusCode int, bodyBytes []byt
 ) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
@@ -295,7 +294,7 @@ func (v *google) getEmbeddingsFromGeminiResponse(statusCode int, bodyBytes []byt
 ) {
 	var resBody batchEmbedResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {

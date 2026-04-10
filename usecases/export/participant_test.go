@@ -15,25 +15,55 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/export"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
+
+func TestParticipant_PrepareValidation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	p := NewParticipant(
+		&blockingSelector{blockCh: make(chan struct{})},
+		&fakeBackendProvider{backend: &fakeBackend{}},
+		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
+	)
+
+	t.Run("nil request", func(t *testing.T) {
+		err := p.Prepare(context.Background(), nil)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrExportValidation)
+	})
+
+	t.Run("empty ID", func(t *testing.T) {
+		err := p.Prepare(context.Background(), &ExportRequest{})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrExportValidation)
+	})
+}
 
 func TestParticipant_RejectsSecondExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req1 := &ExportRequest{
@@ -57,6 +87,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 
 	err = p.Prepare(context.Background(), req2)
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrExportAlreadyActive)
 	assert.Contains(t, err.Error(), "already in progress")
 
 	// Clean up
@@ -67,10 +98,10 @@ func TestParticipant_IsRunning(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	// Nothing running yet
@@ -100,10 +131,10 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	const n = 50
@@ -132,6 +163,8 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			successes++
+		} else {
+			assert.ErrorIs(t, err, ErrExportAlreadyActive)
 		}
 	}
 
@@ -148,10 +181,10 @@ func TestParticipant_PrepareAfterAbort(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req1 := &ExportRequest{
@@ -187,14 +220,14 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	backend := &fakeBackend{}
 
-	// emptySelector returns no shards so executeExport completes immediately
-	selector := &emptySelector{classList: []string{"TestClass"}}
+	// fakeSelector with no shards configured — executeExport completes immediately
+	selector := &fakeSelector{classList: []string{"TestClass"}}
 
 	p := NewParticipant(
-		context.Background(),
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req1 := &ExportRequest{
@@ -212,6 +245,9 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return !p.IsRunning("export-1")
 	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, float64(1), testutil.ToFloat64(p.metrics.OperationsTotal.WithLabelValues("success")), "ExportOperationsTotal success")
+	assert.Equal(t, uint64(1), histogramCount(t, p.metrics.Duration), "ExportDuration should have one observation")
 
 	// Now a new Prepare should succeed
 	req2 := &ExportRequest{
@@ -232,10 +268,13 @@ func TestParticipant_ReservationTimeoutReleasesSlot(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := &Participant{
-		shutdownCtx: context.Background(),
-		selector:    &blockingSelector{blockCh: make(chan struct{})},
-		backends:    &fakeBackendProvider{backend: &fakeBackend{}},
-		logger:      logger,
+		shutdownCtx:  context.Background(),
+		selector:     &blockingSelector{blockCh: make(chan struct{})},
+		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
+		logger:       logger,
+		client:       &fakeExportClient{},
+		nodeResolver: &fakeNodeResolver{},
+		metrics:      testMetrics(),
 	}
 
 	req := &ExportRequest{
@@ -281,10 +320,10 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	p := NewParticipant(
-		context.Background(),
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req := &ExportRequest{
@@ -307,63 +346,80 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 	p.Abort("export-1")
 }
 
-func TestParticipant_CommitWithoutPrepare(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	p := NewParticipant(
-		context.Background(),
-		&blockingSelector{blockCh: make(chan struct{})},
-		&fakeBackendProvider{backend: &fakeBackend{}},
-		logger,
-	)
-
-	err := p.Commit(context.Background(), "nonexistent")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "No export prepared")
-}
-
-func TestParticipant_CommitWrongID(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	p := NewParticipant(
-		context.Background(),
-		&blockingSelector{blockCh: make(chan struct{})},
-		&fakeBackendProvider{backend: &fakeBackend{}},
-		logger,
-	)
-
-	req := &ExportRequest{
-		ID:       "export-1",
-		Backend:  "s3",
-		Classes:  []string{"TestClass"},
-		Shards:   map[string][]string{"TestClass": {"shard0"}},
-		NodeName: "node1",
+func TestParticipant_CommitErrors(t *testing.T) {
+	tests := []struct {
+		name         string
+		prepareID    string // empty means no Prepare call
+		commitID     string
+		wantContains string
+		slotReleased bool // whether the slot should be released after the failed commit
+	}{
+		{
+			name:         "without prepare",
+			commitID:     "nonexistent",
+			wantContains: "no matching export prepared",
+		},
+		{
+			name:         "wrong ID",
+			prepareID:    "export-1",
+			commitID:     "wrong-id",
+			wantContains: "no matching export prepared",
+			slotReleased: true,
+		},
 	}
 
-	require.NoError(t, p.Prepare(context.Background(), req))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			p := NewParticipant(
+				&blockingSelector{blockCh: make(chan struct{})},
+				&fakeBackendProvider{backend: &fakeBackend{}},
+				logger,
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
+			)
 
-	err := p.Commit(context.Background(), "wrong-id")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mismatch")
+			if tc.prepareID != "" {
+				req := &ExportRequest{
+					ID:       tc.prepareID,
+					Backend:  "s3",
+					Classes:  []string{"TestClass"},
+					Shards:   map[string][]string{"TestClass": {"shard0"}},
+					NodeName: "node1",
+				}
+				require.NoError(t, p.Prepare(context.Background(), req))
+			}
 
-	// The failed commit should have released the slot
-	assert.False(t, p.IsRunning("export-1"))
+			err := p.Commit(context.Background(), tc.commitID)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantContains)
+
+			if tc.slotReleased {
+				assert.False(t, p.IsRunning(tc.prepareID))
+			}
+		})
+	}
 }
 
 func TestParticipant_AbortRunningExport(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
+	backend := newWriteBlockingBackend()
 
-	// blockingSelector blocks forever until context is canceled
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+	// Use a real store so snapshots complete during Prepare and Commit
+	// proceeds to the scan phase, which blocks on the parquet write.
+	store, _ := createTestStore(t, 100)
+	defer store.Shutdown(context.Background())
+	selector := &fakeSelector{
+		shards: map[string]map[string]*testShard{
+			"TestClass": {"shard0": {store: store, name: "shard0"}},
+		},
+		snapshotsRoot: t.TempDir(),
 	}
 
 	p := NewParticipant(
-		context.Background(),
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req := &ExportRequest{
@@ -377,8 +433,8 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	require.NoError(t, p.Prepare(context.Background(), req))
 	require.NoError(t, p.Commit(context.Background(), "export-1"))
 
-	// Wait for the export goroutine to actually start
-	selector.waitForCall(t)
+	// Wait for the scan phase to reach the backend write
+	backend.waitForParquetWrite(t)
 
 	// Abort the running export
 	p.Abort("export-1")
@@ -395,22 +451,151 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 	var nodeStatus NodeStatus
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
 	assert.Equal(t, export.Failed, nodeStatus.Status)
+
+	assert.Equal(t, float64(1), testutil.ToFloat64(p.metrics.OperationsTotal.WithLabelValues("canceled")), "ExportOperationsTotal canceled")
 }
 
-func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	backend := &fakeBackend{}
-
-	selector := &blockingSelector{
-		blockCh: make(chan struct{}),
+func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
+	tests := []struct {
+		name               string
+		siblingNodes       []string
+		resolverNodes      map[string]string
+		failExport         bool // true: cancel shutdownCtx; false: empty shards → success
+		expectedAbortHosts []string
+	}{
+		{
+			name:               "failed export aborts all siblings",
+			siblingNodes:       []string{"node2", "node3"},
+			resolverNodes:      map[string]string{"node2": "host2:8080", "node3": "host3:8080"},
+			failExport:         true,
+			expectedAbortHosts: []string{"host2:8080", "host3:8080"},
+		},
+		{
+			name:       "failed export without siblings sends no aborts",
+			failExport: true,
+		},
+		{
+			name:          "successful export does not abort siblings",
+			siblingNodes:  []string{"node2"},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			failExport:    false,
+		},
 	}
 
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+
+			var abortMu sync.Mutex
+			var abortedHosts []string
+			client := &fakeExportClient{
+				abortFn: func(_ context.Context, host, _ string) error {
+					abortMu.Lock()
+					abortedHosts = append(abortedHosts, host)
+					abortMu.Unlock()
+					return nil
+				},
+			}
+
+			var backend modulecapabilities.BackupBackend
+			var blockingBE *writeBlockingBackend
+			var sel Selector
+			if tc.failExport {
+				// Use a real store so snapshots complete during Prepare
+				// and Commit proceeds to the scan phase, which blocks on
+				// the parquet write. StartShutdown then cancels the export.
+				store, _ := createTestStore(t, 100)
+				t.Cleanup(func() { store.Shutdown(context.Background()) })
+				sel = &fakeSelector{
+					shards: map[string]map[string]*testShard{
+						"TestClass": {"shard0": {store: store, name: "shard0"}},
+					},
+					snapshotsRoot: t.TempDir(),
+				}
+				blockingBE = newWriteBlockingBackend()
+				backend = blockingBE
+			} else {
+				sel = &fakeSelector{classList: []string{"TestClass"}}
+				backend = &fakeBackend{}
+			}
+
+			p := NewParticipant(sel, &fakeBackendProvider{backend: backend}, logger,
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics(), nil)
+
+			shards := map[string][]string{"TestClass": {"shard0"}}
+			if !tc.failExport {
+				shards = map[string][]string{}
+			}
+
+			req := &ExportRequest{
+				ID:           "test-export",
+				Backend:      "s3",
+				Classes:      []string{"TestClass"},
+				Shards:       shards,
+				NodeName:     "node1",
+				SiblingNodes: tc.siblingNodes,
+			}
+
+			require.NoError(t, p.Prepare(context.Background(), req))
+			require.NoError(t, p.Commit(context.Background(), "test-export"))
+
+			if tc.failExport {
+				blockingBE.waitForParquetWrite(t)
+				p.StartShutdown()
+			}
+
+			require.Eventually(t, func() bool {
+				return !p.IsRunning("test-export")
+			}, 5*time.Second, 10*time.Millisecond)
+
+			if len(tc.expectedAbortHosts) > 0 {
+				require.Eventually(t, func() bool {
+					abortMu.Lock()
+					defer abortMu.Unlock()
+					return len(abortedHosts) == len(tc.expectedAbortHosts)
+				}, 5*time.Second, 10*time.Millisecond, "expected %d abort calls", len(tc.expectedAbortHosts))
+
+				abortMu.Lock()
+				defer abortMu.Unlock()
+				assert.ElementsMatch(t, tc.expectedAbortHosts, abortedHosts)
+			} else {
+				assert.Never(t, func() bool {
+					abortMu.Lock()
+					defer abortMu.Unlock()
+					return len(abortedHosts) > 0
+				}, 200*time.Millisecond, 10*time.Millisecond, "expected no abort calls")
+			}
+		})
+	}
+}
+
+func TestParticipant_SiblingFailureCancelsAndSetsStatusFailed(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	backend := newWriteBlockingBackend()
+
+	// Use a real store so snapshots complete during Prepare and Commit
+	// proceeds to the scan phase, where the sibling check can fire.
+	store, _ := createTestStore(t, 100)
+	defer store.Shutdown(context.Background())
+	selector := &fakeSelector{
+		shards: map[string]map[string]*testShard{
+			"TestClass": {"shard0": {store: store, name: "shard0"}},
+		},
+		snapshotsRoot: t.TempDir(),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	p := &Participant{
-		shutdownCtx:    context.Background(),
-		selector:       selector,
-		backends:       &fakeBackendProvider{backend: backend},
-		logger:         logger,
-		statusInterval: 50 * time.Millisecond,
+		shutdownCtx:          ctx,
+		shutdownCancel:       cancel,
+		selector:             selector,
+		backends:             &fakeBackendProvider{backend: backend},
+		logger:               logger,
+		client:               &fakeExportClient{},
+		nodeResolver:         &fakeNodeResolver{},
+		siblingCheckInterval: 50 * time.Millisecond,
+		metrics:              testMetrics(),
 	}
 
 	// Write a Failed status for the sibling node
@@ -436,8 +621,8 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 	require.NoError(t, p.Prepare(context.Background(), req))
 	require.NoError(t, p.Commit(context.Background(), "test-export"))
 
-	// Wait for the export goroutine to start
-	selector.waitForCall(t)
+	// Wait for the scan phase to reach the backend write
+	backend.waitForParquetWrite(t)
 
 	// The status writer goroutine should detect the sibling failure and
 	// auto-cancel the export without an explicit Abort call.
@@ -445,30 +630,40 @@ func TestParticipant_CancelsOnSiblingFailure(t *testing.T) {
 		return !p.IsRunning("test-export")
 	}, 5*time.Second, 10*time.Millisecond, "expected export to stop after sibling failure")
 
-	// Verify failed status was written for the local node
+	// Verify the persisted node status has BOTH Status=Failed AND the
+	// sibling error message.
 	written := backend.getWritten("node_node1_status.json")
 	require.NotNil(t, written, "expected node status to be written")
 
 	var nodeStatus NodeStatus
 	require.NoError(t, json.Unmarshal(written, &nodeStatus))
-	assert.Equal(t, export.Failed, nodeStatus.Status)
+	assert.Equal(t, export.Failed, nodeStatus.Status, "status must be Failed, not Transferring")
+	assert.Contains(t, nodeStatus.Error, "sibling node")
+	assert.Contains(t, nodeStatus.Error, "disk full")
 }
 
 func TestParticipant_CheckSiblingHealth(t *testing.T) {
 	tests := []struct {
 		name          string
-		siblingNodes  []string    // sibling node names in the request
+		siblingNodes  []string
 		siblingStatus *NodeStatus // nil means don't write a sibling status file
+		resolverNodes map[string]string
+		isRunningFn   func(context.Context, string, string) (bool, error) // nil defaults to (false, nil)
+		cancelCtx     bool                                                // if true, pass an already-canceled context
 		expectFailed  bool
 	}{
 		{
 			name:          "healthy sibling continues",
 			siblingNodes:  []string{"node2"},
 			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
-			expectFailed:  false,
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return true, nil
+			},
+			expectFailed: false,
 		},
 		{
-			name:          "failed sibling detected",
+			name:          "failed sibling detected via status file",
 			siblingNodes:  []string{"node2"},
 			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Failed, Error: "disk full"},
 			expectFailed:  true,
@@ -485,9 +680,47 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			expectFailed: false,
 		},
 		{
-			name:         "missing sibling status ignores error",
-			siblingNodes: []string{"node2"},
+			name:          "missing status but node alive and running",
+			siblingNodes:  []string{"node2"},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return true, nil
+			},
 			expectFailed: false,
+		},
+		{
+			name:         "missing status and node left cluster",
+			siblingNodes: []string{"node2"},
+			// resolver has no entry for node2 → NodeHostname returns false
+			expectFailed: true,
+		},
+		{
+			name:          "non-terminal status and node not running",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return false, nil
+			},
+			expectFailed: true,
+		},
+		{
+			name:          "IsRunning error treated as inconclusive",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			isRunningFn: func(context.Context, string, string) (bool, error) {
+				return false, fmt.Errorf("connection refused")
+			},
+			expectFailed: false,
+		},
+		{
+			name:          "canceled context does not blame sibling",
+			siblingNodes:  []string{"node2"},
+			siblingStatus: &NodeStatus{NodeName: "node2", Status: export.Transferring},
+			resolverNodes: map[string]string{"node2": "host2:8080"},
+			cancelCtx:     true,
+			expectFailed:  false,
 		},
 	}
 
@@ -496,11 +729,15 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			backend := &fakeBackend{}
 
+			client := &fakeExportClient{
+				isRunningFn: tc.isRunningFn,
+			}
+
 			p := NewParticipant(
-				context.Background(),
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics(), nil,
 			)
 
 			if tc.siblingStatus != nil {
@@ -518,8 +755,94 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				SiblingNodes: tc.siblingNodes,
 			}
 
-			_, _, failed := p.siblingHasFailed(context.Background(), backend, req)
+			ctx := context.Background()
+			if tc.cancelCtx {
+				cctx, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cctx
+			}
+
+			_, _, failed := p.siblingHasFailed(ctx, backend, req)
 			assert.Equal(t, tc.expectFailed, failed)
+		})
+	}
+}
+
+// histogramCount extracts the sample_count from a prometheus.Histogram.
+func histogramCount(t *testing.T, h prometheus.Histogram) uint64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, h.(prometheus.Metric).Write(&m))
+	return m.GetHistogram().GetSampleCount()
+}
+
+func TestParticipant_getExportParallelism(t *testing.T) {
+	maxP := runtime.GOMAXPROCS(0)
+	limit := maxP * maxExportParallelismMultiplier
+
+	tests := []struct {
+		name       string
+		configured *configRuntime.DynamicValue[int]
+		want       int
+		wantWarn   bool
+	}{
+		{
+			name:       "nil config falls back to GOMAXPROCS",
+			configured: nil,
+			want:       maxP,
+		},
+		{
+			name:       "zero config falls back to GOMAXPROCS",
+			configured: configRuntime.NewDynamicValue[int](0),
+			want:       maxP,
+		},
+		{
+			name:       "explicit value of 1",
+			configured: configRuntime.NewDynamicValue[int](1),
+			want:       1,
+		},
+		{
+			name:       "explicit value below cap",
+			configured: configRuntime.NewDynamicValue[int](maxP),
+			want:       maxP,
+		},
+		{
+			name:       "explicit value at cap",
+			configured: configRuntime.NewDynamicValue[int](limit),
+			want:       limit,
+		},
+		{
+			name:       "explicit value above cap is clamped",
+			configured: configRuntime.NewDynamicValue[int](limit + 1),
+			want:       limit,
+			wantWarn:   true,
+		},
+		{
+			name:       "pathologically large value is clamped",
+			configured: configRuntime.NewDynamicValue[int](10_000),
+			want:       limit,
+			wantWarn:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			p := &Participant{
+				logger:            logger,
+				exportParallelism: tc.configured,
+			}
+
+			got := p.getExportParallelism()
+			assert.Equal(t, tc.want, got)
+
+			if tc.wantWarn {
+				require.Len(t, hook.Entries, 1, "expected a warning to be logged")
+				assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+				assert.Contains(t, hook.LastEntry().Message, "EXPORT_PARALLELISM")
+			} else {
+				assert.Empty(t, hook.Entries, "no warning should be logged")
+			}
 		})
 	}
 }

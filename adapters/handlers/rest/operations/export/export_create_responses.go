@@ -139,6 +139,51 @@ func (o *ExportCreateForbidden) WriteResponse(rw http.ResponseWriter, producer r
 	}
 }
 
+// ExportCreateConflictCode is the HTTP code returned for type ExportCreateConflict
+const ExportCreateConflictCode int = 409
+
+/*
+ExportCreateConflict Export already exists or another export is already in progress
+
+swagger:response exportCreateConflict
+*/
+type ExportCreateConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewExportCreateConflict creates ExportCreateConflict with default headers values
+func NewExportCreateConflict() *ExportCreateConflict {
+
+	return &ExportCreateConflict{}
+}
+
+// WithPayload adds the payload to the export create conflict response
+func (o *ExportCreateConflict) WithPayload(payload *models.ErrorResponse) *ExportCreateConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the export create conflict response
+func (o *ExportCreateConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ExportCreateConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ExportCreateUnprocessableEntityCode is the HTTP code returned for type ExportCreateUnprocessableEntity
 const ExportCreateUnprocessableEntityCode int = 422
 

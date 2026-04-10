@@ -85,7 +85,7 @@ func (m *Module) Init(ctx context.Context,
 		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
 	}
 
-	client, err := newClient(ctx, config, m.dataPath)
+	client, err := newClient(ctx, config, m.dataPath, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")
 	}

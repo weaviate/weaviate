@@ -93,7 +93,14 @@ func NewServer(appState *state.State) *Server {
 
 	mux.Handle("/", index())
 
-	grpcServer := grpc.NewServer(appState)
+	grpcServer := grpc.NewServer(grpc.Config{
+		State:                              appState,
+		Replicator:                         appState.DB,
+		FileReplicationRepo:                appState.DB,
+		FileReplicationSchema:              appState.ClusterService.SchemaReader(),
+		MaintenanceModeEnabledForLocalhost: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		NodeReady:                          appState.ClusterService.Ready,
+	})
 
 	var handler http.Handler
 	// Multiplexing handler: Routes gRPC vs. REST (HTTP)

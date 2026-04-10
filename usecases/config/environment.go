@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -53,6 +55,8 @@ const (
 	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
+
+	DefaultMaxShardingCount = 512
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
@@ -120,9 +124,44 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
-	config.EnableLazyLoadShards = true
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.EnableLazyLoadShards = false
+		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
+	}
+
+	// Lazy load shard count threshold for auto-detection
+	// Determines at what shard count auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_COUNT_THRESHOLD as int: %w", err)
+		}
+		if asInt < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 0")
+		}
+		config.LazyLoadShardCountThreshold = asInt
+		if config.LazyLoadShardCountThreshold == 0 {
+			v := true
+			config.EnableLazyLoadShards = &v
+		}
+	} else {
+		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Lazy load shard size threshold for auto-detection (in GB)
+	// Determines at what total shard size auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB as float: %w", err)
+		}
+		if asFloat < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB must be >= 0")
+		}
+		config.LazyLoadShardSizeThresholdGB = asFloat
+	} else {
+		config.LazyLoadShardSizeThresholdGB = DefaultLazyLoadShardSizeThresholdGB
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -189,6 +228,13 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
+	}
+
 	cptParser := newCollectionPropsTenantsParser()
 
 	// variable expects string in format:
@@ -245,6 +291,11 @@ func FromEnv(config *Config) error {
 			skipClientCheck = true
 		}
 
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
 			issuer = v
 		}
@@ -281,6 +332,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -506,6 +558,20 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultShardingCount := 0
+	if err := parseNonNegativeInt(
+		"DEFAULT_SHARDING_COUNT",
+		func(v int) { defaultShardingCount = v },
+		0,
+	); err != nil {
+		return err
+	}
+	if defaultShardingCount > DefaultMaxShardingCount {
+		return fmt.Errorf("DEFAULT_SHARDING_COUNT must be <= %d, got %d",
+			DefaultMaxShardingCount, defaultShardingCount)
+	}
+	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
+
 	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
@@ -606,6 +672,8 @@ func FromEnv(config *Config) error {
 	if err := config.parseCORSConfig(); err != nil {
 		return err
 	}
+
+	config.parseExportConfig()
 
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
@@ -882,6 +950,17 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// MCP Server Configuration
+	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+	}
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
+	}
+
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
@@ -933,8 +1012,18 @@ func FromEnv(config *Config) error {
 		config.TelemetryPushInterval = interval
 	}
 
-	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
-		config.HNSWStartupWaitForVectorCache = true
+	{
+		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
+		switch {
+		// flag: still honored, environment always wins over auto-detection.
+		case waitEnvSet:
+			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
+
+		default:
+			config.HNSWStartupWaitForVectorCache = true
+
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -1075,6 +1164,13 @@ func FromEnv(config *Config) error {
 		operationalMode = v
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
+	disableDimensionMetrics := false
+	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
+		disableDimensionMetrics = entcfg.Enabled(v)
+	}
+
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
 	return nil
 }
@@ -1475,9 +1571,11 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 30
+	DefaultAsyncReplicationClusterMaxWorkers   = 15
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 
@@ -1846,4 +1944,18 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
 }

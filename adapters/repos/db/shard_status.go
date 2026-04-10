@@ -56,6 +56,12 @@ func (s *Shard) GetStatus() storagestate.Status {
 		}
 		return nil
 	})
+	_ = s.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
+		if queue.Size() > 0 {
+			status = storagestate.StatusIndexing
+		}
+		return nil
+	})
 	s.status.Status = status
 	return status
 }

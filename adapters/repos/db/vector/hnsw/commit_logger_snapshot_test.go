@@ -1680,3 +1680,114 @@ func TestCreateSnapshotCrashSafety(t *testing.T) {
 		require.Equal(t, []string{"1002.snapshot"}, got)
 	})
 }
+
+func TestMigrateCompactV2Snapshot(t *testing.T) {
+	t.Run("single timestamp snapshot", func(t *testing.T) {
+		rootDir := t.TempDir()
+		id := "main"
+
+		commitlogDir := commitLogDirectory(rootDir, id)
+		snapshotDir := snapshotDirectory(rootDir, id)
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Create a snapshot file in the commitlog dir (as compact v2 would)
+		_, err := os.Create(filepath.Join(commitlogDir, "1500.snapshot"))
+		require.NoError(t, err)
+
+		cl := &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+
+		require.NoError(t, cl.migrateCompactV2Snapshot())
+
+		// Snapshot should be moved to snapshot dir
+		entries, err := os.ReadDir(snapshotDir)
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.Equal(t, "1500.snapshot", entries[0].Name())
+
+		// Commitlog dir should no longer contain the snapshot
+		entries, err = os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.False(t, e.Name() == "1500.snapshot", "snapshot should be moved out of commitlog dir")
+		}
+	})
+
+	t.Run("range timestamp snapshot", func(t *testing.T) {
+		rootDir := t.TempDir()
+		id := "main"
+
+		commitlogDir := commitLogDirectory(rootDir, id)
+		snapshotDir := snapshotDirectory(rootDir, id)
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Create a range-named snapshot (as compact v2 compactor would)
+		_, err := os.Create(filepath.Join(commitlogDir, "1000_1500.snapshot"))
+		require.NoError(t, err)
+
+		cl := &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+
+		require.NoError(t, cl.migrateCompactV2Snapshot())
+
+		// Snapshot should be renamed to {endTS}.snapshot
+		entries, err := os.ReadDir(snapshotDir)
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.Equal(t, "1500.snapshot", entries[0].Name())
+	})
+
+	t.Run("no snapshot - noop", func(t *testing.T) {
+		rootDir := t.TempDir()
+		id := "main"
+
+		commitlogDir := commitLogDirectory(rootDir, id)
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Only regular commit log files
+		_, err := os.Create(filepath.Join(commitlogDir, "1501.sorted"))
+		require.NoError(t, err)
+		_, err = os.Create(filepath.Join(commitlogDir, "1502"))
+		require.NoError(t, err)
+
+		cl := &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+
+		require.NoError(t, cl.migrateCompactV2Snapshot())
+
+		// Snapshot dir should not be created
+		_, err = os.ReadDir(snapshotDirectory(rootDir, id))
+		require.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("idempotent - already migrated", func(t *testing.T) {
+		rootDir := t.TempDir()
+		id := "main"
+
+		commitlogDir := commitLogDirectory(rootDir, id)
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		cl := &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+
+		// No snapshot files at all — should be a noop
+		require.NoError(t, cl.migrateCompactV2Snapshot())
+		require.NoError(t, cl.migrateCompactV2Snapshot())
+	})
+}

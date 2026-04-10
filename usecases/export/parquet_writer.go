@@ -12,20 +12,15 @@
 package export
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"sync/atomic"
 
 	"github.com/parquet-go/parquet-go"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // ParquetRow represents a single row in the Parquet file
 type ParquetRow struct {
 	ID           string `parquet:"id,dict"`
-	ClassName    string `parquet:"class_name,dict"`
 	CreationTime int64  `parquet:"creation_time"`
 	UpdateTime   int64  `parquet:"update_time"`
 	Vector       []byte `parquet:"vector,optional"`
@@ -43,7 +38,7 @@ type ParquetWriter struct {
 	writer    *parquet.GenericWriter[ParquetRow]
 	buffer    []ParquetRow
 	batchSize int
-	written   atomic.Int64
+	onFlush   func(int64) // called after each successful flush with the number of rows flushed
 }
 
 // NewParquetWriter creates a new Parquet writer
@@ -61,16 +56,6 @@ func NewParquetWriter(w io.Writer) (*ParquetWriter, error) {
 		buffer:    make([]ParquetRow, 0, defaultBatchSize),
 		batchSize: defaultBatchSize,
 	}, nil
-}
-
-// WriteObject writes a single object to the Parquet file (buffered)
-func (pw *ParquetWriter) WriteObject(obj *storobj.Object) error {
-	row, err := convertToParquetRow(obj)
-	if err != nil {
-		return fmt.Errorf("convert object to parquet row: %w", err)
-	}
-
-	return pw.WriteRow(row)
 }
 
 // WriteRow writes a pre-converted row to the Parquet file (buffered).
@@ -98,8 +83,10 @@ func (pw *ParquetWriter) Flush() error {
 		return fmt.Errorf("write batch to parquet: %w", err)
 	}
 
-	pw.written.Add(n)
 	pw.buffer = pw.buffer[:0] // Reset buffer
+	if pw.onFlush != nil {
+		pw.onFlush(n)
+	}
 	return nil
 }
 
@@ -111,61 +98,7 @@ func (pw *ParquetWriter) Close() error {
 	return pw.writer.Close()
 }
 
-// ObjectsWritten returns the total number of objects written
-func (pw *ParquetWriter) ObjectsWritten() int64 {
-	return pw.written.Load()
-}
-
 // SetFileMetadata sets a key/value pair in the Parquet file metadata.
 func (pw *ParquetWriter) SetFileMetadata(key, value string) {
 	pw.writer.SetKeyValueMetadata(key, value)
-}
-
-// convertToParquetRow converts a storobj.Object to a ParquetRow
-func convertToParquetRow(obj *storobj.Object) (ParquetRow, error) {
-	row := ParquetRow{
-		ID:           obj.ID().String(),
-		ClassName:    obj.Class().String(),
-		CreationTime: obj.CreationTimeUnix(),
-		UpdateTime:   obj.LastUpdateTimeUnix(),
-	}
-
-	// Serialize primary vector
-	if len(obj.Vector) > 0 {
-		row.Vector = serializeVector(obj.Vector)
-	}
-
-	// Serialize named vectors
-	if len(obj.Vectors) > 0 {
-		data, err := json.Marshal(obj.Vectors)
-		if err != nil {
-			return row, fmt.Errorf("marshal named vectors: %w", err)
-		}
-		row.NamedVectors = data
-	}
-
-	// Serialize multi vectors
-	if len(obj.MultiVectors) > 0 {
-		data, err := json.Marshal(obj.MultiVectors)
-		if err != nil {
-			return row, fmt.Errorf("marshal multi vectors: %w", err)
-		}
-		row.MultiVectors = data
-	}
-
-	// Serialize properties
-	if obj.Properties() != nil {
-		data, err := json.Marshal(obj.Properties())
-		if err != nil {
-			return row, fmt.Errorf("marshal properties: %w", err)
-		}
-		row.Properties = data
-	}
-
-	return row, nil
-}
-
-// serializeVector converts a []float32 vector to little-endian binary format.
-func serializeVector(vector []float32) []byte {
-	return byteops.Fp32SliceToBytes(vector)
 }

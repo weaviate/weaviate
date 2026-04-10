@@ -47,7 +47,7 @@ func (rq *BinaryRotationalQuantizer) Data() compression.RQData {
 	}
 }
 
-func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) *BinaryRotationalQuantizer {
+func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {
 	originalDim := inputDim
 
 	// Pad the input if it is low-dimensional.
@@ -61,7 +61,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	// Randomized rounding for the query quantization to make the estimator
 	// unbiased. It may produce better recall to not use randomized rounding
@@ -82,7 +82,7 @@ func NewBinaryRotationalQuantizer(inputDim int, seed uint64, distancer distancer
 		l2:          l2,
 		cos:         cos,
 	}
-	return rq
+	return rq, nil
 }
 
 func RestoreBinaryRotationalQuantizer(inputDim int, outputDim int, rounds int, swaps [][]compression.Swap, signs [][]float32, rounding []float32, distancer distancer.Provider) (*BinaryRotationalQuantizer, error) {

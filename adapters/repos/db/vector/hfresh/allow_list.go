@@ -82,8 +82,8 @@ type allowList struct {
 	helpers.AllowList
 	ctx              context.Context
 	h                *HFresh
-	wrappedIdVisited visited.ListSet
-	idVisited        visited.ListSet
+	wrappedIdVisited *visited.SparseSet
+	idVisited        *visited.SparseSet
 	// Cache to store PostingMetadata from iterator to avoid expensive Get calls
 	cachedMetadata *PostingMetadata
 	cachedID       uint64
