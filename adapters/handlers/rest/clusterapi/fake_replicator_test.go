@@ -110,6 +110,10 @@ func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string,
 	return []hashtree.Digest{}, nil
 }
 
+func (f *fakeReplicator) CountObjects(ctx context.Context, index, shard string) (int, error) {
+	return 0, nil
+}
+
 func (f *fakeReplicator) Done() {
 	close(f.commitBlock)
 }
