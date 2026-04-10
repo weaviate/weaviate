@@ -471,7 +471,8 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 			f.logger.WithFields(logrus.Fields{
 				"shard": shard,
 				"host":  host,
-			}).Errorf("poll object count for count(*) aggregation: %v", err)
+			}).Infof("poll object count for count(*) aggregation: %v", err)
+			return 0, err
 		}
 		return count, nil
 	}, "", time.Minute)
@@ -479,10 +480,14 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 		return 0, nil
 	}
 
-	// Fan in results from all concurrent Pull requests. It is safe
-	// to ignore Result[T].Err, as our func will swallow any errors.
+	// Fan in results from all concurrent Pull requests. Results with
+	// errors (e.g. shard not yet loaded on a follower) are excluded
+	// from reconciliation so they don't poison the count with 0.
 	var counts []int
 	for r := range results {
+		if r.Err != nil {
+			continue
+		}
 		counts = append(counts, r.Value)
 	}
 

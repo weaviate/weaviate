@@ -914,7 +914,7 @@ func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error)
 	}
 	defer release()
 	if shard == nil {
-		return 0, nil
+		return 0, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	return shard.ObjectCount(ctx)

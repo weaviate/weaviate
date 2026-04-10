@@ -240,7 +240,9 @@ func (c *replicationClient) CountObjects(ctx context.Context, host string, index
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, &resp, MAX_RETRIES)
+	// CountObjects is used as a best-effort consistency check during aggregation, so we don't want to retry on error
+	// We just accept the error and return it so it can be ignored in the reconciliation logic
+	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, &resp, 0)
 	return resp, err
 }
 
