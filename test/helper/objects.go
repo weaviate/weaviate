@@ -554,6 +554,28 @@ func UpdateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func ActivateTenants(t *testing.T, class string, tenants []string) {
+	t.Helper()
+	ts := make([]*models.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		ts[i] = &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusACTIVE}
+	}
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(ts)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeactivateTenants(t *testing.T, class string, tenants []string) {
+	t.Helper()
+	ts := make([]*models.Tenant, len(tenants))
+	for i, tenant := range tenants {
+		ts[i] = &models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusINACTIVE}
+	}
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(ts)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
