@@ -125,9 +125,31 @@ type delegate struct {
 	metadata NodeMetadata
 }
 
+// NodeLifecycle represents the lifecycle state of a node in the cluster, gossipped via memberlist metadata.
+type NodeLifecycle string
+
+const (
+	// NodeLifecycleWarmingUp indicates the node has joined the cluster but is not yet ready to serve traffic.
+	// This is the initial state set before memberlist.Create() so peers learn it before any routing occurs.
+	NodeLifecycleWarmingUp NodeLifecycle = "WARMING_UP"
+	// NodeLifecycleActive indicates the node is fully initialised and ready to serve traffic.
+	NodeLifecycleActive NodeLifecycle = "ACTIVE"
+	// NodeLifecycleShuttingDown indicates the node is draining and should not receive new requests.
+	NodeLifecycleShuttingDown NodeLifecycle = "SHUTTING_DOWN"
+)
+
 type NodeMetadata struct {
-	RestPort int `json:"rest_port"`
-	GrpcPort int `json:"grpc_port"`
+	RestPort  int           `json:"rest_port"`
+	GrpcPort  int           `json:"grpc_port"`
+	Lifecycle NodeLifecycle `json:"lifecycle,omitempty"` // empty value treated as ACTIVE for backward compat
+}
+
+// setLifecycle updates the node's lifecycle state in the memberlist metadata.
+// Callers must follow up with memberlist.UpdateNode() to gossip the change.
+func (d *delegate) setLifecycle(lc NodeLifecycle) {
+	d.Lock()
+	d.metadata.Lifecycle = lc
+	d.Unlock()
 }
 
 func (d *delegate) setOwnSpace(x DiskUsage) {

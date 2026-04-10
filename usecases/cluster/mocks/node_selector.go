@@ -11,7 +11,11 @@
 
 package mocks
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
+)
 
 type memberlist struct {
 	// nodes include the node names only
@@ -84,6 +88,14 @@ func (m memberlist) ClusterHealthScore() int {
 
 func (m memberlist) NodeCount() int {
 	return len(m.nodes)
+}
+
+func (m memberlist) NodeLifecycle(name string) cluster.NodeLifecycle {
+	return cluster.NodeLifecycleActive
+}
+
+func (m memberlist) SetNodeLifecycle(lc cluster.NodeLifecycle) error {
+	return nil
 }
 
 func NewMockNodeSelector(node ...string) memberlist {

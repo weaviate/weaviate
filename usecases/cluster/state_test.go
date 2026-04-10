@@ -12,6 +12,7 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"testing"
@@ -663,6 +664,83 @@ func TestIPv6AddressConstruction(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.host, host)
 			assert.Equal(t, fmt.Sprintf("%d", tt.port), port)
+		})
+	}
+}
+
+func TestNodeMetadataLifecycle(t *testing.T) {
+	tests := []struct {
+		name      string
+		meta      NodeMetadata
+		wantField NodeLifecycle
+	}{
+		{
+			name:      "active lifecycle",
+			meta:      NodeMetadata{RestPort: 8080, GrpcPort: 50051, Lifecycle: NodeLifecycleActive},
+			wantField: NodeLifecycleActive,
+		},
+		{
+			name:      "warming up lifecycle",
+			meta:      NodeMetadata{RestPort: 8080, GrpcPort: 50051, Lifecycle: NodeLifecycleWarmingUp},
+			wantField: NodeLifecycleWarmingUp,
+		},
+		{
+			name:      "shutting down lifecycle",
+			meta:      NodeMetadata{RestPort: 8080, GrpcPort: 50051, Lifecycle: NodeLifecycleShuttingDown},
+			wantField: NodeLifecycleShuttingDown,
+		},
+		{
+			name:      "empty lifecycle treated as active by convention",
+			meta:      NodeMetadata{RestPort: 8080, GrpcPort: 50051},
+			wantField: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.wantField, tt.meta.Lifecycle)
+		})
+	}
+}
+
+func TestNodeMetadataLifecycleJSONRoundTrip(t *testing.T) {
+	tests := []struct {
+		name          string
+		meta          NodeMetadata
+		wantLifecycle NodeLifecycle
+		wantOmitted   bool // true if lifecycle field should be absent from JSON
+	}{
+		{
+			name:          "WARMING_UP is serialised",
+			meta:          NodeMetadata{RestPort: 8080, GrpcPort: 50051, Lifecycle: NodeLifecycleWarmingUp},
+			wantLifecycle: NodeLifecycleWarmingUp,
+		},
+		{
+			name:          "ACTIVE is serialised",
+			meta:          NodeMetadata{RestPort: 8080, GrpcPort: 50051, Lifecycle: NodeLifecycleActive},
+			wantLifecycle: NodeLifecycleActive,
+		},
+		{
+			name:        "empty lifecycle is omitted (backward compat)",
+			meta:        NodeMetadata{RestPort: 8080, GrpcPort: 50051},
+			wantOmitted: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.meta)
+			require.NoError(t, err)
+
+			var out NodeMetadata
+			require.NoError(t, json.Unmarshal(data, &out))
+
+			if tt.wantOmitted {
+				assert.Equal(t, NodeLifecycle(""), out.Lifecycle)
+				assert.NotContains(t, string(data), "lifecycle")
+			} else {
+				assert.Equal(t, tt.wantLifecycle, out.Lifecycle)
+			}
 		})
 	}
 }
