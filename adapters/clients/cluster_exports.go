@@ -60,6 +60,9 @@ func (c *ClusterExports) Prepare(ctx context.Context, host string, req *export.E
 		return fmt.Errorf("prepare request: %w", err)
 	}
 
+	if statusCode == http.StatusConflict {
+		return fmt.Errorf("%w: %s", export.ErrExportAlreadyActive, respBody)
+	}
 	if statusCode != http.StatusOK {
 		return fmt.Errorf("prepare failed: status %d (%s)", statusCode, respBody)
 	}
@@ -97,12 +100,12 @@ func (c *ClusterExports) Abort(ctx context.Context, host, exportID string) error
 		return fmt.Errorf("new abort request: %w", err)
 	}
 
-	_, statusCode, err := c.do(httpReq)
+	respBody, statusCode, err := c.do(httpReq)
 	if err != nil {
 		return err
 	}
 	if statusCode != http.StatusOK {
-		return fmt.Errorf("abort failed: status %d", statusCode)
+		return fmt.Errorf("abort failed: status %d (%s)", statusCode, respBody)
 	}
 	return nil
 }

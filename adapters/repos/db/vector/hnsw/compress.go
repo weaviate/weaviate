@@ -55,11 +55,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					// already deleted, ignore
+					// object deleted or target vector missing on this object, skip
 					continue
-				} else {
-					return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
 				}
+				return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
 			}
 
 			if len(p) == 0 {
@@ -135,7 +134,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
-				if data[index] == nil {
+				if len(data[index]) == 0 {
 					return
 				}
 				h.compressor.Preload(index, data[index])

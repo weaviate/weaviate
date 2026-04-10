@@ -14,6 +14,7 @@ package grpc
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -26,13 +27,41 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/replica/types"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type Server struct {
 	*grpc.Server
-	state *state.State
+	state        *state.State
+	requestQueue *shared.RequestQueue[grpcQueueItem]
+}
+
+type Config struct {
+	State                              *state.State
+	Replicator                         types.Replicator
+	FileReplicationRepo                sharding.RemoteIncomingRepo
+	FileReplicationSchema              sharding.RemoteIncomingSchema
+	MaintenanceModeEnabledForLocalhost func() bool
+	NodeReady                          func() bool
+	GRPCServerOptions                  []grpc.ServerOption
+}
+
+type grpcQueueItem struct {
+	ctx     context.Context
+	req     any
+	info    *grpc.UnaryServerInfo
+	handler grpc.UnaryHandler
+	result  chan grpcQueueResult
+}
+
+type grpcQueueResult struct {
+	resp any
+	err  error
 }
 
 const (
@@ -41,11 +70,14 @@ const (
 )
 
 // NewServer creates *grpc.Server with optional grpc.Serveroption passed.
-func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
-	fileCopyChunkSize := state.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
+func NewServer(
+	config Config,
+	options ...grpc.ServerOption,
+) *Server {
+	fileCopyChunkSize := config.State.ServerConfig.Config.ReplicationEngineFileCopyChunkSize
 
-	maxSize := GetMaxMessageSize(state)
-	windowSize := GetInitialConnWindowSize(state)
+	maxSize := GetMaxMessageSize(config.State)
+	windowSize := GetInitialConnWindowSize(config.State)
 
 	o := append(options,
 		grpc.MaxRecvMsgSize(maxSize),
@@ -59,7 +91,7 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 	// Both FileReplicationService and ReplicationService are internal cluster services
 	// that require basic auth when enabled.
 	servicePrefixes := []string{"/clusterapi.FileReplicationService", "/clusterapi.ReplicationService"}
-	basicAuth := state.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
+	basicAuth := config.State.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
 	if basicAuth.Enabled() {
 		o = append(o, grpc.ChainUnaryInterceptor(
 			basicAuthUnaryInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
@@ -68,18 +100,47 @@ func NewServer(state *state.State, options ...grpc.ServerOption) *Server {
 			basicAuthStreamInterceptor(servicePrefixes, basicAuth.Username, basicAuth.Password),
 		))
 	}
-	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
-	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainUnaryInterceptor(makeMaintenanceModeUnaryInterceptor(config.MaintenanceModeEnabledForLocalhost)))
+	o = append(o, grpc.ChainStreamInterceptor(makeMaintenanceModeStreamInterceptor(config.MaintenanceModeEnabledForLocalhost)))
+
+	replicationPrefixes := []string{"/clusterapi.ReplicationService"}
+	o = append(o, grpc.ChainUnaryInterceptor(
+		makeNodeReadyUnaryInterceptor(config.NodeReady, replicationPrefixes),
+	))
+
+	rqc := config.State.ServerConfig.Config.Cluster.RequestQueueConfig
+	if rqc.QueueSize == 0 {
+		rqc.QueueSize = cluster.DefaultRequestQueueSize
+	}
+	rq := shared.NewRequestQueue(rqc, config.State.Logger,
+		func(item grpcQueueItem) {
+			defer func() {
+				if r := recover(); r != nil {
+					item.result <- grpcQueueResult{nil, status.Errorf(codes.Internal, "panic in handler: %v", r)}
+				}
+			}()
+			resp, err := item.handler(item.ctx, item.req)
+			item.result <- grpcQueueResult{resp, err}
+		},
+		func(item grpcQueueItem) bool { return item.ctx.Err() != nil },
+		func(item grpcQueueItem) {
+			item.result <- grpcQueueResult{nil, status.Error(codes.DeadlineExceeded, "request expired in queue")}
+		},
+	)
+
+	o = append(o, grpc.ChainUnaryInterceptor(
+		makeQueueUnaryInterceptor(rq, replicationPrefixes),
+	))
 
 	s := grpc.NewServer(o...)
 
-	weaviateV1FileReplicationService := NewFileReplicationService(state.DB, state.ClusterService.SchemaReader(), fileCopyChunkSize)
+	weaviateV1FileReplicationService := NewFileReplicationService(config.FileReplicationRepo, config.FileReplicationSchema, fileCopyChunkSize)
 	pb.RegisterFileReplicationServiceServer(s, weaviateV1FileReplicationService)
 
-	replicationService := NewReplicationService(state.DB)
+	replicationService := NewReplicationService(config.Replicator)
 	pb.RegisterReplicationServiceServer(s, replicationService)
 
-	return &Server{Server: s, state: state}
+	return &Server{Server: s, state: config.State, requestQueue: rq}
 }
 
 func (s *Server) Serve() error {
@@ -94,6 +155,13 @@ func (s *Server) Serve() error {
 }
 
 func (s *Server) Close(ctx context.Context) error {
+	if s.requestQueue != nil {
+		if err := s.requestQueue.Close(ctx); err != nil {
+			s.state.Logger.WithField("action", "grpc_server_close").
+				WithError(err).Warn("error closing request queue")
+		}
+	}
+
 	stopped := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		s.GracefulStop()
@@ -191,7 +259,7 @@ func GetInitialConnWindowSize(state *state.State) int {
 func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if maintenanceModeEnabledForLocalhost() {
-			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
+			return nil, status.Error(codes.FailedPrecondition, "server is in maintenance mode")
 		}
 		return handler(ctx, req)
 	}
@@ -200,8 +268,46 @@ func makeMaintenanceModeUnaryInterceptor(maintenanceModeEnabledForLocalhost func
 func makeMaintenanceModeStreamInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if maintenanceModeEnabledForLocalhost() {
-			return status.Error(codes.Unavailable, "server is in maintenance mode")
+			return status.Error(codes.FailedPrecondition, "server is in maintenance mode")
 		}
 		return handler(srv, ss)
+	}
+}
+
+func makeNodeReadyUnaryInterceptor(nodeReady func() bool, servicePrefixes []string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if matchesAnyPrefix(info.FullMethod, servicePrefixes) && !nodeReady() {
+			return nil, status.Error(codes.Unavailable, "node not ready")
+		}
+		return handler(ctx, req)
+	}
+}
+
+func makeQueueUnaryInterceptor(rq *shared.RequestQueue[grpcQueueItem], prefixes []string) grpc.UnaryServerInterceptor {
+	if rq.Enabled() {
+		rq.EnsureStarted()
+	}
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if !matchesAnyPrefix(info.FullMethod, prefixes) || !rq.Enabled() {
+			return handler(ctx, req)
+		}
+
+		resultCh := make(chan grpcQueueResult, 1)
+		if err := rq.Enqueue(grpcQueueItem{ctx: ctx, req: req, info: info, handler: handler, result: resultCh}); err != nil {
+			if errors.Is(err, shared.ErrQueueFull) {
+				return nil, status.Error(codes.ResourceExhausted, "replication request queue full")
+			}
+			return nil, status.Error(codes.Unavailable, err.Error())
+		}
+
+		select {
+		case result := <-resultCh:
+			return result.resp, result.err
+		case <-ctx.Done():
+			// Context cancelled while waiting for the worker. The worker will
+			// still send its result to the buffered channel (cap 1), so it
+			// won't leak.
+			return nil, status.Error(codes.Canceled, ctx.Err().Error())
+		}
 	}
 }

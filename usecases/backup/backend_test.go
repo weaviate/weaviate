@@ -100,19 +100,11 @@ func TestCreateFileList(t *testing.T) {
 			Files: testFiles,
 		}
 
-		mockBackend := modulecapabilities.NewMockBackupBackend(t)
-		mockBackend.EXPECT().SourceDataPath().Return(tempDir)
-
 		u := &uploader{
-			backend: nodeStore{
-				objectStore: objectStore{
-					backend: mockBackend,
-				},
-			},
 			log: logrus.New(),
 		}
 
-		fileList, err := u.createFileList(shard)
+		fileList, err := u.createFileList(shard, tempDir)
 		require.NoError(t, err)
 		require.NotNil(t, fileList)
 		assert.Equal(t, testFiles, fileList.Files)
@@ -135,19 +127,11 @@ func TestCreateFileList(t *testing.T) {
 			Files: []string{deletedFile},
 		}
 
-		mockBackend := modulecapabilities.NewMockBackupBackend(t)
-		mockBackend.EXPECT().SourceDataPath().Return(tempDir)
-
 		u := &uploader{
-			backend: nodeStore{
-				objectStore: objectStore{
-					backend: mockBackend,
-				},
-			},
 			log: logrus.New(),
 		}
 
-		fileList, err := u.createFileList(shard)
+		fileList, err := u.createFileList(shard, tempDir)
 		require.NoError(t, err)
 		require.NotNil(t, fileList)
 		assert.Equal(t, int64(150), fileList.FileSizes[deletedFile])
@@ -169,19 +153,11 @@ func TestCreateFileList(t *testing.T) {
 			Files: []string{existingFile, missingFile},
 		}
 
-		mockBackend := modulecapabilities.NewMockBackupBackend(t)
-		mockBackend.EXPECT().SourceDataPath().Return(tempDir)
-
 		u := &uploader{
-			backend: nodeStore{
-				objectStore: objectStore{
-					backend: mockBackend,
-				},
-			},
 			log: logrus.New(),
 		}
 
-		fileList, err := u.createFileList(shard)
+		fileList, err := u.createFileList(shard, tempDir)
 		require.Error(t, err)
 		require.Nil(t, fileList)
 		assert.Contains(t, err.Error(), "missing.db")
@@ -437,7 +413,7 @@ func TestProcessShard(t *testing.T) {
 			}
 
 			var lastChunk atomic.Int32
-			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "")
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 			require.NoError(t, err)
 			require.Len(t, results, tt.expectChunks, "expected %d chunks", tt.expectChunks)
 
@@ -492,7 +468,7 @@ func TestProcessShard(t *testing.T) {
 				PropLengthTrackerPath: "s1/p.bin", PropLengthTracker: inMemData,
 				ShardVersionPath: "s1/v.bin", Version: inMemData,
 			},
-			"TestClass", &lastChunk, "", "")
+			"TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 		require.NoError(t, err)
 
 		results2, err := u.processShard(context.Background(),
@@ -502,7 +478,7 @@ func TestProcessShard(t *testing.T) {
 				PropLengthTrackerPath: "s2/p.bin", PropLengthTracker: inMemData,
 				ShardVersionPath: "s2/v.bin", Version: inMemData,
 			},
-			"TestClass", &lastChunk, "", "")
+			"TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 		require.NoError(t, err)
 
 		assert.Equal(t, int32(1), results1[0].chunk)
@@ -605,7 +581,7 @@ func TestProcessShardEvenSplitSizes(t *testing.T) {
 			}
 
 			var lastChunk atomic.Int32
-			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "")
+			results, err := u.processShard(context.Background(), shard, "TestClass", &lastChunk, "", "", u.backend.SourceDataPath())
 			require.NoError(t, err)
 
 			// First chunk has small files + in-memory data; skip it.

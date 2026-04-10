@@ -78,12 +78,6 @@ type ExportStatusParams struct {
 	*/
 	Backend string
 
-	/* Bucket.
-
-	   Optional bucket name where the export is stored. If not specified, uses the backend's default bucket.
-	*/
-	Bucket *string
-
 	/* ID.
 
 	   The unique identifier of the export.
@@ -160,17 +154,6 @@ func (o *ExportStatusParams) SetBackend(backend string) {
 	o.Backend = backend
 }
 
-// WithBucket adds the bucket to the export status params
-func (o *ExportStatusParams) WithBucket(bucket *string) *ExportStatusParams {
-	o.SetBucket(bucket)
-	return o
-}
-
-// SetBucket adds the bucket to the export status params
-func (o *ExportStatusParams) SetBucket(bucket *string) {
-	o.Bucket = bucket
-}
-
 // WithID adds the id to the export status params
 func (o *ExportStatusParams) WithID(id string) *ExportStatusParams {
 	o.SetID(id)
@@ -204,23 +187,6 @@ func (o *ExportStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 	// path param backend
 	if err := r.SetPathParam("backend", o.Backend); err != nil {
 		return err
-	}
-
-	if o.Bucket != nil {
-
-		// query param bucket
-		var qrBucket string
-
-		if o.Bucket != nil {
-			qrBucket = *o.Bucket
-		}
-		qBucket := qrBucket
-		if qBucket != "" {
-
-			if err := r.SetQueryParam("bucket", qBucket); err != nil {
-				return err
-			}
-		}
 	}
 
 	// path param id

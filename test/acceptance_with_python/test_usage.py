@@ -183,7 +183,7 @@ def test_usage_mt(
     assert len(usage_collection.shards) == num_tenants
 
     for shard in usage_collection.shards:
-        analyse_tenant(shard, True, num_vector_indices, vector_config, vector_index_config)
+        analyze_tenant(shard, True, num_vector_indices, vector_config, vector_index_config)
 
     # now deactivate some tenats and check usage again
     collection.tenants.deactivate(["tenant" + str(i) for i in range(0, num_tenants, 2)])
@@ -194,7 +194,7 @@ def test_usage_mt(
     for shard in usage_collection_col.shards:
         tenant_id = int(shard.name.removeprefix("tenant"))
         assert len(shard.named_vectors) == num_vector_indices
-        analyse_tenant(
+        analyze_tenant(
             shard, tenant_id % 2 != 0, num_vector_indices, vector_config, vector_index_config
         )
 
@@ -564,7 +564,7 @@ def test_usage_with_caching(collection_factory: CollectionFactory):
     assert shard.objects_count == 110
 
 
-def analyse_tenant(
+def analyze_tenant(
     shard: ShardUsage,
     is_active: bool,
     num_vector_indices: int,

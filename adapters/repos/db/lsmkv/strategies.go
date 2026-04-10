@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
@@ -59,16 +60,13 @@ func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	if len(expectedStrategies) == 0 {
 		expectedStrategies = allStrategies
 	}
-
-	for _, s := range expectedStrategies {
-		if s == strategy {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(expectedStrategies, strategy)
 }
 
 func CheckExpectedStrategy(strategy string, expectedStrategies ...string) error {
+	if len(expectedStrategies) == 0 {
+		expectedStrategies = allStrategies
+	}
 	if IsExpectedStrategy(strategy, expectedStrategies...) {
 		return nil
 	}

@@ -100,6 +100,7 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// Store the average property length for segments in this sg,
@@ -128,6 +129,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
@@ -160,10 +162,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		sequentialAccess:             cfg.sequentialAccess,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
+	}
+
+	// Clean up stale scratch directories left behind by a prior version that
+	// used scratch files during compaction/flushing. These are no longer
+	// created, but may linger after an upgrade if the process crashed mid-
+	// compaction before the old code could remove them.
+	if entries, err := os.ReadDir(cfg.dir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && strings.HasSuffix(e.Name(), ".scratch.d") {
+				p := filepath.Join(cfg.dir, e.Name())
+				if err := os.RemoveAll(p); err != nil {
+					logger.WithError(err).WithField("path", p).
+						Warn("failed to remove stale scratch directory")
+				}
+			}
+		}
 	}
 
 	segmentIndex := 0
@@ -235,6 +254,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					sequentialAccess:         sg.sequentialAccess,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
@@ -358,6 +378,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
@@ -548,6 +569,7 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
@@ -874,6 +896,15 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	defer sg.maintenanceLock.Unlock()
 
 	for _, seg := range sg.segments {
+		// For sequential-access buckets, drop page cache entries before
+		// closing to avoid polluting the cache with pages that won't be
+		// accessed again. Best-effort: fadvise is purely advisory.
+		if sg.sequentialAccess {
+			if cs, ok := seg.(*segment); ok && cs.contentFile != nil {
+				_ = fadviseDontNeed(cs.contentFile, cs.size)
+			}
+		}
+
 		if err := seg.close(); err != nil {
 			return err
 		}

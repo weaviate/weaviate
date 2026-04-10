@@ -21,11 +21,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -496,9 +497,10 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
+			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			schemaOnly:            schemaOnly,
+			allowPartialSchemaErr: true,
 		},
 	)
 }
@@ -654,6 +656,13 @@ type applyOp struct {
 	updateStore          func() error
 	schemaOnly           bool
 	enableSchemaCallback bool
+	// allowPartialSchemaErr, when true, allows updateStore to proceed when
+	// updateSchema returns a *PartialUpdateError. This is used for operations
+	// where the schema layer filters out invalid entries (e.g. missing or
+	// transitional-state tenants) and the DB must still be updated for the
+	// entries that were successfully applied.
+	// The schema error is returned to the caller after updateStore completes.
+	allowPartialSchemaErr bool
 }
 
 func (op applyOp) validate() error {
@@ -676,8 +685,12 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
-	if err := op.updateSchema(); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
+	schemaErr := op.updateSchema()
+	if schemaErr != nil {
+		var partialErr *PartialUpdateError
+		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
+			return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
+		}
 	}
 
 	if op.enableSchemaCallback && s.db != nil {
@@ -688,8 +701,20 @@ func (s *SchemaManager) apply(op applyOp) error {
 
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
+			if schemaErr != nil {
+				// Both the schema update (partial) and the DB update failed.
+				// Return both so the caller is informed of what was skipped
+				// and what failed.
+				return fmt.Errorf("%w: %s: %w; %w: %s: %w",
+					ErrSchema, op.op, schemaErr,
+					errDB, op.op, err)
+			}
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
+	}
+
+	if schemaErr != nil {
+		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
 	}
 
 	return nil

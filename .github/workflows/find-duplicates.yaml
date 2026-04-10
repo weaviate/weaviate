@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Check for similar issues
         id: similarity-check
-        uses: weaviate/weaviate-github-issue-triage@v1
+        uses: weaviate/weaviate-github-issue-triage@6a20f3ea7980102999f6a6ca009bafbf19014b6d # v1
         with:
           issue_body: ${{ github.event.issue.body }}
           issue_number: ${{ github.event.issue.number }}

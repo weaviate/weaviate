@@ -1,0 +1,39 @@
+# MCP Server Tool Configuration
+# This file allows you to customize the descriptions of MCP tools
+# that will be shown to LLM clients like Claude Desktop.
+#
+# Format:
+# tools:
+#   <tool-name>:
+#     description: "Your custom tool description here"
+#     arguments:
+#       <argument-name>: "Your custom argument description here"
+#
+# Only tools listed here will have their descriptions overridden.
+# Tools not listed will use their default descriptions.
+# Note: response descriptions are not supported because the MCP spec's
+# tools/list response does not include output schemas.
+
+tools:
+  weaviate-collections-get-config:
+    description: "Retrieves the schema configuration for one or all collections in the Weaviate database. Use this to understand the structure, properties, and settings of your data collections before querying or inserting data."
+    arguments:
+      collection_name: "Optional name of the collection to retrieve configuration for. If omitted, returns configurations for all collections."
+
+  weaviate-tenants-list:
+    description: "Lists all tenants for a specific multi-tenant collection. Use this to discover which tenants exist in a collection before performing tenant-scoped operations."
+    arguments:
+      collection_name: "The name of the multi-tenant collection to list tenants for."
+
+  weaviate-query-hybrid:
+    description: "Performs a hybrid search combining vector similarity and keyword matching (BM25) on a collection. This is the primary search tool - use it to find relevant objects based on natural language queries. The alpha parameter controls the balance between semantic (vector) and keyword search."
+    arguments:
+      query: "The natural language search query to find relevant objects."
+      collection_name: "The name of the collection to search in."
+      alpha: "Controls the balance between vector and keyword search: 0.0 = pure keyword (BM25), 1.0 = pure vector, 0.5 = equal weight (default)."
+
+  weaviate-objects-upsert:
+    description: "Upserts (inserts or updates) one or more objects into a collection in batch. Supports efficient bulk operations - provide an array of objects to insert or update multiple objects at once. Each object can optionally specify a UUID; if provided and exists, the object is updated, otherwise a new object is created. Returns results for each object including success/failure status and generated UUIDs. Use this for adding or modifying data in Weaviate collections."
+    arguments:
+      collection_name: "The name of the collection to upsert objects into."
+      objects: "An array of objects to upsert. Each must have 'properties' and may optionally include 'uuid' and 'vectors'."

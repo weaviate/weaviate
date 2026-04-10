@@ -37,6 +37,7 @@ type Params struct {
 	NearVector       *searchparams.NearVector   `json:"nearVector"`
 	NearObject       *searchparams.NearObject   `json:"nearObject"`
 	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
+	Selection        *searchparams.Selection    `json:"selection"`
 }
 
 func (p *Params) UnmarshalJSON(data []byte) error {

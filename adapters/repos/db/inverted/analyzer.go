@@ -14,6 +14,8 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
+	"slices"
+	"sync"
 
 	"github.com/google/uuid"
 	ent "github.com/weaviate/weaviate/entities/inverted"
@@ -62,28 +64,63 @@ func DedupItems(props []Property) []Property {
 	return props
 }
 
+type analyzerCacheEntry struct {
+	fold     bool     // whether ASCIIFold was enabled
+	ignore   []string // the ASCIIFoldIgnore list used to build prepared
+	prepared *tokenizer.PreparedAnalyzer
+}
+
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
 	className              string
+
+	// cache maps property name → cached PreparedAnalyzer.
+	// Invalidated when the property's fold setting or ASCIIFoldIgnore list changes.
+	cache sync.Map // map[string]analyzerCacheEntry
+}
+
+// preparedFor returns a cached PreparedAnalyzer for the given property,
+// rebuilding it only when the fold config has changed.
+func (a *Analyzer) preparedFor(propName string, cfg *models.TextAnalyzerConfig) *tokenizer.PreparedAnalyzer {
+	fold := cfg != nil && cfg.ASCIIFold
+	var currentIgnore []string
+	if fold {
+		currentIgnore = cfg.ASCIIFoldIgnore
+	}
+
+	if v, ok := a.cache.Load(propName); ok {
+		entry := v.(analyzerCacheEntry)
+		if entry.fold == fold && slices.Equal(entry.ignore, currentIgnore) {
+			return entry.prepared
+		}
+	}
+
+	prepared := tokenizer.NewPreparedAnalyzer(cfg)
+	a.cache.Store(propName, analyzerCacheEntry{
+		fold:     fold,
+		ignore:   slices.Clone(currentIgnore),
+		prepared: prepared,
+	})
+	return prepared
 }
 
 // Text tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) Text(tokenization, in string) []Countable {
-	return a.TextArray(tokenization, []string{in})
+func (a *Analyzer) Text(tokenization, in, propName string, TextAnalyzer *models.TextAnalyzerConfig) []Countable {
+	return a.TextArray(tokenization, []string{in}, propName, TextAnalyzer)
 }
 
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
-	var terms []string
-	for _, in := range inArr {
-		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
-	}
-
+func (a *Analyzer) TextArray(tokenization string, inArr []string, propName string, TextAnalyzer *models.TextAnalyzerConfig) []Countable {
+	prepared := a.preparedFor(propName, TextAnalyzer)
 	counts := map[string]uint64{}
-	for _, term := range terms {
-		counts[term]++
+	for _, in := range inArr {
+		// Analyze with nil stopwords: indexing stores all tokens including stopwords
+		result := tokenizer.Analyze(in, tokenization, a.className, prepared, nil)
+		for _, term := range result.Indexed {
+			counts[term]++
+		}
 	}
 
 	countable := make([]Countable, len(counts))

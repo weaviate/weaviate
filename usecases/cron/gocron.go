@@ -50,12 +50,7 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 
 // blocking
 func (c *Crons) Init(clusterService *cluster.Service, coordinator *objectttl.Coordinator) error {
-	cr := gocron.New(
-		gocron.WithContext(c.serverShutdownCtx),
-		gocron.WithLogger(c.gocronLogger),
-		gocron.WithChain(gocron.Recover(c.gocronLogger)),
-		gocron.WithSeconds(),
-	)
+	cr := initGoCron(c.serverShutdownCtx, c.gocronLogger)
 
 	if err := c.objectsttl.Init(cr, clusterService, coordinator); err != nil {
 		return fmt.Errorf("init objects ttl cron: %w", err)
@@ -218,4 +213,13 @@ func (c *cronsObjectsTTL) RuntimeConfigHook() error {
 
 	c.scheduleCh <- newSchedule
 	return nil
+}
+
+func initGoCron(ctx context.Context, logger gocron.Logger) *gocron.Cron {
+	return gocron.New(
+		gocron.WithContext(ctx),
+		gocron.WithLogger(logger),
+		gocron.WithChain(gocron.Recover(logger)),
+		gocron.WithParser(gocron.FullParser()),
+	)
 }

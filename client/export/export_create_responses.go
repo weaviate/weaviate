@@ -52,6 +52,12 @@ func (o *ExportCreateReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewExportCreateConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewExportCreateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -250,6 +256,74 @@ func (o *ExportCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ExportCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewExportCreateConflict creates a ExportCreateConflict with default headers values
+func NewExportCreateConflict() *ExportCreateConflict {
+	return &ExportCreateConflict{}
+}
+
+/*
+ExportCreateConflict describes a response with status code 409, with default header values.
+
+Export already exists or another export is already in progress
+*/
+type ExportCreateConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this export create conflict response has a 2xx status code
+func (o *ExportCreateConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this export create conflict response has a 3xx status code
+func (o *ExportCreateConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this export create conflict response has a 4xx status code
+func (o *ExportCreateConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this export create conflict response has a 5xx status code
+func (o *ExportCreateConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this export create conflict response a status code equal to that given
+func (o *ExportCreateConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the export create conflict response
+func (o *ExportCreateConflict) Code() int {
+	return 409
+}
+
+func (o *ExportCreateConflict) Error() string {
+	return fmt.Sprintf("[POST /export/{backend}][%d] exportCreateConflict  %+v", 409, o.Payload)
+}
+
+func (o *ExportCreateConflict) String() string {
+	return fmt.Sprintf("[POST /export/{backend}][%d] exportCreateConflict  %+v", 409, o.Payload)
+}
+
+func (o *ExportCreateConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ExportCreateConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

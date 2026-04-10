@@ -258,6 +258,106 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 	}
 }
 
+func TestEnvironmentLazyLoadShardCountThreshold(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    int
+		expectError bool
+	}{
+		{"custom value", "5000", 5000, false},
+		{"default when not set", "", DefaultLazyLoadShardCountThreshold, false},
+		{"invalid string", "not-a-number", 0, true},
+		{"negative rejected", "-1", 0, true},
+		{"zero is valid", "0", 0, false},
+		{"one is valid", "1", 1, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "")
+
+			if tt.value != "" {
+				t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", tt.value)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.LazyLoadShardCountThreshold)
+				if tt.name == "zero is valid" {
+					require.NotNil(t, conf.EnableLazyLoadShards)
+					assert.True(t, *conf.EnableLazyLoadShards)
+				}
+			}
+		})
+	}
+}
+
+func TestEnvironmentDisableLazyLoadShardsBackwardCompat(t *testing.T) {
+	t.Run("DISABLE_LAZY_LOAD_SHARDS=true sets EnableLazyLoadShards=false", func(t *testing.T) {
+		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
+		t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.NotNil(t, conf.EnableLazyLoadShards)
+		assert.False(t, *conf.EnableLazyLoadShards)
+	})
+
+	t.Run("DISABLE_LAZY_LOAD_SHARDS=true coexists with explicit LAZY_LOAD_SHARD_COUNT_THRESHOLD", func(t *testing.T) {
+		t.Setenv("DISABLE_LAZY_LOAD_SHARDS", "true")
+		t.Setenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "500")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+		require.NotNil(t, conf.EnableLazyLoadShards)
+		assert.False(t, *conf.EnableLazyLoadShards)
+		assert.Equal(t, 500, conf.LazyLoadShardCountThreshold)
+	})
+}
+
+func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    float64
+		expectError bool
+	}{
+		{"custom value", "50.5", 50.5, false},
+		{"default when not set", "", DefaultLazyLoadShardSizeThresholdGB, false},
+		{"invalid string", "not-a-number", 0, true},
+		{"negative rejected", "-1", 0, true},
+		{"zero is valid", "0", 0, false},
+		{"large value", "1000", 1000.0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Ensure hermetic behavior regardless of outer environment
+			t.Setenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB", "")
+
+			if tt.value != "" {
+				t.Setenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB", tt.value)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.LazyLoadShardSizeThresholdGB)
+			}
+		})
+	}
+}
+
 func TestEnvironmentParseClusterConfig(t *testing.T) {
 	hostname, _ := os.Hostname()
 	defaultRequestQueueConfig := cluster.RequestQueueConfig{
@@ -765,6 +865,25 @@ func TestEnvironmentAuthentication(t *testing.T) {
 					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
 					Certificate:       configRuntime.NewDynamicValue(""),
 					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(false),
+				},
+			},
+		},
+		{
+			name:         "Valid OIDC Auth with SkipTLSVerify",
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY"},
+			expected: Authentication{
+				OIDC: OIDC{
+					Enabled:           true,
+					Issuer:            configRuntime.NewDynamicValue(""),
+					ClientID:          configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
+					UsernameClaim:     configRuntime.NewDynamicValue(""),
+					GroupsClaim:       configRuntime.NewDynamicValue(""),
+					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:       configRuntime.NewDynamicValue(""),
+					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(true),
 				},
 			},
 		},
@@ -787,8 +906,8 @@ func TestEnvironmentAuthentication(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.auth_env_var) == 1 {
-				t.Setenv(tt.auth_env_var[0], "true")
+			for _, envVar := range tt.auth_env_var {
+				t.Setenv(envVar, "true")
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -842,10 +961,11 @@ func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
 		{"Valid: 0", []string{"0"}, false, false},
 		{"Valid: on", []string{"on"}, true, false},
 		{"Valid: off", []string{"off"}, false, false},
-		{"not given", []string{}, false, false},
+		{"not given", []string{}, true, false},
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
 			if len(tt.value) == 1 {
 				t.Setenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE", tt.value[0])
 			}

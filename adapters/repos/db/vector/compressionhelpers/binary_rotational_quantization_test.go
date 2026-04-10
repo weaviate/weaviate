@@ -51,7 +51,8 @@ func TestBRQDistanceEstimates(t *testing.T) {
 			scale(q, sq)
 			scale(x, sx)
 
-			rq := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			rq, rqErr := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			assert.NoError(t, rqErr)
 			distancer := rq.NewDistancer(q)
 			cx := rq.Encode(x)
 			distancerEstimate, _ := distancer.Distance(cx)
@@ -100,7 +101,8 @@ func TestBRQCompressedDistanceEstimates(t *testing.T) {
 			scale(q, sq)
 			scale(x, sx)
 
-			rq := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			rq, rqErr := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			assert.NoError(t, rqErr)
 			cq := rq.Encode(q)
 			cx := rq.Encode(x)
 			estimate, _ := rq.DistanceBetweenCompressedVectors(cq, cx)
@@ -124,7 +126,8 @@ func TestBRQCompressedDecompressedKeepsTheOriginalSize(t *testing.T) {
 	rng := newRNG(123)
 	dim := 128
 	q := randomNormalVector(dim, rng)
-	rq := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), dist)
+	rq, err := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), dist)
+	assert.NoError(t, err)
 	cq := rq.Encode(q)
 	x := rq.Decode(cq)
 	assert.Equal(t, len(x), len(q))
@@ -147,7 +150,7 @@ func BenchmarkBRQError(b *testing.B) {
 			for b.Loop() {
 				alpha := 1 - 2*rng.Float32()
 				q, x := correlatedVectors(dim, float32(alpha))
-				quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
+				quantizer, _ := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
 				distancer := quantizer.NewDistancer(q)
 				cx := quantizer.Encode(x)
 				dotEstimate, _ := distancer.Distance(cx)
@@ -172,7 +175,7 @@ func BenchmarkBRQCompressedError(b *testing.B) {
 				rng := newRNG(43)
 				for b.Loop() {
 					q, x := correlatedVectors(dim, float32(alpha))
-					quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
+					quantizer, _ := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
 					cx := quantizer.Encode(x)
 					cq := quantizer.Encode(q)
 					dotEstimate, _ := quantizer.DistanceBetweenCompressedVectors(cq, cx)
@@ -191,7 +194,7 @@ func BenchmarkBRQEncode(b *testing.B) {
 	dimensions := []int{256, 1024, 1536}
 	rng := newRNG(42)
 	for _, dim := range dimensions {
-		quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
+		quantizer, _ := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
 		x := make([]float32, dim)
 		x[0] = 1
 		b.Run(fmt.Sprintf("d%d", dim), func(b *testing.B) {
@@ -208,7 +211,7 @@ func BenchmarkBRQNewDistancer(b *testing.B) {
 	dimensions := []int{128, 256, 1024, 1536}
 	rng := newRNG(42)
 	for _, dim := range dimensions {
-		quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
+		quantizer, _ := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), distancer.NewDotProductProvider())
 		q := make([]float32, dim)
 		q[0] = 1
 		b.Run(fmt.Sprintf("d%d", dim), func(b *testing.B) {
@@ -231,7 +234,7 @@ func BenchmarkBRQDistance(b *testing.B) {
 	}
 	for _, dim := range dimensions {
 		for _, m := range metrics {
-			quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			quantizer, _ := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
 			q, x := correlatedVectors(dim, 0.5)
 			cx := quantizer.Encode(x)
 			distancer := quantizer.NewDistancer(q)
@@ -255,7 +258,7 @@ func BenchmarkBRQCompressedDistance(b *testing.B) {
 	}
 	for _, dim := range dimensions {
 		for _, m := range metrics {
-			quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
+			quantizer, _ := compressionhelpers.NewBinaryRotationalQuantizer(dim, rng.Uint64(), m)
 			q, x := correlatedVectors(dim, 0.5)
 			cq := quantizer.Encode(q)
 			cx := quantizer.Encode(x)

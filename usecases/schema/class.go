@@ -18,6 +18,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -704,8 +706,13 @@ func (h *Handler) validateProperty(
 			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
+		var userPresets map[string][]string
+		if class.InvertedIndexConfig != nil {
+			userPresets = class.InvertedIndexConfig.StopwordPresets
+		}
+
 		if propertyDataType.IsNested() {
-			if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			if err := validateNestedProperties(property.NestedProperties, property.Name, userPresets); err != nil {
 				return err
 			}
 		} else {
@@ -716,6 +723,10 @@ func (h *Handler) validateProperty(
 		}
 
 		if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+			return err
+		}
+
+		if err := validatePropertyProcessing(property, propertyDataType, userPresets); err != nil {
 			return err
 		}
 
@@ -916,6 +927,131 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
+func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType, userPresets map[string][]string) error {
+	// Treat an empty config as absent — some client generators emit
+	// "textAnalyzer": {} by default and this should not block creation.
+	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 && prop.TextAnalyzer.StopwordPreset == "" {
+		prop.TextAnalyzer = nil
+	}
+	if prop.TextAnalyzer == nil {
+		return nil
+	}
+
+	// processing only makes sense for text/text[] with searchable index
+	if !propertyDataType.IsPrimitive() {
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types", prop.Name)
+	}
+
+	dt := propertyDataType.AsPrimitive()
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// allowed
+	default:
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", prop.Name, dt)
+	}
+
+	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%s and IndexFilterable=%s",
+			prop.Name, fmtBoolPtr(prop.IndexSearchable), fmtBoolPtr(prop.IndexFilterable))
+	}
+
+	if !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("property '%s': asciiFoldIgnore requires asciiFold to be enabled", prop.Name)
+	}
+
+	for _, entry := range prop.TextAnalyzer.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
+				prop.Name, entry)
+		}
+	}
+
+	// explicitly check for support for tokenizers:
+	if prop.Tokenization != "" {
+		switch prop.Tokenization {
+		case models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationTrigram,
+			models.PropertyTokenizationWord,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField: // supported tokenizers, do nothing
+		default:
+			return fmt.Errorf("property '%s': unsupported tokenization '%s'", prop.Name, prop.Tokenization)
+		}
+	}
+
+	if prop.TextAnalyzer.StopwordPreset != "" {
+		if prop.Tokenization != models.PropertyTokenizationWord {
+			return fmt.Errorf("property '%s': stopwordPreset is only supported with tokenization %q, got %q",
+				prop.Name, models.PropertyTokenizationWord, prop.Tokenization)
+		}
+		_, builtIn := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]
+		_, userDefined := userPresets[prop.TextAnalyzer.StopwordPreset]
+		if !builtIn && !userDefined {
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
+				prop.Name, prop.TextAnalyzer.StopwordPreset)
+		}
+	}
+
+	return nil
+}
+
+// validateStopwordPresetsStillReferenced rejects an inverted-index-config
+// update that would remove a user-defined stopwordPreset still referenced by
+// any (top-level or nested) property's textAnalyzer.stopwordPreset. Without
+// this check, the property would silently fall back to no stopwords at query
+// time once the preset disappears from the collection config.
+func validateStopwordPresetsStillReferenced(properties []*models.Property,
+	updatedPresets map[string][]string,
+) error {
+	check := func(propName, presetName string) error {
+		if presetName == "" {
+			return nil
+		}
+		if _, builtIn := stopwords.Presets[presetName]; builtIn {
+			return nil
+		}
+		if _, ok := updatedPresets[presetName]; ok {
+			return nil
+		}
+		return fmt.Errorf("invertedIndexConfig.stopwordPresets: cannot remove preset %q because it is still used by property %q",
+			presetName, propName)
+	}
+
+	var walkNested func(parentName string, nested []*models.NestedProperty) error
+	walkNested = func(parentName string, nested []*models.NestedProperty) error {
+		for _, np := range nested {
+			if np == nil {
+				continue
+			}
+			fullName := parentName + "." + np.Name
+			if np.TextAnalyzer != nil {
+				if err := check(fullName, np.TextAnalyzer.StopwordPreset); err != nil {
+					return err
+				}
+			}
+			if err := walkNested(fullName, np.NestedProperties); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, prop := range properties {
+		if prop == nil {
+			continue
+		}
+		if prop.TextAnalyzer != nil {
+			if err := check(prop.Name, prop.TextAnalyzer.StopwordPreset); err != nil {
+				return err
+			}
+		}
+		if err := walkNested(prop.Name, prop.NestedProperties); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *Handler) validateVectorSettings(class *models.Class) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
@@ -938,6 +1074,9 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 	}
 
 	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
 		// check only if vectorizer correctly configured (map with single key being vectorizer name)
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
@@ -1031,6 +1170,33 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		if _, ok := initial.VectorConfig[k]; !ok {
 			continue
 		}
+		initialVecCfg := initial.VectorConfig[k]
+		if modelsext.IsVectorIndexDropped(v) || modelsext.IsVectorIndexDropped(initialVecCfg) {
+			continue
+		}
+
+		// SkipDefaultQuantization and TrackDefaultQuantization must be effectively immutable
+		// without enforcing that on the client. We just set these fields to their initial values.
+		switch cfg := v.VectorIndexConfig.(type) {
+		case hnsw.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(hnsw.UserConfig)
+			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
+			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		case flat.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(flat.UserConfig)
+			cfg.SkipDefaultQuantization = cfgInitial.SkipDefaultQuantization
+			cfg.TrackDefaultQuantization = cfgInitial.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		case dynamic.UserConfig:
+			cfgInitial := initial.VectorConfig[k].VectorIndexConfig.(dynamic.UserConfig)
+			cfg.HnswUC.SkipDefaultQuantization = cfgInitial.HnswUC.SkipDefaultQuantization
+			cfg.HnswUC.TrackDefaultQuantization = cfgInitial.HnswUC.TrackDefaultQuantization
+			cfg.FlatUC.SkipDefaultQuantization = cfgInitial.FlatUC.SkipDefaultQuantization
+			cfg.FlatUC.TrackDefaultQuantization = cfgInitial.FlatUC.TrackDefaultQuantization
+			v.VectorIndexConfig = cfg
+		}
+		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			// There might be module settings that need to be migrated to new names, for example
@@ -1080,6 +1246,16 @@ func structToMap(obj any) (objMap map[string]any) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &objMap) // Convert to a map
 	return objMap
+}
+
+func fmtBoolPtr(b *bool) string {
+	if b == nil {
+		return "<nil>"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 type immutableText struct {

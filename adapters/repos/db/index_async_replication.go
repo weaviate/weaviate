@@ -13,7 +13,6 @@ package db
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"strconv"
 	"time"
@@ -41,8 +40,8 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 	config.maxWorkers, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_MAX_WORKERS"),
 		maxWorkers,
-		1,
-		math.MaxInt,
+		minMaxWorkers,
+		maxMaxWorkers,
 	)
 	if err != nil {
 		return AsyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_MAX_WORKERS", err)

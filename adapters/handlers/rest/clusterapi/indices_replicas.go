@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,16 +23,18 @@ import (
 	"regexp"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	replicaTypes "github.com/weaviate/weaviate/usecases/replica/types"
@@ -45,26 +48,11 @@ type replicatedIndices struct {
 	maintenanceModeEnabled func() bool
 
 	requestQueueConfig cluster.RequestQueueConfig
-	// requestQueue buffers requests until they're picked up by a worker, goal is to avoid
-	// overwhelming the system with requests during spikes (also allows for backpressure)
-	requestQueue chan queuedRequest
-	// requestQueueMu guards access to the queue during shutdown
-	requestQueueMu sync.RWMutex
-	// startWorkersOnce ensures that the workers are started only once
-	startWorkersOnce sync.Once
-	// set to true when shutting down
-	isShutdown atomic.Bool
-	// workerWg waits for all workers to finish
-	workerWg sync.WaitGroup
-	logger   logrus.FieldLogger
+	requestQueue       *shared.RequestQueue[queuedRequest]
+	logger             logrus.FieldLogger
 	// nodeReady reports whether the node is ready to accept requests
 	nodeReady func() bool
 }
-
-var (
-	errReplicatedIndicesShutdown  = errors.New("replicated indices shutting down")
-	errReplicatedIndicesQueueFull = errors.New("replicated indices request queue full")
-)
 
 const (
 	responseShuttingDown = "503 Service Unavailable - shutting down"
@@ -111,46 +99,34 @@ func NewReplicatedIndices(
 		replicator:             replicator,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
-		requestQueue:           make(chan queuedRequest, requestQueueConfig.QueueSize),
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
 		nodeReady:              nodeReady,
 	}
-	if requestQueueConfig.IsEnabled != nil && requestQueueConfig.IsEnabled.Get() {
-		i.startWorkersOnce.Do(i.startWorkers)
-	}
-	return i
-}
 
-func (i *replicatedIndices) queueEnabled() bool {
-	return i.requestQueueConfig.IsEnabled != nil && i.requestQueueConfig.IsEnabled.Get()
+	i.requestQueue = shared.NewRequestQueue(requestQueueConfig, logger,
+		func(qr queuedRequest) { i.handleRequest(qr) },
+		func(qr queuedRequest) bool { return qr.r.Context().Err() != nil },
+		func(qr queuedRequest) {
+			if qr.wg != nil {
+				qr.wg.Done() //nolint:SA2000
+			}
+			qr.w.WriteHeader(http.StatusRequestTimeout)
+		},
+	)
+
+	return i
 }
 
 func (i *replicatedIndices) writeResponse(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, errReplicatedIndicesShutdown):
+	case errors.Is(err, shared.ErrShutdown):
 		http.Error(w, responseShuttingDown, http.StatusServiceUnavailable)
-	case errors.Is(err, errReplicatedIndicesQueueFull):
+	case errors.Is(err, shared.ErrQueueFull):
 		http.Error(w, responseQueueFull, i.requestQueueConfig.QueueFullHttpStatus)
 	default:
 		i.logger.WithError(err).Error("unhandled error in replicated indices handler")
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
-
-func (i *replicatedIndices) enqueueRequest(r *http.Request, w http.ResponseWriter, wg *sync.WaitGroup) error {
-	i.requestQueueMu.RLock()
-	defer i.requestQueueMu.RUnlock()
-
-	if i.isShutdown.Load() {
-		return errReplicatedIndicesShutdown
-	}
-
-	select {
-	case i.requestQueue <- queuedRequest{r: r, w: w, wg: wg}:
-		return nil
-	default:
-		return errReplicatedIndicesQueueFull
 	}
 }
 
@@ -159,25 +135,6 @@ type queuedRequest struct {
 	w http.ResponseWriter
 	// when the request is done being handled, the waitgroup is done
 	wg *sync.WaitGroup
-}
-
-func (i *replicatedIndices) startWorkers() {
-	for j := 0; j < max(1, i.requestQueueConfig.NumWorkers); j++ {
-		i.workerWg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer i.workerWg.Done()
-			for rq := range i.requestQueue {
-				if rq.r.Context().Err() != nil {
-					if rq.wg != nil {
-						rq.wg.Done() //nolint:SA2000
-					}
-					rq.w.WriteHeader(http.StatusRequestTimeout)
-					continue
-				}
-				i.handleRequest(rq)
-			}
-		}, i.logger)
-	}
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
@@ -196,17 +153,17 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			return
 		}
 
-		if i.isShutdown.Load() {
-			i.writeResponse(w, errReplicatedIndicesShutdown)
+		if i.requestQueue.IsShutdown() {
+			i.writeResponse(w, shared.ErrShutdown)
 			return
 		}
 
-		if i.queueEnabled() {
-			i.startWorkersOnce.Do(i.startWorkers)
+		if i.requestQueue.Enabled() {
+			i.requestQueue.EnsureStarted()
 
 			wg := &sync.WaitGroup{}
 			wg.Add(1)
-			err := i.enqueueRequest(r, w, wg)
+			err := i.requestQueue.Enqueue(queuedRequest{r: r, w: w, wg: wg})
 			if err != nil {
 				wg.Done() //nolint:SA2000
 				i.writeResponse(w, err)
@@ -531,15 +488,7 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{
-			Digests: digests,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(resBytes)
+		writeDigestsInRangeResponse(w, r, digests)
 	})
 }
 
@@ -584,14 +533,73 @@ func (i *replicatedIndices) getHashTreeLevel() http.Handler {
 			return
 		}
 
+		writeHashTreeLevelResponse(w, r, results)
+	})
+}
+
+// writeDigestsInRangeResponse writes the digests as a fixed-size binary stream
+// when the client signals support via X-Accept-Response-Encoding: binary,
+// falling back to JSON for older nodes. Each binary record is
+// replica.DigestObjectsInRangeRecordLength bytes: 16 bytes UUID (RFC-4122
+// binary form) followed by 8 bytes UpdateTime (int64 big-endian). The Err and
+// Deleted fields are intentionally omitted — ObjectDigestsInRange never
+// populates them.
+func writeDigestsInRangeResponse(w http.ResponseWriter, r *http.Request, results []types.RepairResponse) {
+	if r.Header.Get("X-Accept-Response-Encoding") != "binary" {
+		resBytes, err := json.Marshal(replica.DigestObjectsInRangeResp{Digests: results})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(resBytes) //nolint:errcheck
+		return
+	}
+
+	// Encode all records before writing any headers so that errors don't
+	// produce an http.Error response with a stale Content-Length already set.
+	body := make([]byte, 0, len(results)*replica.DigestObjectsInRangeRecordLength)
+	var buf [replica.DigestObjectsInRangeRecordLength]byte
+	for _, d := range results {
+		uuidParsed, err := uuid.Parse(d.ID)
+		if err != nil {
+			// Should never happen — IDs come directly from the LSM store.
+			http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		copy(buf[:16], uuidParsed[:])
+		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
+		body = append(body, buf[:]...)
+	}
+
+	w.Header().Set("X-Response-Encoding", "binary")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Write(body) //nolint:errcheck
+}
+
+// writeHashTreeLevelResponse writes digests as binary when the client signals
+// support via X-Accept-Response-Encoding: binary, falling back to the legacy
+// JSON encoding for older nodes.
+func writeHashTreeLevelResponse(w http.ResponseWriter, r *http.Request, results []hashtree.Digest) {
+	if r.Header.Get("X-Accept-Response-Encoding") != "binary" {
 		resBytes, err := json.Marshal(results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		w.Write(resBytes)
-	})
+		return
+	}
+
+	w.Header().Set("X-Response-Encoding", "binary")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(results))*int64(hashtree.DigestLength), 10))
+	var buf [hashtree.DigestLength]byte
+	for _, d := range results {
+		binary.BigEndian.PutUint64(buf[:8], d[0])
+		binary.BigEndian.PutUint64(buf[8:], d[1])
+		w.Write(buf[:]) //nolint:errcheck
+	}
 }
 
 func readRequestBodyWithOptionalCompression(
@@ -632,15 +640,23 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
+		reqPayload, err := readRequestBodyWithOptionalCompression(
+			r.Body,
+			r.Header.Get("X-Request-Compression"),
+		)
 		if err != nil {
-			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "read request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		var vobjs []*objects.VObject
+		if r.Header.Get("X-Request-Encoding") == "binary" {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.UnmarshalV2(reqPayload)
+		} else {
+			vobjs, err = shared.IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		}
 		if err != nil {
-			http.Error(w, "unmarshal overwrite objects params from json: "+err.Error(),
+			http.Error(w, "unmarshal overwrite objects: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
@@ -965,55 +981,5 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
-	i.logger.WithField("action", "close_replicated_indices").Debug("attempting to shut down replicated indices")
-	if i.isShutdown.CompareAndSwap(false, true) {
-		i.logger.WithField("action", "close_replicated_indices").Debug("shutting down replicated indices")
-		// Set a timeout for graceful shutdown
-		shutdownTimeoutSeconds := i.requestQueueConfig.QueueShutdownTimeoutSeconds
-		if shutdownTimeoutSeconds == 0 {
-			shutdownTimeoutSeconds = cluster.DefaultRequestQueueShutdownTimeoutSeconds
-		}
-
-		// Create a context with timeout for shutdown
-		shutdownCtx, cancel := context.WithTimeout(ctx, time.Duration(shutdownTimeoutSeconds)*time.Second)
-		defer cancel()
-
-		// Wait for workers to finish with timeout
-		done := make(chan struct{})
-		enterrors.GoWrapper(func() {
-			i.workerWg.Wait()
-			close(done)
-		}, i.logger)
-
-		i.requestQueueMu.Lock()
-		close(i.requestQueue)
-		i.requestQueueMu.Unlock()
-		select {
-		case <-done:
-			// Workers finished gracefully
-			i.logger.WithField("action", "close_replicated_indices").Debug("workers finished gracefully")
-		case <-shutdownCtx.Done():
-			// Timeout reached, workers are still running
-			err := fmt.Errorf("shutdown timeout reached, some workers may still be running")
-			i.logger.WithField("action", "close_replicated_indices").WithError(err).Warn("shutdown timeout reached, attempting to drain queue")
-			for {
-				select {
-				case rq, ok := <-i.requestQueue:
-					if !ok {
-						i.logger.WithField("action", "close_replicated_indices").Debug("queue closed")
-						return err
-					}
-					func() {
-						defer rq.wg.Done()
-						rq.w.WriteHeader(http.StatusRequestTimeout)
-					}()
-				default:
-					i.logger.WithField("action", "close_replicated_indices").Debug("no more requests to drain")
-					return err
-				}
-			}
-		}
-		i.logger.WithField("action", "close_replicated_indices").Debug("replicated indices shutdown complete")
-	}
-	return nil
+	return i.requestQueue.Close(ctx)
 }

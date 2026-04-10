@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -133,9 +134,11 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 	f := func() {
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
+		broadcastErrors := make([]string, 0, len(replicas)-level)
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
+				broadcastErrors = append(broadcastErrors, fmt.Errorf("replica %s; %w", r.Value, r.Err).Error())
 				continue
 			}
 
@@ -157,7 +160,8 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: fmt.Errorf("broadcast: %w", ErrReplicas)}
+			errs := fmt.Sprintf("errors: %s", strings.Join(broadcastErrors, ", "))
+			resChan <- Result[string]{Err: fmt.Errorf("%s; broadcast: %w", errs, ErrReplicas)}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)

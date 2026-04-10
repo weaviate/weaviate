@@ -265,7 +265,72 @@ func (l *hnswCommitLogger) shouldCreateSnapshot(logger logrus.FieldLogger,
 	return true
 }
 
+// migrateCompactV2Snapshot moves any .snapshot files found in the commitlog
+// directory to the snapshot directory. Compact v2 stores snapshots alongside
+// commit logs; this version expects them in a separate directory.
+// Range-named files (e.g. 1000_1500.snapshot) are renamed to {endTS}.snapshot
+// so the existing snapshot machinery can parse them.
+// The method is idempotent: once moved, there is nothing left to migrate.
+func (l *hnswCommitLogger) migrateCompactV2Snapshot() error {
+	commitlogDir := commitLogDirectory(l.rootPath, l.id)
+	entries, err := l.fs.ReadDir(commitlogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrap(err, "read commitlog directory")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".snapshot") {
+			continue
+		}
+
+		// Parse end timestamp (handles both {ts}.snapshot and {start}_{end}.snapshot)
+		name := strings.TrimSuffix(entry.Name(), ".snapshot")
+		var endTS int64
+		if _, end, ok := strings.Cut(name, "_"); ok {
+			endTS, err = strconv.ParseInt(end, 10, 64)
+		} else {
+			endTS, err = strconv.ParseInt(name, 10, 64)
+		}
+		if err != nil {
+			continue // skip files we can't parse
+		}
+
+		// Ensure snapshot directory exists
+		snapshotDir := snapshotDirectory(l.rootPath, l.id)
+		if err := l.fs.MkdirAll(snapshotDir, 0o755); err != nil {
+			return errors.Wrap(err, "create snapshot directory")
+		}
+
+		oldPath := filepath.Join(commitlogDir, entry.Name())
+		newName := fmt.Sprintf("%d.snapshot", endTS)
+		newPath := filepath.Join(snapshotDir, newName)
+
+		if err := l.fs.Rename(oldPath, newPath); err != nil {
+			return errors.Wrapf(err, "migrate snapshot %s to %s", oldPath, newPath)
+		}
+
+		l.logger.WithFields(logrus.Fields{
+			"action":   "migrate_compact_v2_snapshot",
+			"old_path": oldPath,
+			"new_path": newPath,
+		}).Info("migrated compact v2 snapshot to snapshot directory")
+	}
+
+	return nil
+}
+
 func (l *hnswCommitLogger) initSnapshotData() error {
+	// Migrate compact v2 snapshots from the commitlog directory to the
+	// snapshot directory. This enables downgrade compatibility: compact v2
+	// stores snapshots alongside commit logs, but the current version
+	// expects them in a separate directory.
+	if err := l.migrateCompactV2Snapshot(); err != nil {
+		l.logger.Warnf("failed to migrate compact v2 snapshot: %v", err)
+	}
+
 	dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
 	if ln := len(dirs); ln > 2 {
 		dirs = dirs[ln-2:]

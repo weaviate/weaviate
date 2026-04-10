@@ -13,6 +13,7 @@ package clusterapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -90,7 +91,14 @@ func (e *exports) prepareHandler() http.HandlerFunc {
 		}
 
 		if err := e.participant.Prepare(r.Context(), &req); err != nil {
-			http.Error(w, fmt.Errorf("prepare export: %w", err).Error(), http.StatusConflict)
+			status := http.StatusInternalServerError
+			switch {
+			case errors.Is(err, export.ErrExportAlreadyActive):
+				status = http.StatusConflict
+			case errors.Is(err, export.ErrExportValidation):
+				status = http.StatusBadRequest
+			}
+			http.Error(w, fmt.Errorf("prepare export: %w", err).Error(), status)
 			return
 		}
 

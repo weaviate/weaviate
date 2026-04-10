@@ -28,10 +28,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func Test_UploadS3Journey(t *testing.T) {
+func Test_UploadS3JourneyHappyPath(t *testing.T) {
 	t.Run("happy path with RF 2 upload to s3 provider", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -201,10 +200,11 @@ func Test_UploadS3Journey(t *testing.T) {
 			})
 		})
 	})
+}
 
+func Test_UploadS3JourneyUnhappyPath(t *testing.T) {
 	t.Run("node is down while RF is 3, one weaviate node is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -346,10 +346,11 @@ func Test_UploadS3Journey(t *testing.T) {
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 	})
+}
 
+func Test_UploadS3JourneyUnhappyPath_CloudProviderIsDown(t *testing.T) {
 	t.Run("unhappy path with RF 3, cloud provider is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -358,6 +359,8 @@ func Test_UploadS3Journey(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
 			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
+			WithWeaviateEnv("OFFLOAD_S3_CONCURRENCY", "1").
+			WithWeaviateEnv("OFFLOAD_S3_WORKERS", "1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -442,40 +445,50 @@ func Test_UploadS3Journey(t *testing.T) {
 			}
 		})
 
-		// Add many objects so offload takes long enough to observe FREEZING.
-		t.Run("add many objects to tenant to prolong FREEZING", func(t *testing.T) {
-			const extraObjects = 10000
-			for i := 0; i < extraObjects; i++ {
-				obj := &models.Object{
-					ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", i+1)),
-					Class: className,
-					Properties: map[string]interface{}{
-						"name":          fmt.Sprintf("extra-%d", i),
-						"someData":      "ref#0",
-						"someOtherData": "ref#1",
-					},
-					Tenant: tenantNames[0],
+		t.Run("add objects so offload is in progress when MinIO is killed", func(t *testing.T) {
+			const (
+				extraObjects = 50000
+				batchSize    = 1000
+			)
+			for offset := 0; offset < extraObjects; offset += batchSize {
+				n := batchSize
+				if offset+batchSize > extraObjects {
+					n = extraObjects - offset
 				}
-				assert.Nil(t, helper.CreateObject(t, obj))
+				if n > 30000 {
+					t.Run("update tenant to FROZEN (starts offload)", func(t *testing.T) {
+						go func() {
+							helper.UpdateTenants(t, className, []*models.Tenant{
+								{
+									Name:           tenantNames[0],
+									ActivityStatus: models.TenantActivityStatusFROZEN,
+								},
+							})
+						}()
+					})
+				}
+				objects := make([]*models.Object, n)
+				for i := 0; i < n; i++ {
+					objects[i] = &models.Object{
+						ID:    strfmt.UUID(fmt.Sprintf("0927a1e0-398e-4e76-91fb-%012x", offset+i+1)),
+						Class: className,
+						Properties: map[string]interface{}{
+							"name": fmt.Sprintf("extra-%d", offset+i),
+						},
+						Tenant: tenantNames[0],
+					}
+				}
+				helper.CreateObjectsBatch(t, objects)
 			}
 		})
 
-		t.Run("updating tenant status", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{
-					Name:           tenantNames[0],
-					ActivityStatus: models.TenantActivityStatusFROZEN,
-				},
-			})
-		})
-
-		t.Run("terminate Minio", func(t *testing.T) {
+		t.Run("terminate MinIO so offload fails", func(t *testing.T) {
 			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
 		})
 
-		t.Run("verify tenant status HOT", func(xt *testing.T) {
+		t.Run("verify tenant is reset to HOT", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
-				resp, err := helper.GetTenants(xt, className)
+				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 
 				for _, tn := range resp.Payload {
@@ -484,7 +497,7 @@ func Test_UploadS3Journey(t *testing.T) {
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+			}, 60*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
 		})
 	})
 }

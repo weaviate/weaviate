@@ -157,3 +157,59 @@ func TestStopwordDetector(t *testing.T) {
 		runTest(t, tests)
 	})
 }
+
+func TestAllPresetsAreLoadable(t *testing.T) {
+	for name := range Presets {
+		t.Run(name, func(t *testing.T) {
+			d, err := NewDetectorFromPreset(name)
+			require.NoError(t, err)
+			require.NotNil(t, d)
+			require.Equal(t, name, d.Preset())
+		})
+	}
+}
+
+func TestBuiltInPresets(t *testing.T) {
+	type testcase struct {
+		preset string
+		word   string
+		isStop bool
+	}
+
+	tests := []testcase{
+		{EnglishPreset, "the", true},
+		{EnglishPreset, "hello", false},
+		{NoPreset, "the", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.preset+"_"+tc.word, func(t *testing.T) {
+			d, err := NewDetectorFromPreset(tc.preset)
+			require.NoError(t, err)
+			require.Equal(t, tc.isStop, d.IsStopword(tc.word),
+				"preset=%q word=%q expected isStopword=%v", tc.preset, tc.word, tc.isStop)
+		})
+	}
+}
+
+func TestUserDefinedPresetViaSetAdditions(t *testing.T) {
+	// Simulate how user-defined presets are resolved: create a "none" detector
+	// and add the user's words as additions.
+	d, err := NewDetectorFromPreset(NoPreset)
+	require.NoError(t, err)
+
+	userWords := []string{"le", "la", "les"}
+	d.SetAdditions(userWords)
+
+	require.True(t, d.IsStopword("le"))
+	require.True(t, d.IsStopword("la"))
+	require.True(t, d.IsStopword("les"))
+	require.False(t, d.IsStopword("chat"))
+	require.False(t, d.IsStopword("the")) // English stopword not included
+}
+
+func TestUnknownPresetReturnsError(t *testing.T) {
+	_, err := NewDetectorFromPreset("nonexistent")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not known to stopword detector")
+}

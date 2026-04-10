@@ -321,7 +321,10 @@ def test_hybrid_with_reranker_search(collection_factory: CollectionFactory) -> N
     ]
 
     for i, (title, description) in enumerate(test_data):
-        collection.data.insert({"title": title, "description": description}, vector=[float(i), float(i + 1), float(i + 2)])
+        collection.data.insert(
+            {"title": title, "description": description},
+            vector=[float(i), float(i + 1), float(i + 2)],
+        )
 
     # Hybrid search via gRPC with reranker applied on final results.
     # alpha=0.5: balanced between BM25 and vector search.
@@ -340,13 +343,11 @@ def test_hybrid_with_reranker_search(collection_factory: CollectionFactory) -> N
     # All returned objects must have a rerank score — this verifies the reranker ran
     # on the hybrid results via the gRPC code path.
     for obj in result.objects:
-        assert (
-            obj.metadata.rerank_score is not None
-        ), f"object {obj.uuid} missing rerank_score"
+        assert obj.metadata.rerank_score is not None, f"object {obj.uuid} missing rerank_score"
 
     # The dummy reranker scores by length of the reranked property value.
     # Verify the results are sorted in descending order of rerank score.
     scores = [obj.metadata.rerank_score for obj in result.objects]
-    assert scores == sorted(scores, reverse=True), (
-        "results should be sorted by rerank score (descending)"
-    )
+    assert scores == sorted(
+        scores, reverse=True
+    ), "results should be sorted by rerank score (descending)"
