@@ -180,6 +180,9 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 	class := vcls.Class
+	if class == nil {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
 
 	if len(class.VectorConfig) == 0 {
 		return fmt.Errorf("%w: class %q has no named vector configurations", ErrValidation, className)
