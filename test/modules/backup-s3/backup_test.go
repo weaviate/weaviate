@@ -51,6 +51,20 @@ func TestS3Backup_MultiTenant(t *testing.T) {
 	backuptest.RunS3BackupTests(t, compose, GetMinioURI(), GetS3Region(), backuptest.MultiTenantTestCase())
 }
 
+// TestS3Backup_MultiTenant_WithMidBackupActivations tests S3 backup/restore with multi-tenant class and tenant activations during backup.
+func TestS3Backup_MultiTenant_WithMidBackupActivations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunS3BackupTests(t, compose, GetMinioURI(), GetS3Region(), backuptest.MultiTenantTestCaseWithMidBackupActivations())
+}
+
 // =============================================================================
 // PQ (Product Quantization) Compression Tests
 // =============================================================================

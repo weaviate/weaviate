@@ -374,8 +374,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		enterrors.GoWrapper(func() {
 			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
 				u.log.WithFields(logrus.Fields{
-					"class":    id,
-					"backupID": desc.Name,
+					"class":    desc.Name,
+					"backupID": id,
 				}).Error("failed to release backup")
 			}
 		}, u.log)
