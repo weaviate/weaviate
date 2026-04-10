@@ -2210,6 +2210,42 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		shardCap = len(readPlan.Shards()) * limit
 	}
 
+	// When there are multiple shards with distinct data, suppress per-shard MMR
+	// selection and apply it globally at the coordinator after merging all
+	// candidates. Per-shard MMR causes each shard to independently optimise
+	// diversity over only its local subset; the coordinator's final distance
+	// re-sort then destroys the global diversity guarantee.
+	numShards := len(readPlan.Shards())
+	shardSelection := selection
+	shardAdditionalProps := additionalProps
+	isMultiShardMMR := selection != nil && numShards > 1
+	if isMultiShardMMR {
+		shardSelection = nil
+		// Request vectors from each shard so the coordinator can compute
+		// inter-object distances for the global MMR pass.
+		targetVector := ""
+		if len(targetVectors) > 0 {
+			targetVector = targetVectors[0]
+		}
+		if targetVector == "" {
+			shardAdditionalProps.Vector = true
+		} else {
+			hasTV := false
+			for _, v := range shardAdditionalProps.Vectors {
+				if v == targetVector {
+					hasTV = true
+					break
+				}
+			}
+			if !hasTV {
+				vecs := make([]string, len(shardAdditionalProps.Vectors)+1)
+				copy(vecs, shardAdditionalProps.Vectors)
+				vecs[len(shardAdditionalProps.Vectors)] = targetVector
+				shardAdditionalProps.Vectors = vecs
+			}
+		}
+	}
+
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
 	// When running in fractional CPU environments, _NUMCPU will be 1
 	// Most cloud deployments of Weaviate are in HA clusters with rf=3
@@ -2228,7 +2264,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	remoteSearch := func(shardName string) error {
 		// If we have no local shard or if we force the query to reach all replicas
-		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 		if err2 != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err2)
@@ -2248,7 +2284,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		defer release()
 
 		if shard != nil {
-			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 			if err1 != nil {
 				return fmt.Errorf(
 					"local shard object search %s: %w", shard.ID(), err1)
@@ -2306,26 +2342,41 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if selection != nil {
+	if selection != nil && !isMultiShardMMR {
+		// Single-shard path: per-shard MMR was applied, update limit to reflect
+		// the final result count for any downstream truncation.
 		limit = int(selection.MMR.Limit)
 	}
 
-	if len(readPlan.Shards()) == 1 {
+	if numShards == 1 {
 		return out, dists, nil
 	}
 
-	if len(readPlan.Shards()) > 1 && groupBy != nil {
-		return i.mergeGroups(out, dists, groupBy, limit, len(readPlan.Shards()))
+	if numShards > 1 && groupBy != nil {
+		return i.mergeGroups(out, dists, groupBy, limit, numShards)
 	}
 
-	if len(readPlan.Shards()) > 1 && len(sort) > 0 {
+	if numShards > 1 && len(sort) > 0 {
 		return i.sort(out, dists, sort, limit)
 	}
 
-	out, dists = newDistancesSorter().sort(out, dists)
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
-		dists = dists[:limit]
+	if isMultiShardMMR {
+		// Apply MMR globally across the merged candidate pool from all shards.
+		targetVector := ""
+		if len(targetVectors) > 0 {
+			targetVector = targetVectors[0]
+		}
+		var globalMMRErr error
+		out, dists, globalMMRErr = i.applyGlobalMMR(ctx, selection, targetVector, out, dists, additionalProps)
+		if globalMMRErr != nil {
+			return nil, nil, fmt.Errorf("global MMR selection: %w", globalMMRErr)
+		}
+	} else {
+		out, dists = newDistancesSorter().sort(out, dists)
+		if limit > 0 && len(out) > limit {
+			out = out[:limit]
+			dists = dists[:limit]
+		}
 	}
 
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
