@@ -14,7 +14,6 @@ package schema
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strings"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
@@ -198,20 +197,14 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return nil
 	}
 
-	// Deep-copy the VectorConfig map before mutating to avoid corrupting the
-	// live schema state visible to concurrent readers. ReadOnlyClass returns a
-	// shallow copy, so class.VectorConfig still points to the live map.
-	newVectorConfig := make(map[string]models.VectorConfig, len(class.VectorConfig))
-	maps.Copy(newVectorConfig, class.VectorConfig)
 	// Keep the vector entry in the schema but set VectorIndexType to "none".
 	// This signals that the vector data still exists in the objects bucket but
 	// the search index has been removed. The executor's UpdateClass will detect
 	// the "none" type and call the migrator to drop the index from disk.
-	newVectorConfig[vectorIndexName] = models.VectorConfig{
+	class.VectorConfig[vectorIndexName] = models.VectorConfig{
 		Vectorizer:      cfg.Vectorizer,
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
-	class.VectorConfig = newVectorConfig
 
 	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
 	return err

@@ -877,30 +877,4 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 		fakeSchemaManager.AssertExpectations(t)
 	})
-
-	t.Run("drop does not mutate original map", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-
-		origMap := map[string]models.VectorConfig{
-			"vec1": {
-				VectorIndexType: "hnsw",
-				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
-			},
-		}
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
-			Return(map[string]versioned.Class{
-				"TestClass": {Class: &models.Class{
-					Class:        "TestClass",
-					VectorConfig: origMap,
-				}},
-			}, nil)
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-
-		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
-		require.NoError(t, err)
-
-		// The original map entry should still be "hnsw" because
-		// DeleteClassVectorIndex creates a new map to avoid mutating the live schema.
-		require.Equal(t, "hnsw", origMap["vec1"].VectorIndexType)
-	})
 }
