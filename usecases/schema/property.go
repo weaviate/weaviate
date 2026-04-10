@@ -161,19 +161,25 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 }
 
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
-	class *models.Class, className, vectorIndexName string,
+	className, vectorIndexName string,
 ) error {
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
 
-	if class == nil {
-		return fmt.Errorf("%w: class is nil", ErrNotFound)
-	}
-
 	if vectorIndexName == "" {
 		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
 	}
+
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	if err != nil {
+		return fmt.Errorf("querying class %q: %w", className, err)
+	}
+	vcls, ok := vclasses[className]
+	if !ok {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+	class := vcls.Class
 
 	if len(class.VectorConfig) == 0 {
 		return fmt.Errorf("%w: class %q has no named vector configurations", ErrValidation, className)
@@ -204,7 +210,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	}
 	class.VectorConfig = newVectorConfig
 
-	_, err := h.schemaManager.UpdateClass(ctx, class, nil)
+	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
 	return err
 }
 

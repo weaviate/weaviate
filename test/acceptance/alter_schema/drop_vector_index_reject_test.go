@@ -154,15 +154,13 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 				}, 15*time.Second, 200*time.Millisecond)
 			})
 
-			t.Run("attempt to re-create dropped vector via update is silently ignored", func(t *testing.T) {
+			t.Run("attempt to re-create dropped vector via update is rejected", func(t *testing.T) {
 				cls := helper.GetClass(t, className)
 				require.NotNil(t, cls)
 
 				// Try to flip the dropped vector back to "hnsw".
-				// The RAFT apply path reconciles stale data: if the current
-				// schema has the vector marked as dropped, the update's
-				// non-dropped copy is silently overwritten with the dropped
-				// state. The update succeeds but the vector stays dropped.
+				// The parser rejects this as an invalid re-creation of a
+				// dropped vector index.
 				cls.VectorConfig["my_vector"] = models.VectorConfig{
 					Vectorizer: map[string]any{
 						"none": map[string]any{},
@@ -174,18 +172,7 @@ func testRejectNoneVectorIndexType() func(t *testing.T) {
 					WithClassName(className).
 					WithObjectClass(cls)
 				_, err := helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
-				require.NoError(t, err, "update should succeed; RAFT reconciliation preserves the dropped state")
-
-				// Verify the vector is still dropped.
-				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					cls := helper.GetClass(t, className)
-					cfg, ok := cls.VectorConfig["my_vector"]
-					assert.True(collect, ok, "vector config should still exist")
-					if ok {
-						assert.Equal(collect, "none", cfg.VectorIndexType,
-							"vector should remain dropped despite the update attempt")
-					}
-				}, 15*time.Second, 200*time.Millisecond)
+				require.Error(t, err, "update should be rejected; re-creating a dropped vector index is not allowed")
 			})
 
 			// Clean up.
