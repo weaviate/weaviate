@@ -44,6 +44,9 @@ type Properties struct {
 	// QueryProfile enables per-shard query profiling data collection and return.
 	QueryProfile bool `json:"queryProfile"`
 
+	// Highlight requests keyword-match snippets in _additional.highlight
+	Highlight bool `json:"highlight"`
+
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.
 	NoProps bool `json:"noProps"`

@@ -484,6 +484,21 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		}
 	}
 
+	if additional.Highlight {
+		for k := range objs {
+			if objs[k] == nil {
+				continue
+			}
+			highlights := generateObjectHighlights(objs[k], allRequests)
+			if len(highlights) > 0 {
+				if objs[k].AdditionalProperties() == nil {
+					objs[k].Object.Additional = make(map[string]interface{})
+				}
+				objs[k].Object.Additional["highlight"] = highlights
+			}
+		}
+	}
+
 	objs, scores = b.sortResultsByExternalId(objs, scores)
 
 	return objs, scores, nil

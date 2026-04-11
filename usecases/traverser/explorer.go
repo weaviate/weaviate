@@ -504,6 +504,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			additionalProperties["explainScore"] = res.ExplainScore
 		}
 
+		if params.AdditionalProperties.Highlight {
+			if h, ok := res.AdditionalProperties["highlight"]; ok && h != nil {
+				additionalProperties["highlight"] = h
+			}
+		}
+
 		if params.AdditionalProperties.Vector {
 			additionalProperties["vector"] = res.Vector
 		}

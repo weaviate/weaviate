@@ -188,6 +188,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
+	additionalProperties["highlight"] = b.additionalHighlightField(class)
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
@@ -356,5 +357,24 @@ func (b *classBuilder) additionalGroupField(classProperties graphql.Fields, clas
 				},
 			},
 		}),
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Description: "Keyword-match highlights: matched snippets per property with <em> tags",
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", class.Class),
+			Fields: graphql.Fields{
+				"property": &graphql.Field{
+					Type:        graphql.String,
+					Description: "The property name that contains the match",
+				},
+				"fragments": &graphql.Field{
+					Type:        graphql.NewList(graphql.String),
+					Description: "Text snippets with matched terms wrapped in <em>…</em>",
+				},
+			},
+		})),
 	}
 }
