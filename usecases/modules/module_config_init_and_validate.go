@@ -298,10 +298,6 @@ func (p *Provider) validateBlobHashNotMixedWithOtherFields(
 		VectorizableProperties(cfg *ClassBasedModuleConfig) (bool, []string, error)
 	}
 
-	type vecInterface interface {
-		VectorizableProperties(cfg *ClassBasedModuleConfig) (bool, []string, error)
-	}
-
 	// Try to obtain VectorizableProperties from the module.
 	switch v := mod.(type) {
 	case modulecapabilities.Vectorizer[[]float32]:

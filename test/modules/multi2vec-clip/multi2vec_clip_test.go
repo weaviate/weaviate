@@ -15,8 +15,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	schemaDef "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
 )
@@ -32,22 +35,22 @@ func testMulti2VecClip(host string) func(t *testing.T) {
 		class := multimodal.BaseClass(className, false, false)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
-						"imageFields":        []interface{}{multimodal.PropertyImage},
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
+						"imageFields":        []any{multimodal.PropertyImage},
 						"vectorizeClassName": false,
 					},
 				},
 				VectorIndexType: "flat",
 			},
 			"clip_weights": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
-						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
-						"imageFields": []interface{}{multimodal.PropertyImage},
-						"weights": map[string]interface{}{
-							"textFields":  []interface{}{0.05, 0.05},
-							"imageFields": []interface{}{0.9},
+				Vectorizer: map[string]any{
+					vectorizerName: map[string]any{
+						"textFields":  []any{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
+						"imageFields": []any{multimodal.PropertyImage},
+						"weights": map[string]any{
+							"textFields":  []any{0.05, 0.05},
+							"imageFields": []any{0.9},
 						},
 						"vectorizeClassName": false,
 					},
@@ -84,6 +87,177 @@ func testMulti2VecClip(host string) func(t *testing.T) {
 				"clip_weights": 512,
 			}
 			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
+		})
+	}
+}
+
+func testBlobHashValidation(host string) func(t *testing.T) {
+	return func(t *testing.T) {
+		helper.SetupClient(host)
+		vectorizerName := "multi2vec-clip"
+
+		t.Run("single named vector: blobHash alone is accepted", func(t *testing.T) {
+			className := "BlobHashAlone"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "img", DataType: []string{schemaDef.DataTypeBlobHash.String()}},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"clip": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"img"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+			helper.CreateClass(t, class)
+			defer helper.DeleteClass(t, class.Class)
+		})
+
+		t.Run("single named vector: blobHash with other media field is rejected", func(t *testing.T) {
+			className := "BlobHashWithMedia"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "img", DataType: []string{schemaDef.DataTypeBlobHash.String()}},
+					{Name: "photo", DataType: []string{schemaDef.DataTypeBlob.String()}},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"clip": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"img", "photo"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "blobHash property cannot be combined with other vectorizable fields")
+		})
+
+		t.Run("single named vector: blobHash with text fields is rejected", func(t *testing.T) {
+			className := "BlobHashWithText"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "img", DataType: []string{schemaDef.DataTypeBlobHash.String()}},
+					{Name: "title", DataType: []string{schemaDef.DataTypeText.String()}},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"clip": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"img"},
+								"textFields":         []any{"title"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "blobHash property cannot be combined with other vectorizable fields")
+		})
+
+		t.Run("multiple named vectors: only the misconfigured one is rejected", func(t *testing.T) {
+			className := "BlobHashMultiVecBad"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "img", DataType: []string{schemaDef.DataTypeBlobHash.String()}},
+					{Name: "photo", DataType: []string{schemaDef.DataTypeBlob.String()}},
+					{Name: "title", DataType: []string{schemaDef.DataTypeText.String()}},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"clip_text": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"textFields":         []any{"title"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+					"clip_image": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"photo"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+					"clip_bad": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"img", "photo"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "blobHash property cannot be combined with other vectorizable fields")
+		})
+
+		t.Run("multiple named vectors: all correctly configured is accepted", func(t *testing.T) {
+			className := "BlobHashMultiVecOK"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{Name: "img", DataType: []string{schemaDef.DataTypeBlobHash.String()}},
+					{Name: "photo", DataType: []string{schemaDef.DataTypeBlob.String()}},
+					{Name: "title", DataType: []string{schemaDef.DataTypeText.String()}},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"clip_text": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"textFields":         []any{"title"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+					"clip_image": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"photo"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+					"clip_hash": {
+						Vectorizer: map[string]any{
+							vectorizerName: map[string]any{
+								"imageFields":        []any{"img"},
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+			helper.CreateClass(t, class)
+			defer helper.DeleteClass(t, class.Class)
 		})
 	}
 }
