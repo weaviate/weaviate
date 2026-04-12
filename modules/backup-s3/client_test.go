@@ -317,6 +317,61 @@ func TestExportBackend_WithoutExportClient(t *testing.T) {
 	assert.Equal(t, m, eb)
 }
 
+func TestBucketAndPath(t *testing.T) {
+	client := &s3Client{config: &clientConfig{Bucket: "default-bucket", BackupPath: "default-path"}}
+
+	tests := []struct {
+		name           string
+		backupID       string
+		key            string
+		overrideBucket string
+		overridePath   string
+		wantBucket     string
+		wantObject     string
+	}{
+		{
+			name:       "no overrides",
+			backupID:   "backup-1",
+			key:        "file.db",
+			wantBucket: "default-bucket",
+			wantObject: "default-path/backup-1/file.db",
+		},
+		{
+			name:           "override bucket only",
+			backupID:       "backup-1",
+			key:            "file.db",
+			overrideBucket: "export-bucket",
+			wantBucket:     "export-bucket",
+			wantObject:     "default-path/backup-1/file.db",
+		},
+		{
+			name:         "override path only",
+			backupID:     "backup-1",
+			key:          "file.db",
+			overridePath: "export-path",
+			wantBucket:   "default-bucket",
+			wantObject:   "export-path/backup-1/file.db",
+		},
+		{
+			name:           "override both",
+			backupID:       "backup-1",
+			key:            "file.db",
+			overrideBucket: "export-bucket",
+			overridePath:   "export-path",
+			wantBucket:     "export-bucket",
+			wantObject:     "export-path/backup-1/file.db",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket, objectName := client.bucketAndPath(tt.backupID, tt.key, tt.overrideBucket, tt.overridePath)
+			assert.Equal(t, tt.wantBucket, bucket)
+			assert.Equal(t, tt.wantObject, objectName)
+		})
+	}
+}
+
 func TestRefreshableAssumeRole_IsProvider(t *testing.T) {
 	// Verify that refreshableAssumeRole satisfies the credentials.Provider
 	// interface at compile time via the test's type assertion.
