@@ -18,10 +18,23 @@ import (
 )
 
 // NewRuntimeRoaringSetRefreshTask creates a ShardReindexTaskGeneric configured
-// for runtime (live) RoaringSet refresh. This rebuilds filterable property
-// indexes from the objects bucket without changing the storage format.
-func NewRuntimeRoaringSetRefreshTask(logger logrus.FieldLogger) *ShardReindexTaskGeneric {
+// for runtime (live) RoaringSet refresh. This rebuilds the filterable property
+// indexes listed in propNames from the objects bucket without changing the
+// storage format.
+//
+// propNames must be non-empty — whole-collection rebuilds are not supported
+// from the runtime reindex API and would silently widen the blast radius.
+func NewRuntimeRoaringSetRefreshTask(
+	logger logrus.FieldLogger,
+	propNames []string,
+	collectionName string,
+) *ShardReindexTaskGeneric {
 	strategy := &RoaringSetRefreshStrategy{}
+
+	selectedProps := make(map[string]struct{}, len(propNames))
+	for _, p := range propNames {
+		selectedProps[p] = struct{}{}
+	}
 
 	cfg := reindexTaskConfig{
 		swapBuckets:                   true,
@@ -32,6 +45,14 @@ func NewRuntimeRoaringSetRefreshTask(logger logrus.FieldLogger) *ShardReindexTas
 		processingDuration:            10 * time.Minute,
 		pauseDuration:                 1 * time.Second,
 		checkProcessingEveryNoObjects: 1000,
+
+		selectionEnabled: true,
+		selectedPropsByCollection: map[string]map[string]struct{}{
+			collectionName: selectedProps,
+		},
+		selectedShardsByCollection: map[string]map[string]struct{}{
+			collectionName: nil, // nil = all shards
+		},
 	}
 
 	return NewShardReindexTaskGeneric(

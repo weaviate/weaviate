@@ -40,7 +40,7 @@ type testMigrationStrategy struct {
 	migrationCompleted bool
 }
 
-func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ string) error {
+func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	s.migrationCompleted = true
 	return nil
 }

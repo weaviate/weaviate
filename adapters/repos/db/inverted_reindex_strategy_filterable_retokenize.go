@@ -166,7 +166,8 @@ func (s *FilterableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 
 // OnMigrationComplete updates the schema to set Tokenization to the target
 // value. This runs after both searchable and filterable retokenization are done.
-func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, className string) error {
+func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
+	className := shard.Index().Config.ClassName.String()
 	class := s.schemaManager.ReadOnlyClass(className)
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)

@@ -175,9 +175,19 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	case body.Searchable != nil && body.Searchable.Rebuild:
 		migrationType = db.ReindexTypeRepairSearchable
+		properties = []string{propertyName}
+		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
+		}
 
 	case body.Filterable != nil && body.Filterable.Rebuild:
 		migrationType = db.ReindexTypeRepairFilterable
+		properties = []string{propertyName}
+		if targetProp.IndexFilterable != nil && !*targetProp.IndexFilterable {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+				fmt.Sprintf("property %q does not have a filterable index", propertyName)))
+		}
 
 	case body.Rangeable != nil && body.Rangeable.Enabled:
 		migrationType = db.ReindexTypeEnableRangeable
@@ -309,12 +319,17 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
+		// An empty payload.Properties list means "all properties" (whole-collection
+		// scope). That branch is kept for forward compatibility; the current REST
+		// handler always populates Properties with a single entry.
+		propertyMatches := len(payload.Properties) == 0 || containsStr(payload.Properties, propName)
+
 		targets := false
 		switch payload.MigrationType {
 		case db.ReindexTypeRepairSearchable:
-			targets = indexType == "searchable"
+			targets = indexType == "searchable" && propertyMatches
 		case db.ReindexTypeRepairFilterable:
-			targets = indexType == "filterable"
+			targets = indexType == "filterable" && propertyMatches
 		case db.ReindexTypeEnableRangeable:
 			targets = indexType == "rangeable" && containsStr(payload.Properties, propName)
 		case db.ReindexTypeChangeTokenization:
@@ -388,11 +403,16 @@ func errorResponse(msg string) *models.ErrorResponse {
 // reason if a conflict is detected.
 //
 // Two tasks conflict if they touch the same index bucket type for the same
-// property. The bucket types each migration touches:
-//   - repair-searchable:    searchable buckets (ALL properties)
-//   - repair-filterable:    filterable buckets (ALL properties)
-//   - change-tokenization:  searchable + filterable buckets (specified property)
-//   - enable-rangeable:     rangeable buckets (specified property) — no cross-type conflicts
+// property. Every migration type is property-scoped: the property the task
+// targets is the one named in payload.Properties. An empty Properties list
+// is reserved for a future whole-collection rebuild and is treated as
+// matching any property for conflict purposes.
+//
+// The bucket types each migration touches on its targeted property:
+//   - repair-searchable:    searchable bucket
+//   - repair-filterable:    filterable bucket
+//   - change-tokenization:  searchable + filterable buckets
+//   - enable-rangeable:     rangeable bucket — no cross-type conflicts
 func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) string {

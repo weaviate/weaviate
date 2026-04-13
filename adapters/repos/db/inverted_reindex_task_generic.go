@@ -607,7 +607,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	}
 
 	if rt.IsTidied() {
-		err = t.strategy.OnMigrationComplete(ctx, shard.Index().Config.ClassName.String())
+		err = t.strategy.OnMigrationComplete(ctx, shard)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)
 		}
@@ -872,7 +872,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Debug("runtime swap: tidy complete (fs cleanup deferred to next restart)")
 
 	// Step 7: Signal migration complete (e.g. update schema).
-	if err := t.strategy.OnMigrationComplete(ctx, shard.Index().Config.ClassName.String()); err != nil {
+	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 	logger.Info("runtime swap: migration complete")

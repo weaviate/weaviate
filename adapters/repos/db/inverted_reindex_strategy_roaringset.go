@@ -125,7 +125,7 @@ func (s *RoaringSetRefreshStrategy) PreReindexHook(shard *Shard, props []string)
 	// No-op: no property marking needed for same-strategy refresh.
 }
 
-func (s *RoaringSetRefreshStrategy) OnMigrationComplete(ctx context.Context, className string) error {
+func (s *RoaringSetRefreshStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	// No-op: no schema update needed for same-strategy refresh.
 	return nil
 }

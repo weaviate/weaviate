@@ -83,9 +83,13 @@ type MigrationStrategy interface {
 	// e.g. shard.markSearchableBlockmaxProperties(props...)
 	PreReindexHook(shard *Shard, props []string)
 
-	// OnMigrationComplete is called when the migration is fully tidied.
-	// e.g. update schema to UsingBlockMaxWAND=true
-	OnMigrationComplete(ctx context.Context, className string) error
+	// OnMigrationComplete is called when the migration is fully tidied on a
+	// single shard. Implementations can read the shard's current bucket state
+	// to decide whether collection-level finalization (e.g. flipping the
+	// UsingBlockMaxWAND class flag) is safe — important for per-property
+	// migrations, where the flag must only flip once every searchable property
+	// has been migrated.
+	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.

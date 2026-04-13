@@ -117,6 +117,15 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		shardInfos = append(shardInfos, shardInfo{"RoaringSetRefreshTest", sn})
 	}
 
+	// --- Subtest 5: Scope assertion (all four migration types) ---
+	// Pins the blast radius of every migration type: each reindex must
+	// stay inside the property named in the URL path. Uses its own
+	// collections and cleans them up, so it runs after the correctness
+	// tests above without interfering with the post-restart assertions.
+	t.Run("ScopeAssertion", func(t *testing.T) {
+		testReindexScopeAssertion(t, restURI)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")

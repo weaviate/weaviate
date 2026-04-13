@@ -279,13 +279,19 @@ func (p *ReindexProvider) processOneUnit(
 func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*ShardReindexTaskGeneric, error) {
 	switch payload.MigrationType {
 	case ReindexTypeRepairSearchable:
+		if len(payload.Properties) == 0 {
+			return nil, fmt.Errorf("repair-searchable requires at least one property")
+		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager),
+			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
+		if len(payload.Properties) == 0 {
+			return nil, fmt.Errorf("repair-filterable requires at least one property")
+		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeRoaringSetRefreshTask(p.logger),
+			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeEnableRangeable:

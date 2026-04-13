@@ -19,12 +19,25 @@ import (
 )
 
 // NewRuntimeMapToBlockmaxTask creates a ShardReindexTaskGeneric configured for
-// runtime (live) Map→Blockmax migration. The migration is performed via atomic
-// bucket pointer swaps without shard restart.
-func NewRuntimeMapToBlockmaxTask(logger logrus.FieldLogger,
+// runtime (live) Map→Blockmax migration of the searchable properties listed in
+// propNames. The migration is performed via atomic bucket pointer swaps
+// without shard restart.
+//
+// propNames must be non-empty. The class-level UsingBlockMaxWAND flag is
+// only flipped once every searchable property on every shard has been
+// migrated — see MapToBlockmaxStrategy.OnMigrationComplete.
+func NewRuntimeMapToBlockmaxTask(
+	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
+	propNames []string,
+	collectionName string,
 ) *ShardReindexTaskGeneric {
 	strategy := &MapToBlockmaxStrategy{schemaManager: schemaManager}
+
+	selectedProps := make(map[string]struct{}, len(propNames))
+	for _, p := range propNames {
+		selectedProps[p] = struct{}{}
+	}
 
 	cfg := reindexTaskConfig{
 		swapBuckets:                   true,
@@ -35,6 +48,14 @@ func NewRuntimeMapToBlockmaxTask(logger logrus.FieldLogger,
 		processingDuration:            10 * time.Minute,
 		pauseDuration:                 1 * time.Second,
 		checkProcessingEveryNoObjects: 1000,
+
+		selectionEnabled: true,
+		selectedPropsByCollection: map[string]map[string]struct{}{
+			collectionName: selectedProps,
+		},
+		selectedShardsByCollection: map[string]map[string]struct{}{
+			collectionName: nil, // nil = all shards
+		},
 	}
 
 	return NewShardReindexTaskGeneric(

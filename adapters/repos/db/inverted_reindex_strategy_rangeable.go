@@ -156,7 +156,8 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 // the migrated properties. It uses per-property UpdateProperty RAFT commands
 // instead of UpdateClass, because UpdateClass rejects property field changes
 // via validatePropertiesForUpdate on RAFT replay.
-func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, className string) error {
+func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
+	className := shard.Index().Config.ClassName.String()
 	class := s.schemaManager.ReadOnlyClass(className)
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)

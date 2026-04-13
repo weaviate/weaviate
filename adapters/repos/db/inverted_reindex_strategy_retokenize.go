@@ -178,7 +178,7 @@ func (s *SearchableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 
 // OnMigrationComplete is a no-op for the searchable strategy. The schema
 // update happens in the filterable strategy which runs after this one.
-func (s *SearchableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ string) error {
+func (s *SearchableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	return nil
 }
 
