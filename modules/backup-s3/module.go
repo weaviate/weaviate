@@ -145,8 +145,8 @@ func (m *Module) MetaInfo() (map[string]interface{}, error) {
 
 // verify we implement the modules.Module interface
 var (
-	_                                          = modulecapabilities.Module(New())
-	_                                          = modulecapabilities.BackupBackend(New())
-	_                                          = modulecapabilities.MetaProvider(New())
-	_ modulecapabilities.ExportBackendProvider = (*Module)(nil)
+	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.BackupBackend(New())
+	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.ExportBackendProvider(New())
 )
