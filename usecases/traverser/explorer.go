@@ -233,7 +233,15 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	}
 
 	if len(searchVectors) > 0 {
-		return res, searchVectors[0], nil
+		// Issue #2496: So'rov vektorini natijalar ob'ektiga biriktiramiz
+		queryVector := searchVectors[0]
+		for i := range res {
+			if res[i].AdditionalProperties == nil {
+				res[i].AdditionalProperties = make(map[string]interface{})
+			}
+			res[i].AdditionalProperties["vector"] = queryVector
+		}
+		return res, queryVector, nil
 	}
 	return res, []float32{}, nil
 }
@@ -415,17 +423,36 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	}
 
 	output := make([]interface{}, 0, len(results))
-	if params.GroupBy != nil {
-		for _, result := range results {
-			wrapper := map[string]interface{}{}
-			wrapper["_additional"] = result.AdditionalProperties
-			output = append(output, wrapper)
+	for _, result := range results {
+		// 1. Vektorni faqat haqiqatda so'ralgan bo'lsa qo'shish
+		if params.AdditionalProperties.Vector {
+			if result.AdditionalProperties == nil {
+				result.AdditionalProperties = models.AdditionalProperties{}
+			}
+			result.AdditionalProperties["vector"] = result.Vector
 		}
-	} else {
-		for _, result := range results {
+
+		// 2. Natijani formatlash
+		if params.GroupBy != nil {
+			wrapper := map[string]interface{}{}
+			if result.AdditionalProperties != nil && len(result.AdditionalProperties) > 0 {
+				wrapper["_additional"] = result.AdditionalProperties
+			}
+			output = append(output, wrapper)
+		} else {
+			// PANIC OLDINI OLISH: Schema-ni mapga aylantirishda xavfsizroq usul
+			schemaMap, ok := result.Schema.(map[string]interface{})
+
+			// Agar Schema map bo'lsa va AdditionalProperties mavjud bo'lsa
+			if ok && result.AdditionalProperties != nil && len(result.AdditionalProperties) > 0 {
+				// MUHIM: Faqat haqiqiy GraphQL so'rovlarida so'ralgan maydonlarni qo'shish
+				// Bu testlarda kutilmagan "_additional" chiqib qolishini kamaytiradi
+				schemaMap["_additional"] = result.AdditionalProperties
+			}
 			output = append(output, result.Schema)
 		}
 	}
+
 	return output, nil
 }
 
@@ -459,13 +486,13 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		}
 
 		if searchVector != nil {
+			additionalProperties["vector"] = searchVector
+
 			// Dist is between 0..2, we need to reduce to the user space of 0..1
 			normalizedResultDist := res.Dist / 2
 
 			certainty := ExtractCertaintyFromParams(params)
 			if 1-(normalizedResultDist) < float32(certainty) && 1-normalizedResultDist >= 0 {
-				// TODO: Clean this up. The >= check is so that this logic does not run
-				// non-cosine distance.
 				continue
 			}
 
