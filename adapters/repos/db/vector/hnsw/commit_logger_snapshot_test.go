@@ -1405,6 +1405,102 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 
 		require.NotEqual(t, state.Nodes, restoredState.Nodes)
 	})
+
+	// Regression test for: https://github.com/weaviate/weaviate/issues/192
+	// When a node has both a tombstone AND the tombstone has been cleaned
+	// (TombstonesDeleted), the snapshot writer must still write a nil marker
+	// for that position. Previously, the code would skip writing entirely
+	// due to an erroneous `continue` statement, causing position misalignment.
+	t.Run("v3 - cleaned tombstone nodes are written as nil markers", func(t *testing.T) {
+		// Create a state with 10 nodes where some have cleaned tombstones
+		state := &DeserializationResult{
+			Entrypoint:        0,
+			Level:             3,
+			Compressed:        false,
+			Nodes:             make([]*vertex, 10),
+			Tombstones:        make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+		}
+
+		c, err := packedconn.NewWithMaxLayer(2)
+		require.NoError(t, err)
+		c.ReplaceLayer(0, []uint64{1, 2, 3})
+
+		// Node 0: normal node
+		state.Nodes[0] = &vertex{id: 0, level: 3, connections: c}
+
+		// Node 1: nil (never existed)
+		state.Nodes[1] = nil
+
+		// Node 2: tombstoned but NOT cleaned - should be written as tombstone marker (1)
+		state.Nodes[2] = &vertex{id: 2, level: 1, connections: c}
+		state.Tombstones[2] = struct{}{}
+
+		// Node 3: tombstoned AND cleaned - should be written as nil marker (0)
+		// This is the case that was buggy - the continue statement skipped writing
+		state.Nodes[3] = &vertex{id: 3, level: 2, connections: c}
+		state.Tombstones[3] = struct{}{}
+		state.TombstonesDeleted[3] = struct{}{}
+
+		// Node 4: normal node
+		state.Nodes[4] = &vertex{id: 4, level: 1, connections: c}
+
+		// Node 5: another tombstoned AND cleaned node
+		state.Nodes[5] = &vertex{id: 5, level: 2, connections: c}
+		state.Tombstones[5] = struct{}{}
+		state.TombstonesDeleted[5] = struct{}{}
+
+		// Nodes 6-9: normal nodes to verify position alignment
+		for i := 6; i < 10; i++ {
+			state.Nodes[i] = &vertex{id: uint64(i), level: i % 3, connections: c}
+		}
+
+		dir := t.TempDir()
+		id := "test"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+		// Write snapshot
+		snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		err = cl.writeSnapshot(state, snapshotPath)
+		require.NoError(t, err)
+
+		// Read snapshot back
+		restoredState, err := cl.readSnapshot(snapshotPath)
+		require.NoError(t, err)
+
+		// Verify all 10 positions exist
+		require.Len(t, restoredState.Nodes, 10, "all 10 node positions must be preserved")
+
+		// Node 0: should be restored as normal node
+		require.NotNil(t, restoredState.Nodes[0], "node 0 should exist")
+		require.Equal(t, uint64(0), restoredState.Nodes[0].id)
+		require.Equal(t, 3, restoredState.Nodes[0].level)
+
+		// Node 1: should be nil
+		require.Nil(t, restoredState.Nodes[1], "node 1 should be nil")
+
+		// Node 2: should be restored as tombstoned node
+		require.NotNil(t, restoredState.Nodes[2], "node 2 should exist (tombstoned)")
+		require.Equal(t, uint64(2), restoredState.Nodes[2].id)
+		_, hasTombstone := restoredState.Tombstones[2]
+		require.True(t, hasTombstone, "node 2 should have tombstone")
+
+		// Node 3: should be nil (cleaned tombstone) - THIS IS THE CRITICAL CHECK
+		require.Nil(t, restoredState.Nodes[3], "node 3 should be nil (cleaned tombstone)")
+
+		// Node 4: should be normal node - position alignment check
+		require.NotNil(t, restoredState.Nodes[4], "node 4 should exist")
+		require.Equal(t, uint64(4), restoredState.Nodes[4].id)
+
+		// Node 5: should be nil (cleaned tombstone)
+		require.Nil(t, restoredState.Nodes[5], "node 5 should be nil (cleaned tombstone)")
+
+		// Nodes 6-9: verify position alignment was preserved
+		for i := 6; i < 10; i++ {
+			require.NotNil(t, restoredState.Nodes[i], "node %d should exist", i)
+			require.Equal(t, uint64(i), restoredState.Nodes[i].id, "node %d should have correct id", i)
+		}
+	})
 }
 
 var connsSlice1 = []uint64{
