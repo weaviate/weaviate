@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -377,6 +378,18 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					replyCh <- Result[T]{resp, err}
 					return
 				}
+				// The replica doesn't have this shard yet (e.g. RAFT lag after tenant
+				// activation). Don't retry: the next repair cycle will pick it up once
+				// the shard is initialized. Skipping avoids ERROR log noise.
+				if isShardNotFoundLocallyErr(err) {
+					c.log.WithFields(logrus.Fields{
+						"action": "pull",
+						"host":   hosts[hostIndex],
+						"shard":  c.Shard,
+						"class":  c.Class,
+					}).Debug("skipping replica: shard not yet available")
+					return
+				}
 				// this host failed op on the first try, put it on the retry queue
 				select {
 				case <-workerCtx.Done():
@@ -395,6 +408,15 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 					if err == nil {
 						replyCh <- Result[T]{resp, err}
 						return
+					}
+					if isShardNotFoundLocallyErr(err) {
+						c.log.WithFields(logrus.Fields{
+							"action": "pull",
+							"host":   hr.host,
+							"shard":  c.Shard,
+							"class":  c.Class,
+						}).Debug("skipping replica: shard not yet available")
+						continue
 					}
 					nextBackOff := hr.currentBackOff.NextBackOff()
 					if nextBackOff == backoff.Stop {
@@ -433,4 +455,12 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 type hostRetry struct {
 	host           string
 	currentBackOff backoff.BackOff
+}
+
+// isShardNotFoundLocallyErr reports whether err is a typed *Error with
+// StatusShardNotFound, indicating the replica does not yet have the shard
+// (e.g. RAFT lag after tenant activation). Plain string errors do not match.
+func isShardNotFoundLocallyErr(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && e.IsStatusCode(StatusShardNotFound)
 }
