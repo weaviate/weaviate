@@ -78,7 +78,7 @@ func init() {
 }
 
 func InitOptionalTokenizers() {
-	logger := logrus.New()
+	logger := logrus.StandardLogger().WithField("action", "tokenizer_init")
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		if err := init_gse(); err != nil {
 			logger.WithField("tokenizer", "gse").Error(err)
