@@ -28,9 +28,6 @@ import (
 // swagger:model ReplicationAsyncConfig
 type ReplicationAsyncConfig struct {
 
-	// Interval in milliseconds at which liveness of target nodes is checked.
-	AliveNodesCheckingFrequency *int64 `json:"aliveNodesCheckingFrequency,omitempty"`
-
 	// Maximum number of object keys included in a single diff batch.
 	DiffBatchSize *int64 `json:"diffBatchSize,omitempty"`
 
@@ -46,11 +43,11 @@ type ReplicationAsyncConfig struct {
 	// Height of the hashtree used for diffing.
 	HashtreeHeight *int64 `json:"hashtreeHeight,omitempty"`
 
+	// Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.
+	InitShieldCPUEveryN *int64 `json:"initShieldCpuEveryN,omitempty"`
+
 	// Interval in seconds at which async replication logs its status.
 	LoggingFrequency *int64 `json:"loggingFrequency,omitempty"`
-
-	// Maximum number of async replication workers.
-	MaxWorkers *int64 `json:"maxWorkers,omitempty"`
 
 	// Overall timeout in seconds for the pre-propagation phase.
 	PrePropagationTimeout *int64 `json:"prePropagationTimeout,omitempty"`
@@ -60,9 +57,6 @@ type ReplicationAsyncConfig struct {
 
 	// Maximum number of concurrent propagation workers.
 	PropagationConcurrency *int64 `json:"propagationConcurrency,omitempty"`
-
-	// Delay in milliseconds before newly added or updated objects are propagated.
-	PropagationDelay *int64 `json:"propagationDelay,omitempty"`
 
 	// Maximum number of objects to propagate in a single async replication run.
 	PropagationLimit *int64 `json:"propagationLimit,omitempty"`

@@ -242,14 +242,6 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
-
 		lock.Lock()
 		defer lock.Unlock()
 
@@ -280,10 +272,6 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
-
-		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-			return errors.Wrap(err, "object creation in hashtree")
-		}
 
 		return nil
 	}(); err != nil {
@@ -336,13 +324,23 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 }
 
 func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
-	hashtreeHeight := s.asyncReplicationConfig.hashtreeHeight
-
-	if hashtreeHeight == 0 {
+	ht := s.hashtree
+	if ht == nil {
 		return 0
 	}
+	return hashtreeLeafForHeight(uuidBytes, ht.Height())
+}
 
-	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - hashtreeHeight)
+// hashtreeLeafForHeight computes the hashtree leaf index for the given UUID
+// bytes at the specified tree height. Callers that need height consistency with
+// a live hashtree should read s.hashtree.Height() under asyncReplicationRWMux
+// rather than reading the stored base config, which may differ from the
+// effective height applied by runtime DynamicValues overrides.
+func hashtreeLeafForHeight(uuidBytes []byte, height int) uint64 {
+	if height == 0 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - height)
 }
 
 type objectInsertStatus struct {

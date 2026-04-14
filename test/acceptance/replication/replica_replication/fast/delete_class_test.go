@@ -29,7 +29,6 @@ import (
 
 func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperations() {
 	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	paragraphClass := articles.ParagraphsClass()
 

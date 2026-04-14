@@ -27,8 +27,6 @@ import (
 func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 	t := suite.T()
 
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
-
 	paragraphClass := articles.ParagraphsClass()
 	// Create the class
 	helper.DeleteClass(t, paragraphClass.Class)

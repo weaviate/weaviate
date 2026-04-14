@@ -33,6 +33,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE", "10485760"). // 10 MB
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {

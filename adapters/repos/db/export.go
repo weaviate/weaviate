@@ -144,10 +144,7 @@ func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) boo
 	if class.ReplicationConfig == nil || class.ReplicationConfig.Factor <= 1 {
 		return true
 	}
-	if db.config.Replication.AsyncReplicationDisabled.Get() {
-		return false
-	}
-	return class.ReplicationConfig.AsyncEnabled
+	return idx.asyncReplicationEnabled()
 }
 
 // SnapshotShards creates point-in-time snapshots of the objects buckets for

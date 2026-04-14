@@ -37,6 +37,7 @@ func (suite *ReplicationTestSuite) TestReadRepairTimebasedResolution() {
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
+		WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
