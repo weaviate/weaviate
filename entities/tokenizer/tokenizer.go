@@ -133,7 +133,7 @@ func init_gse() error {
 		gseTokenizer = &seg
 		UseGse = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationGse).Observe(time.Since(startTime).Seconds())
 	}
 	return nil
 }
@@ -150,7 +150,7 @@ func init_gse_ch() error {
 		gseTokenizerCh = &seg
 		UseGseCh = true
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGseCh)
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationGseCh).Observe(time.Since(startTime).Seconds())
 	}
 	return nil
 }
