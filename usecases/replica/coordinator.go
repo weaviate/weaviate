@@ -381,7 +381,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 				// The replica doesn't have this shard yet (e.g. RAFT lag after tenant
 				// activation). Don't retry: the next repair cycle will pick it up once
 				// the shard is initialized. Skipping avoids ERROR log noise.
-				if isShardNotFoundLocallyErr(err) {
+				if isReplicaShardNotFoundErr(err) {
 					c.log.WithFields(logrus.Fields{
 						"action": "pull",
 						"host":   hosts[hostIndex],
@@ -409,7 +409,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 						replyCh <- Result[T]{resp, err}
 						return
 					}
-					if isShardNotFoundLocallyErr(err) {
+					if isReplicaShardNotFoundErr(err) {
 						c.log.WithFields(logrus.Fields{
 							"action": "pull",
 							"host":   hr.host,
@@ -457,10 +457,10 @@ type hostRetry struct {
 	currentBackOff backoff.BackOff
 }
 
-// isShardNotFoundLocallyErr reports whether err is a typed *Error with
-// StatusShardNotFound, indicating the replica does not yet have the shard
-// (e.g. RAFT lag after tenant activation). Plain string errors do not match.
-func isShardNotFoundLocallyErr(err error) bool {
+// isReplicaShardNotFoundErr reports whether err is a typed *Error with
+// StatusShardNotFound, indicating the contacted replica does not yet have the
+// shard (e.g. RAFT lag after tenant activation). Plain string errors do not match.
+func isReplicaShardNotFoundErr(err error) bool {
 	var e *Error
 	return errors.As(err, &e) && e.IsStatusCode(StatusShardNotFound)
 }
