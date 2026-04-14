@@ -643,11 +643,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 ) ([]types.RepairResponse, error) {
 	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
-		return nil, enterrors.NewErrNotFound(fmt.Errorf("shard %q not found locally", shard))
+		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
 	defer release()
 	if s == nil {
-		return nil, enterrors.NewErrNotFound(fmt.Errorf("shard %q not found locally", shard))
+		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
 
 	if s.GetStatus() == storagestate.StatusLoading && idx.replicationEnabled() {
