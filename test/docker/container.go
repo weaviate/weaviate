@@ -13,6 +13,7 @@ package docker
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -25,17 +26,33 @@ const (
 	TestGateway = "10.99.0.1"
 )
 
-// StaticIPForHostname returns a deterministic static IP for a weaviate node.
+// StaticIPForHostname returns a deterministic static IP for a weaviate node
+// using the default [TestSubnet].
 // weaviate-0 → 10.99.0.10, weaviate-1 → 10.99.0.11, weaviate-2 → 10.99.0.12.
 // Returns empty string for non-weaviate containers.
 func StaticIPForHostname(hostname string) string {
+	return staticIPForHostnameInSubnet(hostname, TestSubnet)
+}
+
+// staticIPForHostnameInSubnet computes a deterministic static IP for a weaviate
+// node within the given CIDR subnet (e.g. "10.100.0.0/16").
+// The last two octets are fixed: .0.10/.0.11/.0.12 for weaviate-0/1/2.
+func staticIPForHostnameInSubnet(hostname, subnet string) string {
+	ip, _, err := net.ParseCIDR(subnet)
+	if err != nil {
+		return ""
+	}
+	b := ip.To4()
+	if b == nil {
+		return ""
+	}
 	switch hostname {
 	case Weaviate0:
-		return "10.99.0.10"
+		return fmt.Sprintf("%d.%d.0.10", b[0], b[1])
 	case Weaviate1:
-		return "10.99.0.11"
+		return fmt.Sprintf("%d.%d.0.11", b[0], b[1])
 	case Weaviate2:
-		return "10.99.0.12"
+		return fmt.Sprintf("%d.%d.0.12", b[0], b[1])
 	default:
 		return ""
 	}

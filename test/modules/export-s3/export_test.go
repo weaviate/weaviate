@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/exporttest"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -51,8 +52,7 @@ func TestExport_SingleShard(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -153,8 +153,7 @@ func TestExport_MultiShard(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(3),
@@ -234,8 +233,7 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -436,8 +434,7 @@ func TestExport_EmptyCollection(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -468,8 +465,7 @@ func TestExport_MultipleClasses(t *testing.T) {
 				{Name: "text", DataType: []string{"text"}},
 			},
 			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: true,
-				Factor:       3,
+				Factor: 3,
 			},
 			ShardingConfig: map[string]interface{}{
 				"desiredCount": float64(1),
@@ -507,7 +503,6 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		ReplicationConfig:  &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	})
 	defer helper.DeleteClass(t, className)
@@ -565,7 +560,6 @@ func TestExport_MultiTenant_MultiShard(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		ReplicationConfig:  &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	})
 	defer helper.DeleteClass(t, className)
@@ -616,8 +610,7 @@ func TestExport_NamedVectorAndMultiVector(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		VectorConfig: map[string]models.VectorConfig{
 			"regular": {
@@ -771,7 +764,6 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:              true,
 			AutoTenantActivation: false,
@@ -860,7 +852,6 @@ func TestExport_MultiTenant_AllCold(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:              true,
 			AutoTenantActivation: false,
@@ -952,7 +943,6 @@ func TestExport_MultiTenant_HotEmptyTenants(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		ReplicationConfig:  &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	})
 	defer helper.DeleteClass(t, className)
@@ -1043,7 +1033,6 @@ func TestExport_ColdTenantReactivatedDuringExport(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:              true,
 			AutoTenantActivation: false,
@@ -1330,8 +1319,7 @@ func TestExport_Validation(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -1415,8 +1403,7 @@ func TestExport_ExcludeFilter(t *testing.T) {
 				{Name: "text", DataType: []string{"text"}},
 			},
 			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: true,
-				Factor:       3,
+				Factor: 3,
 			},
 			ShardingConfig: map[string]interface{}{
 				"desiredCount": float64(1),
@@ -1479,8 +1466,7 @@ func TestExport_DuplicateID(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -1517,8 +1503,7 @@ func TestExport_ConcurrentExport(t *testing.T) {
 				{Name: "text", DataType: []string{"text"}},
 			},
 			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: true,
-				Factor:       3,
+				Factor: 3,
 			},
 			ShardingConfig: map[string]interface{}{
 				"desiredCount": float64(1),
@@ -1565,8 +1550,7 @@ func TestExport_Cancel(t *testing.T) {
 				{Name: "text", DataType: []string{"text"}},
 			},
 			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: true,
-				Factor:       3,
+				Factor: 3,
 			},
 			ShardingConfig: map[string]interface{}{
 				"desiredCount": float64(1),
@@ -1606,8 +1590,7 @@ func TestExport_Cancel(t *testing.T) {
 				{Name: "text", DataType: []string{"text"}},
 			},
 			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: true,
-				Factor:       3,
+				Factor: 3,
 			},
 			ShardingConfig: map[string]interface{}{
 				"desiredCount": float64(1),
@@ -1654,8 +1637,7 @@ func TestExport_Cancel_AlreadyFinished(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -1678,19 +1660,50 @@ func TestExport_Cancel_AlreadyFinished(t *testing.T) {
 	require.Contains(t, cancelErr.Error(), "409")
 }
 
+// TestExport_RejectsWithoutAsyncReplication verifies that export is rejected
+// with a 422 when async replication is globally disabled. In this branch there
+// is no per-class AsyncEnabled field — async replication is on for any class
+// with RF > 1 unless the cluster-level ASYNC_REPLICATION_DISABLED env var is
+// set. The test therefore starts its own dedicated 3-node cluster with that
+// variable set to "true".
 func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().
+		WithSubnet("10.100.0.0/16", "10.100.0.1").
+		WithBackendS3(s3Bucket, defaultS3Region).
+		WithOffloadS3(s3Bucket, defaultS3Region).
+		WithWeaviateEnv("AWS_REGION", defaultS3Region).
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", s3Bucket).
+		WithWeaviateEnv("EXPORT_DEFAULT_PATH", "").
+		WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true").
+		WithWeaviateCluster(3).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	// Save and restore the global helper state so the shared cluster URI is
+	// unaffected for subsequent tests in this package.
+	origHost, origPort := helper.ServerHost, helper.ServerPort
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.SetupClient(origHost + ":" + origPort)
+
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
-	// Create a class with RF > 1 but async replication disabled.
+	// Create a class with RF > 1. With async replication globally disabled,
+	// export must be rejected with 422.
 	helper.CreateClass(t, &models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: false,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),
@@ -1701,7 +1714,7 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	objects := makeObjects(className, "", 5)
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	_, err = exporttest.CreateExport(t, "s3", exportID, []string{className})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "422",
 		"export without async replication should be rejected with 422, got: %v", err)
@@ -1720,8 +1733,7 @@ func TestExport_SequentialSnapshots(t *testing.T) {
 			{Name: "text", DataType: []string{"text"}},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
+			Factor: 3,
 		},
 		ShardingConfig: map[string]interface{}{
 			"desiredCount": float64(1),

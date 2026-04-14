@@ -49,12 +49,15 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
 		Start(ctx)
 	require.Nil(t, err)
 	if cancel != nil {
 		cancel()
 	}
 	suite.compose = compose
+	helper.SetupClient(compose.GetWeaviate().URI())
 	suite.down = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
@@ -77,7 +80,6 @@ func TestReplicationTestSuite(t *testing.T) {
 func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t := suite.T()
 
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)

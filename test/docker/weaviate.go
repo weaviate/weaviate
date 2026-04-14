@@ -41,6 +41,7 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
+	networkSubnet string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -110,7 +111,6 @@ func startWeaviate(ctx context.Context,
 		wait.ForListeningPort(httpPort),
 		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
 	}
-
 	// Expose the cluster API port (CLUSTER_DATA_BIND_PORT) if configured.
 	// This allows tests to access /v1/cluster/* endpoints from the host.
 	var (
@@ -138,6 +138,7 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
 	}
+
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -172,7 +173,7 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
-	if ip := StaticIPForHostname(containerName); ip != "" && networkName != "" {
+	if ip := staticIPForHostnameInSubnet(containerName, networkSubnet); ip != "" && networkName != "" {
 		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
 			s := settings[networkName]
 			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{

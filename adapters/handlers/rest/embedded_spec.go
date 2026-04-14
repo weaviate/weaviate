@@ -8881,6 +8881,13 @@ func init() {
           "x-nullable": true,
           "x-omitempty": true
         },
+        "initShieldCpuEveryN": {
+          "description": "Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
           "type": "integer",
@@ -8916,13 +8923,6 @@ func init() {
           "x-nullable": true,
           "x-omitempty": true
         },
-        "propagationDelay": {
-          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "propagationLimit": {
           "description": "Maximum number of objects to propagate in a single async replication run.",
           "type": "integer",
@@ -8947,11 +8947,6 @@ func init() {
           "description": "Configuration parameters for asynchronous replication.",
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
-        },
-        "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
-          "type": "boolean",
-          "x-omitempty": false
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
@@ -19435,6 +19430,13 @@ func init() {
           "x-nullable": true,
           "x-omitempty": true
         },
+        "initShieldCpuEveryN": {
+          "description": "Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
           "type": "integer",
@@ -19470,13 +19472,6 @@ func init() {
           "x-nullable": true,
           "x-omitempty": true
         },
-        "propagationDelay": {
-          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "propagationLimit": {
           "description": "Maximum number of objects to propagate in a single async replication run.",
           "type": "integer",
@@ -19501,11 +19496,6 @@ func init() {
           "description": "Configuration parameters for asynchronous replication.",
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
-        },
-        "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
-          "type": "boolean",
-          "x-omitempty": false
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",

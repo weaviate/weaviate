@@ -30,7 +30,6 @@ import (
 func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 	t := suite.T()
 
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
@@ -126,7 +125,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 	t := suite.T()
 
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)

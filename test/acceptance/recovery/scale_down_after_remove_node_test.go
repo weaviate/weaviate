@@ -61,8 +61,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 3}
 	paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-		Factor:       2,
-		AsyncEnabled: false,
+		Factor: 2,
 	}
 	paragraphClass.Vectorizer = "text2vec-contextionary"
 

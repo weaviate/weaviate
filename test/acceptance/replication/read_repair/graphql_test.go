@@ -38,6 +38,7 @@ func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
+		WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

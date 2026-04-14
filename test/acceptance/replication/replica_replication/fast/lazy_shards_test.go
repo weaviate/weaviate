@@ -30,7 +30,6 @@ import (
 
 func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading() {
 	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{

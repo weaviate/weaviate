@@ -159,6 +159,8 @@ type Compose struct {
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
+	subnet                         string // custom network subnet (CIDR); defaults to TestSubnet
+	gateway                        string // custom network gateway; defaults to TestGateway
 }
 
 func New() *Compose {
@@ -696,6 +698,33 @@ func (d *Compose) WithAutoschema() *Compose {
 	return d
 }
 
+// WithSubnet configures a custom Docker network subnet for the compose stack.
+// Use this when running multiple stacks concurrently to avoid the "pool overlaps"
+// error that occurs when two networks share the same default [TestSubnet].
+// subnet must be in CIDR notation (e.g. "10.100.0.0/16"); gateway is the
+// corresponding gateway IP (e.g. "10.100.0.1").
+func (d *Compose) WithSubnet(subnet, gateway string) *Compose {
+	d.subnet = subnet
+	d.gateway = gateway
+	return d
+}
+
+// networkSubnet returns the effective subnet for this compose stack.
+func (d *Compose) networkSubnet() string {
+	if d.subnet != "" {
+		return d.subnet
+	}
+	return TestSubnet
+}
+
+// networkGateway returns the effective gateway for this compose stack.
+func (d *Compose) networkGateway() string {
+	if d.gateway != "" {
+		return d.gateway
+	}
+	return TestGateway
+}
+
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
@@ -703,7 +732,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		tescontainersnetwork.WithAttachable(),
 		tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
 			Config: []dockernetwork.IPAMConfig{
-				{Subnet: TestSubnet, Gateway: TestGateway},
+				{Subnet: d.networkSubnet(), Gateway: d.networkGateway()},
 			},
 		}),
 	)
@@ -948,7 +977,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.networkSubnet())
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1112,7 +1141,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
+				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.networkSubnet())
 			cancel()
 			if err == nil {
 				if attempt > 0 {
