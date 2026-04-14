@@ -65,9 +65,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
 	}
-	if err = s.store.FlushMemtables(ctx); err != nil {
-		return fmt.Errorf("flush memtables: %w", err)
-	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
 	}
@@ -95,6 +92,17 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("flush geo index queues: %w", err)
 	}
 
+	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
+	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if err = index.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
 	// Flush memtables again after draining the queues. Queue tasks (e.g. HNSW
 	// insertions) may have written compressed vectors to the LSM store between
 	// the initial FlushMemtables call above and the point where the queues were
@@ -107,16 +115,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("flush memtables after queue drain: %w", err)
 	}
 
-	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
-	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.PrepareForBackup(ctx); err != nil {
-			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
