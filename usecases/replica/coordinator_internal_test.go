@@ -19,13 +19,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestIsShardNotFoundLocallyErr(t *testing.T) {
+func TestIsReplicaShardNotFoundErr(t *testing.T) {
 	t.Run("matches StatusShardNotFound wrapped errors", func(t *testing.T) {
 		err := fmt.Errorf("outer: %w", &Error{Code: StatusShardNotFound, Msg: "S1", Err: errors.New("inner")})
-		assert.True(t, isShardNotFoundLocallyErr(err))
+		assert.True(t, isReplicaShardNotFoundErr(err))
 	})
 
 	t.Run("does not match generic errors", func(t *testing.T) {
-		assert.False(t, isShardNotFoundLocallyErr(errors.New("shard not found locally")))
+		assert.False(t, isReplicaShardNotFoundErr(errors.New("shard not found locally")))
 	})
 }
