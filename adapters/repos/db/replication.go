@@ -893,13 +893,13 @@ func (i *Index) FetchObject(ctx context.Context,
 ) (replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return replica.Replica{}, enterrors.NewErrNotFound(fmt.Errorf("shard %q not found locally", shardName))
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	defer release()
 
 	if shard == nil {
-		return replica.Replica{}, enterrors.NewErrNotFound(fmt.Errorf("shard %q not found locally", shardName))
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading && i.replicationEnabled() {
@@ -941,11 +941,11 @@ func (i *Index) FetchObjects(ctx context.Context,
 ) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, enterrors.NewErrNotFound(fmt.Errorf("shard %q not found locally", shardName))
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 	defer release()
 	if shard == nil {
-		return nil, enterrors.NewErrNotFound(fmt.Errorf("shard %q not found locally", shardName))
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {

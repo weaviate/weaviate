@@ -910,10 +910,6 @@ func (i *replicatedIndices) getObject() http.Handler {
 			http.Error(w, "fetch object: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
-		if err != nil && errors.As(err, &enterrors.ErrNotFound{}) {
-			http.Error(w, "fetch object: "+err.Error(), http.StatusNotFound)
-			return
-		}
 		if err != nil {
 			http.Error(w, "fetch object: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -967,10 +963,6 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		resp, err := i.replicator.FetchObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
-		if err != nil && errors.As(err, &enterrors.ErrNotFound{}) {
-			http.Error(w, "fetch objects: "+err.Error(), http.StatusNotFound)
 			return
 		}
 		if err != nil {

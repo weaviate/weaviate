@@ -80,9 +80,6 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 	err = c.doCustomUnmarshal(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, resp.UnmarshalBinary, numRetries)
-	if err != nil {
-		err = maybeWrapShardNotFoundErr(err, shard)
-	}
 	return resp, err
 }
 
@@ -285,9 +282,6 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
 	err = c.doCustomUnmarshal(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, nil, resp.UnmarshalBinary, MAX_RETRIES)
-	if err != nil {
-		err = maybeWrapShardNotFoundErr(err, shard)
-	}
 	return resp, err
 }
 
