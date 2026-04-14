@@ -23,7 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/filters"
-	filternested "github.com/weaviate/weaviate/entities/filters/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -54,7 +54,7 @@ type nestedInfo struct {
 	// Each entry (filternested.ArrayIndex) restricts the matching positions to the
 	// specified array element. Multiple entries support multi-level indexing
 	// (e.g. cars[1].tags[2]).
-	arrayIndices []filternested.ArrayIndex
+	arrayIndices []filnested.ArrayIndex
 }
 
 type propValuePair struct {

@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -30,7 +30,7 @@ func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher, lim
 	if err != nil {
 		return nil, err
 	}
-	dbm.docIDs = nested.MaskRootLeaf(dbm.docIDs)
+	dbm.docIDs = invnested.MaskRootLeaf(dbm.docIDs)
 	return dbm, nil
 }
 
@@ -47,7 +47,7 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 		return nil, errors.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 
-	positions, release, err := metaBucket.RoaringSetGet(nested.ExistsKey(pv.nested.relPath))
+	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
 	}
@@ -58,7 +58,7 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 	}
 
 	dbm := newDocBitmap()
-	dbm.docIDs = nested.MaskRootLeaf(positions)
+	dbm.docIDs = invnested.MaskRootLeaf(positions)
 	// pv.value is a little-endian bool: 0x01 = true (IsNull — property absent → denylist).
 	dbm.isDenyList = len(pv.value) > 0 && pv.value[0] == 0x01
 	return &dbm, nil
@@ -92,7 +92,7 @@ func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *sroar.Bitma
 		return fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 	for _, ai := range pv.nested.arrayIndices {
-		idxPositions, release, err := metaBucket.RoaringSetGet(nested.IdxKey(ai.RelPath, ai.Index))
+		idxPositions, release, err := metaBucket.RoaringSetGet(invnested.IdxKey(ai.RelPath, ai.Index))
 		if err != nil {
 			return fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
 		}
@@ -121,7 +121,7 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 	// Build positionsByPath: fetch raw position bitmaps per pvp and route into
 	// the correct bucket slot based on origin (token vs independent).
 	positionsByPath := make(map[string]*positionBitmaps, len(pv.children))
-	pathOrder := make([]string, 0, len(pv.children))
+	paths := make([]string, 0, len(pv.children))
 
 	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
 		dbm, err := leaf.fetchNestedPositions(ctx, s, 0)
@@ -131,7 +131,7 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		path := leaf.nested.relPath
 		if _, exists := positionsByPath[path]; !exists {
 			positionsByPath[path] = &positionBitmaps{}
-			pathOrder = append(pathOrder, path)
+			paths = append(paths, path)
 		}
 		if isToken {
 			positionsByPath[path].tokens = append(positionsByPath[path].tokens, dbm.docIDs)
@@ -158,21 +158,30 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		}
 	}
 
-	// Find the root property's schema to build the resolution plan.
+	// Find the root property's schema so the plan builder can locate intermediate
+	// object[] arrays and determine same-element semantics for each group.
 	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", pv.prop, err)
 	}
-	rootDT := schema.DataType(rootProp.DataType[0])
 
-	plan, err := newResolutionPlanBuilder(rootDT, rootProp.NestedProperties).build(pathOrder)
+	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
+	if metaBucket == nil {
+		return nil, fmt.Errorf("nested correlated AND: meta bucket for %q not found — is it indexed?", pv.prop)
+	}
+
+	// Compute per-path condition counts (tokens, independents) for the plan builder.
+	counts := make(conditionCounts, len(positionsByPath))
+	for path, positions := range positionsByPath {
+		counts[path] = [2]int{len(positions.tokens), len(positions.independent)}
+	}
+
+	plan, err := newExecutionPlanBuilder(rootProp.NestedProperties).build(paths, counts)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
 	}
 
-	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
-
-	docIDs, err := newResolutionPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
+	docIDs, err := newPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}

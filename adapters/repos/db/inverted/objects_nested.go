@@ -16,7 +16,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -125,7 +125,7 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 		return nil, nil
 	}
 
-	assignResult, err := nested.AssignPositions(prop, value)
+	assignResult, err := invnested.AssignPositions(prop, value)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 // analyzeNestedValue converts a raw positioned value into one or more
 // NestedValue entries with analyzed byte representations. Text values
 // may produce multiple entries (one per token).
-func (a *Analyzer) analyzeNestedValue(pv nested.PositionedValue, cfg nestedIndexConfig) ([]NestedValue, error) {
+func (a *Analyzer) analyzeNestedValue(pv invnested.PositionedValue, cfg nestedIndexConfig) ([]NestedValue, error) {
 	// TODO aliszka:nested_filtering verify whether pv.PropName (leaf nested property
 	// name, e.g. "city") is the correct identifier for the text analyzer lookup,
 	// or whether the top-level property name (e.g. "addresses") should be used instead.

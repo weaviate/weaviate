@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/filters/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -220,7 +220,7 @@ func TestExtractNestedProp(t *testing.T) {
 				assert.Equal(t, "city", pv.nested.relPath)
 				assert.True(t, pv.nested.isNested)
 				require.Len(t, pv.nested.arrayIndices, 1)
-				assert.Equal(t, nested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
+				assert.Equal(t, filnested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
 			},
 		},
 		{
@@ -232,7 +232,7 @@ func TestExtractNestedProp(t *testing.T) {
 				assert.Equal(t, "numbers", pv.nested.relPath)
 				assert.True(t, pv.nested.isNested)
 				require.Len(t, pv.nested.arrayIndices, 1)
-				assert.Equal(t, nested.ArrayIndex{RelPath: "numbers", Index: 1}, pv.nested.arrayIndices[0])
+				assert.Equal(t, filnested.ArrayIndex{RelPath: "numbers", Index: 1}, pv.nested.arrayIndices[0])
 			},
 		},
 		{
@@ -244,7 +244,7 @@ func TestExtractNestedProp(t *testing.T) {
 				assert.Equal(t, "owner.firstname", pv.nested.relPath)
 				assert.True(t, pv.nested.isNested)
 				require.Len(t, pv.nested.arrayIndices, 1)
-				assert.Equal(t, nested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
+				assert.Equal(t, filnested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
 			},
 		},
 		{
@@ -256,8 +256,8 @@ func TestExtractNestedProp(t *testing.T) {
 				assert.Equal(t, "numbers", pv.nested.relPath)
 				assert.True(t, pv.nested.isNested)
 				require.Len(t, pv.nested.arrayIndices, 2)
-				assert.Equal(t, nested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
-				assert.Equal(t, nested.ArrayIndex{RelPath: "numbers", Index: 2}, pv.nested.arrayIndices[1])
+				assert.Equal(t, filnested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
+				assert.Equal(t, filnested.ArrayIndex{RelPath: "numbers", Index: 2}, pv.nested.arrayIndices[1])
 			},
 		},
 		{

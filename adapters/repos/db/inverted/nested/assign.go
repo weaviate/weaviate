@@ -393,5 +393,5 @@ func joinPath(prefix, name string) string {
 	if prefix == "" {
 		return name
 	}
-	return prefix + "." + name
+	return JoinRelPath([]string{prefix, name})
 }

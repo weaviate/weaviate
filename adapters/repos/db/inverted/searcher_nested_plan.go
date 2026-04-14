@@ -13,306 +13,218 @@ package inverted
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/weaviate/weaviate/entities/filters/nested"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// nestedCorrelation describes which bitmap operation should combine two nested
-// filter conditions to achieve correct same-element semantics.
-type nestedCorrelation int
+// groupOp describes how the condition bitmaps within a conditionGroup are combined.
+type groupOp int
 
 const (
-	// directAnd: positions are naturally aligned (scalar siblings at the same
-	// element level, or ancestor/descendant). Standard bitmap AND on full 64-bit
-	// values gives correct results.
-	directAnd nestedCorrelation = iota
+	// groupAndAll: all conditions are single and positions are naturally aligned
+	// (no masked results, no further object[] in any path rem beyond the group
+	// LCA). Raw AndAll on full 64-bit positions gives correct results because
+	// leaf bits encode same-element identity — e.g. two scalars in the same car
+	// share the same leaf, two scalars in different cars do not.
+	groupAndAll groupOp = iota
 
-	// maskLeafAnd: paths are in different subtrees of a single object node with
-	// no shared intermediate object[] array. Zero the leaf bits (keep root+docID)
-	// then AND to align on document identity.
-	maskLeafAnd
+	// groupAndAllMaskLeaf: the group LCA is the root object[] itself (lcaPath=="")
+	// and at least one path has masked combinePositions output (multiple
+	// independents or tokens+independent). root_idx already encodes element
+	// identity so AndAllMaskLeaf gives correct same-root-element semantics
+	// without an idx loop.
+	groupAndAllMaskLeaf
 
-	// idxLoopAnd: paths are in different subtrees of a shared object[] array.
-	// Must iterate _idx.{lcaPath}[N] to verify both conditions fall under the
-	// same array element.
-	idxLoopAnd
+	// groupRunIdxLoop: the group LCA is an intermediate object[] (lcaPath!="").
+	// Must iterate _idx.{lcaPath}[N] entries to verify all conditions land in
+	// the same array element.
+	groupRunIdxLoop
 )
 
-// ---------------------------------------------------------------------------
-// Resolution plan
-// ---------------------------------------------------------------------------
-
-// resolutionPlan is a recursive tree that describes how to combine a set of
-// nested filter conditions to achieve correct same-element semantics.
-//
-// Leaf nodes (groups == nil) hold a flat list of relative paths that share a
-// common LCA and are combined with op. Interior maskLeafAnd nodes hold
-// sub-plans for each first-level sub-tree group.
-//
-// Examples:
-//
-//	addresses.city + addresses.postcode + cars.make + cars.colors
-//	→ maskLeafAnd
-//	    ├── directAnd  [addresses.city, addresses.postcode]
-//	    └── directAnd  [cars.make, cars.colors]
-//
-//	addresses.city + addresses.postcode + cars.tires.width + cars.accessories.type
-//	→ maskLeafAnd
-//	    ├── directAnd           [addresses.city, addresses.postcode]
-//	    └── idxLoopAnd("cars")
-//	            ├── directAnd   [cars.tires.width]
-//	            └── directAnd   [cars.accessories.type]
-//
-//	cars.tires.width + cars.accessories.type + cars.accessories.color
-//	→ idxLoopAnd("cars")
-//	    ├── directAnd   [cars.tires.width]
-//	    └── directAnd   [cars.accessories.type, cars.accessories.color]
-type resolutionPlan struct {
-	op      nestedCorrelation // operation to apply at this node
-	lcaPath string            // set for idxLoopAnd: LCA array path (relative)
-	groups  []*resolutionPlan // set for maskLeafAnd interior OR idxLoopAnd interior:
-	//                           one sub-plan per pathRem sub-tree beneath the LCA
-	paths []string // set for leaf nodes (no sub-groups): full relative paths
+// conditionGroup is one set of relPaths that share a common ObjectArray LCA
+// and are combined with a single operation.
+type conditionGroup struct {
+	op      groupOp
+	lcaPath string   // non-empty for groupRunIdxLoop: the intermediate object[] LCA
+	paths   []string // relPaths whose condition bitmaps participate in this group
 }
 
-// resolutionPlanBuilder constructs a resolutionPlan for a set of relative
-// nested filter paths. dt and props describe the root property's schema.
-//
-// Paths are split to segments exactly once and all internal work is done in
-// segment space. The schema context is threaded downward so each recursive
-// level starts from its LCA's schema rather than re-walking from the root.
-//
-// Algorithm:
-//  1. Group paths by first segment, preserving order.
-//  2. Multiple groups → interior maskLeafAnd; classify each group.
-//  3. Single group → classifyLeaf:
-//     a. Strip ancestor paths (pathRem == empty): their bitmaps are supersets of
-//     all siblings and are no-ops in any AND — exclude from further logic.
-//     b. Binary pair where one remainder is a direct scalar at the LCA level
-//     (inherits all parent positions, superset of siblings) → directAnd
-//     c. No remainder passes through a sub-array → directAnd
-//     d/e. At least one remainder has a sub-array → recurse with stripped segs
-//     and LCA-level schema:
-//     · LCA is intermediate object[] → idxLoopAnd(lcaPath) with groups
-//     · LCA is plain object or root object[] → maskLeafAnd with groups
-type resolutionPlanBuilder struct {
-	dt    schema.DataType
+// executionPlan is a flat list of condition groups. The executor combines all
+// group results with AndAllMaskLeaf and strips position bits with MaskRootLeaf.
+type executionPlan []conditionGroup
+
+// executionPlanBuilder groups relPaths by their common ObjectArray LCA and
+// assigns each group the appropriate combining operation.
+// Only the root property schema (props) is stored on the struct — it is
+// invariant for the lifetime of the builder. conditionCounts (per-path token
+// and independent counts) is query-specific and passed to build() directly.
+type executionPlanBuilder struct {
 	props []*models.NestedProperty
 }
 
-// newResolutionPlanBuilder returns a resolutionPlanBuilder for the given root
-// property schema. Call build on the result to produce a resolutionPlan.
-func newResolutionPlanBuilder(dt schema.DataType, props []*models.NestedProperty) *resolutionPlanBuilder {
-	return &resolutionPlanBuilder{dt: dt, props: props}
+// newExecutionPlanBuilder returns a builder for the given root property schema.
+func newExecutionPlanBuilder(props []*models.NestedProperty) *executionPlanBuilder {
+	return &executionPlanBuilder{props: props}
 }
 
-// build is the entry point. Returns an error if paths is empty.
-func (b *resolutionPlanBuilder) build(paths []string) (*resolutionPlan, error) {
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("resolutionPlanBuilder: no paths provided")
+// build is the entry point. counts maps each relPath to [tokens, independents]
+// so the builder can determine which paths produce leaf-masked results.
+// Returns an error if paths is empty.
+func (b *executionPlanBuilder) build(paths []string, counts conditionCounts) (executionPlan, error) {
+	switch len(paths) {
+	case 0:
+		return nil, fmt.Errorf("buildExecutionPlan: no paths provided")
+	case 1:
+		return executionPlan{b.singlePathGroup(paths[0], counts)}, nil
+	default:
+		return b.groupPaths(paths, counts), nil
 	}
-	if len(paths) == 1 {
-		return &resolutionPlan{op: directAnd, paths: paths}, nil
-	}
-	pathsSegs := make([][]string, len(paths))
-	for i, p := range paths {
-		pathsSegs[i] = strings.Split(p, ".")
-	}
-	return b.planFromSegs(pathsSegs, paths, b.dt, b.props)
 }
 
-// planFromSegs groups paths by first segment and dispatches to classifyLeaf.
-// pathsSegs[i] is the pre-split form of paths[i]; dt/props is the schema at
-// the current nesting level.
-func (b *resolutionPlanBuilder) planFromSegs(
-	pathsSegs [][]string,
-	paths []string,
-	dt schema.DataType,
-	props []*models.NestedProperty,
-) (*resolutionPlan, error) {
-	if len(pathsSegs) <= 1 {
-		return &resolutionPlan{op: directAnd, paths: paths}, nil
+// groupPaths groups paths by their first segment, computes the common
+// ObjectArray LCA for each first-segment group, and assigns the combining op.
+func (b *executionPlanBuilder) groupPaths(paths []string, counts conditionCounts) executionPlan {
+	type rawGroup struct {
+		segs  [][]string
+		paths []string
 	}
-
 	seen := map[string]bool{}
 	order := []string{}
-	byFirst := map[string][]int{}
-	for i, pathSegs := range pathsSegs {
-		first := pathSegs[0]
+	byFirst := map[string]*rawGroup{}
+
+	for _, p := range paths {
+		segs := invnested.SplitRelPath(p)
+		first := segs[0]
 		if !seen[first] {
 			seen[first] = true
 			order = append(order, first)
+			byFirst[first] = &rawGroup{}
 		}
-		byFirst[first] = append(byFirst[first], i)
+		byFirst[first].segs = append(byFirst[first].segs, segs)
+		byFirst[first].paths = append(byFirst[first].paths, p)
 	}
 
-	if len(order) > 1 {
-		subPlans := make([]*resolutionPlan, 0, len(order))
-		for _, first := range order {
-			idxs := byFirst[first]
-			groupPathSegs := make([][]string, len(idxs))
-			groupPaths := make([]string, len(idxs))
-			for j, idx := range idxs {
-				groupPathSegs[j] = pathsSegs[idx]
-				groupPaths[j] = paths[idx]
-			}
-			subPlan, err := b.classifyLeaf(groupPathSegs, groupPaths, dt, props)
-			if err != nil {
-				return nil, err
-			}
-			subPlans = append(subPlans, subPlan)
-		}
-		return &resolutionPlan{op: maskLeafAnd, groups: subPlans}, nil
+	plan := make(executionPlan, 0, len(order))
+	for _, first := range order {
+		g := byFirst[first]
+		lcaPath := b.commonObjectArrayLCA(g.segs, g.paths)
+		op := b.determineGroupOp(g.paths, lcaPath, counts)
+		plan = append(plan, conditionGroup{op: op, lcaPath: lcaPath, paths: g.paths})
 	}
-
-	return b.classifyLeaf(pathsSegs, paths, dt, props)
+	return plan
 }
 
-// classifyLeaf classifies a set of pre-split paths that all share a common
-// first segment by computing their LCA and applying the decision rules.
-func (b *resolutionPlanBuilder) classifyLeaf(
-	pathsSegs [][]string,
-	paths []string,
-	dt schema.DataType,
-	props []*models.NestedProperty,
-) (*resolutionPlan, error) {
-	if len(pathsSegs) == 0 {
-		return nil, fmt.Errorf("resolutionPlanBuilder: no paths provided")
-	}
-	if len(pathsSegs) == 1 {
-		return &resolutionPlan{op: directAnd, paths: paths}, nil
-	}
+// singlePathGroup builds a conditionGroup for a single relPath.
+func (b *executionPlanBuilder) singlePathGroup(path string, counts conditionCounts) conditionGroup {
+	lcaPath := b.lastIntermediateObjectArray(path)
+	op := b.determineGroupOp([]string{path}, lcaPath, counts)
+	return conditionGroup{op: op, lcaPath: lcaPath, paths: []string{path}}
+}
 
-	lcaLen := len(pathsSegs[0])
-	for _, ps := range pathsSegs[1:] {
+// commonObjectArrayLCA returns the deepest ObjectArray in the common prefix of
+// all segs. For a single path it delegates to lastIntermediateObjectArray.
+func (b *executionPlanBuilder) commonObjectArrayLCA(segs [][]string, paths []string) string {
+	if len(paths) == 1 {
+		return b.lastIntermediateObjectArray(paths[0])
+	}
+	// Find the common prefix length across all segs.
+	lcaLen := len(segs[0])
+	for _, s := range segs[1:] {
 		i := 0
-		for i < lcaLen && i < len(ps) && pathsSegs[0][i] == ps[i] {
+		for i < lcaLen && i < len(s) && segs[0][i] == s[i] {
 			i++
 		}
 		lcaLen = i
 	}
-
-	// 3a: exclude ancestor paths — they are supersets of all siblings (no-ops).
-	var activePathSegs [][]string
-	var activePaths []string
-	for i, pathSegs := range pathsSegs {
-		if len(pathSegs) > lcaLen {
-			activePathSegs = append(activePathSegs, pathSegs)
-			activePaths = append(activePaths, paths[i])
-		}
+	if lcaLen == 0 {
+		return ""
 	}
-	if len(activePaths) <= 1 {
-		return &resolutionPlan{op: directAnd, paths: activePaths}, nil
-	}
-
-	lcaPathSegs := pathsSegs[0][:lcaLen]
-	lcaDT, lcaProps := b.nodeTypeAndProps(lcaPathSegs, dt, props)
-	if !schema.IsNested(lcaDT) {
-		return nil, fmt.Errorf("resolutionPlanBuilder: LCA node %q is not object or object[], got %q",
-			strings.Join(lcaPathSegs, "."), lcaDT)
-	}
-
-	activePathRems := make([][]string, len(activePathSegs))
-	for i, pathSegs := range activePathSegs {
-		activePathRems[i] = pathSegs[lcaLen:]
-	}
-
-	// 3b/3c: directAnd suffices when positions are naturally aligned.
-	if b.isDirectAndEligible(activePathRems, lcaProps) {
-		return &resolutionPlan{op: directAnd, paths: activePaths}, nil
-	}
-
-	// 3d/3e: element-level correlation required.
-	innerPlan, err := b.planFromSegs(activePathRems, activePaths, lcaDT, lcaProps)
-	if err != nil {
-		return nil, err
-	}
-
-	if lcaDT == schema.DataTypeObjectArray {
-		if lcaPath := strings.Join(lcaPathSegs, "."); lcaPath != "" {
-			return &resolutionPlan{op: idxLoopAnd, lcaPath: lcaPath, groups: b.extractGroups(innerPlan)}, nil
-		}
-	}
-	return &resolutionPlan{op: maskLeafAnd, groups: b.extractGroups(innerPlan)}, nil
+	return b.lastIntermediateObjectArray(invnested.JoinRelPath(segs[0][:lcaLen]))
 }
 
-// isDirectAndEligible returns true when a plain bitmap AND gives correct
-// same-element results without an idx loop:
-//   - 3b: binary pair where one remainder is a direct scalar at the LCA level
-//   - 3c: no remainder passes through a sub-array
-func (b *resolutionPlanBuilder) isDirectAndEligible(pathRems [][]string, lcaProps []*models.NestedProperty) bool {
-	if len(pathRems) == 2 {
-		if b.isScalarAtLevel(pathRems[0], lcaProps) || b.isScalarAtLevel(pathRems[1], lcaProps) {
-			return true
+// determineGroupOp picks the combining operation for a group:
+//
+//  1. Any masked path (tokens+independent or multiple independents) → leaf bits
+//     cannot be used for same-element detection via raw AndAll.
+//     - lcaPath!="" → groupRunIdxLoop (idx entries verify same intermediate element)
+//     - lcaPath==""  → groupAndAllMaskLeaf (root_idx encodes element identity)
+//
+//  2. All single conditions but some path passes through a further object[]
+//     beyond the group LCA → leaf positions are not naturally aligned.
+//     Same routing as above.
+//
+//  3. All single conditions, no further object[] in any rem → positions are
+//     naturally aligned; raw AndAll on leaf-precise positions is sufficient.
+//
+// Why groupAndAllMaskLeaf is never safe when lcaPath!="":
+//
+// root_idx always encodes the ROOT property's element index; leaf_idx is a
+// depth-first counter within that root element. Masking leaf bits collapses
+// all positions within the same root element to {root_idx, leaf=0, docID},
+// regardless of which intermediate array element they came from.
+//
+// Example — garages (root object[]), cars (intermediate object[]):
+//
+//	garages[0].cars[0].tags[0] = "german" → {root=1, leaf=1, doc=D}
+//	garages[0].cars[1].tags[0] = "electric" → {root=1, leaf=2, doc=D}
+//	MaskLeaf both → {root=1, leaf=0, doc=D} for each
+//	AndAllMaskLeaf → {root=1, leaf=0, doc=D}  ← false positive
+//
+// The two tags are in different cars, but the same garages element. Masking
+// the leaf loses the cars-level distinction entirely. Only the idx loop can
+// verify that all conditions land within the same intermediate element, so
+// groupRunIdxLoop is required for any lcaPath!="".
+func (b *executionPlanBuilder) determineGroupOp(paths []string, lcaPath string, counts conditionCounts) groupOp {
+	for _, p := range paths {
+		if counts.isMasked(p) || b.lastIntermediateObjectArray(p) != lcaPath {
+			if lcaPath != "" {
+				return groupRunIdxLoop
+			}
+			return groupAndAllMaskLeaf
 		}
 	}
-	for _, pathRem := range pathRems {
-		if b.containsObjectArray(pathRem, lcaProps) {
-			return false
-		}
-	}
-	return true
+	return groupAndAll
 }
 
-// extractGroups lifts the sub-groups of an interior maskLeafAnd node so they
-// can be used directly as groups of the outer operation, or wraps a single
-// plan as a one-element slice.
-func (b *resolutionPlanBuilder) extractGroups(plan *resolutionPlan) []*resolutionPlan {
-	if plan.op == maskLeafAnd && len(plan.groups) > 0 {
-		return plan.groups
-	}
-	return []*resolutionPlan{plan}
-}
-
-// nodeTypeAndProps walks pathSegs through the nested schema and returns the
-// DataType and NestedProperties at that node. An empty slice returns (dt, props).
-func (b *resolutionPlanBuilder) nodeTypeAndProps(
-	pathSegs []string,
-	dt schema.DataType,
-	props []*models.NestedProperty,
-) (schema.DataType, []*models.NestedProperty) {
-	for _, pathSeg := range pathSegs {
-		np := nested.FindNestedProp(props, pathSeg)
+// lastIntermediateObjectArray walks the nested property schema along path and
+// returns the dot-notation prefix up to and including the LAST (deepest)
+// segment whose DataType is DataTypeObjectArray, or "" if none exists.
+//
+// Examples:
+//
+//	"cars.tags"         (cars=object[], tags=text[])                   → "cars"
+//	"garages.cars.tags" (garages=object[], cars=object[], tags=text[]) → "garages.cars"
+//	"make"              (text, no intermediate array)                  → ""
+func (b *executionPlanBuilder) lastIntermediateObjectArray(path string) string {
+	segs := invnested.SplitRelPath(path)
+	props := b.props
+	last := ""
+	for i, seg := range segs {
+		np := filnested.FindNestedProp(props, seg)
 		if np == nil {
-			return dt, props
+			return last
 		}
-		dt = schema.DataType(np.DataType[0])
-		props = np.NestedProperties
-	}
-	return dt, props
-}
-
-// isScalarAtLevel returns true if pathSegs is a single segment resolving to a
-// non-array, non-nested scalar property. Such a property inherits ALL leaf
-// positions of its parent element and is a superset of any sibling's positions.
-func (b *resolutionPlanBuilder) isScalarAtLevel(pathSegs []string, props []*models.NestedProperty) bool {
-	if len(pathSegs) != 1 {
-		return false
-	}
-	np := nested.FindNestedProp(props, pathSegs[0])
-	if np == nil {
-		return false
-	}
-	dt := schema.DataType(np.DataType[0])
-	return !schema.IsNested(dt) && !schema.IsScalarArrayType(dt)
-}
-
-// containsObjectArray returns true if any segment in pathSegs resolves to a
-// DataTypeObjectArray property — the path passes through a nested array that
-// introduces element-level positions.
-func (b *resolutionPlanBuilder) containsObjectArray(pathSegs []string, props []*models.NestedProperty) bool {
-	for _, pathSeg := range pathSegs {
-		np := nested.FindNestedProp(props, pathSeg)
-		if np == nil {
-			return false
+		dt := schema.DataType(np.DataType[0])
+		if dt == schema.DataTypeObjectArray {
+			last = invnested.JoinRelPath(segs[:i+1])
 		}
-		if schema.DataType(np.DataType[0]) == schema.DataTypeObjectArray {
-			return true
+		if !schema.IsNested(dt) {
+			return last
 		}
 		props = np.NestedProperties
 	}
-	return false
+	return last
+}
+
+// conditionCounts maps each relPath to its [tokens, independents] condition counts.
+type conditionCounts map[string][2]int
+
+// isMasked reports whether the conditions for path will produce a leaf-masked
+// bitmap from the combining step: independents>1 OR (tokens>0 AND independents>0).
+func (c conditionCounts) isMasked(path string) bool {
+	tok, ind := c[path][0], c[path][1]
+	return ind > 1 || (tok > 0 && ind > 0)
 }
