@@ -238,7 +238,9 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			// value so we compare hashes consistently.
 			if propStruct.IsBlobHash {
 				if newStr, ok := valNew.(string); ok {
-					valNew = schema.HashBlob(newStr)
+					if !schema.IsLikelySHA256Hash(newStr) {
+						valNew = schema.HashBlob(newStr)
+					}
 				}
 			}
 			if valOld != valNew {

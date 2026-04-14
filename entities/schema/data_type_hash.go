@@ -14,6 +14,7 @@ package schema
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -24,6 +25,23 @@ import (
 func HashBlob(base64Data string) string {
 	h := sha256.Sum256([]byte(base64Data))
 	return hex.EncodeToString(h[:])
+}
+
+func IsLikelySHA256Hash(s string) bool {
+	// Length of string must be 64
+	if len(s) != 64 {
+		return false
+	}
+	// Only hexadecimal characters
+	if !regexp.MustCompile(`^[0-9a-fA-F]{64}$`).MatchString(s) {
+		return false
+	}
+	// Reject obvious dummy/all-zero hashes (very rare in practice)
+	if s == "0000000000000000000000000000000000000000000000000000000000000000" ||
+		s == "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" {
+		return false
+	}
+	return true
 }
 
 // HashBlobHashProperties replaces the base64 data of all BlobHash properties

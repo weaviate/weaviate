@@ -223,6 +223,156 @@ func testBlobHashVectorization(host string) func(t *testing.T) {
 			}
 		})
 
+		t.Run("update only blob image does not change blobhash vector", func(t *testing.T) {
+			// Snapshot vectors before update
+			type vectorSnapshot struct {
+				blobVec     []float32
+				blobHashVec []float32
+				imageHash   string
+			}
+			ids := multimodal.GetIDs(t, dataFolderPath)
+			snapshots := make(map[string]vectorSnapshot)
+			for _, id := range ids {
+				obj, err := helper.GetObject(t, className, strfmt.UUID(id), "vector")
+				require.NoError(t, err)
+				require.NotNil(t, obj)
+				blobVec, ok := obj.Vectors["blob"].([]float32)
+				require.True(t, ok)
+				blobHashVec, ok := obj.Vectors["blobhash"].([]float32)
+				require.True(t, ok)
+				props, ok := obj.Properties.(map[string]any)
+				require.True(t, ok)
+				imageHash, ok := props[multimodal.PropertyImageHash].(string)
+				require.True(t, ok)
+				snapshots[id] = vectorSnapshot{
+					blobVec:     append([]float32{}, blobVec...),
+					blobHashVec: append([]float32{}, blobHashVec...),
+					imageHash:   imageHash,
+				}
+			}
+
+			// Update each object with a different image but keep the same blob data for image_hash
+			for i, id := range ids {
+				// Swap images: object 0 gets image 2, object 1 gets image 1
+				swappedIdx := len(ids) - i
+				newBlob, err := multimodal.GetImageBlob(dataFolderPath, swappedIdx)
+				require.NoError(t, err)
+				// Keep the original image blob for the hash field so the hash stays the same
+				originalBlob, err := multimodal.GetImageBlob(dataFolderPath, i+1)
+				require.NoError(t, err)
+
+				updatedObj := &models.Object{
+					Class: className,
+					ID:    strfmt.UUID(id),
+					Properties: map[string]any{
+						multimodal.PropertyImageTitle:       fmt.Sprintf("swapped_title_%d", i),
+						multimodal.PropertyImageDescription: fmt.Sprintf("swapped_desc_%d", i),
+						multimodal.PropertyImage:            newBlob,
+						multimodal.PropertyImageHash:        originalBlob,
+					},
+				}
+				err = helper.UpdateObject(t, updatedObj)
+				require.NoError(t, err)
+			}
+
+			// Verify blobhash vector is unchanged, blob vector changed
+			for _, id := range ids {
+				obj, err := helper.GetObject(t, className, strfmt.UUID(id), "vector")
+				require.NoError(t, err)
+				require.NotNil(t, obj)
+
+				blobVec, ok := obj.Vectors["blob"].([]float32)
+				require.True(t, ok)
+				blobHashVec, ok := obj.Vectors["blobhash"].([]float32)
+				require.True(t, ok)
+
+				snap := snapshots[id]
+				assert.Equal(t, snap.blobHashVec, blobHashVec,
+					"blobhash vector should NOT change when only blob image is updated (object %s)", id)
+				assert.NotEqual(t, snap.blobVec, blobVec,
+					"blob vector SHOULD change when image is swapped (object %s)", id)
+
+				// image_hash property should remain the same
+				props, ok := obj.Properties.(map[string]any)
+				require.True(t, ok)
+				imageHash, ok := props[multimodal.PropertyImageHash].(string)
+				require.True(t, ok)
+				assert.Equal(t, snap.imageHash, imageHash,
+					"image_hash should remain unchanged (object %s)", id)
+			}
+		})
+
+		t.Run("patch only PropertyImage does not change blobhash vector", func(t *testing.T) {
+			// Snapshot vectors before patch
+			type vectorSnapshot struct {
+				blobVec     []float32
+				blobHashVec []float32
+				imageHash   string
+			}
+			ids := multimodal.GetIDs(t, dataFolderPath)
+			snapshots := make(map[string]vectorSnapshot)
+			for _, id := range ids {
+				obj, err := helper.GetObject(t, className, strfmt.UUID(id), "vector")
+				require.NoError(t, err)
+				require.NotNil(t, obj)
+				blobVec, ok := obj.Vectors["blob"].([]float32)
+				require.True(t, ok)
+				blobHashVec, ok := obj.Vectors["blobhash"].([]float32)
+				require.True(t, ok)
+				props, ok := obj.Properties.(map[string]any)
+				require.True(t, ok)
+				imageHash, ok := props[multimodal.PropertyImageHash].(string)
+				require.True(t, ok)
+				snapshots[id] = vectorSnapshot{
+					blobVec:     append([]float32{}, blobVec...),
+					blobHashVec: append([]float32{}, blobHashVec...),
+					imageHash:   imageHash,
+				}
+			}
+
+			// Patch each object with only PropertyImage (swap back)
+			for i, id := range ids {
+				newBlob, err := multimodal.GetImageBlob(dataFolderPath, i+1)
+				require.NoError(t, err)
+
+				patchObj := &models.Object{
+					Class: className,
+					ID:    strfmt.UUID(id),
+					Properties: map[string]any{
+						multimodal.PropertyImage: newBlob,
+					},
+				}
+				err = helper.PatchObject(t, patchObj)
+				require.NoError(t, err)
+			}
+
+			// Verify blobhash vector is unchanged, blob vector changed
+			for _, id := range ids {
+				obj, err := helper.GetObject(t, className, strfmt.UUID(id), "vector")
+				require.NoError(t, err)
+				require.NotNil(t, obj)
+
+				blobVec, ok := obj.Vectors["blob"].([]float32)
+				require.True(t, ok)
+				blobHashVec, ok := obj.Vectors["blobhash"].([]float32)
+				require.True(t, ok)
+
+				snap := snapshots[id]
+				assert.Equal(t, snap.blobHashVec, blobHashVec,
+					"blobhash vector should NOT change when only PropertyImage is patched (object %s)", id)
+				assert.NotEqual(t, snap.blobVec, blobVec,
+					"blob vector SHOULD change when PropertyImage is patched with different data (object %s)", id)
+
+				// image_hash property should remain the same
+				props, ok := obj.Properties.(map[string]any)
+				require.True(t, ok)
+				imageHash, ok := props[multimodal.PropertyImageHash].(string)
+				require.True(t, ok)
+				assert.Equal(t, snap.imageHash, imageHash,
+					"image_hash should remain unchanged after patching only PropertyImage (object %s)", id)
+			}
+		})
+
 		t.Run("nearImage search with blob target vector", func(t *testing.T) {
 			blob, err := multimodal.GetImageBlob(dataFolderPath, 2)
 			require.NoError(t, err)
@@ -237,7 +387,7 @@ func testBlobHashVectorization(host string) func(t *testing.T) {
 				"blobhash": 512,
 			}
 			multimodal.TestQuery(t, class.Class, nearMediaArgument,
-				multimodal.PropertyImageTitle, "updated_title_1", targetVectors)
+				multimodal.PropertyImageTitle, "swapped_title_1", targetVectors)
 		})
 
 		t.Run("nearImage search with blobhash target vector", func(t *testing.T) {
@@ -254,7 +404,7 @@ func testBlobHashVectorization(host string) func(t *testing.T) {
 				"blobhash": 512,
 			}
 			multimodal.TestQuery(t, class.Class, nearMediaArgument,
-				multimodal.PropertyImageTitle, "updated_title_1", targetVectors)
+				multimodal.PropertyImageTitle, "swapped_title_1", targetVectors)
 		})
 	}
 }
