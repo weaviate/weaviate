@@ -14,13 +14,60 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// nestedInfo groups fields that are only relevant for nested (object/object[])
+// property filters. The zero value represents a non-nested node.
+//
+// isNested and isCorrelated are mutually exclusive — a node is either a leaf
+// or a group, never both:
+//
+// When isNested is set (leaf node):
+//   - prop on the parent propValuePair is the top-level property name
+//   - value is the bare encoded value (without prefix)
+//   - relPath is the dot-notation path relative to prop
+//     (e.g. "city" or "owner.firstname")
+//   - the result bitmap contains positions that are stripped to docIDs
+//
+// When isCorrelated is set (AND group node):
+//   - prop on the parent propValuePair is the root property name
+//   - all children require position-aware same-element resolution
+//   - childrenFromTokenization marks a compound AND from multi-token text;
+//     its children are tokens that must share the same leaf position
+type nestedInfo struct {
+	isNested                 bool
+	relPath                  string
+	isCorrelated             bool
+	childrenFromTokenization bool
+	arrayIndices             arrayIndices
+}
+
+// arrayIndices holds positional constraints from arr[N] filter syntax.
+// Each entry restricts matching positions to the specified array element.
+// Multiple entries support multi-level indexing (e.g. cars[1].tags[2]).
+type arrayIndices []filnested.ArrayIndex
+
+// groupKey returns a string that uniquely identifies the set of arr[N] constraints.
+// Two conditions with the same groupKey are safe to combine in a correlated AND
+// (same-element semantics); different keys require independent resolution.
+func (a arrayIndices) groupKey() string {
+	if len(a) == 0 {
+		return ""
+	}
+	var key strings.Builder
+	for _, ai := range a {
+		fmt.Fprintf(&key, "%s[%d]", ai.RelPath, ai.Index)
+	}
+	return key.String()
+}
 
 // fetchNestedDocIDs resolves a value filter on a nested property, returning
 // docID-only results. It fetches raw positions, applies any arr[N] index
@@ -117,11 +164,49 @@ type positionBitmaps struct {
 // resolveNestedCorrelated resolves one prop group using position-aware
 // correlation. It builds a resolutionPlan for the group's paths, pre-computes
 // raw position bitmaps, and executes the plan to enforce same-element semantics.
+//
+// When children carry conflicting arr[N] constraints (e.g. cars[1].X and
+// cars[0].Y), they are partitioned by their arrayIndices key and each partition
+// is resolved independently. The per-partition results are ANDed at docID level
+// so that a document is returned only when it satisfies all partitions — without
+// incorrectly requiring conditions from different explicit elements to land in
+// the same element.
 func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	groups := groupChildrenByArrayIndicesKey(pv.children)
+	switch len(groups) {
+	case 0:
+		return nil, fmt.Errorf("nested correlated AND: no condition groups for %q", pv.prop)
+	case 1:
+		return pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+	default:
+		// Multiple groups with conflicting arr[N] constraints: resolve each group
+		// independently using same-element semantics, then AND the docID results.
+		first, err := pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+		if err != nil {
+			return nil, err
+		}
+		combined := first.docIDs
+		for _, group := range groups[1:] {
+			dbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, group)
+			if err != nil {
+				return nil, err
+			}
+			combined.And(dbm.docIDs)
+		}
+		result := newDocBitmap()
+		result.docIDs = combined
+		return &result, nil
+	}
+}
+
+// resolveNestedCorrelatedGroup resolves a single set of children using
+// position-aware same-element correlation. All children must have compatible
+// arrayIndices (same arr[N] constraints at every level).
+func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Searcher, children []*propValuePair) (*docBitmap, error) {
 	// Build positionsByPath: fetch raw position bitmaps per pvp and route into
 	// the correct bucket slot based on origin (token vs independent).
-	positionsByPath := make(map[string]*positionBitmaps, len(pv.children))
-	paths := make([]string, 0, len(pv.children))
+	positionsByPath := make(map[string]*positionBitmaps, len(children))
+	paths := make([]string, 0, len(children))
 
 	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
 		dbm, err := leaf.fetchNestedPositions(ctx, s, 0)
@@ -141,7 +226,7 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		return nil
 	}
 
-	for _, child := range pv.children {
+	for _, child := range children {
 		if child.nested.isNested {
 			// When pv itself is a tokenization compound AND, its children are tokens
 			// of the same value and must share the same leaf position → route as tokens.
@@ -189,4 +274,32 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 	dbm := newDocBitmap()
 	dbm.docIDs = docIDs
 	return &dbm, nil
+}
+
+// groupChildrenByArrayIndicesKey partitions the children of a correlated AND
+// node by their arr[N] constraint key. Children with the same key can be
+// combined with same-element semantics; children with different keys must be
+// resolved independently. A single group is returned when all children are
+// compatible (the common case when no arr[N] constraints are used).
+func groupChildrenByArrayIndicesKey(children []*propValuePair) [][]*propValuePair {
+	seen := map[string]int{} // key → index into groups
+	var groups [][]*propValuePair
+
+	for _, child := range children {
+		var key string
+		if child.nested.isNested {
+			key = child.nested.arrayIndices.groupKey()
+		} else if len(child.children) > 0 {
+			// Tokenization compound AND: all grandchildren share the same arrayIndices.
+			key = child.children[0].nested.arrayIndices.groupKey()
+		}
+		if idx, ok := seen[key]; ok {
+			groups[idx] = append(groups[idx], child)
+		} else {
+			seen[key] = len(groups)
+			groups = append(groups, []*propValuePair{child})
+		}
+	}
+
+	return groups
 }

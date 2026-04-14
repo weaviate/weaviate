@@ -656,7 +656,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 
 		makePvp := func(relPath, value string) *propValuePair {
 			pv := makeLeafPvp(class, "cars", relPath, value)
-			pv.invnested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
+			pv.nested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
 			return pv
 		}
 		widthPvp := &propValuePair{
@@ -2082,7 +2082,7 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 		}))
 
 		pv := makeLeafPvp(class, "addresses", "city", "berlin")
-		pv.invnested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
+		pv.nested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
@@ -2103,7 +2103,7 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 		// No IdxKey("", 5) entry → intersection will be empty
 
 		pv := makeLeafPvp(class, "addresses", "city", "berlin")
-		pv.invnested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 5}}
+		pv.nested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 5}}
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
@@ -2126,7 +2126,7 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1), []uint64{posAddr(2, 1, doc1)}))
 
 		pv := makeIsNullPvp(class, "addresses", "", false)
-		pv.invnested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
+		pv.nested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
@@ -2156,7 +2156,7 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1), []uint64{posAddr(2, 1, doc1), posAddr(2, 1, doc3)}))
 
 		pv := makeIsNullPvp(class, "addresses", "city", false)
-		pv.invnested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
+		pv.nested.arrayIndices = []filnested.ArrayIndex{{RelPath: "", Index: 1}}
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
@@ -2221,7 +2221,7 @@ func TestNestedArrayIndexFilterIntermediate(t *testing.T) {
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("tags", 2), []uint64{posAt(1, 3, doc1)}))
 
 		pv := makeLeafPvp(class, "cars", "tags", "german")
-		pv.invnested.arrayIndices = []filnested.ArrayIndex{{RelPath: "tags", Index: 2}}
+		pv.nested.arrayIndices = []filnested.ArrayIndex{{RelPath: "tags", Index: 2}}
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
@@ -2298,7 +2298,7 @@ func TestNestedArrayIndexFilterIntermediate(t *testing.T) {
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("tags", 2), []uint64{posAt(2, 3, doc1)}))
 
 		pv := makeLeafPvp(class, "cars", "tags", "german")
-		pv.invnested.arrayIndices = []filnested.ArrayIndex{
+		pv.nested.arrayIndices = []filnested.ArrayIndex{
 			{RelPath: "", Index: 1},     // cars[1]
 			{RelPath: "tags", Index: 2}, // tags[2]
 		}
@@ -2429,8 +2429,8 @@ func newSearcherForClass(t *testing.T, class *models.Class, bucketNames ...strin
 	bitmapFactory := roaringset.NewBitmapFactory(
 		roaringset.NewBitmapBufPoolNoop(), func() uint64 { return 1_000_000 })
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
-		nil, nil, fakeStopwordDetector{}, 2,
-		func() bool { return false }, "",
+		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
+		func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 	return searcher, store
 }
@@ -3456,4 +3456,1015 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 			})
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Full-pipeline extraction tests for IsNull and arr[N]
+// ---------------------------------------------------------------------------
+//
+// The existing TestNestedIsNull and TestNestedArrayIndexFilter tests verify the
+// resolution side (fetchNestedIsNull, restrictByNestedIdx) using manually
+// constructed propValuePairs. The tests below verify the full extraction →
+// resolution pipeline via extractPropValuePair for both DataTypeObject ("nested")
+// and DataTypeObjectArray ("nestedArray"), which exercises:
+//
+//   IsNull: buildNestedIsNullPair produces relPath relative to the root property —
+//     "nested.addresses" → ExistsKey("addresses"), not ExistsKey("") as used when
+//     "addresses" IS the root property.
+//
+//   arr[N]: ParseIndexedPath strips the root property name and produces
+//     arrayIndices with RelPath relative to the root — "nested.addresses[1].city"
+//     → RelPath:"addresses", IdxKey("addresses",1), distinct from IdxKey("",1)
+//     used when "addresses" IS the root property.
+//
+// The nestedArray variants additionally exercise multiple root elements (root_idx>1)
+// to verify that IsNull and arr[N] work correctly across array elements.
+
+// TestNestedFilteringIsNull verifies IsNull filters end-to-end via extractPropValuePair
+// for both DataTypeObject ("nested") and DataTypeObjectArray ("nestedArray").
+func TestNestedFilteringIsNull(t *testing.T) {
+	class := planTestClass()
+
+	for _, prop := range []string{"nested", "nestedArray"} {
+		t.Run(prop, func(t *testing.T) {
+			const (
+				doc5 = uint64(5) // has addresses with city
+				doc7 = uint64(7) // has addresses without city
+			)
+
+			// For DataTypeObject root=1 always; for DataTypeObjectArray use root=1
+			// (single-element scenario — same position layout as nested).
+			pos := func(docID uint64) uint64 { return invnested.Encode(1, 1, docID) }
+
+			// Only the meta bucket is needed for IsNull.
+			metaBucketName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+			searcher, store := newSearcherForClass(t, class, metaBucketName)
+			mb := store.Bucket(metaBucketName)
+
+			// Exists entries relative to the root property.
+			// ExistsKey("addresses"): docs with any addresses element.
+			// ExistsKey("addresses.city"): docs with city present in any address.
+			writeNestedExists(t, mb, "addresses", []uint64{pos(doc5), pos(doc7)})
+			writeNestedExists(t, mb, "addresses.city", []uint64{pos(doc5)})
+
+			isNullClause := func(path string, isNull bool) *filters.Clause {
+				return &filters.Clause{
+					Operator: filters.OperatorIsNull,
+					Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+					On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(path)},
+				}
+			}
+
+			t.Run("root sub-property IsNull false — allowlist", func(t *testing.T) {
+				// prop+".addresses" → relPath="addresses" → ExistsKey("addresses") → [doc5,doc7]
+				pv, err := searcher.extractPropValuePair(context.Background(),
+					isNullClause(prop+".addresses", false), "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.False(t, result.isDenyList)
+				assert.Equal(t, []uint64{doc5, doc7}, result.docIDs.ToArray())
+			})
+
+			t.Run("root sub-property IsNull true — denylist", func(t *testing.T) {
+				pv, err := searcher.extractPropValuePair(context.Background(),
+					isNullClause(prop+".addresses", true), "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.True(t, result.isDenyList)
+				assert.Equal(t, []uint64{doc5, doc7}, result.docIDs.ToArray())
+			})
+
+			t.Run("deep sub-property IsNull false — allowlist", func(t *testing.T) {
+				// prop+".addresses.city" → relPath="addresses.city" → ExistsKey("addresses.city") → [doc5]
+				pv, err := searcher.extractPropValuePair(context.Background(),
+					isNullClause(prop+".addresses.city", false), "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.False(t, result.isDenyList)
+				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+			})
+
+			t.Run("deep sub-property IsNull true — denylist", func(t *testing.T) {
+				pv, err := searcher.extractPropValuePair(context.Background(),
+					isNullClause(prop+".addresses.city", true), "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.True(t, result.isDenyList)
+				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+			})
+
+			if prop == "nestedArray" {
+				t.Run("nestedArray — IsNull across multiple root elements", func(t *testing.T) {
+					// doc8: nestedArray[1] (root=2) has addresses with city —
+					// verify that IsNull correctly reads exists entries from any root element.
+					const doc8 = uint64(8)
+					writeNestedExists(t, mb, "addresses", []uint64{invnested.Encode(2, 1, doc8)})
+					writeNestedExists(t, mb, "addresses.city", []uint64{invnested.Encode(2, 1, doc8)})
+
+					pv, err := searcher.extractPropValuePair(context.Background(),
+						isNullClause(prop+".addresses.city", false), "PlanTestClass")
+					require.NoError(t, err)
+					result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+					require.NoError(t, err)
+					assert.False(t, result.isDenyList)
+					// doc5 (root=1) and doc8 (root=2) both have city → both returned
+					assert.Equal(t, []uint64{doc5, doc8}, result.docIDs.ToArray())
+				})
+			}
+		})
+	}
+}
+
+// TestNestedFilteringArrayIndex verifies arr[N] filters end-to-end via extractPropValuePair
+// for both DataTypeObject ("nested") and DataTypeObjectArray ("nestedArray").
+func TestNestedFilteringArrayIndex(t *testing.T) {
+	class := planTestClass()
+
+	sortableInt := func(v int) []byte {
+		b, err := ent.LexicographicallySortableInt64(int64(v))
+		require.NoError(t, err)
+		return b
+	}
+	width205 := sortableInt(205)
+
+	for _, prop := range []string{"nested", "nestedArray"} {
+		t.Run(prop, func(t *testing.T) {
+			const (
+				doc5 = uint64(5)
+				doc7 = uint64(7)
+			)
+
+			// For DataTypeObject root=1 always. For DataTypeObjectArray, tests use a
+			// single-element scenario (root=1) for the shared cases, then add a
+			// multi-root sub-test specific to nestedArray.
+			enc := func(root, leaf uint16, docID uint64) uint64 {
+				return invnested.Encode(root, leaf, docID)
+			}
+			// e1 is a shorthand for root=1 (the common single-element case).
+			e1 := func(leaf uint16, docID uint64) uint64 { return enc(1, leaf, docID) }
+
+			t.Run("arr[N] value filter — second address", func(t *testing.T) {
+				// prop+".addresses[1].city = berlin"
+				// ParseIndexedPath: cleanRelPath="addresses.city",
+				//   arrayIndices=[{RelPath:"addresses", Index:1}]
+				// restrictByNestedIdx reads IdxKey("addresses",1) — distinct from
+				// IdxKey("",1) used when "addresses" IS the root property.
+				//
+				// doc5: addresses[0].city="paris"(leaf=1), addresses[1].city="berlin"(leaf=2)
+				// doc7: addresses[0].city="berlin"(leaf=1) only — no second address
+				valueBucketName := helpers.BucketNestedFromPropNameLSM(prop)
+				metaBucketName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+				searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+				vb := store.Bucket(valueBucketName)
+				mb := store.Bucket(metaBucketName)
+
+				writeNestedValue(t, vb, "addresses.city", "paris", []uint64{e1(1, doc5)})
+				writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{e1(2, doc5), e1(1, doc7)})
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 0),
+					[]uint64{e1(1, doc5), e1(1, doc7)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 1),
+					[]uint64{e1(2, doc5)})) // only doc5 has a second address
+
+				f := &filters.Clause{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "berlin"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName(prop + ".addresses[1].city"),
+					},
+				}
+				pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+			})
+
+			t.Run("arr[N] out of range returns empty", func(t *testing.T) {
+				valueBucketName := helpers.BucketNestedFromPropNameLSM(prop)
+				metaBucketName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+				searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+				vb := store.Bucket(valueBucketName)
+				mb := store.Bucket(metaBucketName)
+
+				writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{e1(1, doc5)})
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 0), []uint64{e1(1, doc5)}))
+
+				f := &filters.Clause{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "berlin"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName(prop + ".addresses[5].city"),
+					},
+				}
+				pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.True(t, result.docIDs.IsEmpty())
+			})
+
+			t.Run("arr[N] + correlated AND — cars[1].make=bmw AND cars[1].tires.width=205", func(t *testing.T) {
+				// Both conditions carry arrayIndices=[{RelPath:"cars", Index:1}].
+				// restrictByNestedIdx pre-filters each bitmap to cars[1] positions
+				// before the executor runs, so doc7 (no cars[1]) correctly gets no match.
+				//
+				// doc5: cars[0]={make:"tesla"}(leaf=1), cars[1]={make:"bmw",tires[0]}(leaf=2)
+				// doc7: cars[0]={make:"bmw",tires[0]}(leaf=1) only — no cars[1]
+				valueBucketName := helpers.BucketNestedFromPropNameLSM(prop)
+				metaBucketName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+				searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+				vb := store.Bucket(valueBucketName)
+				mb := store.Bucket(metaBucketName)
+
+				writeNestedValue(t, vb, "cars.make", "tesla", []uint64{e1(1, doc5)})
+				writeNestedValue(t, vb, "cars.make", "bmw", []uint64{e1(2, doc5), e1(1, doc7)})
+				require.NoError(t, vb.RoaringSetAddList(invnested.ValueKey("cars.tires.width", width205),
+					[]uint64{e1(2, doc5), e1(1, doc7)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0),
+					[]uint64{e1(1, doc5), e1(1, doc7)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+					[]uint64{e1(2, doc5)})) // only doc5 has a second car
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0),
+					[]uint64{e1(2, doc5), e1(1, doc7)}))
+
+				f := &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorEqual,
+							Value:    &filters.Value{Type: schema.DataTypeText, Value: "bmw"},
+							On: &filters.Path{
+								Class:    "PlanTestClass",
+								Property: schema.PropertyName(prop + ".cars[1].make"),
+							},
+						},
+						{
+							Operator: filters.OperatorEqual,
+							Value:    &filters.Value{Type: schema.DataTypeInt, Value: 205},
+							On: &filters.Path{
+								Class:    "PlanTestClass",
+								Property: schema.PropertyName(prop + ".cars[1].tires.width"),
+							},
+						},
+					},
+				}
+				pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+				require.NoError(t, err)
+				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+				require.NoError(t, err)
+				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+			})
+
+			if prop == "nestedArray" {
+				t.Run("nestedArray — arr[N] across multiple root elements", func(t *testing.T) {
+					// doc5: nestedArray[0] has addresses[0]="paris"(leaf=1), addresses[1]="berlin"(leaf=2)
+					// doc8: nestedArray[1] (root=2) has addresses[1]="berlin"(leaf=2)
+					// Filter: addresses[1].city = "berlin" must return both doc5 and doc8.
+					const doc8 = uint64(8)
+					valueBucketName := helpers.BucketNestedFromPropNameLSM(prop)
+					metaBucketName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+					searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+					vb := store.Bucket(valueBucketName)
+					mb := store.Bucket(metaBucketName)
+
+					// doc5 in nestedArray[0] (root=1)
+					writeNestedValue(t, vb, "addresses.city", "paris", []uint64{enc(1, 1, doc5)})
+					writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{enc(1, 2, doc5)})
+					require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 0), []uint64{enc(1, 1, doc5)}))
+					require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 1), []uint64{enc(1, 2, doc5)}))
+
+					// doc8 in nestedArray[1] (root=2): only addresses[1] present
+					writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{enc(2, 2, doc8)})
+					require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 1), []uint64{enc(2, 2, doc8)}))
+
+					f := &filters.Clause{
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Type: schema.DataTypeText, Value: "berlin"},
+						On: &filters.Path{
+							Class:    "PlanTestClass",
+							Property: schema.PropertyName(prop + ".addresses[1].city"),
+						},
+					}
+					pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+					require.NoError(t, err)
+					result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+					require.NoError(t, err)
+					// Both doc5 (root=1, addresses[1]) and doc8 (root=2, addresses[1]) match
+					assert.Equal(t, []uint64{doc5, doc8}, result.docIDs.ToArray())
+				})
+			}
+		})
+	}
+}
+
+// TestNestedFilteringArrayIndexLevelsAndCombinations verifies arr[N] filtering
+// at every nesting depth and in AND/OR combinations with different index values.
+//
+// Level coverage (all use the "nestedArray: DataTypeObjectArray" root property):
+//
+//	root  — nestedArray[N].cars.colors   selects which nestedArray element
+//	mid-1 — nestedArray.cars[N].colors   selects which car element
+//	mid-2 — nestedArray.cars.tires[N].width selects which tire element
+//
+// Combination coverage:
+//
+//	AND same index  — cars[1].colors="red" AND cars[1].make="bmw"                            → correct
+//	AND diff-car    — cars[1].colors="red" AND cars[0].colors="blue"  → partitioned, correct
+//	OR  diff-car    — cars[1].colors="red" OR  cars[0].colors="blue"  → union, correct
+//	AND diff-root   — nestedArray[1].cars.colors="red" AND nestedArray[0].cars.colors="blue" → partitioned, correct
+//	OR  diff-root   — nestedArray[1].cars.colors="red" OR  nestedArray[0].cars.colors="blue" → union, correct
+//
+// "Partitioned" means groupChildrenByArrayIndicesKey detected conflicting arr[N]
+// constraints and resolved each group independently, ANDing results at docID level.
+func TestNestedFilteringArrayIndexLevelsAndCombinations(t *testing.T) {
+	const (
+		doc5 = uint64(5)
+		doc7 = uint64(7)
+	)
+
+	sortableInt := func(v int) []byte {
+		b, err := ent.LexicographicallySortableInt64(int64(v))
+		require.NoError(t, err)
+		return b
+	}
+	width205 := sortableInt(205)
+	width305 := sortableInt(305)
+
+	class := planTestClass()
+	prop := "nestedArray"
+
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+	e1 := func(leaf uint16, docID uint64) uint64 { return enc(1, leaf, docID) }
+
+	vbName := helpers.BucketNestedFromPropNameLSM(prop)
+	mbName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+
+	newSearcher := func(t *testing.T) (*Searcher, *lsmkv.Store) {
+		t.Helper()
+		return newSearcherForClass(t, class, vbName, mbName)
+	}
+
+	textFlt := func(path, value string) filters.Clause {
+		return filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: value},
+			On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + "." + path)},
+		}
+	}
+	textRootFlt := func(fullPath, value string) filters.Clause {
+		return filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: value},
+			On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + fullPath)},
+		}
+	}
+	intRootFlt := func(fullPath string, v int) filters.Clause {
+		return filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: v},
+			On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + fullPath)},
+		}
+	}
+	and := func(ops ...filters.Clause) *filters.Clause {
+		return &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}
+	}
+	or := func(ops ...filters.Clause) *filters.Clause {
+		return &filters.Clause{Operator: filters.OperatorOr, Operands: ops}
+	}
+
+	run := func(t *testing.T, searcher *Searcher, f *filters.Clause, want []uint64) {
+		t.Helper()
+		pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+		require.NoError(t, err)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, want, result.docIDs.ToArray())
+	}
+
+	// -------------------------------------------------------------------------
+	// Root-level arr[N]: nestedArray[0] vs nestedArray[1]
+	//
+	// doc5: nestedArray[0]={cars:[{colors:["blue"]}]}, nestedArray[1]={cars:[{colors:["red"]}]}
+	// doc7: nestedArray[0]={cars:[{colors:["red"]}]}
+	//
+	// [0].cars.colors="red" → IdxKey("",0) → doc7 only (doc5 nestedArray[0] has blue)
+	// [1].cars.colors="red" → IdxKey("",1) → doc5 only (only doc5 has a second element)
+	// -------------------------------------------------------------------------
+	t.Run("root arr[N] — nestedArray[N].cars.colors", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{enc(1, 1, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{enc(2, 1, doc5), enc(1, 1, doc7)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 0), []uint64{enc(1, 1, doc5), enc(1, 1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1), []uint64{enc(2, 1, doc5)}))
+
+		t.Run("[0].cars.colors=red — doc7 (doc5 has blue in element 0)", func(t *testing.T) {
+			run(t, searcher, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + "[0].cars.colors")},
+			}, []uint64{doc7})
+		})
+		t.Run("[1].cars.colors=red — doc5 only (only doc5 has element 1)", func(t *testing.T) {
+			run(t, searcher, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + "[1].cars.colors")},
+			}, []uint64{doc5})
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Intermediate-1 arr[N]: cars[0] vs cars[1] within a single nestedArray element
+	//
+	// doc5: nestedArray[0]={cars:[{colors:["blue"]},{colors:["red"]}]}
+	// doc7: nestedArray[0]={cars:[{colors:["red"]}]}
+	//
+	// cars[0].colors="red" → IdxKey("cars",0) → doc7 (doc5 has blue in cars[0])
+	// cars[1].colors="red" → IdxKey("cars",1) → doc5 (only doc5 has cars[1])
+	// -------------------------------------------------------------------------
+	t.Run("mid-1 arr[N] — nestedArray.cars[N].colors", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{e1(1, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(2, doc5), e1(1, doc7)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{e1(1, doc5), e1(1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{e1(2, doc5)}))
+
+		t.Run("cars[0].colors=red — doc7 (doc5 has blue in cars[0])", func(t *testing.T) {
+			run(t, searcher, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + ".cars[0].colors")},
+			}, []uint64{doc7})
+		})
+		t.Run("cars[1].colors=red — doc5 only (only doc5 has cars[1])", func(t *testing.T) {
+			run(t, searcher, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + ".cars[1].colors")},
+			}, []uint64{doc5})
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// Intermediate-2 arr[N]: tires[0] vs tires[1] within cars[0]
+	//
+	// doc5: cars[0]={tires:[{width:305},{width:205}]}  — 205 is in tires[1]
+	// doc7: cars[0]={tires:[{width:205}]}              — 205 is in tires[0]
+	//
+	// tires[0].width=205 → IdxKey("cars.tires",0) → doc7
+	// tires[1].width=205 → IdxKey("cars.tires",1) → doc5
+	// -------------------------------------------------------------------------
+	t.Run("mid-2 arr[N] — nestedArray.cars.tires[N].width", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		require.NoError(t, vb.RoaringSetAddList(invnested.ValueKey("cars.tires.width", width305), []uint64{e1(1, doc5)}))
+		require.NoError(t, vb.RoaringSetAddList(invnested.ValueKey("cars.tires.width", width205), []uint64{e1(2, doc5), e1(1, doc7)}))
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0), []uint64{e1(1, doc5), e1(1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 1), []uint64{e1(2, doc5)}))
+
+		t.Run("tires[0].width=205 — doc7 (doc5 has 305 in tires[0])", func(t *testing.T) {
+			run(t, searcher, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: 205},
+				On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + ".cars.tires[0].width")},
+			}, []uint64{doc7})
+		})
+		t.Run("tires[1].width=205 — doc5 only (only doc5 has tires[1])", func(t *testing.T) {
+			run(t, searcher, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: 205},
+				On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(prop + ".cars.tires[1].width")},
+			}, []uint64{doc5})
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// AND same car index: cars[1].colors="red" AND cars[1].make="bmw"
+	//
+	// Both restricted to cars[1]. Correlated AND (groupRunIdxLoop) correctly
+	// enforces same-car-element — doc5 has both in cars[1], doc7 has red but no make.
+	//
+	// doc5: cars[0]={colors:["blue"]}, cars[1]={colors:["red"],make:"bmw"}
+	// doc7: cars[0]={colors:["blue"]}, cars[1]={colors:["red"]}  (no make in cars[1])
+	// -------------------------------------------------------------------------
+	t.Run("AND same car index — cars[1].colors=red AND cars[1].make=bmw", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{e1(1, doc5), e1(1, doc7)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(2, doc5), e1(2, doc7)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{e1(2, doc5)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{e1(1, doc5), e1(1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{e1(2, doc5), e1(2, doc7)}))
+
+		run(t, searcher, and(textFlt("cars[1].colors", "red"), textFlt("cars[1].make", "bmw")),
+			[]uint64{doc5})
+	})
+
+	// -------------------------------------------------------------------------
+	// AND/OR different car indices
+	//
+	// cars[1].colors="red" AND cars[0].colors="blue":
+	//   groupChildrenByArrayIndicesKey detects conflicting arr[N] constraints
+	//   ({cars:1} vs {cars:0}) and partitions into two independent groups.
+	//   Each group is resolved with same-element semantics, results are ANDed
+	//   at docID level → doc5 (which has blue in cars[0] AND red in cars[1]) matches.
+	//
+	// cars[1].colors="red" OR cars[0].colors="blue":
+	//   OR resolves each condition independently via fetchNestedDocIDs → union.
+	//   cars[1].red → {doc5}; cars[0].blue → {doc5, doc7} → {doc5, doc7}.
+	//
+	// doc5: cars[0]={colors:["blue"]}, cars[1]={colors:["red"]}
+	// doc7: cars[0]={colors:["blue"]}, cars[1]={colors:["blue"]}
+	// -------------------------------------------------------------------------
+	t.Run("AND different car indices — cars[1].colors=red AND cars[0].colors=blue", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{e1(1, doc5), e1(1, doc7), e1(2, doc7)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(2, doc5)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{e1(1, doc5), e1(1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{e1(2, doc5), e1(2, doc7)}))
+
+		// doc5: red in cars[1] AND blue in cars[0] → each partition resolves independently → match.
+		// doc7: red absent in cars[1]... wait, doc7 has blue in both cars → cars[1].red partition is empty → no match.
+		run(t, searcher, and(textFlt("cars[1].colors", "red"), textFlt("cars[0].colors", "blue")),
+			[]uint64{doc5})
+	})
+
+	t.Run("OR different car indices — cars[1].colors=red OR cars[0].colors=blue", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{e1(1, doc5), e1(1, doc7), e1(2, doc7)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(2, doc5)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{e1(1, doc5), e1(1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{e1(2, doc5), e1(2, doc7)}))
+
+		// cars[1].red → {doc5}; cars[0].blue → {doc5,doc7} → union {doc5,doc7}
+		run(t, searcher, or(textFlt("cars[1].colors", "red"), textFlt("cars[0].colors", "blue")),
+			[]uint64{doc5, doc7})
+	})
+
+	// -------------------------------------------------------------------------
+	// AND/OR different nestedArray root indices
+	//
+	// nestedArray[1].cars.colors="red" AND nestedArray[0].cars.colors="blue":
+	//   groupChildrenByArrayIndicesKey detects conflicting arr[N] constraints
+	//   ({[1]} vs {[0]}) and partitions into two independent groups.
+	//   Each resolves independently (single condition each → groupAndAll or
+	//   groupAndAllMaskLeaf), results ANDed at docID level → doc5 matches.
+	//
+	// nestedArray[1].cars.colors="red" OR nestedArray[0].cars.colors="blue":
+	//   OR resolves each independently → union.
+	//   [1].red → {doc5}; [0].blue → {doc5, doc7} → {doc5, doc7}.
+	//
+	// doc5: nestedArray[0].cars[0].colors="blue" (root=1,leaf=1)
+	//       nestedArray[1].cars[0].colors="red"  (root=2,leaf=1)
+	// doc7: nestedArray[0].cars[0].colors="blue" (root=1,leaf=1)
+	// -------------------------------------------------------------------------
+	t.Run("AND different root indices — nestedArray[1].cars.colors=red AND nestedArray[0].cars.colors=blue", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{enc(1, 1, doc5), enc(1, 1, doc7)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{enc(2, 1, doc5)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 0), []uint64{enc(1, 1, doc5), enc(1, 1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1), []uint64{enc(2, 1, doc5)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0),
+			[]uint64{enc(1, 1, doc5), enc(1, 1, doc7), enc(2, 1, doc5)}))
+
+		// partitioned: [1].red group → {doc5}; [0].blue group → {doc5,doc7}; AND → {doc5}
+		run(t, searcher,
+			and(textRootFlt("[1].cars.colors", "red"), textRootFlt("[0].cars.colors", "blue")),
+			[]uint64{doc5})
+	})
+
+	t.Run("OR different root indices — nestedArray[1].cars.colors=red OR nestedArray[0].cars.colors=blue", func(t *testing.T) {
+		searcher, store := newSearcher(t)
+		vb, mb := store.Bucket(vbName), store.Bucket(mbName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{enc(1, 1, doc5), enc(1, 1, doc7)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{enc(2, 1, doc5)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 0), []uint64{enc(1, 1, doc5), enc(1, 1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1), []uint64{enc(2, 1, doc5)}))
+
+		// [1].red → {doc5}; [0].blue → {doc5,doc7} → union {doc5,doc7}
+		run(t, searcher,
+			or(textRootFlt("[1].cars.colors", "red"), textRootFlt("[0].cars.colors", "blue")),
+			[]uint64{doc5, doc7})
+	})
+
+	_ = width305 // used in mid-2 test
+	_ = intRootFlt
+}
+
+// TestNestedFilteringIsNullAndMultiLevelArrayIndex verifies arr[N] and IsNull
+func TestNestedFilteringIsNullAndMultiLevelArrayIndex(t *testing.T) {
+	const (
+		doc5 = uint64(5)
+		doc7 = uint64(7)
+		doc8 = uint64(8)
+	)
+
+	class := planTestClass()
+
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+	e1 := func(leaf uint16, docID uint64) uint64 { return enc(1, leaf, docID) }
+
+	run := func(t *testing.T, searcher *Searcher, f *filters.Clause, want []uint64) {
+		t.Helper()
+		pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+		require.NoError(t, err)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, want, result.docIDs.ToArray())
+	}
+	runDeny := func(t *testing.T, searcher *Searcher, f *filters.Clause, wantDeny bool, want []uint64) {
+		t.Helper()
+		pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+		require.NoError(t, err)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, wantDeny, result.isDenyList)
+		assert.Equal(t, want, result.docIDs.ToArray())
+	}
+
+	isNullFlt := func(path string, isNull bool) *filters.Clause {
+		return &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(path)},
+		}
+	}
+	textFlt := func(path, value string) *filters.Clause {
+		return &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: value},
+			On:       &filters.Path{Class: "PlanTestClass", Property: schema.PropertyName(path)},
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Case 1: IsNull + arr[N] via extractPropValuePair
+	//
+	// "nested.addresses[1] IsNull false":
+	//   ParseIndexedPath → cleanRelPath="addresses", arrayIndices=[{RelPath:"addresses",Index:1}]
+	//   buildNestedIsNullPair: reads ExistsKey("addresses"), restricts by IdxKey("addresses",1).
+	//
+	// "nested.addresses[1].city IsNull false":
+	//   cleanRelPath="addresses.city", same arrayIndices.
+	//   Reads ExistsKey("addresses.city"), restricts by IdxKey("addresses",1).
+	//
+	// doc5: addresses[0](leaf=1,city) + addresses[1](leaf=2,city) — both arr elements, both have city
+	// doc7: addresses[0](leaf=1,city) only         — no second address element
+	// doc8: addresses[0](leaf=1,city) + addresses[1](leaf=2,no city) — second element exists but no city
+	//
+	// addresses[1] IsNull false → {doc5, doc8} (both have a second element)
+	// addresses[1].city IsNull false → {doc5}   (only doc5 has city in second element)
+	// -------------------------------------------------------------------------
+	t.Run("IsNull + arr[N] — addresses[1] IsNull and addresses[1].city IsNull", func(t *testing.T) {
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("nested")
+		searcher, store := newSearcherForClass(t, class, metaBucketName)
+		mb := store.Bucket(metaBucketName)
+
+		// ExistsKey("addresses"): all positions where addresses has any element
+		writeNestedExists(t, mb, "addresses", []uint64{
+			e1(1, doc5), e1(2, doc5), // doc5 has two addresses
+			e1(1, doc7),              // doc7 has one address
+			e1(1, doc8), e1(2, doc8), // doc8 has two addresses
+		})
+		// ExistsKey("addresses.city"): positions where city is present in any address
+		writeNestedExists(t, mb, "addresses.city", []uint64{
+			e1(1, doc5), e1(2, doc5), // doc5: city in both addresses
+			e1(1, doc7), // doc7: city only in addresses[0]
+			e1(1, doc8), // doc8: city only in addresses[0]; addresses[1] has no city
+		})
+		// IdxKey("addresses", 0): positions in addresses[0] element
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 0),
+			[]uint64{e1(1, doc5), e1(1, doc7), e1(1, doc8)}))
+		// IdxKey("addresses", 1): positions in addresses[1] element
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("addresses", 1),
+			[]uint64{e1(2, doc5), e1(2, doc8)})) // only doc5 and doc8 have a second address
+
+		// "addresses[1] IsNull false" → allowlist of docs with a second address element
+		runDeny(t, searcher, isNullFlt("nested.addresses[1]", false), false, []uint64{doc5, doc8})
+		// "addresses[1] IsNull true" → denylist (complement)
+		runDeny(t, searcher, isNullFlt("nested.addresses[1]", true), true, []uint64{doc5, doc8})
+		// "addresses[1].city IsNull false" → only doc5 has city in addresses[1]
+		runDeny(t, searcher, isNullFlt("nested.addresses[1].city", false), false, []uint64{doc5})
+		// "addresses[1].city IsNull true" → denylist
+		runDeny(t, searcher, isNullFlt("nested.addresses[1].city", true), true, []uint64{doc5})
+	})
+
+	// -------------------------------------------------------------------------
+	// Case 2: scalar array arr[N] via extractPropValuePair
+	//
+	// "nested.cars.colors[2] = red":
+	//   ParseIndexedPath → cleanRelPath="cars.colors", arrayIndices=[{RelPath:"cars.colors",Index:2}]
+	//   restrictByNestedIdx reads IdxKey("cars.colors",2) — only positions that are
+	//   the third element (index 2) of the cars.colors scalar array.
+	//
+	// doc5: cars[0]={colors:["blue","green","red"]}
+	//   colors[0]→leaf=1, colors[1]→leaf=2, colors[2]→leaf=3  ("red" at index 2)
+	// doc7: cars[0]={colors:["red"]}
+	//   colors[0]→leaf=1 only  ("red" at index 0, NOT index 2)
+	// -------------------------------------------------------------------------
+	t.Run("scalar array arr[N] — nested.cars.colors[2] = red", func(t *testing.T) {
+		valueBucketName := helpers.BucketNestedFromPropNameLSM("nested")
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("nested")
+		searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+		vb, mb := store.Bucket(valueBucketName), store.Bucket(metaBucketName)
+
+		writeNestedValue(t, vb, "cars.colors", "blue", []uint64{e1(1, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "green", []uint64{e1(2, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(3, doc5), e1(1, doc7)})
+
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.colors", 0), []uint64{e1(1, doc5), e1(1, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.colors", 1), []uint64{e1(2, doc5)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.colors", 2), []uint64{e1(3, doc5)}))
+
+		// doc5 has red at colors[2]; doc7 has red only at colors[0] → not matched
+		run(t, searcher, textFlt("nested.cars.colors[2]", "red"), []uint64{doc5})
+	})
+
+	// -------------------------------------------------------------------------
+	// Case 3: multi-level arr[N] via extractPropValuePair
+	//
+	// "nested.cars[1].colors[2] = red":
+	//   ParseIndexedPath → cleanRelPath="cars.colors",
+	//   arrayIndices=[{RelPath:"cars",Index:1},{RelPath:"cars.colors",Index:2}]
+	//   restrictByNestedIdx applies BOTH constraints in order:
+	//   1. AND with IdxKey("cars",1)     → keep only positions in cars[1]
+	//   2. AND with IdxKey("cars.colors",2) → keep only the third color element
+	//
+	// doc5: cars[0]={colors:["x"]}, cars[1]={colors:["a","b","red"]}
+	//   cars[0]: leaf=1; cars[1]: colors[0]→leaf=2, colors[1]→leaf=3, colors[2]→leaf=4 ("red")
+	// doc7: cars[0]={colors:["a","b","red"]}, cars[1]={colors:["red"]}
+	//   cars[0]: colors[0]→leaf=1, colors[1]→leaf=2, colors[2]→leaf=3 ("red" at index 2 of cars[0])
+	//   cars[1]: colors[0]→leaf=4 ("red" at index 0 of cars[1], NOT index 2)
+	//
+	// Restriction to cars[1] first eliminates doc7's red-in-cars[0].
+	// Restriction to colors[2] then eliminates doc7's red-in-cars[1]-at-index-0.
+	// Only doc5 has red at cars[1].colors[2].
+	// -------------------------------------------------------------------------
+	t.Run("multi-level arr[N] — nested.cars[1].colors[2] = red", func(t *testing.T) {
+		valueBucketName := helpers.BucketNestedFromPropNameLSM("nested")
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("nested")
+		searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+		vb, mb := store.Bucket(valueBucketName), store.Bucket(metaBucketName)
+
+		// doc5: cars[0]={colors:["x"]}→leaf=1; cars[1]={colors:["a"(leaf=2),"b"(leaf=3),"red"(leaf=4)]}
+		writeNestedValue(t, vb, "cars.colors", "x", []uint64{e1(1, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "a", []uint64{e1(2, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "b", []uint64{e1(3, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(4, doc5), e1(3, doc7), e1(4, doc7)})
+		// doc7: cars[0]={colors:["a"(leaf=1),"b"(leaf=2),"red"(leaf=3)]}; cars[1]={colors:["red"(leaf=4)]}
+		writeNestedValue(t, vb, "cars.colors", "a", []uint64{e1(1, doc7)})
+		writeNestedValue(t, vb, "cars.colors", "b", []uint64{e1(2, doc7)})
+
+		// IdxKey("cars", 0) and ("cars", 1): which positions belong to each car
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{e1(1, doc5), e1(1, doc7), e1(2, doc7), e1(3, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{e1(2, doc5), e1(3, doc5), e1(4, doc5), e1(4, doc7)}))
+		// IdxKey("cars.colors", N): which positions are the Nth color element across all cars
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.colors", 0), []uint64{e1(1, doc5), e1(1, doc7), e1(2, doc5)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.colors", 1), []uint64{e1(3, doc5), e1(2, doc7)}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.colors", 2), []uint64{e1(4, doc5), e1(3, doc7)}))
+
+		// Only doc5 has red at cars[1].colors[2] (leaf=4).
+		// doc7 has red at cars[0].colors[2] (leaf=3, excluded by cars[1] restriction)
+		// and at cars[1].colors[0] (leaf=4, excluded by colors[2] restriction).
+		run(t, searcher, textFlt("nested.cars[1].colors[2]", "red"), []uint64{doc5})
+	})
+
+	// -------------------------------------------------------------------------
+	// Case 4: same-partition arr[N] correlated AND via extractPropValuePair
+	//
+	// "nestedArray[1].addresses.city=berlin AND nestedArray[1].cars.make=bmw":
+	//   Both conditions share arrayIndices=[{RelPath:"",Index:1}] (root-level nestedArray[1]).
+	//   groupChildrenByArrayIndicesKey: same key → single partition → correlated AND.
+	//   After restriction to IdxKey("",1), conditions from different sub-trees
+	//   (addresses and cars) are combined via the correlated AND executor.
+	//   Plan: two separate groupAndAll groups (addresses, cars), combined at docID level.
+	//
+	// doc5: nestedArray[1]={addresses[0]→leaf=1(city:"berlin"), cars[0]→leaf=2(make:"bmw")}
+	// doc7: nestedArray[1]={addresses[0]→leaf=1(city:"berlin"), cars[0]→leaf=2(make:"ford")}
+	//        → berlin matches but bmw does not → doc7 excluded
+	// -------------------------------------------------------------------------
+	t.Run("same-partition arr[N] correlated AND — nestedArray[1].addresses.city AND nestedArray[1].cars.make", func(t *testing.T) {
+		valueBucketName := helpers.BucketNestedFromPropNameLSM("nestedArray")
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("nestedArray")
+		searcher, store := newSearcherForClass(t, class, valueBucketName, metaBucketName)
+		vb, mb := store.Bucket(valueBucketName), store.Bucket(metaBucketName)
+
+		// nestedArray[1] (root=2): addresses[0]→leaf=1, cars[0]→leaf=2
+		writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{enc(2, 1, doc5), enc(2, 1, doc7)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{enc(2, 2, doc5)})
+		writeNestedValue(t, vb, "cars.make", "ford", []uint64{enc(2, 2, doc7)})
+
+		// Root-level idx: all positions belonging to nestedArray[1]
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1),
+			[]uint64{enc(2, 1, doc5), enc(2, 2, doc5), enc(2, 1, doc7), enc(2, 2, doc7)}))
+
+		f := &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "berlin"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName("nestedArray[1].addresses.city"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "bmw"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName("nestedArray[1].cars.make"),
+					},
+				},
+			},
+		}
+		run(t, searcher, f, []uint64{doc5})
+	})
+}
+
+// TestNestedFilteringMixedArrayIndexConstraints verifies AND filters where one
+// condition carries an arr[N] constraint and another does not. The unconstrained
+// condition is resolved as "any element satisfies it"; the constrained condition
+// is resolved only for the specified element. Results are ANDed at docID level.
+//
+// This is exercised at two nesting depths:
+//
+//	Root:         nestedArray.addresses.city="berlin"  (any root element)
+//	              AND nestedArray[1].cars.make="bmw"   (root element 1 only)
+//
+//	Intermediate: nested.cars.colors="red"            (any car element)
+//	              AND nested.cars[1].make="bmw"        (car element 1 only)
+func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
+	const (
+		doc5 = uint64(5)
+		doc7 = uint64(7)
+		doc8 = uint64(8)
+	)
+
+	class := planTestClass()
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+	e1 := func(leaf uint16, docID uint64) uint64 { return enc(1, leaf, docID) }
+
+	run := func(t *testing.T, searcher *Searcher, f *filters.Clause, want []uint64) {
+		t.Helper()
+		pv, err := searcher.extractPropValuePair(context.Background(), f, "PlanTestClass")
+		require.NoError(t, err)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		assert.Equal(t, want, result.docIDs.ToArray())
+	}
+
+	// -------------------------------------------------------------------------
+	// Root-level: nestedArray.addresses.city="berlin" AND nestedArray[1].cars.make="bmw"
+	//
+	// groupChildrenByArrayIndicesKey: key="" vs key="[1]" → two partitions.
+	// Partition "" (unconstrained): fetches city="berlin" from any nestedArray element.
+	// Partition "[1]" (restricted):  fetches make="bmw" restricted to IdxKey("",1).
+	// Combined: docs where (any element has berlin) AND (element [1] has bmw).
+	//
+	// doc5: nestedArray[1]={addresses[city:berlin](leaf=1), cars[make:bmw](leaf=2)}
+	//         → berlin anywhere ✓ + bmw in [1] ✓ → returned
+	// doc7: nestedArray[0]={addresses[city:berlin](root=1,leaf=1)}
+	//       nestedArray[1]={cars[make:bmw](root=2,leaf=1)}
+	//         → berlin in [0] satisfies unconstrained ✓ + bmw in [1] ✓ → returned
+	// doc8: nestedArray[1]={cars[make:bmw](root=2,leaf=1)}, no berlin anywhere
+	//         → unconstrained partition empty → not returned
+	// -------------------------------------------------------------------------
+	t.Run("root-level — unconstrained city AND nestedArray[1].cars.make=bmw", func(t *testing.T) {
+		prop := "nestedArray"
+		vbn := helpers.BucketNestedFromPropNameLSM(prop)
+		mbn := helpers.BucketNestedMetaFromPropNameLSM(prop)
+		searcher, store := newSearcherForClass(t, class, vbn, mbn)
+		vb, mb := store.Bucket(vbn), store.Bucket(mbn)
+
+		// doc5: nestedArray[1] has berlin(root=2,leaf=1) and bmw(root=2,leaf=2)
+		writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{enc(2, 1, doc5)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{enc(2, 2, doc5)})
+		// doc7: nestedArray[0] has berlin(root=1,leaf=1); nestedArray[1] has bmw(root=2,leaf=1)
+		writeNestedValue(t, vb, "addresses.city", "berlin", []uint64{enc(1, 1, doc7)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{enc(2, 1, doc7)})
+		// doc8: nestedArray[1] has bmw(root=2,leaf=1) but no berlin anywhere
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{enc(2, 1, doc8)})
+
+		// IdxKey("",1): all positions in nestedArray[1] across all documents
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1),
+			[]uint64{enc(2, 1, doc5), enc(2, 2, doc5), enc(2, 1, doc7), enc(2, 1, doc8)}))
+
+		f := &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "berlin"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName(prop + ".addresses.city"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "bmw"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName(prop + "[1].cars.make"),
+					},
+				},
+			},
+		}
+		// doc5 and doc7 both match: doc5 has berlin+bmw in [1]; doc7 has berlin
+		// in [0] (satisfies unconstrained) and bmw in [1]. doc8 has no berlin.
+		run(t, searcher, f, []uint64{doc5, doc7})
+	})
+
+	// -------------------------------------------------------------------------
+	// Intermediate-level: nested.cars.colors="red" AND nested.cars[1].make="bmw"
+	//
+	// groupChildrenByArrayIndicesKey: key="" vs key="cars[1]" → two partitions.
+	// Partition "" (unconstrained): fetches colors="red" from any car element.
+	// Partition "cars[1]" (restricted): fetches make="bmw" restricted to IdxKey("cars",1).
+	// Combined: docs where (any car has red) AND (cars[1] has bmw).
+	//
+	// doc5: cars[0]={colors:["green"](leaf=1)}, cars[1]={colors:["red"](leaf=2),make:"bmw"(leaf=2)}
+	//         → red in cars[1] satisfies unconstrained ✓ + bmw in cars[1] ✓ → returned
+	// doc7: cars[0]={colors:["red"](leaf=1)}, cars[1]={make:"bmw"(leaf=2)}
+	//         → red in cars[0] satisfies unconstrained ✓ + bmw in cars[1] ✓ → returned
+	// doc8: cars[0]={make:"tesla"(leaf=1)}, cars[1]={make:"bmw"(leaf=2)}, no red anywhere
+	//         → unconstrained (red) partition empty → not returned
+	// -------------------------------------------------------------------------
+	t.Run("intermediate-level — unconstrained colors AND nested.cars[1].make=bmw", func(t *testing.T) {
+		prop := "nested"
+		vbn := helpers.BucketNestedFromPropNameLSM(prop)
+		mbn := helpers.BucketNestedMetaFromPropNameLSM(prop)
+		searcher, store := newSearcherForClass(t, class, vbn, mbn)
+		vb, mb := store.Bucket(vbn), store.Bucket(mbn)
+
+		// doc5: cars[0].colors[0]="green"→leaf=1; cars[1].colors[0]="red"→leaf=2; cars[1].make="bmw"→leaf=2
+		writeNestedValue(t, vb, "cars.colors", "green", []uint64{e1(1, doc5)})
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(2, doc5)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{e1(2, doc5)})
+		// doc7: cars[0].colors[0]="red"→leaf=1; cars[1].make="bmw"→leaf=2
+		writeNestedValue(t, vb, "cars.colors", "red", []uint64{e1(1, doc7)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{e1(2, doc7)})
+		// doc8: cars[0].make="tesla"→leaf=1; cars[1].make="bmw"→leaf=2; no colors
+		writeNestedValue(t, vb, "cars.make", "tesla", []uint64{e1(1, doc8)})
+		writeNestedValue(t, vb, "cars.make", "bmw", []uint64{e1(2, doc8)})
+
+		// IdxKey("cars",1): positions belonging to cars[1] across all documents
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+			[]uint64{e1(2, doc5), e1(2, doc7), e1(2, doc8)}))
+
+		f := &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName(prop + ".cars.colors"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					Value:    &filters.Value{Type: schema.DataTypeText, Value: "bmw"},
+					On: &filters.Path{
+						Class:    "PlanTestClass",
+						Property: schema.PropertyName(prop + ".cars[1].make"),
+					},
+				},
+			},
+		}
+		// doc5: red in cars[1] (any car ✓) + bmw in cars[1] ✓ → returned
+		// doc7: red in cars[0] (any car ✓) + bmw in cars[1] ✓ → returned
+		// doc8: no red in any car → not returned
+		run(t, searcher, f, []uint64{doc5, doc7})
+	})
 }

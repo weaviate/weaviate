@@ -132,13 +132,14 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, f
 		})
 	}
 
-	if len(pvps) == 0 {
+	switch len(pvps) {
+	case 0:
 		return nil, ErrOnlyStopwords
-	}
-	if len(pvps) == 1 {
+	case 1:
 		return pvps[0], nil
+	default:
+		return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 }
 
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
