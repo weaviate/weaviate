@@ -487,7 +487,10 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 			http.Error(w, "digest objects: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
-
+		if err != nil && errors.As(err, &enterrors.ErrNotFound{}) {
+			http.Error(w, "digest objects: "+err.Error(), http.StatusNotFound)
+			return
+		}
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -528,6 +531,10 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 		}
 
 		digests, err := i.replicator.DigestObjectsInRange(r.Context(), index, shard, rangeReq.InitialUUID, rangeReq.FinalUUID, rangeReq.Limit)
+		if err != nil && errors.As(err, &enterrors.ErrNotFound{}) {
+			http.Error(w, "digest objects in range: "+err.Error(), http.StatusNotFound)
+			return
+		}
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
 				http.StatusInternalServerError)
@@ -900,12 +907,11 @@ func (i *replicatedIndices) getObject() http.Handler {
 
 		resp, err := i.replicator.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, "fetch objects: "+err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, "fetch object: "+err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
-
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "fetch object: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -960,7 +966,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "fetch objects: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 

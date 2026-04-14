@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,6 +98,9 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, &resp, numRetries)
+	if err != nil {
+		err = maybeWrapShardNotFoundErr(err, shard)
+	}
 	return resp, err
 }
 
@@ -132,7 +136,8 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
-		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		err = fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+		return nil, maybeWrapShardNotFoundErr(err, shard)
 	}
 
 	if res.Header.Get("X-Response-Encoding") == "binary" {
@@ -531,6 +536,24 @@ func shouldRetry(code int) bool {
 	return code == http.StatusInternalServerError ||
 		code == http.StatusTooManyRequests ||
 		code == http.StatusServiceUnavailable
+}
+
+// maybeWrapShardNotFoundErr converts a 404 response from a replica into a typed
+// *replica.Error with StatusShardNotFound. This lets callers (e.g. the Pull
+// coordinator) distinguish "shard not on this node yet" from real errors and
+// handle it without retrying or logging at ERROR level.
+func maybeWrapShardNotFoundErr(err error, shard string) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "status code: 404") {
+		return &replica.Error{
+			Code: replica.StatusShardNotFound,
+			Msg:  shard,
+			Err:  err,
+		}
+	}
+	return err
 }
 
 // readDigestsBinaryStream reads fixed-size digest records directly from r
