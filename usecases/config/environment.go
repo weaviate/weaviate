@@ -559,6 +559,15 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
+		v = strings.ToLower(v)
+		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
+		if !slices.Contains(validTypes, v) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", v, validTypes)
+		}
+		config.DefaultVectorIndexType = v
+	}
+
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
 		"DEFAULT_SHARDING_COUNT",

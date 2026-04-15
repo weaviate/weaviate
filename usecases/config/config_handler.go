@@ -238,6 +238,9 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this vector index type instead of HNSW.
+	DefaultVectorIndexType string `json:"default_vector_index_type" yaml:"default_vector_index_type"`
+
 	// New classes will be created with this shard count instead of the cluster node count.
 	// A value of 0 means use the cluster node count (default behavior).
 	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
