@@ -28,21 +28,18 @@ import (
 
 // fakeTTLTenantsManager implements the ttlTenantsManager interface for testing.
 type fakeTTLTenantsManager struct {
-	// statusMap controls what TenantsStatus returns: tenant name → activity status string.
-	statusMap map[string]string
-	// statusErr, if non-nil, is returned by TenantsStatus.
-	statusErr error
+	statusMap map[string]string // tenant name → activity status
+	statusErr error             // if non-nil, returned by TenantsStatus
 
-	// deactivateCalled records each call to DeactivateTenants.
-	deactivateCalled []deactivateCall
-	// deactivateErr, if non-nil, is returned by DeactivateTenants.
-	deactivateErr error
+	deactivateCalled []deactivateCall // records each DeactivateTenants call
+	deactivateErr    error            // if non-nil, returned by DeactivateTenants
 }
 
 type deactivateCall struct {
-	ctx    context.Context
-	class  string
-	tenant string
+	ctxWasLive  bool // ctx.Err() == nil at the time of the call
+	hasDeadline bool // context had a deadline (from WithTimeout)
+	class       string
+	tenant      string
 }
 
 func (f *fakeTTLTenantsManager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
@@ -59,13 +56,37 @@ func (f *fakeTTLTenantsManager) TenantsStatus(class string, tenants ...string) (
 }
 
 func (f *fakeTTLTenantsManager) DeactivateTenants(ctx context.Context, class string, tenants ...string) error {
+	_, hasDeadline := ctx.Deadline()
 	for _, t := range tenants {
-		f.deactivateCalled = append(f.deactivateCalled, deactivateCall{ctx: ctx, class: class, tenant: t})
+		f.deactivateCalled = append(f.deactivateCalled, deactivateCall{
+			ctxWasLive:  ctx.Err() == nil,
+			hasDeadline: hasDeadline,
+			class:       class,
+			tenant:      t,
+		})
 	}
 	return f.deactivateErr
 }
 
-// TestProcessTenantTTLLoop_ContextCancelAfterActivation is the primary regression test for
+func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
+	findFn func(ctx context.Context) ([]strfmt.UUID, error),
+	batchFn func(ctx context.Context, uuids []strfmt.UUID) error,
+) tenantTTLLoop {
+	t.Helper()
+	if batchFn == nil {
+		batchFn = func(context.Context, []strfmt.UUID) error { return nil }
+	}
+	return tenantTTLLoop{
+		class:                 "MyClass",
+		tenant:                "tenant_0",
+		autoActivationEnabled: autoActivation,
+		mgr:                   mgr,
+		findUUIDs:             findFn,
+		processBatch:          batchFn,
+	}
+}
+
+// TestTenantTTLLoop_ContextCancelAfterActivation is the primary regression test for
 // the server bug reported in:
 //
 //	test_tenant_auto_activation_during_ttl_deletion (weaviate-e2e-tests CI failure, 2026-04-13)
@@ -75,18 +96,10 @@ func (f *fakeTTLTenantsManager) DeactivateTenants(ctx context.Context, class str
 // context mid-deletion, the goroutine exited without calling DeactivateTenants. The tenant
 // remained permanently HOT/ACTIVE.
 //
-// Fix: deferred DeactivateTenants call using context.Background() in processTenantTTLLoop.
-func TestProcessTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
-	const (
-		class  = "MyClass"
-		tenant = "tenant_0"
-	)
-
-	// The tenant was COLD (inactive) before the TTL run — it should be re-deactivated on exit.
+// Fix: deferred DeactivateTenants with bounded timeout in tenantTTLLoop.ensureDeactivation.
+func TestTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
 	mgr := &fakeTTLTenantsManager{
-		statusMap: map[string]string{
-			tenant: models.TenantActivityStatusCOLD,
-		},
+		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
 	// cancelCtx simulates the TTL context being canceled mid-deletion (e.g. by a concurrent
@@ -94,129 +107,120 @@ func TestProcessTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
 	cancelCtx, cancel := context.WithCancelCause(context.Background())
 
 	batchesProcessed := 0
-	uuids := []strfmt.UUID{"uuid-1", "uuid-2", "uuid-3"}
-
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) {
-		if batchesProcessed == 0 {
-			// First call: return a non-empty batch so the loop makes progress.
-			return uuids, nil
-		}
-		// Second call: context is already canceled; processTenantTTLLoop detects this at
-		// the top of the loop and exits before reaching findUUIDs again. This path is
-		// reached only if the loop doesn't check ctx.Err() between batches (a regression).
-		return nil, nil
-	}
-
-	processBatch := func(ctx context.Context, got []strfmt.UUID) error {
-		batchesProcessed++
-		// Simulate a concurrent RAFT event canceling the TTL context after the first batch.
-		cancel(fmt.Errorf("concurrent raft deactivation canceled ttl context"))
-		return nil
-	}
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) {
+			if batchesProcessed == 0 {
+				return []strfmt.UUID{"uuid-1", "uuid-2", "uuid-3"}, nil
+			}
+			// If we reach this point, the loop failed to detect context cancellation.
+			return nil, nil
+		},
+		func(ctx context.Context, _ []strfmt.UUID) error {
+			batchesProcessed++
+			// Simulate a concurrent RAFT event canceling the TTL context after the first batch.
+			cancel(fmt.Errorf("concurrent raft deactivation canceled ttl context"))
+			return nil
+		},
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(cancelCtx, ec, class, tenant,
-		true /*autoActivationEnabled*/, mgr, findUUIDs, processBatch)
+	loop.run(cancelCtx, ec)
 
-	// The loop must have exited (at the second ctx check after the first batch).
 	require.Equal(t, 1, batchesProcessed, "expected exactly one batch before context cancel")
 
 	// KEY ASSERTION: DeactivateTenants must be called even though the context was canceled.
 	require.Len(t, mgr.deactivateCalled, 1, "DeactivateTenants must be called exactly once")
 	call := mgr.deactivateCalled[0]
-	assert.Equal(t, class, call.class)
-	assert.Equal(t, tenant, call.tenant)
+	assert.Equal(t, "MyClass", call.class)
+	assert.Equal(t, "tenant_0", call.tenant)
 
-	// The deactivation call must use context.Background() — not the canceled TTL context —
-	// so it completes even after the TTL round's context is done.
-	assert.NoError(t, call.ctx.Err(),
-		"DeactivateTenants must be called with a non-canceled context (context.Background())")
+	// The deactivation call must use a live context (not the canceled TTL context)
+	// so the RAFT call can complete.
+	assert.True(t, call.ctxWasLive,
+		"DeactivateTenants must be called with a non-canceled context")
+	assert.True(t, call.hasDeadline,
+		"DeactivateTenants must be called with a timeout-bounded context")
 }
 
-func TestProcessTenantTTLLoop_NormalCompletion_Deactivates(t *testing.T) {
-	const (
-		class  = "MyClass"
-		tenant = "tenant_0"
-	)
-
+func TestTenantTTLLoop_NormalCompletion_Deactivates(t *testing.T) {
 	mgr := &fakeTTLTenantsManager{
-		statusMap: map[string]string{tenant: models.TenantActivityStatusCOLD},
+		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
 	calls := atomic.Int32{}
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) {
-		n := calls.Add(1)
-		if n == 1 {
-			return []strfmt.UUID{"uuid-1"}, nil
-		}
-		return nil, nil // second call: empty → signals completion
-	}
-	processBatch := func(ctx context.Context, uuids []strfmt.UUID) error { return nil }
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) {
+			if calls.Add(1) == 1 {
+				return []strfmt.UUID{"uuid-1"}, nil
+			}
+			return nil, nil
+		},
+		nil,
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(context.Background(), ec, class, tenant,
-		true, mgr, findUUIDs, processBatch)
+	loop.run(context.Background(), ec)
 
 	assert.NoError(t, ec.ToError())
 	require.Len(t, mgr.deactivateCalled, 1)
-	assert.Equal(t, tenant, mgr.deactivateCalled[0].tenant)
+	assert.Equal(t, "tenant_0", mgr.deactivateCalled[0].tenant)
 }
 
-func TestProcessTenantTTLLoop_ActiveTenant_NoDeactivation(t *testing.T) {
-	// A tenant that was already HOT (active) must not be deactivated.
+func TestTenantTTLLoop_ActiveTenant_NoDeactivation(t *testing.T) {
 	mgr := &fakeTTLTenantsManager{
-		statusMap: map[string]string{"tenant_hot": models.TenantActivityStatusHOT},
+		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusHOT},
 	}
 
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil }
-	processBatch := func(ctx context.Context, uuids []strfmt.UUID) error { return nil }
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil },
+		nil,
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(context.Background(), ec, "MyClass", "tenant_hot",
-		true, mgr, findUUIDs, processBatch)
+	loop.run(context.Background(), ec)
 
 	assert.Empty(t, mgr.deactivateCalled, "active tenant must not be deactivated")
 }
 
-func TestProcessTenantTTLLoop_AutoActivationDisabled_NoDeactivation(t *testing.T) {
-	// When autoActivationEnabled is false, TenantsStatus is never checked and
-	// deactivation must never happen.
+func TestTenantTTLLoop_AutoActivationDisabled_NoDeactivation(t *testing.T) {
 	mgr := &fakeTTLTenantsManager{
 		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil }
-	processBatch := func(ctx context.Context, uuids []strfmt.UUID) error { return nil }
+	loop := newTestLoop(t, mgr, false, // autoActivation disabled
+		func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil },
+		nil,
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(context.Background(), ec, "MyClass", "tenant_0",
-		false /*autoActivationEnabled=false*/, mgr, findUUIDs, processBatch)
+	loop.run(context.Background(), ec)
 
 	assert.Empty(t, mgr.deactivateCalled)
 }
 
-func TestProcessTenantTTLLoop_TenantNotActive_Skipped(t *testing.T) {
-	// findUUIDs returning ErrTenantNotActive should be silently skipped and must not
-	// add anything to ec.
+func TestTenantTTLLoop_TenantNotActive_NoDeactivation(t *testing.T) {
+	// findUUIDs returning ErrTenantNotActive means the tenant was never successfully
+	// activated. The loop should silently skip it AND must NOT trigger a RAFT
+	// DeactivateTenants call (the tenant is already COLD).
 	mgr := &fakeTTLTenantsManager{
 		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) {
-		return nil, enterrors.ErrTenantNotActive
-	}
-	processBatch := func(ctx context.Context, uuids []strfmt.UUID) error { return nil }
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) {
+			return nil, enterrors.ErrTenantNotActive
+		},
+		nil,
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(context.Background(), ec, "MyClass", "tenant_0",
-		true, mgr, findUUIDs, processBatch)
+	loop.run(context.Background(), ec)
 
 	assert.NoError(t, ec.ToError(), "ErrTenantNotActive must be silently ignored")
+	assert.Empty(t, mgr.deactivateCalled, "ErrTenantNotActive must not trigger deactivation")
 }
 
-func TestProcessTenantTTLLoop_ContextAlreadyCanceled(t *testing.T) {
-	// If the context is already canceled on entry the loop must exit immediately without
-	// calling TenantsStatus, findUUIDs, or processBatch.
+func TestTenantTTLLoop_ContextAlreadyCanceled(t *testing.T) {
 	mgr := &fakeTTLTenantsManager{
 		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
@@ -224,38 +228,61 @@ func TestProcessTenantTTLLoop_ContextAlreadyCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(errors.New("pre-canceled"))
 
-	called := false
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) {
-		called = true
-		return nil, nil
-	}
-	processBatch := func(ctx context.Context, uuids []strfmt.UUID) error { return nil }
+	findCalled := false
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) {
+			findCalled = true
+			return nil, nil
+		},
+		nil,
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(ctx, ec, "MyClass", "tenant_0", true, mgr, findUUIDs, processBatch)
+	loop.run(ctx, ec)
 
-	assert.False(t, called, "findUUIDs must not be called when context is already canceled")
+	assert.False(t, findCalled, "findUUIDs must not be called when context is already canceled")
 	// deactivate was never set (TenantsStatus was never called), so no deactivation.
 	assert.Empty(t, mgr.deactivateCalled)
 }
 
-func TestProcessTenantTTLLoop_DeactivateError_ReportedInEc(t *testing.T) {
-	// A failure in DeactivateTenants must be surfaced via ec, not silently swallowed.
-	deactivateErr := errors.New("raft timeout")
+func TestTenantTTLLoop_DeactivateError_ReportedInEc(t *testing.T) {
 	mgr := &fakeTTLTenantsManager{
 		statusMap:     map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
-		deactivateErr: deactivateErr,
+		deactivateErr: errors.New("raft timeout"),
 	}
 
-	findUUIDs := func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil }
-	processBatch := func(ctx context.Context, uuids []strfmt.UUID) error { return nil }
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil },
+		nil,
+	)
 
 	ec := errorcompounder.New()
-	processTenantTTLLoop(context.Background(), ec, "MyClass", "tenant_0",
-		true, mgr, findUUIDs, processBatch)
+	loop.run(context.Background(), ec)
 
 	err := ec.ToError()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "deactivate tenant")
 	assert.ErrorContains(t, err, "raft timeout")
+}
+
+func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
+	// Verify the deferred DeactivateTenants call uses a bounded-timeout context,
+	// not a bare context.Background().
+	mgr := &fakeTTLTenantsManager{
+		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
+	}
+
+	loop := newTestLoop(t, mgr, true,
+		func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil },
+		nil,
+	)
+
+	ec := errorcompounder.New()
+	loop.run(context.Background(), ec)
+
+	require.Len(t, mgr.deactivateCalled, 1)
+	call := mgr.deactivateCalled[0]
+
+	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
+	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
 }
