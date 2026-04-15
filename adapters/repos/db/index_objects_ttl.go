@@ -99,6 +99,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 		for _, tenant := range tenants {
 			eg.Go(func() error {
+				// processedBatches is intentionally shared between the findUUIDs and processBatch
+				// closures below — both run within this single goroutine, so there is no race.
 				processedBatches := 0
 
 				loop := tenantTTLLoop{
