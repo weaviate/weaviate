@@ -1671,7 +1671,7 @@ func TestEnvironmentDefaultVectorIndex(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.expectedErr)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expected, conf.DefaultVectorIndexType)
+				assert.Equal(t, tt.expected, conf.DefaultVectorIndexType.Get())
 			}
 		})
 	}

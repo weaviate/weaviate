@@ -459,8 +459,8 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 		}
 
 		if class.VectorIndexType == "" {
-			if h.config.DefaultVectorIndexType != "" {
-				class.VectorIndexType = h.config.DefaultVectorIndexType
+			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+				class.VectorIndexType = v
 			} else {
 				class.VectorIndexType = vectorindex.DefaultVectorIndexType
 			}
