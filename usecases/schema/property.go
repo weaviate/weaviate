@@ -100,9 +100,6 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	class *models.Class, className, propertyName, indexName string,
 ) error {
-	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_ENDPOINTS")) {
-		return fmt.Errorf("alter schema endpoints are experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_ENDPOINTS=true to enable them")
-	}
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
@@ -167,8 +164,8 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
 	className, vectorIndexName string,
 ) error {
-	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_ENDPOINTS")) {
-		return fmt.Errorf("alter schema endpoints are experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_ENDPOINTS=true to enable them")
+	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
+		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
 	}
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err

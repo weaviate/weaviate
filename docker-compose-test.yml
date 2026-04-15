@@ -35,7 +35,7 @@ services:
       TRACK_VECTOR_DIMENSIONS: "true"
       QUERY_MAXIMUM_RESULTS: 10005
       OBJECTS_TTL_DELETE_SCHEDULE: "@every 12h"
-      ENABLE_EXPERIMENTAL_ALTER_SCHEMA_ENDPOINTS: "true"
+      ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT: "true"
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in

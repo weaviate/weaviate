@@ -193,7 +193,7 @@ func Test_Schema_Authorization(t *testing.T) {
 
 	t.Run("verify the tested methods require correct permissions from the Authorizer", func(t *testing.T) {
 		principal := &models.Principal{}
-		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_ENDPOINTS", "true")
+		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := mocks.NewMockAuthorizer()
