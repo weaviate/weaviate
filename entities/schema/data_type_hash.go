@@ -19,6 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+var onlyHexadecimalCharacters = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
+
 // HashBlob computes a SHA-256 hash of the given base64-encoded blob string
 // and returns the hex-encoded digest. This is used by the BlobHash data type
 // to store a compact hash instead of the full blob payload.
@@ -33,7 +35,7 @@ func IsLikelySHA256Hash(s string) bool {
 		return false
 	}
 	// Only hexadecimal characters
-	if !regexp.MustCompile(`^[0-9a-fA-F]{64}$`).MatchString(s) {
+	if !onlyHexadecimalCharacters.MatchString(s) {
 		return false
 	}
 	// Reject obvious dummy/all-zero hashes (very rare in practice)
