@@ -40,6 +40,8 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -64,6 +66,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -2206,6 +2209,43 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
+	// For multi-shard searches with selection (MMR), shards must return raw
+	// relevance-ordered candidates so the coordinator can apply one global
+	// MMR pass after merging. We also need vectors on the returned objects
+	// for the coordinator-level diversity computation.
+	shardSelection := selection
+	shardAdditionalProps := additionalProps
+	var addedDefaultVector bool
+	var addedNamedVectors []string
+	if selection != nil {
+		shardSelection = nil
+		targetVec := ""
+		if len(targetVectors) > 0 {
+			targetVec = targetVectors[0]
+		}
+		if targetVec == "" {
+			if !shardAdditionalProps.Vector {
+				addedDefaultVector = true
+				shardAdditionalProps.Vector = true
+			}
+		} else {
+			found := false
+			for _, v := range shardAdditionalProps.Vectors {
+				if v == targetVec {
+					found = true
+					break
+				}
+			}
+			if !found {
+				addedNamedVectors = []string{targetVec}
+				vecs := make([]string, len(shardAdditionalProps.Vectors)+1)
+				copy(vecs, shardAdditionalProps.Vectors)
+				vecs[len(shardAdditionalProps.Vectors)] = targetVec
+				shardAdditionalProps.Vectors = vecs
+			}
+		}
+	}
+
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
@@ -2233,7 +2273,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	remoteSearch := func(shardName string) error {
 		// If we have no local shard or if we force the query to reach all replicas
-		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 		if err2 != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err2)
@@ -2253,7 +2293,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		defer release()
 
 		if shard != nil {
-			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 			if err1 != nil {
 				return fmt.Errorf(
 					"local shard object search %s: %w", shard.ID(), err1)
@@ -2311,11 +2351,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if selection != nil {
-		limit = int(selection.MMR.Limit)
-	}
-
-	if len(readPlan.Shards()) == 1 {
+	if len(readPlan.Shards()) == 1 && selection == nil {
 		return out, dists, nil
 	}
 
@@ -2333,6 +2369,31 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
+	// Apply one global MMR pass on the merged candidate pool.
+	if selection != nil {
+		out, dists, err = i.applySelectionOnObjects(ctx, selection, targetVectors, out, dists)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Strip vectors that were added solely for MMR computation.
+		if addedDefaultVector {
+			for _, obj := range out {
+				if obj != nil {
+					obj.Vector = nil
+					obj.Object.Vector = nil
+				}
+			}
+		}
+		for _, v := range addedNamedVectors {
+			for _, obj := range out {
+				if obj != nil {
+					delete(obj.Vectors, v)
+					delete(obj.Object.Vectors, v)
+				}
+			}
+		}
+	}
+
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
 		err = i.replicator.CheckConsistency(ctx, cl, out)
 		if err != nil {
@@ -2342,6 +2403,87 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	return out, dists, nil
+}
+
+// applySelectionOnObjects runs a coordinator-level MMR pass on already-fetched
+// objects. It uses the first target vector for inter-candidate diversity
+// distance computation and the merged query distances for relevance scoring.
+func (i *Index) applySelectionOnObjects(
+	ctx context.Context,
+	selection *searchparams.Selection,
+	targetVectors []string,
+	objects []*storobj.Object,
+	queryDists []float32,
+) ([]*storobj.Object, []float32, error) {
+	if selection == nil || selection.MMR == nil || len(objects) == 0 {
+		return objects, queryDists, nil
+	}
+
+	targetVector := ""
+	if len(targetVectors) > 0 {
+		targetVector = targetVectors[0]
+	}
+
+	// Build distancer from the target vector's distance config.
+	cfg := i.GetVectorIndexConfig(targetVector)
+	var distProv distancer.Provider
+	if cfg != nil {
+		switch cfg.DistanceName() {
+		case vectorIndexCommon.DistanceDot:
+			distProv = distancer.NewDotProductProvider()
+		case vectorIndexCommon.DistanceL2Squared:
+			distProv = distancer.NewL2SquaredProvider()
+		case vectorIndexCommon.DistanceManhattan:
+			distProv = distancer.NewManhattanProvider()
+		case vectorIndexCommon.DistanceHamming:
+			distProv = distancer.NewHammingProvider()
+		default:
+			distProv = distancer.NewCosineDistanceProvider()
+		}
+	} else {
+		distProv = distancer.NewCosineDistanceProvider()
+	}
+	distFn := func(a, b []float32) (float32, error) {
+		return distProv.SingleDist(a, b)
+	}
+
+	// Map synthetic IDs (indices) to object vectors.
+	ids := make([]uint64, len(objects))
+	vecMap := make(map[uint64][]float32, len(objects))
+	for idx, obj := range objects {
+		id := uint64(idx)
+		ids[idx] = id
+		if obj != nil {
+			if targetVector == "" {
+				vecMap[id] = obj.Vector
+			} else {
+				vecMap[id] = obj.Vectors[targetVector]
+			}
+		}
+	}
+
+	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
+		return vecMap[id], nil
+	}
+
+	sel, err := selector.New(selection, distFn, vecForID, len(objects))
+	if err != nil {
+		return nil, nil, fmt.Errorf("coordinator mmr selection: %w", err)
+	}
+	if sel == nil {
+		return objects, queryDists, nil
+	}
+
+	selectedIDs, selectedDists, err := sel.Select(ctx, ids, queryDists)
+	if err != nil {
+		return nil, nil, fmt.Errorf("coordinator mmr selection: %w", err)
+	}
+
+	result := make([]*storobj.Object, len(selectedIDs))
+	for j, id := range selectedIDs {
+		result[j] = objects[id]
+	}
+	return result, selectedDists, nil
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
