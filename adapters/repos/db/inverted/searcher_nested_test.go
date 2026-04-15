@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -68,7 +69,7 @@ func newTestSearcher() *Searcher {
 	class := nestedSearcherClass()
 	return &Searcher{
 		getClass:               func(name string) *models.Class { return class },
-		stopwords:              fakeStopwordDetector{},
+		stopwordProvider:       stopwords.NewProvider(fakeStopwordDetector{}, nil),
 		isFallbackToSearchable: func() bool { return false },
 	}
 }
