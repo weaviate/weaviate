@@ -162,6 +162,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.MaxWalReuseSize,
 						h.allocChecker,
 						h.getTargetVector(),
+						h.vectorForID,
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -176,6 +177,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.MaxWalReuseSize,
 						h.allocChecker,
 						h.getTargetVector(),
+						h.vectorForID,
 					)
 				}
 				if err != nil {
@@ -198,6 +200,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.MaxWalReuseSize,
 					h.allocChecker,
 					h.getTargetVector(),
+					h.vectorForID,
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -212,6 +215,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.MaxWalReuseSize,
 					h.allocChecker,
 					h.getTargetVector(),
+					h.vectorForID,
 				)
 			}
 			if err != nil {
@@ -285,6 +289,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				h.store,
 				h.allocChecker,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	} else {
@@ -303,6 +308,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				h.store,
 				h.allocChecker,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	}
@@ -329,6 +335,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				h.store,
 				h.allocChecker,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	} else {
@@ -347,6 +354,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				h.store,
 				h.allocChecker,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	}

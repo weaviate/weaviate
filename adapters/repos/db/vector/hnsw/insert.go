@@ -109,11 +109,11 @@ func (h *hnsw) checkAndCompress() error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store,
-					h.allocChecker, int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector())
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store,
-					h.allocChecker, int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector())
+					h.allocChecker, int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
 			}
 
 			if err == nil {
