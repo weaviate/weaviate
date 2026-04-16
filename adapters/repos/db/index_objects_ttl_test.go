@@ -91,10 +91,9 @@ func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 //
 //	test_tenant_auto_activation_during_ttl_deletion (weaviate-e2e-tests CI failure, 2026-04-13)
 //
-// Root cause: when a previously-COLD (inactive) tenant was auto-activated by the TTL loop
-// and a concurrent RAFT DeactivateTenants propagation from another node canceled the TTL
-// context mid-deletion, the goroutine exited without calling DeactivateTenants. The tenant
-// remained permanently HOT/ACTIVE.
+// Bug: when a previously-COLD tenant was auto-activated by the TTL loop and the TTL context
+// was canceled mid-deletion (e.g. index drop, node shutdown, TTL round abort), the goroutine
+// exited without calling DeactivateTenants. The tenant remained permanently HOT/ACTIVE.
 //
 // Fix: deferred DeactivateTenants with bounded timeout in tenantTTLLoop.ensureDeactivation.
 func TestTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
@@ -102,9 +101,10 @@ func TestTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
 		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
-	// cancelCtx simulates the TTL context being canceled mid-deletion (e.g. by a concurrent
-	// RAFT DeactivateTenants propagation from another node completing its own TTL round).
+	// cancelCtx simulates the TTL context being canceled mid-deletion
+	// (e.g. index drop, node shutdown, or TTL round abort).
 	cancelCtx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
 
 	batchesProcessed := 0
 	loop := newTestLoop(t, mgr, true,
@@ -117,7 +117,8 @@ func TestTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
 		},
 		func(ctx context.Context, _ []strfmt.UUID) error {
 			batchesProcessed++
-			// Simulate a concurrent RAFT event canceling the TTL context after the first batch.
+			// Simulate the TTL context being canceled after the first batch
+			// (e.g. index drop, node shutdown, or TTL round abort).
 			cancel(fmt.Errorf("concurrent raft deactivation canceled ttl context"))
 			return nil
 		},
@@ -226,6 +227,7 @@ func TestTenantTTLLoop_ContextAlreadyCanceled(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
 	cancel(errors.New("pre-canceled"))
 
 	findCalled := false
