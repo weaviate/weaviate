@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -72,6 +73,7 @@ type Searcher struct {
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
+	nestedBitmapOps     *invnested.BitmapOps
 	// tokResolver, when non-nil, overrides prop.Tokenization on query
 	// input analysis. Used by the per-shard tokenization overlay to
 	// keep query tokenization aligned with the bucket content during
@@ -137,6 +139,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		tenant:                  tenant,
 		nestedCrossRefLimit:     nestedCrossRefLimit,
 		bitmapFactory:           bitmapFactory,
+		nestedBitmapOps:         invnested.NewBitmapOps(bitmapFactory.BufPool()),
 	}
 }
 

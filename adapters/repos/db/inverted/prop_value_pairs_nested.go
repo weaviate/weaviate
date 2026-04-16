@@ -20,6 +20,8 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -73,11 +75,14 @@ func (a arrayIndices) groupKey() string {
 // docID-only results. It fetches raw positions, applies any arr[N] index
 // constraints, then strips position bits to extract plain docIDs.
 func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	dbm, err := pv.fetchNestedPositions(ctx, s, limit)
+	positions, err := pv.fetchNestedPositions(ctx, s, limit)
 	if err != nil {
 		return nil, err
 	}
-	dbm.docIDs = invnested.MaskRootLeaf(dbm.docIDs)
+	defer positions.release()
+
+	dbm := &docBitmap{isDenyList: positions.isDenyList}
+	dbm.docIDs, dbm.release = s.nestedBitmapOps.MaskRootLeaf(positions.docIDs)
 	return dbm, nil
 }
 
@@ -94,21 +99,20 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 		return nil, errors.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 
-	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	positionsExists, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
 	}
-	defer release()
-
-	if err := pv.restrictByNestedIdx(s, positions); err != nil {
-		return nil, err
+	dbmExists, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: positionsExists, release: release})
+	if err != nil {
+		return nil, err // restrictByNestedIdx released the bitmap on error
 	}
+	defer dbmExists.release()
 
-	dbm := newDocBitmap()
-	dbm.docIDs = invnested.MaskRootLeaf(positions)
 	// pv.value is a little-endian bool: 0x01 = true (IsNull — property absent → denylist).
-	dbm.isDenyList = len(pv.value) > 0 && pv.value[0] == 0x01
-	return &dbm, nil
+	dbm := &docBitmap{isDenyList: len(pv.value) > 0 && pv.value[0] == 0x01}
+	dbm.docIDs, dbm.release = s.nestedBitmapOps.MaskRootLeaf(dbmExists.docIDs)
+	return dbm, nil
 }
 
 // fetchNestedPositions fetches the raw position bitmap for a nested value
@@ -116,37 +120,49 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 // to docIDs — callers that need docIDs use fetchNestedDocIDs instead; the
 // correlated resolution path (resolveNestedCorrelated) uses this directly.
 func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	dbm, err := pv.readFromBucket(ctx, s, limit)
+	raw, err := pv.readFromBucket(ctx, s, limit)
 	if err != nil {
 		return nil, err
 	}
-	if err := pv.restrictByNestedIdx(s, dbm.docIDs); err != nil {
-		return nil, err
-	}
-	return dbm, nil
+	return pv.restrictByNestedIdx(s, raw)
 }
 
 // restrictByNestedIdx restricts a position bitmap to the specific array
 // elements recorded in pv.nested.arrayIndices. For each constraint it reads
 // IdxKey(relPath, index) from the nested metadata bucket and ANDs it into
-// the bitmap in place. No-op when arrayIndices is empty.
-func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *sroar.Bitmap) error {
+// the accumulator using mergeBitmapsAndOrWithDenyList, which selects the more
+// efficient accumulator (smaller for AND) and releases the discarded buffer.
+// Returns the (potentially swapped) accumulator. On error the current
+// accumulator is returned unchanged — the caller is responsible for releasing it.
+// No-op when arrayIndices is empty.
+func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) (*docBitmap, error) {
 	if len(pv.nested.arrayIndices) == 0 {
-		return nil
+		return positions, nil
 	}
+	// Release the current accumulator on any non-success exit (error or panic).
+	// The closure reads positions at call time, so it always releases the latest
+	// accumulator even after mergeBitmapsAndOrWithDenyList swaps it.
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			positions.release()
+		}
+	}()
+
 	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
 	if metaBucket == nil {
-		return fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
+		return nil, fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 	for _, ai := range pv.nested.arrayIndices {
-		idxPositions, release, err := metaBucket.RoaringSetGet(invnested.IdxKey(ai.RelPath, ai.Index))
+		positionsIdx, release, err := metaBucket.RoaringSetGet(invnested.IdxKey(ai.RelPath, ai.Index))
 		if err != nil {
-			return fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
+			return nil, fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
 		}
-		positions.And(idxPositions)
-		release()
+		dbmIdx := &docBitmap{docIDs: positionsIdx, release: release}
+		positions = mergeBitmapsAndOrWithDenyList(positions, dbmIdx, filters.OperatorAnd)
 	}
-	return nil
+	succeeded = true
+	return positions, nil
 }
 
 // positionBitmaps groups pre-fetched raw position bitmaps for a single nested path,
@@ -178,25 +194,37 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		return nil, fmt.Errorf("nested correlated AND: no condition groups for %q", pv.prop)
 	case 1:
 		return pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
-	default:
-		// Multiple groups with conflicting arr[N] constraints: resolve each group
-		// independently using same-element semantics, then AND the docID results.
-		first, err := pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+	}
+
+	// Multiple groups with conflicting arr[N] constraints: resolve each group
+	// independently using same-element semantics, then AND the docID results.
+	dbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+	if err != nil {
+		return nil, err
+	}
+
+	// Release dbm's buffer on any non-success exit (error or panic).
+	// Cleared to a no-op once ownership is transferred to the caller.
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			dbm.release()
+		}
+	}()
+
+	for _, group := range groups[1:] {
+		groupDbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, group)
 		if err != nil {
 			return nil, err
 		}
-		combined := first.docIDs
-		for _, group := range groups[1:] {
-			dbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, group)
-			if err != nil {
-				return nil, err
-			}
-			combined.And(dbm.docIDs)
-		}
-		result := newDocBitmap()
-		result.docIDs = combined
-		return &result, nil
+		// mergeBitmapsAndOrWithDenyList selects the more efficient bitmap to
+		// accumulate into (smaller for AND), merges in-place, and defers
+		// release of the unused buffer — whether that is dbmGroup or the old
+		// dbm after an efficiency swap.
+		dbm = mergeBitmapsAndOrWithDenyList(dbm, groupDbm, filters.OperatorAnd)
 	}
+	succeeded = true
+	return dbm, nil
 }
 
 // resolveNestedCorrelatedGroup resolves a single set of children using
@@ -208,11 +236,23 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 	positionsByPath := make(map[string]*positionBitmaps, len(children))
 	paths := make([]string, 0, len(children))
 
+	// releases collects the pool-buffer release functions from every fetched
+	// position bitmap. They are deferred until after execute() returns, at
+	// which point the executor has finished reading all position bitmaps and
+	// it is safe to return the backing buffers to the pool.
+	var releases []func()
+	defer func() {
+		for _, rel := range releases {
+			rel()
+		}
+	}()
+
 	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
 		dbm, err := leaf.fetchNestedPositions(ctx, s, 0)
 		if err != nil {
 			return err
 		}
+		releases = append(releases, dbm.release)
 		path := leaf.nested.relPath
 		if _, exists := positionsByPath[path]; !exists {
 			positionsByPath[path] = &positionBitmaps{}
@@ -266,14 +306,14 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
 	}
 
-	docIDs, err := newPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
+	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
+	// consider deriving it from the request context or shard-level config.
+	docIDs, release, err := newPlanExecutor(plan, positionsByPath, metaBucket, s.nestedBitmapOps, concurrency.SROAR_MERGE).execute(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}
 
-	dbm := newDocBitmap()
-	dbm.docIDs = docIDs
-	return &dbm, nil
+	return &docBitmap{docIDs: docIDs, release: release}, nil
 }
 
 // groupChildrenByArrayIndicesKey partitions the children of a correlated AND

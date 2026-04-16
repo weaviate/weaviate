@@ -37,7 +37,6 @@ type propValuePair struct {
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
 	valueGeoRange      *filters.GeoRange
-	docIDs             docBitmap
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
@@ -50,11 +49,11 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
+	return &propValuePair{Class: class}, nil
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	if err := ctx.Err(); err != nil {
+	if err := ctxExpired(ctx); err != nil {
 		return nil, err
 	}
 

@@ -18,7 +18,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
@@ -74,6 +76,7 @@ func newTestSearcher() *Searcher {
 		stopwordProvider:       stopwords.NewProvider(fakeStopwordDetector{}, nil),
 		isFallbackToSearchable: func() bool { return false },
 		logger:                 logger,
+		nestedBitmapOps:        invnested.NewBitmapOps(roaringset.NewBitmapBufPoolNoop()),
 	}
 }
 

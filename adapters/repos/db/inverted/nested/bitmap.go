@@ -12,9 +12,8 @@
 package nested
 
 import (
-	"fmt"
-
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 // Position encoding layout (64 bits total):
@@ -79,18 +78,6 @@ func DecodeDocID(pos uint64) uint64 {
 	return pos & docMask
 }
 
-// EncodePositions creates position values for a given root/leaf pair across
-// multiple documents. Useful for building bitmaps from position templates
-// (where docID=0) by ORing in the real docID.
-func EncodePositions(rootIdx, leafIdx uint16, docIDs []uint64) []uint64 {
-	base := (uint64(rootIdx) << rootShift) | (uint64(leafIdx) << leafShift)
-	out := make([]uint64, len(docIDs))
-	for i, d := range docIDs {
-		out[i] = base | (d & docMask)
-	}
-	return out
-}
-
 // OrDocID ORs a real docID into position templates that have docID=0.
 // Returns a new slice; does not modify the input.
 func OrDocID(positions []uint64, docID uint64) []uint64 {
@@ -102,84 +89,112 @@ func OrDocID(positions []uint64, docID uint64) []uint64 {
 	return out
 }
 
-// ValidateRootIdx checks that a root index fits within the 14-bit field.
-func ValidateRootIdx(rootIdx int) error {
-	if rootIdx < 1 || rootIdx >= MaxRoots {
-		return fmt.Errorf("root index %d out of range [1, %d)", rootIdx, MaxRoots)
+// BitmapOps provides pool-backed versions of every bitmap merge operation used
+// by the nested filter executor. Each method returns the result bitmap and a
+// release function; callers must invoke release() when the bitmap is no longer
+// needed so the underlying buffer is returned to the pool.
+//
+// Using pool-backed allocations on the hot resolution path reduces GC pressure
+// because intermediate bitmaps do not escape to the heap.
+type BitmapOps struct {
+	pool roaringset.BitmapBufPool
+}
+
+// NewBitmapOps constructs a BitmapOps that allocates result bitmaps from pool.
+// Pass roaringset.NewBitmapBufPoolNoop() in tests or the real pool in production.
+func NewBitmapOps(pool roaringset.BitmapBufPool) *BitmapOps {
+	return &BitmapOps{pool: pool}
+}
+
+// NewEmpty returns an empty bitmap backed by a pool buffer sized to minCap
+// bytes. As values are added the bitmap may outgrow the initial buffer and
+// allocate internally, but for typical use (result ⊆ some known upper bound)
+// the hint avoids that reallocation.
+func (o *BitmapOps) NewEmpty(minCap int) (result *sroar.Bitmap, release func()) {
+	buf, put := o.pool.Get(minCap)
+	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
+	return sroar.NewBitmapToBuf(buf[:cap(buf)]), put
+}
+
+// MaskLeaf zeroes the leaf bits of raw and returns the rootDoc bitmap in a
+// pool buffer. The caller must invoke release() when the result is no longer
+// needed.
+func (o *BitmapOps) MaskLeaf(raw *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
+	buf, put := o.pool.Get(raw.LenInBytes())
+	// TODO aliszka:nested_filtering buf[:cap(buf)] works around a sroar bug:
+	// MaskedToBuf checks len(buf) instead of cap(buf). Fix in sroar so that
+	// pool-provided slices with len=0,cap=n are accepted without reslicing.
+	return raw.MaskedToBuf(zeroLeafBits, buf[:cap(buf)]), put
+}
+
+// MaskRootLeaf zeroes both root and leaf bits of positions, returning only
+// docIDs in a pool buffer. Use as the final step to extract plain document
+// IDs. positions may be raw or rootDoc.
+func (o *BitmapOps) MaskRootLeaf(positions *sroar.Bitmap) (doc *sroar.Bitmap, release func()) {
+	buf, put := o.pool.Get(positions.LenInBytes())
+	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
+	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf[:cap(buf)]), put
+}
+
+// AndAll returns the intersection of all raw position bitmaps in a pool
+// buffer. Returns an empty (non-pooled) bitmap when raws is empty. The loop
+// exits early when the running intersection becomes empty — further ANDs
+// cannot change the result.
+func (o *BitmapOps) AndAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar.Bitmap, release func()) {
+	if len(raws) == 0 {
+		return sroar.NewBitmap(), func() {}
 	}
-	return nil
-}
-
-// ValidateLeafIdx checks that a leaf index fits within the 14-bit field.
-func ValidateLeafIdx(leafIdx int) error {
-	if leafIdx < 1 || leafIdx >= MaxLeavesPerRoot {
-		return fmt.Errorf("leaf index %d out of range [1, %d)", leafIdx, MaxLeavesPerRoot)
-	}
-	return nil
-}
-
-// MaskLeaf zeroes the leaf bits of every value in bm, collapsing positions
-// to root+docID granularity. Values that differed only in leaf_idx become
-// identical after masking, allowing element-level alignment across sub-trees.
-func MaskLeaf(bm *sroar.Bitmap) *sroar.Bitmap {
-	return bm.Masked(zeroLeafBits)
-}
-
-// MaskRootLeaf zeroes both root and leaf bits of every value in bm, keeping
-// only the docID. Use this as the final step to extract plain document IDs
-// from a position bitmap.
-func MaskRootLeaf(bm *sroar.Bitmap) *sroar.Bitmap {
-	return bm.Masked(zeroRootBits & zeroLeafBits)
-}
-
-// AndAll returns the intersection of all bitmaps on raw positions. Inputs are
-// not modified. Returns an empty bitmap if bitmaps is empty or if the running
-// intersection becomes empty mid-loop (further ANDs cannot change the result).
-func AndAll(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
-	if len(bitmaps) == 0 {
-		return sroar.NewBitmap()
-	}
-	result := bitmaps[0].Clone()
-	for _, bm := range bitmaps[1:] {
-		result.And(bm)
-		if result.IsEmpty() {
-			return result
+	raw, release = o.pool.CloneToBuf(raws[0])
+	for _, bm := range raws[1:] {
+		raw.AndConc(bm, maxConcurrency)
+		if raw.IsEmpty() {
+			return raw, release
 		}
 	}
-	return result
+	return raw, release
 }
 
-// AndAllMaskLeaf zeroes the leaf bits of each bitmap and ANDs them all,
-// returning root+docID values present across every input. Use this to find
-// which document-element pairs satisfy all conditions simultaneously.
-// Returns an empty bitmap if bitmaps is empty or if the running intersection
-// becomes empty mid-loop (further ANDs cannot change the result).
-func AndAllMaskLeaf(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
-	if len(bitmaps) == 0 {
-		return sroar.NewBitmap()
+// AndAllMaskLeaf zeroes the leaf bits of each raw bitmap, ANDs them all, and
+// returns the rootDoc bitmap in a pool buffer. Returns an empty (non-pooled)
+// bitmap when raws is empty. The loop exits early when the running
+// intersection becomes empty — further ANDs cannot change the result.
+func (o *BitmapOps) AndAllMaskLeaf(raws []*sroar.Bitmap, maxConcurrency int) (rootDoc *sroar.Bitmap, release func()) {
+	if len(raws) == 0 {
+		return sroar.NewBitmap(), func() {}
 	}
-	result := MaskLeaf(bitmaps[0])
-	for _, bm := range bitmaps[1:] {
-		result.AndMasked(bm, zeroLeafBits)
-		if result.IsEmpty() {
-			return result
+	buf, put := o.pool.Get(raws[0].LenInBytes())
+	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
+	rootDoc = raws[0].MaskedToBuf(zeroLeafBits, buf[:cap(buf)])
+	for _, bm := range raws[1:] {
+		rootDoc.AndMaskedConc(bm, zeroLeafBits, maxConcurrency)
+		if rootDoc.IsEmpty() {
+			return rootDoc, put
 		}
 	}
-	return result
+	return rootDoc, put
 }
 
-// MaskLeafAnd intersects a and b on raw positions and zeroes the leaf bits of
-// the result, returning root+docID values. Both a and b must be raw position
-// bitmaps. Equivalent to MaskLeaf(sroar.And(a, b)) but avoids allocating the
-// intermediate AND bitmap.
-func MaskLeafAnd(a, b *sroar.Bitmap) *sroar.Bitmap {
-	return sroar.MaskedAnd(a, b, zeroLeafBits)
+// MaskLeafAnd intersects rawA and rawB on raw positions, zeroes the leaf bits
+// of the result, and returns the rootDoc bitmap in a pool buffer. Equivalent
+// to MaskLeaf(sroar.And(rawA, rawB)) but uses a single fused operation.
+//
+// Both inputs must be raw position bitmaps (non-zero leaf bits). When one
+// input is already leaf-masked, use AndMaskLeaf instead to avoid re-masking.
+func (o *BitmapOps) MaskLeafAnd(rawA, rawB *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
+	buf, put := o.pool.Get(min(rawA.LenInBytes(), rawB.LenInBytes()))
+	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
+	return sroar.MaskedAndToBuf(rawA, rawB, zeroLeafBits, buf[:cap(buf)]), put
 }
 
-// AndWithMaskLeaf intersects a with b after zeroing b's leaf bits, returning
-// root+docID values. a must already be leaf-masked (e.g. from MaskLeaf or
-// AndAllMaskLeaf); only b is leaf-masked before the AND. Avoids allocating an
-// intermediate masked copy of b.
-func AndWithMaskLeaf(a, b *sroar.Bitmap) *sroar.Bitmap {
-	return a.Clone().AndMasked(b, zeroLeafBits)
+// AndMaskLeaf intersects rootDoc with raw after masking raw's leaf bits, and
+// returns the result in a pool buffer. rootDoc must already be leaf-masked
+// (e.g. from AndAllMaskLeaf); only raw's leaf bits are zeroed.
+//
+// Prefer this over AndAllMaskLeaf([rootDoc, raw]) when rootDoc is pre-masked:
+// CloneToBuf is a bulk memcopy while MaskedToBuf iterates containers — the
+// difference matters when rootDoc is large.
+func (o *BitmapOps) AndMaskLeaf(rootDoc, raw *sroar.Bitmap, maxConcurrency int) (result *sroar.Bitmap, release func()) {
+	result, release = o.pool.CloneToBuf(rootDoc)
+	result.AndMaskedConc(raw, zeroLeafBits, maxConcurrency)
+	return result, release
 }
