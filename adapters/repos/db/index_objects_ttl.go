@@ -405,9 +405,8 @@ func (l *tenantTTLLoop) ensureDeactivation(ec errorcompounder.ErrorCompounder, d
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ttlDeactivateTimeout)
-	err := l.mgr.DeactivateTenants(ctx, l.class, l.tenant)
-	cancel() // release timer resources after the call completes
-	if err != nil {
+	defer cancel()
+	if err := l.mgr.DeactivateTenants(ctx, l.class, l.tenant); err != nil {
 		ec.AddGroups(fmt.Errorf("deactivate tenant: %w", err), l.class, l.tenant)
 	}
 }
