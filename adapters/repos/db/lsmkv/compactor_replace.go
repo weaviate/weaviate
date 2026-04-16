@@ -237,6 +237,12 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 func (c *compactorReplace) accumulateIndexSizes(ki segmentindex.Key) {
 	c.primaryIndexSize += int64(segmentindex.TREE_KEY_STORE_OVERHEAD + len(ki.Key))
 	for pos, sk := range ki.SecondaryKeys {
+		if pos >= len(c.secIndexSizes) {
+			// a secondary key is not guaranteed to be present for every index
+			// position (e.g. segment written with a different secondary index
+			// count). Skip positions beyond what the compactor expects.
+			break
+		}
 		c.secIndexSizes[pos] += int64(segmentindex.TREE_KEY_STORE_OVERHEAD + len(sk))
 	}
 }
