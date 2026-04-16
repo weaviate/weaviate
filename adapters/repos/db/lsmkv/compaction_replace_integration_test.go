@@ -767,9 +767,9 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 // would panic when iterating SecondaryKeys from a segment that had more
 // secondary indices than the compactor expected.
 //
-// The test creates two buckets with different secondary index counts (1 vs 2),
-// flushes one segment each, copies the segment files into a shared directory,
-// opens a new bucket pointing at that directory, and compacts. It verifies that
+// The test opens a bucket with 1 secondary index, writes and flushes a segment,
+// then reopens the same directory with 2 secondary indices, writes and flushes
+// a second segment, and finally reopens with 1 secondary index and compacts. It verifies that
 // compaction succeeds without panicking and that lookups via the first (shared)
 // secondary index still work after compaction.
 func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context, t *testing.T, opts []BucketOption) {
@@ -778,8 +778,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 	// --- Step 1: create bucket with 1 secondary index, write data, flush, close ---
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(1))...,
 	)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9)
@@ -790,15 +789,14 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 		WithSecondaryKey(0, []byte("sec0-key-01"))))
 
 	require.NoError(t, b.FlushAndSwitch())
-	b.Shutdown(ctx)
+	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 2: reopen the same directory with 2 secondary indices, write, flush, close ---
 	// This produces a second segment whose header declares secondaryIndexCount=2,
 	// while the first segment on disk has secondaryIndexCount=1.
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(2),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(2))...,
 	)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9)
@@ -815,7 +813,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 	))
 
 	require.NoError(t, b.FlushAndSwitch())
-	b.Shutdown(ctx)
+	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 3: reopen with 1 secondary index (matching the older segment) ---
 	// The compactor takes secondaryIndexCount from the left (older) segment,
@@ -823,11 +821,10 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context
 	// secondary keys — this panicked before the fix.
 	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(1))...,
 	)
 	require.NoError(t, err)
-	defer bucket.Shutdown(ctx)
+	defer func() { require.NoError(t, bucket.Shutdown(ctx)) }()
 
 	// Verify pre-compaction lookups via secondary index 0.
 	res, err := bucket.GetBySecondary(ctx, 0, []byte("sec0-key-00"))
@@ -888,8 +885,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 	// --- Step 1: create bucket with 2 secondary indices, write data, flush, close ---
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(2),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(2))...,
 	)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9)
@@ -904,15 +900,14 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 	))
 
 	require.NoError(t, b.FlushAndSwitch())
-	b.Shutdown(ctx)
+	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 2: reopen with 1 secondary index, write, flush, close ---
 	// This produces a second segment whose header declares secondaryIndexCount=1,
 	// while the first segment on disk has secondaryIndexCount=2.
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(1),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(1))...,
 	)
 	require.NoError(t, err)
 	b.SetMemtableThreshold(1e9)
@@ -924,7 +919,7 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 		WithSecondaryKey(0, []byte("sec0-key-02"))))
 
 	require.NoError(t, b.FlushAndSwitch())
-	b.Shutdown(ctx)
+	require.NoError(t, b.Shutdown(ctx))
 
 	// --- Step 3: reopen with 2 secondary indices (matching the older segment) ---
 	// The compactor uses secondaryIndexCount=2 from the left segment. Entries
@@ -932,11 +927,10 @@ func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(c
 	// must handle the missing second key gracefully.
 	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace),
-		WithSecondaryIndices(2),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(2))...,
 	)
 	require.NoError(t, err)
-	defer bucket.Shutdown(ctx)
+	defer func() { require.NoError(t, bucket.Shutdown(ctx)) }()
 
 	// --- Step 4: compact ---
 	var compacted bool
