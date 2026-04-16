@@ -36,6 +36,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -44,6 +45,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -380,7 +382,85 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	restReplicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+
+	// Set up gRPC connection manager (needed for both file replication and replication gRPC client)
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+
+	var creds credentials.TransportCredentials
+	useTLS := len(grpcConfig.CertFile) > 0
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		grpcDialOpts = append(grpcDialOpts,
+			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
+	grpcDialOpts = append(grpcDialOpts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+	)
+
+	grpcConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		metricsRegisterer, appState.Logger, grpcDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create gRPC connection manager")
+	}
+	appState.GRPCConnManager = grpcConnManager
+
+	// Create replication-specific ConnManager with retry interceptor.
+	// The base grpcConnManager (no retry) is used for file-replication;
+	// the replConnManager adds retry on top for replication RPCs.
+	replRetryInterceptor := grpc_retry.UnaryClientInterceptor(
+		grpc_retry.WithMax(9),
+		grpc_retry.WithBackoff(grpc_retry.BackoffExponentialWithJitter(100*time.Millisecond, 0.1)),
+		grpc_retry.WithCodes(codes.Internal, codes.Unavailable, codes.ResourceExhausted),
+	)
+	replDialOpts := make([]grpc.DialOption, len(grpcDialOpts)+1)
+	copy(replDialOpts, grpcDialOpts)
+	replDialOpts[len(grpcDialOpts)] = grpc.WithChainUnaryInterceptor(replRetryInterceptor)
+
+	replMetricsReg := prometheus.WrapRegistererWithPrefix("repl_", metricsRegisterer)
+	replConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		replMetricsReg, appState.Logger, replDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create replication gRPC connection manager")
+	}
+
+	appState.ReplGRPCConnManager = replConnManager
+
+	// Create switch replication client (gRPC or REST based on replication_grpc_enabled runtime config)
+	grpcReplicationClient := clients.NewGRPCReplicationClient(replConnManager)
+	replicationClient := clients.NewSwitchReplicationClient(
+		grpcReplicationClient,
+		restReplicationClient,
+		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
+	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -516,58 +596,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
-	grpcConfig := appState.ServerConfig.Config.GRPC
-	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
-
-	var creds credentials.TransportCredentials
-
-	useTLS := len(grpcConfig.CertFile) > 0
-
-	if useTLS {
-		creds = credentials.NewClientTLSFromCert(nil, "")
-	} else {
-		creds = insecure.NewCredentials() // use insecure credentials for testing
-	}
-
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-
-	if authConfig.BasicAuth.Enabled() {
-		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		opts = append(opts,
-			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
-		)
-	}
-
-	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
-	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(
-		appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize,
-		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
-	)
-
-	opts = append(opts,
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(maxSize),
-			grpc.MaxCallSendMsgSize(maxSize),
-		),
-		grpc.WithInitialWindowSize(int32(maxSize)),
-		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
-		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
-		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
-	)
-
-	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
-	grpcIdleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
-
-	grpcConnManager, err := grpcconn.NewConnManager(grpcMaxOpenConns, grpcIdleConnTimeout,
-		metricsRegisterer, appState.Logger, opts...)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
-	}
-	appState.GRPCConnManager = grpcConnManager
-
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		clientConn, err := appState.GRPCConnManager.GetConn(address)
 		if err != nil {
@@ -687,6 +715,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.DB, appState.Modules, appState.Logger,
 		exportClient, appState.Cluster, appState.Cluster.LocalName(),
 		appState.ExportMetrics,
+		appState.ServerConfig.Config.ExportParallelism,
 	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
@@ -1098,6 +1127,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// close grpc client connections
+		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
 		// gracefully stop gRPC server
@@ -2148,6 +2178,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
+		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -2170,6 +2201,11 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
 		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
+		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
+		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
+		// Note: Export.IsDefaultPathSet is intentionally not exposed as a runtime
+		// override — it is a derived internal flag, flipped via the
+		// "ExportDefaultPath" hook registered in postInitRuntimeOverrides.
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2223,6 +2259,17 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			hooks["OIDC"] = appState.OIDC.Init
 		}
+		// Flip Export.IsDefaultPathSet whenever ExportDefaultPath is updated via
+		// a runtime override. IsDefaultPathSet is a derived internal flag (not
+		// exposed in WeaviateRuntimeConfig) but it must track "has the path
+		// been explicitly configured?" across runtime reloads too, not just at
+		// startup. Without this, an operator configuring exports for the
+		// first time via the runtime config file would update DefaultPath but
+		// the path-set check in the scheduler would still reject requests.
+		hooks["ExportDefaultPath"] = func() error {
+			appState.ServerConfig.Config.Export.IsDefaultPathSet.Store(true)
+			return nil
+		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
@@ -2230,6 +2277,18 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		// reload current overrides file to take into account additional settings
 		if err := cm.ReloadConfig(); err != nil {
 			appState.Logger.WithField("action", "startup").Errorf("could not reload config: %v", err)
+		}
+		// Manual sync for Export.IsDefaultPathSet: the initial loadConfig inside
+		// NewConfigManager runs before hooks are registered, and the forced
+		// ReloadConfig above sees oldV == newV (it's re-applying the same
+		// values), so the "ExportDefaultPath" hook cannot have fired yet for
+		// the startup runtime config. If the runtime config did set a
+		// non-empty export_default_path, sync the flag now so the scheduler
+		// accepts requests. The empty-string-via-runtime-config case at
+		// startup is a documented limitation — operators who want the empty
+		// prefix should set EXPORT_DEFAULT_PATH="" at startup instead.
+		if appState.ServerConfig.Config.Export.DefaultPath.Get() != "" {
+			appState.ServerConfig.Config.Export.IsDefaultPathSet.Store(true)
 		}
 		// start runtime config background check
 		enterrors.GoWrapper(func() {

@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -22,12 +23,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestParticipant_PrepareValidation(t *testing.T) {
@@ -37,7 +40,7 @@ func TestParticipant_PrepareValidation(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	t.Run("nil request", func(t *testing.T) {
@@ -60,7 +63,7 @@ func TestParticipant_RejectsSecondExport(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req1 := &ExportRequest{
@@ -98,7 +101,7 @@ func TestParticipant_IsRunning(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	// Nothing running yet
@@ -131,7 +134,7 @@ func TestParticipant_ConcurrentPrepareOnlyOneSucceeds(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	const n = 50
@@ -181,7 +184,7 @@ func TestParticipant_PrepareAfterAbort(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req1 := &ExportRequest{
@@ -224,7 +227,7 @@ func TestParticipant_PrepareAfterCommitCompletes(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req1 := &ExportRequest{
@@ -320,7 +323,7 @@ func TestParticipant_AbortWrongIDIsNoop(t *testing.T) {
 		&blockingSelector{blockCh: make(chan struct{})},
 		&fakeBackendProvider{backend: &fakeBackend{}},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req := &ExportRequest{
@@ -372,7 +375,7 @@ func TestParticipant_CommitErrors(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: &fakeBackend{}},
 				logger,
-				&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+				&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 			)
 
 			if tc.prepareID != "" {
@@ -416,7 +419,7 @@ func TestParticipant_AbortRunningExport(t *testing.T) {
 		selector,
 		&fakeBackendProvider{backend: backend},
 		logger,
-		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(),
+		&fakeExportClient{}, &fakeNodeResolver{}, "node1", testMetrics(), nil,
 	)
 
 	req := &ExportRequest{
@@ -517,7 +520,7 @@ func TestParticipant_FailedExportAbortsSiblings(t *testing.T) {
 			}
 
 			p := NewParticipant(sel, &fakeBackendProvider{backend: backend}, logger,
-				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics())
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics(), nil)
 
 			shards := map[string][]string{"TestClass": {"shard0"}}
 			if !tc.failExport {
@@ -734,7 +737,7 @@ func TestParticipant_CheckSiblingHealth(t *testing.T) {
 				&blockingSelector{blockCh: make(chan struct{})},
 				&fakeBackendProvider{backend: backend},
 				logger,
-				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics(),
+				client, &fakeNodeResolver{nodes: tc.resolverNodes}, "node1", testMetrics(), nil,
 			)
 
 			if tc.siblingStatus != nil {
@@ -771,4 +774,75 @@ func histogramCount(t *testing.T, h prometheus.Histogram) uint64 {
 	var m dto.Metric
 	require.NoError(t, h.(prometheus.Metric).Write(&m))
 	return m.GetHistogram().GetSampleCount()
+}
+
+func TestParticipant_getExportParallelism(t *testing.T) {
+	maxP := runtime.GOMAXPROCS(0)
+	limit := maxP * maxExportParallelismMultiplier
+
+	tests := []struct {
+		name       string
+		configured *configRuntime.DynamicValue[int]
+		want       int
+		wantWarn   bool
+	}{
+		{
+			name:       "nil config falls back to GOMAXPROCS",
+			configured: nil,
+			want:       maxP,
+		},
+		{
+			name:       "zero config falls back to GOMAXPROCS",
+			configured: configRuntime.NewDynamicValue[int](0),
+			want:       maxP,
+		},
+		{
+			name:       "explicit value of 1",
+			configured: configRuntime.NewDynamicValue[int](1),
+			want:       1,
+		},
+		{
+			name:       "explicit value below cap",
+			configured: configRuntime.NewDynamicValue[int](maxP),
+			want:       maxP,
+		},
+		{
+			name:       "explicit value at cap",
+			configured: configRuntime.NewDynamicValue[int](limit),
+			want:       limit,
+		},
+		{
+			name:       "explicit value above cap is clamped",
+			configured: configRuntime.NewDynamicValue[int](limit + 1),
+			want:       limit,
+			wantWarn:   true,
+		},
+		{
+			name:       "pathologically large value is clamped",
+			configured: configRuntime.NewDynamicValue[int](10_000),
+			want:       limit,
+			wantWarn:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			p := &Participant{
+				logger:            logger,
+				exportParallelism: tc.configured,
+			}
+
+			got := p.getExportParallelism()
+			assert.Equal(t, tc.want, got)
+
+			if tc.wantWarn {
+				require.Len(t, hook.Entries, 1, "expected a warning to be logged")
+				assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+				assert.Contains(t, hook.LastEntry().Message, "EXPORT_PARALLELISM")
+			} else {
+				assert.Empty(t, hook.Entries, "no warning should be logged")
+			}
+		})
+	}
 }

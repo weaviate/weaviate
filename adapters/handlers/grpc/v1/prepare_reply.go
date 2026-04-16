@@ -115,7 +115,14 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 	if !ok {
 		return nil
 	}
-	additional, ok := asMap["_additional"].(map[string]interface{})
+	add, ok := asMap["_additional"]
+	if !ok {
+		return nil
+	}
+	additional, ok := add.(models.AdditionalProperties)
+	if !ok {
+		additional, ok = add.(map[string]interface{})
+	}
 	if !ok {
 		return nil
 	}

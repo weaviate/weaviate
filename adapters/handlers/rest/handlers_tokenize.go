@@ -69,15 +69,40 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	prepared := tokenizer.NewPreparedAnalyzer(params.Body.AnalyzerConfig)
 
 	var detector tokenizer.StopwordDetector
-	if swCfg := params.Body.StopwordConfig; swCfg != nil {
-		if swCfg.Preset == "" {
-			swCfg.Preset = "none"
-		}
-		var err error
-		detector, err = stopwords.NewDetectorFromConfig(*swCfg)
-		if err != nil {
+	if params.Body.AnalyzerConfig != nil && params.Body.AnalyzerConfig.StopwordPreset != "" {
+		preset := params.Body.AnalyzerConfig.StopwordPreset
+		_, isBuiltIn := stopwords.Presets[preset]
+		cfg, hasUserCfg := params.Body.StopwordPresets[preset]
+
+		switch {
+		case hasUserCfg:
+			// Request-level entry exists. It fully overrides any built-in
+			// preset of the same name (matches collection-level semantics
+			// in invertedIndexConfig.stopwordPresets, where a user-defined
+			// "en" replaces the built-in "en" entirely). If the user did
+			// not specify their own base preset, default to "none" so
+			// additions/removals are evaluated against an empty list.
+			if cfg.Preset == "" {
+				cfg.Preset = "none"
+			}
+			d, err := stopwords.NewDetectorFromConfig(cfg)
+			if err != nil {
+				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopwordPresets[%q]: %s", preset, err.Error())}},
+				})
+			}
+			detector = d
+		case isBuiltIn:
+			d, err := stopwords.NewDetectorFromPreset(preset)
+			if err != nil {
+				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+					Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopword preset %q: %s", preset, err.Error())}},
+				})
+			}
+			detector = d
+		default:
 			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: "invalid stopword configuration: " + err.Error()}},
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; provide it in stopwordPresets or use a built-in preset ('en', 'none')", preset)}},
 			})
 		}
 	}
@@ -87,7 +112,6 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Tokenization:   *params.Body.Tokenization,
 		AnalyzerConfig: params.Body.AnalyzerConfig,
-		StopwordConfig: params.Body.StopwordConfig,
 		Indexed:        result.Indexed,
 		Query:          result.Query,
 	})
@@ -97,6 +121,12 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	principal *models.Principal, schemaManager *schemaUC.Manager, logger logrus.FieldLogger,
 ) middleware.Responder {
 	className := schema.UppercaseClassName(params.ClassName)
+
+	// Resolve alias before authorization so authz uses the real collection name
+	// for permissions and error UX (matches Handler.ShardsStatus).
+	if resolved := schemaManager.ResolveAlias(className); resolved != "" {
+		className = resolved
+	}
 
 	// Authorize: reading collection metadata (same as other schema read operations)
 	err := schemaManager.Authorizer.Authorize(
@@ -134,16 +164,39 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		})
 	}
 
-	var detector tokenizer.StopwordDetector
+	// Build a Provider from the collection-level stopword config and resolve
+	// the property-level detector through it. This collapses the
+	// per-property/preset/built-in/fallback resolution into a single Get call,
+	// matching the production query path in adapters/repos/db/inverted.
+	var fallback stopwords.StopwordDetector
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		var err error
-		detector, err = stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
+		d, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
 		if err != nil {
 			logger.WithField("action", "create_stopword_detector").Error(err)
 			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
 				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
 			})
 		}
+		fallback = d
+	}
+	var presetDetectors map[string]*stopwords.Detector
+	if class.InvertedIndexConfig != nil {
+		d, err := stopwords.BuildPresetDetectors(class.InvertedIndexConfig.StopwordPresets)
+		if err != nil {
+			logger.WithField("action", "create_stopword_detector").Error(err)
+			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
+		}
+		presetDetectors = d
+	}
+	provider := stopwords.NewProvider(fallback, presetDetectors)
+	detector, err := provider.Get(prop)
+	if err != nil {
+		// Property names a preset that is neither built-in nor user-defined.
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets", prop.TextAnalyzer.StopwordPreset)}},
+		})
 	}
 
 	prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)

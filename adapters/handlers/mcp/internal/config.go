@@ -17,13 +17,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
-// ToolConfig represents the configuration for a single tool
+// ToolConfig represents the configuration for a single tool.
+// Note: only tool descriptions and argument descriptions are supported because
+// the MCP spec's tools/list response does not include output schemas.
 type ToolConfig struct {
-	Description string `yaml:"description" json:"description"`
+	Description string            `yaml:"description" json:"description"`
+	Arguments   map[string]string `yaml:"arguments" json:"arguments"`
 }
 
 // Config represents the MCP server configuration from YAML or JSON
@@ -67,28 +71,59 @@ func LoadConfig(logger logrus.FieldLogger, configPath string) *Config {
 	return &config
 }
 
-// ToDescriptionMap converts the config to a simple map of tool names to descriptions
-func (c *Config) ToDescriptionMap() map[string]string {
+// ToToolConfigMap converts the config to a map of tool names to their full config.
+func (c *Config) ToToolConfigMap() map[string]ToolConfig {
 	if c == nil {
 		return nil
 	}
-
-	result := make(map[string]string)
-	for toolName, toolConfig := range c.Tools {
-		if toolConfig.Description != "" {
-			result[toolName] = toolConfig.Description
-		}
-	}
-	return result
+	return c.Tools
 }
 
-// GetDescription returns the custom description for a tool if available in the descriptions map,
-// otherwise returns the default description. This is a helper for tool registration.
-func GetDescription(descriptions map[string]string, toolName, defaultDesc string) string {
-	if descriptions != nil {
-		if customDesc, ok := descriptions[toolName]; ok {
-			return customDesc
+// GetDescription returns the custom description for a tool if available in the config,
+// otherwise returns the default description.
+func GetDescription(configs map[string]ToolConfig, toolName, defaultDesc string) string {
+	if configs != nil {
+		if cfg, ok := configs[toolName]; ok && cfg.Description != "" {
+			return cfg.Description
 		}
 	}
 	return defaultDesc
+}
+
+// ApplySchemaDescriptions overrides argument property descriptions on a tool's
+// input JSON schema using values from the config file.
+func ApplySchemaDescriptions(tool *mcp.Tool, toolName string, configs map[string]ToolConfig) {
+	if configs == nil {
+		return
+	}
+	cfg, ok := configs[toolName]
+	if !ok {
+		return
+	}
+	if len(cfg.Arguments) > 0 && tool.RawInputSchema != nil {
+		tool.RawInputSchema = overridePropertyDescriptions(tool.RawInputSchema, cfg.Arguments)
+	}
+}
+
+// overridePropertyDescriptions modifies the "description" field of properties
+// in a JSON schema.
+func overridePropertyDescriptions(raw json.RawMessage, overrides map[string]string) json.RawMessage {
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return raw
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	for name, desc := range overrides {
+		if prop, ok := props[name].(map[string]any); ok {
+			prop["description"] = desc
+		}
+	}
+	result, err := json.Marshal(schema)
+	if err != nil {
+		return raw
+	}
+	return result
 }

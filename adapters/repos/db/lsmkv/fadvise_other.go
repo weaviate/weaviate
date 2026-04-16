@@ -9,8 +9,18 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package search
+//go:build !linux
 
-type QueryHybridResp struct {
-	Results []any `json:"results" jsonschema_description:"The search results matching the query"`
+package lsmkv
+
+import "os"
+
+// fadviseSequential is a no-op on non-Linux platforms.
+func fadviseSequential(_ *os.File) error {
+	return nil
+}
+
+// fadviseDontNeed is a no-op on non-Linux platforms.
+func fadviseDontNeed(_ *os.File, _ int64) error {
+	return nil
 }

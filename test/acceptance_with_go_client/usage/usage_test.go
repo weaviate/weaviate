@@ -260,30 +260,28 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-	ptrBool := func(b bool) *bool { return &b }
-
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{
 				Name:            textProp,
 				DataType:        []string{schema.DataTypeText.String()},
-				IndexFilterable: ptrBool(true),
-				IndexSearchable: ptrBool(true),
+				IndexFilterable: new(true),
+				IndexSearchable: new(true),
 			},
 			{
 				Name:              numberProp,
 				DataType:          []string{schema.DataTypeNumber.String()},
-				IndexFilterable:   ptrBool(true),
-				IndexRangeFilters: ptrBool(true),
+				IndexFilterable:   new(true),
+				IndexRangeFilters: new(true),
 			},
 		},
 		Vectorizer: "none",
 	}
 	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-	// Insert 1000 objects
-	const numObjects = 1000
+	// Insert 100 objects
+	const numObjects = 100
 	objs := make([]*models.Object, numObjects)
 	for i := range numObjects {
 		objs[i] = &models.Object{
@@ -350,6 +348,120 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, colUsageAfter.Shards, 1)
 	assert.Less(t, colUsageAfter.Shards[0].FullShardStorageBytes, initialStorage)
+}
+
+func TestAlterSchemaDropVectorIndex(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.NoError(t, err)
+
+	className := t.Name() + "Class"
+	vector1 := "vector1"
+	vector2 := "vector2"
+	dimensions := 128
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+			{
+				Name:     "description",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			vector1: {
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType: "hnsw",
+			},
+			vector2: {
+				Vectorizer: map[string]any{
+					"none": map[string]any{},
+				},
+				VectorIndexType: "flat",
+			},
+		},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	// Insert 100 objects with both named vectors
+	const numObjects = 100
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(uuid.NewString()),
+			Properties: map[string]any{
+				"name":        fmt.Sprintf("name %d", i),
+				"description": fmt.Sprintf("description %d", i),
+			},
+			Vectors: models.Vectors{
+				vector1: generateRandomVector(dimensions),
+				vector2: generateRandomVector(dimensions),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+
+	testAllObjectsIndexed(t, c, className)
+
+	// Verify both named vectors appear in usage
+	colUsageBefore, err := GetDebugUsageForCollection(className)
+	require.NoError(t, err)
+	require.Len(t, colUsageBefore.Shards, 1)
+	shard := colUsageBefore.Shards[0]
+	require.Equal(t, int64(numObjects), shard.ObjectsCount)
+	require.Len(t, shard.NamedVectors, 2)
+
+	vectorNames := map[string]bool{}
+	for _, v := range shard.NamedVectors {
+		vectorNames[v.Name] = true
+		require.NotEmpty(t, v.Dimensionalities)
+		require.Equal(t, dimensions, v.Dimensionalities[0].Dimensions)
+		require.Equal(t, numObjects, v.Dimensionalities[0].Count)
+	}
+	require.True(t, vectorNames[vector1], "expected vector1 in usage report")
+	require.True(t, vectorNames[vector2], "expected vector2 in usage report")
+
+	initialFullStorage := shard.FullShardStorageBytes
+	initialVectorStorage := shard.VectorStorageBytes
+	require.Greater(t, initialFullStorage, uint64(0))
+	require.Greater(t, initialVectorStorage, uint64(0))
+
+	// Drop vector1's index
+	require.NoError(t, c.Schema().VectorIndexDeleter().
+		WithClassName(className).WithVectorIndexName(vector1).Do(ctx))
+
+	// Verify vector1 is no longer in the usage metrics, vector2 remains,
+	// and storage bytes have decreased
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsageAfter, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsageAfter.Shards, 1)
+		shardAfter := colUsageAfter.Shards[0]
+		require.Equal(ct, int64(numObjects), shardAfter.ObjectsCount)
+		require.Len(ct, shardAfter.NamedVectors, 1)
+		require.Equal(ct, vector2, shardAfter.NamedVectors[0].Name)
+		require.NotEmpty(ct, shardAfter.NamedVectors[0].Dimensionalities)
+		require.Equal(ct, dimensions, shardAfter.NamedVectors[0].Dimensionalities[0].Dimensions)
+		require.Equal(ct, numObjects, shardAfter.NamedVectors[0].Dimensionalities[0].Count)
+		assert.Less(ct, shardAfter.FullShardStorageBytes, initialFullStorage)
+		assert.Less(ct, shardAfter.VectorStorageBytes, initialVectorStorage)
+	}, 30*time.Second, 500*time.Millisecond)
 }
 
 func TestRestart(t *testing.T) {

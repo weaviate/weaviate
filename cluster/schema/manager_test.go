@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -21,12 +22,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-
 	"github.com/stretchr/testify/require"
+
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
-
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -325,6 +325,144 @@ func TestPropertiesMigration(t *testing.T) {
 	require.False(t, *(class.Properties[0].NestedProperties[0].IndexRangeFilters))
 	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
 	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
+}
+
+// TestApplyPartialSchemaErr verifies that apply() respects the partialSchemaErr flag:
+// when set, updateStore is called even when updateSchema returns an error, allowing
+// ops like UpdateTenants to commit DB changes for the tenants that were successfully
+// applied in the schema before the error is returned to the caller.
+func TestApplyPartialSchemaErr(t *testing.T) {
+	hardErr := fmt.Errorf("hard schema failure")
+	storeErr := fmt.Errorf("store failure")
+
+	tests := []struct {
+		name            string
+		op              applyOp
+		wantStoreCalled bool
+		wantErr         error
+		wantErrAlso     error // optional: combined error must also wrap this sentinel
+	}{
+		{
+			name: "validation fails when op name is empty",
+			op: applyOp{
+				updateSchema: func() error { return nil },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: false,
+			wantErr:         fmt.Errorf("could not validate raft apply op"),
+		},
+		{
+			name: "schema error without flag skips updateStore",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return hardErr },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: false,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "PartialUpdateError with allowPartialSchemaErr calls updateStore",
+			op: applyOp{
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
+				},
+				updateStore:           func() error { return nil },
+				allowPartialSchemaErr: true,
+			},
+			wantStoreCalled: true,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "PartialUpdateError without allowPartialSchemaErr skips updateStore",
+			op: applyOp{
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
+				},
+				updateStore: func() error { return nil },
+			},
+			wantStoreCalled: false,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "PartialUpdateError with allowPartialSchemaErr and schemaOnly skips updateStore",
+			op: applyOp{
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
+				},
+				updateStore:           func() error { return nil },
+				schemaOnly:            true,
+				allowPartialSchemaErr: true,
+			},
+			wantStoreCalled: false,
+			wantErr:         ErrSchema,
+		},
+		{
+			name: "PartialUpdateError with allowPartialSchemaErr and store failure returns both errors",
+			op: applyOp{
+				op: cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error {
+					return &PartialUpdateError{Errs: []error{ErrShardNotFound}}
+				},
+				updateStore:           func() error { return storeErr },
+				allowPartialSchemaErr: true,
+			},
+			wantStoreCalled: true,
+			wantErr:         ErrSchema,
+			wantErrAlso:     errDB,
+		},
+		{
+			name: "both succeed returns no error",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return nil },
+				updateStore:  func() error { return nil },
+			},
+			wantStoreCalled: true,
+			wantErr:         nil,
+		},
+		{
+			name: "store failure returns errDB",
+			op: applyOp{
+				op:           cmd.ApplyRequest_TYPE_UPDATE_TENANT.String(),
+				updateSchema: func() error { return nil },
+				updateStore:  func() error { return storeErr },
+			},
+			wantStoreCalled: true,
+			wantErr:         errDB,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			storeCalled := false
+			origStore := tc.op.updateStore
+			tc.op.updateStore = func() error {
+				storeCalled = true
+				return origStore()
+			}
+
+			sm := &SchemaManager{}
+			err := sm.apply(tc.op)
+
+			assert.Equal(t, tc.wantStoreCalled, storeCalled, "updateStore called mismatch")
+			if tc.wantErr == nil {
+				assert.NoError(t, err)
+			} else {
+				if errors.Is(tc.wantErr, ErrSchema) || errors.Is(tc.wantErr, errDB) {
+					assert.ErrorIs(t, err, tc.wantErr)
+				} else {
+					assert.ErrorContains(t, err, tc.wantErr.Error())
+				}
+				if tc.wantErrAlso != nil {
+					assert.ErrorIs(t, err, tc.wantErrAlso)
+				}
+			}
+		})
+	}
 }
 
 type MockShardReader struct {

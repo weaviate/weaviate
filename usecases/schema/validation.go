@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/text/unicode/norm"
@@ -22,7 +23,8 @@ import (
 
 type validatorNestedProperty func(property *models.NestedProperty,
 	primitiveDataType, nestedDataType schema.DataType,
-	isPrimitive, isNested bool, propNamePrefix string) error
+	isPrimitive, isNested bool, propNamePrefix string,
+	userPresets map[string][]string) error
 
 var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyName,
@@ -34,7 +36,9 @@ var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyProcessing,
 }
 
-func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string) error {
+func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string,
+	userPresets map[string][]string,
+) error {
 	if len(properties) == 0 {
 		return fmt.Errorf("property '%s': At least one nested property is required for data type object/object[]",
 			propNamePrefix)
@@ -45,12 +49,12 @@ func validateNestedProperties(properties []*models.NestedProperty, propNamePrefi
 		nestedDataType, isNested := schema.AsNested(property.DataType)
 
 		for _, validator := range validatorsNestedProperty {
-			if err := validator(property, primitiveDataType, nestedDataType, isPrimitive, isNested, propNamePrefix); err != nil {
+			if err := validator(property, primitiveDataType, nestedDataType, isPrimitive, isNested, propNamePrefix, userPresets); err != nil {
 				return err
 			}
 		}
 		if isNested {
-			if err := validateNestedProperties(property.NestedProperties, propNamePrefix+"."+property.Name); err != nil {
+			if err := validateNestedProperties(property.NestedProperties, propNamePrefix+"."+property.Name, userPresets); err != nil {
 				return err
 			}
 		}
@@ -61,6 +65,7 @@ func validateNestedProperties(properties []*models.NestedProperty, propNamePrefi
 func validateNestedPropertyName(property *models.NestedProperty,
 	_, _ schema.DataType,
 	_, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	return schema.ValidateNestedPropertyName(property.Name, propNamePrefix)
 }
@@ -68,6 +73,7 @@ func validateNestedPropertyName(property *models.NestedProperty,
 func validateNestedPropertyDataType(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, isNested bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -93,6 +99,7 @@ func validateNestedPropertyDataType(property *models.NestedProperty,
 func validateNestedPropertyTokenization(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, isNested bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -127,6 +134,7 @@ func validateNestedPropertyTokenization(property *models.NestedProperty,
 func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -135,10 +143,10 @@ func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 		return fmt.Errorf("property '%s': `indexFilterable` not set", propName)
 	}
 
-	if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+	if isPrimitive && (primitiveDataType == schema.DataTypeBlob || primitiveDataType == schema.DataTypeBlobHash) {
 		if *property.IndexFilterable {
-			return fmt.Errorf("property: '%s': indexFilterable is not allowed for blob data type",
-				propName)
+			return fmt.Errorf("property: '%s': indexFilterable is not allowed for %s data type",
+				propName, primitiveDataType)
 		}
 	}
 
@@ -149,6 +157,7 @@ func validateNestedPropertyIndexFilterable(property *models.NestedProperty,
 func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -177,6 +186,7 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
@@ -206,11 +216,12 @@ func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 func validateNestedPropertyProcessing(property *models.NestedProperty,
 	primitiveDataType, _ schema.DataType,
 	isPrimitive, _ bool, propNamePrefix string,
+	userPresets map[string][]string,
 ) error {
 	propName := propNamePrefix + "." + property.Name
 
 	// Normalize empty config to nil.
-	if property.TextAnalyzer != nil && !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) == 0 {
+	if property.TextAnalyzer != nil && !property.TextAnalyzer.ASCIIFold && len(property.TextAnalyzer.ASCIIFoldIgnore) == 0 && property.TextAnalyzer.StopwordPreset == "" {
 		property.TextAnalyzer = nil
 	}
 	if property.TextAnalyzer == nil {
@@ -252,6 +263,19 @@ func validateNestedPropertyProcessing(property *models.NestedProperty,
 			// supported
 		default:
 			return fmt.Errorf("property '%s': unsupported tokenization '%s' for textAnalyzer", propName, property.Tokenization)
+		}
+	}
+
+	if property.TextAnalyzer.StopwordPreset != "" {
+		if property.Tokenization != models.PropertyTokenizationWord {
+			return fmt.Errorf("property '%s': stopwordPreset is only supported with tokenization %q, got %q",
+				propName, models.PropertyTokenizationWord, property.Tokenization)
+		}
+		_, builtIn := stopwords.Presets[property.TextAnalyzer.StopwordPreset]
+		_, userDefined := userPresets[property.TextAnalyzer.StopwordPreset]
+		if !builtIn && !userDefined {
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
+				propName, property.TextAnalyzer.StopwordPreset)
 		}
 	}
 

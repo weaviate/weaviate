@@ -307,3 +307,13 @@ func WithImmutable(immutable bool) BucketOption {
 		return nil
 	}
 }
+
+// WithSequentialAccess hints the kernel (via fadvise) that segment files will
+// be read sequentially, enabling aggressive read-ahead. Used by snapshot
+// buckets where the export cursor scans from start to end.
+func WithSequentialAccess(v bool) BucketOption {
+	return func(b *Bucket) error {
+		b.sequentialAccess = v
+		return nil
+	}
+}

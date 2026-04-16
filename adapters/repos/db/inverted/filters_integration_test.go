@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -91,7 +92,7 @@ func Test_Filters_String(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
@@ -369,7 +370,7 @@ func Test_Filters_Int(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
@@ -1152,7 +1153,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {

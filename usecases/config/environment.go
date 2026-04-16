@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -226,6 +227,13 @@ func FromEnv(config *Config) error {
 			func(val *configRuntime.DynamicValue[string]) { config.ObjectsTTLDeleteSchedule = val }); err != nil {
 			return err
 		}
+	}
+
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -983,6 +991,8 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
+
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
 
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
@@ -1948,5 +1958,20 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultBucket == nil {
 		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
+
+	c.Export.IsDefaultPathSet = new(atomic.Bool)
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+		c.Export.IsDefaultPathSet.Store(true)
+	} else if c.Export.DefaultPath != nil {
+		// Came from the startup config file — an explicit decision by the
+		// operator, even if the value is empty. IsDefaultPathSet is not
+		// user-settable (see config.Export), so we derive it here. It may
+		// also be flipped to true at runtime by the "ExportDefaultPath" hook
+		// registered against the runtime config manager.
+		c.Export.IsDefaultPathSet.Store(true)
+	} else {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
 	}
 }

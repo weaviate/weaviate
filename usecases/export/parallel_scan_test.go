@@ -21,6 +21,7 @@ import (
 	"io"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -246,17 +247,27 @@ func TestComputeNumRanges(t *testing.T) {
 }
 
 // scanToRows is a test helper that calls scanRangeToWriter with an in-memory
-// ParquetWriter and returns the decoded rows (or error).
+// ParquetWriter and returns the decoded rows (or error). The writer is
+// created lazily on first row, matching production behavior.
 func scanToRows(t *testing.T, ctx context.Context, bucket *lsmkv.Bucket, start, end []byte) ([]ParquetRow, error) {
 	t.Helper()
 	var buf bytes.Buffer
-	writer, err := NewParquetWriter(&buf)
-	require.NoError(t, err)
+	var writer *ParquetWriter
 
-	_, scanErr := scanRangeToWriter(ctx, bucket, start, end, writer)
-	require.NoError(t, writer.Close())
+	scanErr := scanRangeToWriter(ctx, bucket, start, end, func() (*ParquetWriter, error) {
+		var err error
+		writer, err = NewParquetWriter(&buf)
+		return writer, err
+	})
+	if writer != nil {
+		require.NoError(t, writer.Close())
+	}
 	if scanErr != nil {
 		return nil, scanErr
+	}
+	if writer == nil {
+		// Empty range — no writer was created.
+		return nil, nil
 	}
 	return readParquetRows(t, buf.Bytes()), nil
 }
@@ -369,6 +380,75 @@ func TestScanRangeToWriter(t *testing.T) {
 
 		_, err := scanToRows(t, ctx, bucket, nil, nil)
 		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	// Regression for the lazy pipeline change: getWriter must NOT be
+	// invoked when the range is empty, otherwise an upload pipeline
+	// would be created (and its upload goroutine started) for nothing.
+	t.Run("getWriter is not called for empty range", func(t *testing.T) {
+		t.Parallel()
+		var calls int
+		err := scanRangeToWriter(context.Background(), bucket,
+			makeKey(numObjects+10), makeKey(numObjects+20),
+			func() (*ParquetWriter, error) {
+				calls++
+				return nil, fmt.Errorf("getWriter must not be called for empty range")
+			})
+		require.NoError(t, err)
+		assert.Equal(t, 0, calls)
+	})
+
+	t.Run("getWriter is not called for entirely empty bucket", func(t *testing.T) {
+		t.Parallel()
+		emptyStore, _ := createTestStore(t, 0)
+		t.Cleanup(func() { emptyStore.Shutdown(context.Background()) })
+		emptyBucket := emptyStore.Bucket(helpers.ObjectsBucketLSM)
+		require.NotNil(t, emptyBucket)
+
+		var calls int
+		err := scanRangeToWriter(context.Background(), emptyBucket, nil, nil,
+			func() (*ParquetWriter, error) {
+				calls++
+				return nil, fmt.Errorf("getWriter must not be called for empty bucket")
+			})
+		require.NoError(t, err)
+		assert.Equal(t, 0, calls)
+	})
+
+	// getWriter failure on the first row must propagate as a scan error.
+	t.Run("getWriter failure propagates as scan error", func(t *testing.T) {
+		t.Parallel()
+		wantErr := fmt.Errorf("create writer failed")
+		err := scanRangeToWriter(context.Background(), bucket, nil, nil,
+			func() (*ParquetWriter, error) {
+				return nil, wantErr
+			})
+		require.ErrorIs(t, err, wantErr)
+	})
+
+	// Regression: when ExportFieldsFromBinary fails before getWriter is
+	// ever invoked, the lazy pipeline must not be created.
+	t.Run("corrupt first object never calls getWriter", func(t *testing.T) {
+		t.Parallel()
+
+		corruptStore, _ := createTestStore(t, 0)
+		t.Cleanup(func() { corruptStore.Shutdown(context.Background()) })
+		corruptBucket := corruptStore.Bucket(helpers.ObjectsBucketLSM)
+
+		corruptKey := make([]byte, 8)
+		binary.BigEndian.PutUint64(corruptKey, 0)
+		require.NoError(t, corruptBucket.Put(corruptKey, []byte("corrupt")))
+		require.NoError(t, corruptBucket.FlushAndSwitch())
+
+		var calls int
+		err := scanRangeToWriter(context.Background(), corruptBucket, nil, nil,
+			func() (*ParquetWriter, error) {
+				calls++
+				return nil, fmt.Errorf("should not be called")
+			})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "extract export fields")
+		assert.Equal(t, 0, calls, "getWriter must not be called when first object is corrupt")
 	})
 
 	t.Run("computed ranges cover all objects without duplicates or gaps", func(t *testing.T) {
@@ -548,13 +628,13 @@ func TestScanFieldRoundTrip(t *testing.T) {
 	}
 }
 
-// newTestPipeline creates a rangePipeline backed by a real io.Pipe and
+// newTestPipeline creates a rangePipeline backed by a buffered pipe and
 // ParquetWriter. The upload goroutine drains the pipe reader and sends
-// uploadErr to the done channel. The PipeReader is returned so callers
-// can break the pipe for error-path tests.
-func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *io.PipeReader) {
+// uploadErr to the done channel. The bufferedPipeReader is returned so
+// callers can break the pipe for error-path tests.
+func newTestPipeline(t *testing.T, uploadErr error) (*rangePipeline, *bufferedPipeReader) {
 	t.Helper()
-	pr, pw := io.Pipe()
+	pr, pw := newBufferedPipe(defaultPipeBufferSize)
 	uploadDone := make(chan error, 1)
 	go func() {
 		_, err := io.Copy(io.Discard, pr)
@@ -611,13 +691,16 @@ func TestRangePipelineShutdown(t *testing.T) {
 }
 
 // failingWriteBackend embeds fakeBackend but returns an error from Write
-// after draining the reader (so the pipe doesn't deadlock).
+// after draining the reader (so the pipe doesn't deadlock). WriteCalls
+// counts how many times Write was invoked.
 type failingWriteBackend struct {
 	fakeBackend
-	writeErr error
+	writeErr   error
+	writeCalls atomic.Int64
 }
 
 func (b *failingWriteBackend) Write(_ context.Context, _, _, _, _ string, r backup.ReadCloserWithError) (int64, error) {
+	b.writeCalls.Add(1)
 	_, err := io.ReadAll(r)
 	r.CloseWithError(err)
 	return 0, b.writeErr
@@ -711,6 +794,119 @@ func TestScanJobExecute(t *testing.T) {
 		// during writer.Close() which happens before we read uploadDone.
 		assert.Equal(t, int64(10), written)
 	})
+
+	// An empty range must not create the upload pipeline or call
+	// backend.Write at all.
+	t.Run("empty range never touches the backend", func(t *testing.T) {
+		t.Parallel()
+
+		// Bucket with zero objects — the lazy pipeline must not start.
+		store, _ := createTestStore(t, 0)
+		t.Cleanup(func() { store.Shutdown(context.Background()) })
+		bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+		// A backend that counts Write calls. The assertion below verifies
+		// that no Write is ever made for an empty range.
+		backend := &failingWriteBackend{writeErr: fmt.Errorf("unexpected Write on empty range")}
+		logger, _ := test.NewNullLogger()
+		cfg := &rangeWriterConfig{
+			backend:   backend,
+			req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+			className: "TestClass",
+			shardName: "Tenant-134",
+			isMT:      true,
+			logger:    logger,
+		}
+
+		var wg sync.WaitGroup
+		var gotErr error
+		var written int64
+		cfg.onFlush = func(n int64) { written += n }
+
+		wg.Add(1)
+		job := scanJob{
+			ctx:        context.Background(),
+			bucket:     bucket,
+			keyRange:   keyRange{start: nil, end: nil},
+			rangeIndex: 0,
+			writerCfg:  cfg,
+			wg:         &wg,
+			setErr:     func(err error) { gotErr = err },
+		}
+		job.execute()
+		wg.Wait()
+
+		require.NoError(t, gotErr, "empty range must not produce a setErr call")
+		assert.Equal(t, int64(0), written, "empty range must not write any rows")
+		assert.Zero(t, backend.writeCalls.Load(), "empty range must not call backend.Write")
+	})
+
+	// Regression for the lazy pipeline: corrupt data at different positions
+	// must propagate the scan error and only create the pipeline when at
+	// least one valid row was scanned first.
+	corruptDataTests := []struct {
+		name             string
+		validObjects     int   // valid objects inserted before the corrupt one
+		expectWriteCalls int64 // 0 = pipeline never created, 1 = pipeline created and shut down
+	}{
+		{
+			name:             "corrupt first object — pipeline never created",
+			validObjects:     0,
+			expectWriteCalls: 0,
+		},
+		{
+			name:             "corrupt later object — pipeline created and shut down",
+			validObjects:     5,
+			expectWriteCalls: 1,
+		},
+	}
+
+	for _, tc := range corruptDataTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store, _ := createTestStore(t, tc.validObjects)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			bucket := store.Bucket(helpers.ObjectsBucketLSM)
+
+			corruptKey := make([]byte, 8)
+			binary.BigEndian.PutUint64(corruptKey, uint64(tc.validObjects))
+			require.NoError(t, bucket.Put(corruptKey, []byte("corrupt")))
+			require.NoError(t, bucket.FlushAndSwitch())
+
+			backend := &failingWriteBackend{writeErr: fmt.Errorf("upload error")}
+			logger, _ := test.NewNullLogger()
+			cfg := &rangeWriterConfig{
+				backend:   backend,
+				req:       &ExportRequest{ID: "test", Bucket: "b", Path: "p"},
+				className: "TestClass",
+				shardName: "shard0",
+				logger:    logger,
+			}
+
+			var wg sync.WaitGroup
+			var gotErr error
+			cfg.onFlush = func(n int64) {}
+
+			wg.Add(1)
+			job := scanJob{
+				ctx:        context.Background(),
+				bucket:     bucket,
+				keyRange:   keyRange{start: nil, end: nil},
+				rangeIndex: 0,
+				writerCfg:  cfg,
+				wg:         &wg,
+				setErr:     func(err error) { gotErr = err },
+			}
+			job.execute()
+			wg.Wait()
+
+			require.Error(t, gotErr)
+			assert.Contains(t, gotErr.Error(), "extract export fields")
+			assert.Equal(t, tc.expectWriteCalls, backend.writeCalls.Load(),
+				"backend.Write call count")
+		})
+	}
 }
 
 // readParquetRows reads all ParquetRow entries from a parquet file in memory.
@@ -765,7 +961,9 @@ func TestParquetWriter_OnFlush(t *testing.T) {
 			callbacks = append(callbacks, n)
 		}
 
-		_, err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+		err = scanRangeToWriter(context.Background(), bucket, nil, nil, func() (*ParquetWriter, error) {
+			return writer, nil
+		})
 		require.NoError(t, err)
 		require.NoError(t, writer.Close())
 
@@ -801,7 +999,9 @@ func TestParquetWriter_OnFlush(t *testing.T) {
 			callbacks = append(callbacks, n)
 		}
 
-		_, err = scanRangeToWriter(context.Background(), bucket, nil, nil, writer)
+		err = scanRangeToWriter(context.Background(), bucket, nil, nil, func() (*ParquetWriter, error) {
+			return writer, nil
+		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "extract export fields")
 

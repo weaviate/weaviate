@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 )
 
 func TestRemoteIndexReInitShardIn(t *testing.T) {

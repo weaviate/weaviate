@@ -15,11 +15,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-jose/go-jose/v4/json"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -587,6 +590,226 @@ replica_movement_minimum_async_wait: 10s`)
 			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
 		})
 	})
+}
+
+// TestExportDefaultPathRuntimeOverride verifies the end-to-end wiring that
+// lets an operator configure exports for the first time via the runtime
+// config file (no env var, no startup YAML).
+//
+// Because Export.IsDefaultPathSet is intentionally not exposed in
+// WeaviateRuntimeConfig (it would be a footgun — operators could toggle the
+// "set" flag independently of DefaultPath and bypass the path-required
+// check), we rely on a hook registered against the "ExportDefaultPath" field
+// to flip IsDefaultPathSet whenever DefaultPath is updated via runtime
+// overrides. This test asserts that flipping behavior.
+//
+// Known limitation: the runtime config hook system only fires on value
+// *changes* (see updateRuntimeConfig in runtimeconfig.go, which records a
+// log entry only when old != new). An operator who runs without any startup
+// export config (DefaultPath="") and then writes literally
+// `export_default_path: ""` into the runtime config will NOT flip
+// IsDefaultPathSet, because the value is the same as the startup default and
+// the hook never fires. In practice this is a non-issue: any non-empty
+// value works, and operators who genuinely want the empty-prefix case can
+// set EXPORT_DEFAULT_PATH="" at startup instead.
+func TestExportDefaultPathRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	tests := []struct {
+		name             string
+		initialPath      string // startup value for source.ExportDefaultPath
+		initialPathSet   bool   // startup value for IsDefaultPathSet
+		runtimeConfig    string // YAML applied via UpdateRuntimeConfig
+		expectedPath     string
+		expectedPathSet  bool
+		assertionMessage string
+	}{
+		{
+			name:             "override with non-empty path flips IsDefaultPathSet from false to true",
+			initialPath:      "",
+			initialPathSet:   false,
+			runtimeConfig:    `export_default_path: "from/runtime"`,
+			expectedPath:     "from/runtime",
+			expectedPathSet:  true,
+			assertionMessage: "hook should have flipped IsDefaultPathSet to true when ExportDefaultPath was updated",
+		},
+		{
+			name:            "override switching non-empty path to another non-empty path keeps it set",
+			initialPath:     "initial/path",
+			initialPathSet:  true,
+			runtimeConfig:   `export_default_path: "new/path"`,
+			expectedPath:    "new/path",
+			expectedPathSet: true,
+		},
+		{
+			name:             "override from non-empty to empty string keeps it set (empty is a valid explicit choice)",
+			initialPath:      "initial/path",
+			initialPathSet:   true,
+			runtimeConfig:    `export_default_path: ""`,
+			expectedPath:     "",
+			expectedPathSet:  true,
+			assertionMessage: "empty string is a valid explicit choice; hook must fire on any change",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defaultPath := runtime.NewDynamicValue(tt.initialPath)
+			defaultPathSet := new(atomic.Bool)
+			defaultPathSet.Store(tt.initialPathSet)
+			source := &WeaviateRuntimeConfig{
+				ExportDefaultPath: defaultPath,
+			}
+			// this is the hook that configure_api.go registers in production
+			hooks := map[string]func() error{
+				"ExportDefaultPath": func() error {
+					defaultPathSet.Store(true)
+					return nil
+				},
+			}
+
+			parsed, err := ParseRuntimeConfig([]byte(tt.runtimeConfig))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, hooks))
+
+			assert.Equal(t, tt.expectedPath, defaultPath.Get())
+			assert.Equal(t, tt.expectedPathSet, defaultPathSet.Load(), tt.assertionMessage)
+		})
+	}
+
+	t.Run("ExportIsDefaultPathSet is not a user-facing runtime config knob", func(t *testing.T) {
+		// Regression: if someone ever re-adds ExportIsDefaultPathSet to
+		// WeaviateRuntimeConfig, operators could bypass the path-required
+		// check. This test ensures the field stays absent.
+		parsed, err := ParseRuntimeConfig([]byte(`export_default_path_set: true`))
+		require.NoError(t, err) // parser tolerates unknown keys
+
+		// The struct must not carry a field corresponding to the key. We
+		// round-trip via YAML marshaling to observe the exposed fields.
+		yd, err := yaml.Marshal(parsed)
+		require.NoError(t, err)
+		var roundTripped map[string]any
+		require.NoError(t, yaml.Unmarshal(yd, &roundTripped))
+		_, present := roundTripped["export_default_path_set"]
+		assert.False(t, present,
+			"export_default_path_set must not be a runtime config field; it is a derived internal flag")
+	})
+}
+
+// TestExportDefaultPathRuntimeOverrideFullFlow exercises the real
+// NewConfigManager startup sequence to catch the "initial load runs without
+// hooks" bug. The bug: NewConfigManager calls cm.loadConfig() internally
+// *before* hooks are registered, so if the runtime config file sets
+// export_default_path, SetValue is called on source.ExportDefaultPath but
+// the ExportDefaultPath hook never fires. A subsequent forced ReloadConfig
+// (to apply hooks) then sees no value change and still doesn't fire the
+// hook. Without the explicit post-registration sync in postInitRuntimeOverrides,
+// IsDefaultPathSet would stay false and the scheduler would reject exports.
+func TestExportDefaultPathRuntimeOverrideFullFlow(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	// newHooks returns the hook that configure_api.go registers in production.
+	newHooks := func(defaultPathSet *atomic.Bool) map[string]func() error {
+		return map[string]func() error{
+			"ExportDefaultPath": func() error {
+				defaultPathSet.Store(true)
+				return nil
+			},
+		}
+	}
+
+	// syncIsDefaultPathSet implements the post-registration manual sync.
+	// configure_api.go's postInitRuntimeOverrides does the same after
+	// cm.RegisterHooks to handle the initial-load case (where hooks weren't
+	// registered yet).
+	syncIsDefaultPathSet := func(source *WeaviateRuntimeConfig, defaultPathSet *atomic.Bool) {
+		if source.ExportDefaultPath != nil && source.ExportDefaultPath.Get() != "" {
+			defaultPathSet.Store(true)
+		}
+	}
+
+	writeRuntimeConfig := func(t *testing.T, content string) string {
+		t.Helper()
+		f, err := os.CreateTemp(t.TempDir(), "runtime_config_*.yaml")
+		require.NoError(t, err)
+		_, err = f.WriteString(content)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		return f.Name()
+	}
+
+	tests := []struct {
+		name             string
+		runtimeConfig    string
+		expectedPath     string
+		expectedPathSet  bool
+		assertionMessage string
+	}{
+		{
+			name:             "non-empty path in runtime config → scheduler accepts exports",
+			runtimeConfig:    `export_default_path: "from/runtime"`,
+			expectedPath:     "from/runtime",
+			expectedPathSet:  true,
+			assertionMessage: "manual post-registration sync must flip IsDefaultPathSet when runtime config set a non-empty path",
+		},
+		{
+			name:             "no export_default_path line → IsDefaultPathSet stays false",
+			runtimeConfig:    `# no export config here`,
+			expectedPath:     "",
+			expectedPathSet:  false,
+			assertionMessage: "no runtime config entry → nothing should flip IsDefaultPathSet",
+		},
+		{
+			// Documented edge case: an operator with no env/YAML config
+			// writing `export_default_path: ""` only via runtime config at
+			// startup. The manual sync uses Get() != "" as its heuristic
+			// and cannot distinguish "operator set empty" from "nothing
+			// set", so IsDefaultPathSet stays false.
+			name:             "empty path only via runtime config at startup is a documented limitation",
+			runtimeConfig:    `export_default_path: ""`,
+			expectedPath:     "",
+			expectedPathSet:  false,
+			assertionMessage: "documented edge case: empty-string-only via runtime config at startup does not flip the flag",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// parseExportConfig at startup with no env and no YAML:
+			//   DefaultPath = NewDynamicValue("") [def="", val=nil]
+			//   IsDefaultPathSet = new(atomic.Bool) [false]
+			source := &WeaviateRuntimeConfig{
+				ExportDefaultPath: runtime.NewDynamicValue(""),
+			}
+			defaultPathSet := new(atomic.Bool)
+
+			path := writeRuntimeConfig(t, tt.runtimeConfig)
+
+			// NewConfigManager runs the initial loadConfig internally with
+			// hooks=nil, silently updating source.ExportDefaultPath.
+			cm, err := runtime.NewConfigManager(
+				path, ParseRuntimeConfig, UpdateRuntimeConfig, source,
+				100*time.Millisecond, log, prometheus.NewPedanticRegistry(),
+			)
+			require.NoError(t, err)
+
+			// Register hooks and force a reload. The forced reload sees
+			// oldV == newV, so change-based hooks cannot fire here either.
+			// This is the gap that postInitRuntimeOverrides' manual sync
+			// exists to close.
+			cm.RegisterHooks(newHooks(defaultPathSet))
+			require.NoError(t, cm.ReloadConfig())
+
+			// The explicit manual sync in postInitRuntimeOverrides catches
+			// the case by observing that DefaultPath is non-empty.
+			syncIsDefaultPathSet(source, defaultPathSet)
+
+			assert.Equal(t, tt.expectedPath, source.ExportDefaultPath.Get())
+			assert.Equal(t, tt.expectedPathSet, defaultPathSet.Load(), tt.assertionMessage)
+		})
+	}
 }
 
 // helpers

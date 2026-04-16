@@ -22,13 +22,20 @@ import (
 )
 
 func composeUp(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string) (*docker.DockerCompose, func()) {
-	return composeUpWithMCP(t, admins, users, viewers, false)
+	return composeUpWithSettings(t, admins, users, viewers, false, nil)
 }
 
 func composeUpWithMCP(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string, enableMCP bool) (*docker.DockerCompose, func()) {
+	return composeUpWithSettings(t, admins, users, viewers, enableMCP, nil)
+}
+
+func composeUpWithSettings(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string, enableMCP bool, weaviateEnvs map[string]string) (*docker.DockerCompose, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
 	builder := docker.New().WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").WithWeaviateWithGRPC().WithRBAC().WithApiKey()
+	for key, val := range weaviateEnvs {
+		builder = builder.WithWeaviateEnv(key, val)
+	}
 
 	// Enable MCP server if requested
 	if enableMCP {

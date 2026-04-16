@@ -216,14 +216,14 @@ func (h *HFresh) restoreMetrics() error {
 	reassignCount := h.taskQueue.reassignQueue.Size()
 	analyzeCount := h.taskQueue.analyzeQueue.Size()
 
-	h.metrics.SetSplitCount(splitCount)
-	h.metrics.SetMergeCount(mergeCount)
-	h.metrics.SetReassignCount(reassignCount)
-	h.metrics.SetAnalyzeCount(analyzeCount)
+	h.metrics.SetPendingSplitTasks(splitCount)
+	h.metrics.SetPendingMergeTasks(mergeCount)
+	h.metrics.SetPendingReassignTasks(reassignCount)
+	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
 
 	postingsCount := h.PostingMap.Size()
 	h.Centroids.counter.Store(int32(postingsCount))
-	h.metrics.AddPostings(postingsCount)
+	h.metrics.SetPostings(postingsCount)
 
 	return nil
 }

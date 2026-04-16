@@ -131,7 +131,7 @@ func (s *Scheduler) StartShutdown() {
 }
 
 // Export starts a new export operation.
-func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string, path string) (*models.ExportCreateResponse, error) {
+func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id, backend string, include, exclude []string) (*models.ExportCreateResponse, error) {
 	if !s.exportConfig.Enabled.Get() {
 		return nil, ErrExportDisabled
 	}
@@ -145,9 +145,9 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 		return nil, fmt.Errorf("%w: backend is required", ErrExportValidation)
 	}
 
-	bucket := s.exportConfig.DefaultBucket.Get()
-	if bucket == "" && requiresBucket(backend) {
-		return nil, fmt.Errorf("%w: EXPORT_DEFAULT_BUCKET is required for backend %q", ErrExportValidation, backend)
+	bucket, path, err := s.validateStorageConfig(backend)
+	if err != nil {
+		return nil, err
 	}
 
 	classes, err := s.resolveClasses(ctx, include, exclude)
@@ -183,7 +183,7 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 			"or check whether it is globally disabled at the cluster level", ErrExportValidation, noAsync)
 	}
 
-	backendStore, err := s.backends.BackupBackend(backend)
+	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
@@ -229,15 +229,18 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 // Status retrieves the status of an export.
 // Assembles status from metadata's NodeAssignments + per-node status files.
-func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id, path string) (*models.ExportStatusResponse, error) {
+func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, backend, id string) (*models.ExportStatusResponse, error) {
 	if !s.exportConfig.Enabled.Get() {
 		return nil, ErrExportDisabled
 	}
 	if err := validateExportID(id); err != nil {
 		return nil, err
 	}
-	bucket := s.exportConfig.DefaultBucket.Get()
-	backendStore, err := s.backends.BackupBackend(backend)
+	bucket, path, err := s.validateStorageConfig(backend)
+	if err != nil {
+		return nil, err
+	}
+	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)
 	if err != nil {
 		return nil, fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
@@ -309,15 +312,18 @@ func (s *Scheduler) Status(ctx context.Context, principal *models.Principal, bac
 // is kept so operators can inspect what was exported before the cancellation
 // and to avoid the complexity of distributed garbage collection across
 // storage backends. The same applies to failed exports.
-func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id, path string) error {
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, id string) error {
 	if !s.exportConfig.Enabled.Get() {
 		return ErrExportDisabled
 	}
 	if err := validateExportID(id); err != nil {
 		return err
 	}
-	bucket := s.exportConfig.DefaultBucket.Get()
-	backendStore, err := s.backends.BackupBackend(backend)
+	bucket, path, err := s.validateStorageConfig(backend)
+	if err != nil {
+		return err
+	}
+	backendStore, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseExport)
 	if err != nil {
 		return fmt.Errorf("%w: backend %s not available: %w", ErrExportValidation, backend, err)
 	}
@@ -926,6 +932,23 @@ func requiresBucket(backend string) bool {
 	default:
 		return false
 	}
+}
+
+// validateStorageConfig returns the configured bucket and path after verifying
+// that the operator has made both explicit. It is shared by Export, Status and
+// Cancel because all three need to address the same storage location: using
+// implicit defaults would silently point them at the wrong prefix and surface
+// as confusing "not found" errors for Status/Cancel.
+func (s *Scheduler) validateStorageConfig(backend string) (bucket, path string, err error) {
+	bucket = s.exportConfig.DefaultBucket.Get()
+	path = s.exportConfig.DefaultPath.Get()
+	if bucket == "" && requiresBucket(backend) {
+		return "", "", fmt.Errorf("%w: EXPORT_DEFAULT_BUCKET is required for backend %q", ErrExportValidation, backend)
+	}
+	if !s.exportConfig.IsDefaultPathSet.Load() {
+		return "", "", fmt.Errorf("%w: EXPORT_DEFAULT_PATH must be explicitly set (an empty value is allowed for no prefix)", ErrExportValidation)
+	}
+	return bucket, path, nil
 }
 
 // resolveClasses determines which classes to export.

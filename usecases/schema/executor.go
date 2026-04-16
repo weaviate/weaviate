@@ -186,11 +186,11 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	}
 
 	// Detect vector configs that have been explicitly dropped (VectorIndexType
-	// and VectorIndexConfig cleared) and drop the corresponding indexes from
-	// disk. We read the current vector index names from the DB layer (not the
-	// schema, which has already been updated by this point in the RAFT apply
-	// flow). Skip the legacy vector (empty string key) — it is not managed
-	// through VectorConfig but through the class-level fields.
+	// set to "none") and drop the corresponding indexes from disk. We read
+	// the current vector index names from the DB layer (not the schema, which
+	// has already been updated by this point in the RAFT apply flow). Skip the
+	// legacy vector (empty string key) — it is not managed through VectorConfig
+	// but through the class-level fields.
 	// NOTE: We only drop when the config is explicitly marked as dropped
 	// (IsVectorIndexDropped), not when it's merely absent from VectorConfig.
 	// A missing entry could be caused by serialization bugs or older clients

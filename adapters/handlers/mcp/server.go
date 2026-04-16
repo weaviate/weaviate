@@ -63,14 +63,14 @@ func (s *MCPServer) registerTools() {
 	// Load configuration for custom tool descriptions
 	configPath := s.state.ServerConfig.Config.MCP.ConfigPath
 	config := internal.LoadConfig(s.state.Logger, configPath)
-	descriptions := config.ToDescriptionMap()
+	configs := config.ToToolConfigMap()
 
-	s.server.AddTools(search.Tools(s.searcher, descriptions)...)
-	s.server.AddTools(read.Tools(s.reader, descriptions)...)
+	s.server.AddTools(search.Tools(s.searcher, configs)...)
+	s.server.AddTools(read.Tools(s.reader, configs)...)
 
 	// Write access is disabled by default. It is enabled only when
 	// MCP_SERVER_WRITE_ACCESS_ENABLED is set to "true" (case-insensitive).
 	if s.state.ServerConfig.Config.MCP.WriteAccessEnabled {
-		s.server.AddTools(create.Tools(s.creator, descriptions)...)
+		s.server.AddTools(create.Tools(s.creator, configs)...)
 	}
 }

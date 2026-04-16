@@ -46,6 +46,65 @@ func (_m *MockRClient) EXPECT() *MockRClient_Expecter {
 	return &MockRClient_Expecter{mock: &_m.Mock}
 }
 
+// CountObjects provides a mock function with given fields: ctx, host, index, shard
+func (_m *MockRClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	ret := _m.Called(ctx, host, index, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountObjects")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (int, error)); ok {
+		return rf(ctx, host, index, shard)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) int); ok {
+		r0 = rf(ctx, host, index, shard)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, host, index, shard)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRClient_CountObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountObjects'
+type MockRClient_CountObjects_Call struct {
+	*mock.Call
+}
+
+// CountObjects is a helper method to define mock.On call
+//   - ctx context.Context
+//   - host string
+//   - index string
+//   - shard string
+func (_e *MockRClient_Expecter) CountObjects(ctx interface{}, host interface{}, index interface{}, shard interface{}) *MockRClient_CountObjects_Call {
+	return &MockRClient_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, host, index, shard)}
+}
+
+func (_c *MockRClient_CountObjects_Call) Run(run func(ctx context.Context, host string, index string, shard string)) *MockRClient_CountObjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockRClient_CountObjects_Call) Return(_a0 int, _a1 error) *MockRClient_CountObjects_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRClient_CountObjects_Call) RunAndReturn(run func(context.Context, string, string, string) (int, error)) *MockRClient_CountObjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DigestObjects provides a mock function with given fields: ctx, host, index, shard, ids, numRetries
 func (_m *MockRClient) DigestObjects(ctx context.Context, host string, index string, shard string, ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error) {
 	ret := _m.Called(ctx, host, index, shard, ids, numRetries)

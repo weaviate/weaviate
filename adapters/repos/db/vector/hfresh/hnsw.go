@@ -104,7 +104,6 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 		return errors.Wrap(err, "add to hnsw")
 	}
 	i.counter.Add(1)
-	i.metrics.AddPostings(1)
 
 	return nil
 }
@@ -112,7 +111,6 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 func (i *HNSWIndex) MarkAsDeleted(id uint64) error {
 	if i.Exists(id) {
 		i.counter.Add(-1)
-		i.metrics.AddPostings(-1)
 		return i.hnsw.Delete(id)
 	}
 	return nil

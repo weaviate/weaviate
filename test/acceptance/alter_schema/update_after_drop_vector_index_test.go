@@ -72,7 +72,7 @@ func testUpdateClassAfterDropVectorIndex() func(t *testing.T) {
 				cfg, ok := cls.VectorConfig["my_vector"]
 				assert.True(collect, ok, "vector config should still exist")
 				if ok {
-					assert.Empty(collect, cfg.VectorIndexType, "VectorIndexType should be empty")
+					assert.Equal(collect, "none", cfg.VectorIndexType, "VectorIndexType should be 'none'")
 					assert.Nil(collect, cfg.VectorIndexConfig, "VectorIndexConfig should be nil")
 				}
 			}, 15*time.Second, 200*time.Millisecond)

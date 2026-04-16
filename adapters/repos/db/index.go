@@ -229,7 +229,12 @@ type Index struct {
 	logger       logrus.FieldLogger
 	remote       *sharding.RemoteIndex
 	stopwords    *stopwords.Detector
-	replicator   *replica.Replicator
+	// stopwordProvider bundles the collection-level stopword detector and the
+	// cached user-defined preset detectors. It is replaced atomically when
+	// invertedIndexConfig is updated, so reads on hot query paths do not need
+	// to take invertedIndexConfigLock. Always access via getStopwordProvider().
+	stopwordProvider atomic.Pointer[stopwords.Provider]
+	replicator       *replica.Replicator
 
 	vectorIndexUserConfigLock sync.Mutex
 	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
@@ -265,6 +270,11 @@ type Index struct {
 	// prevents concurrent shard status changes. Use .Rlock to secure against status changes and .Lock to change status
 	// Minimize holding the RW lock as it will block other operations on the same shard such as searches or writes.
 	shardCreateLocks *esync.KeyRWLocker
+
+	// backupProtectedShards tracks shard names protected during non-hardlink backup.
+	// Activation and destructive status changes are blocked until ReleaseBackup.
+	// non-hardlink backups only occur on niche filesystems so this is not a hot path
+	backupProtectedShards sync.Map
 
 	metrics          *Metrics
 	centralJobQueue  chan job
@@ -351,6 +361,11 @@ func NewIndex(
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
+	presetDetectors, err := stopwords.BuildPresetDetectors(invertedIndexConfig.StopwordPresets)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create new index")
+	}
+
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
 	}
@@ -394,6 +409,7 @@ func NewIndex(
 		HFreshEnabled:           cfg.HFreshEnabled,
 		tenantsManager:          tenantsManager,
 	}
+	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 
 	getDeletionStrategy := func() string {
 		return index.DeletionStrategy()
@@ -821,12 +837,25 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 		return fmt.Errorf("update inverted index config: %w", err)
 	}
 
+	presetDetectors, err := stopwords.BuildPresetDetectors(updated.StopwordPresets)
+	if err != nil {
+		return fmt.Errorf("update inverted index config: %w", err)
+	}
+	i.stopwordProvider.Store(stopwords.NewProvider(i.stopwords, presetDetectors))
+
 	err = tokenizer.AddCustomDict(i.Config.ClassName.String(), updated.TokenizerUserDict)
 	if err != nil {
 		return errors.Wrap(err, "updating inverted index config")
 	}
 
 	return nil
+}
+
+// getStopwordProvider returns the current stopword provider, which bundles
+// the collection-level fallback detector and the cached user-defined preset
+// detectors. Safe for concurrent use without invertedIndexConfigLock.
+func (i *Index) getStopwordProvider() *stopwords.Provider {
+	return i.stopwordProvider.Load()
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
@@ -2491,6 +2520,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 		return nil
 	}
 
+	if _, protected := i.backupProtectedShards.Load(shardName); protected {
+		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+	}
+
 	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
@@ -2586,6 +2619,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		// double check if loaded in the meantime by concurrent call, if not load it
 		shard = i.shards.Load(shardName)
 		if shard == nil {
+			if _, protected := i.backupProtectedShards.Load(shardName); protected {
+				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+			}
 			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 			if err != nil {
 				return nil, func() {}, err
@@ -2675,16 +2711,20 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
-	params aggregation.Params, modules *modules.Provider, tenant string,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	cl := i.consistencyLevel(replProps)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	results := make([]*aggregation.Result, len(readPlan.Shards()))
-	for j, shardName := range readPlan.Shards() {
+	shards := readPlan.Shards()
+	if aggregation.IsCountStar(&params) {
+		return i.aggregateCount(ctx, shards)
+	}
+
+	results := make([]*aggregation.Result, len(shards))
+	for j, shardName := range shards {
 		var err error
 		var res *aggregation.Result
 
@@ -2692,7 +2732,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		var release func()
 		// anonymous func is here to ensure release is executed after each loop iteration
 		func() {
-			shard, release, err = i.getShardForDirectLocalOperation(ctx, tenant, shardName, localShardOperationRead, 0)
+			shard, release, err = i.getShardForDirectLocalOperation(ctx, params.Tenant, shardName, localShardOperationRead, 0)
 			defer release()
 			if err == nil {
 				if shard != nil {
@@ -2711,6 +2751,31 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 
 	return aggregator.NewShardCombiner().Do(results), nil
+}
+
+func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregation.Result, error) {
+	var total atomic.Int32
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(min(len(shards), runtime.GOMAXPROCS(0)*4))
+
+	for si := range shards {
+		shard := shards[si]
+		eg.Go(func() error {
+			count, err := i.replicator.CountObjects(ctx, shard, routerTypes.ConsistencyLevelAll)
+			if err != nil {
+				return err
+			}
+			total.Add(int32(count))
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return &aggregation.Result{Groups: []aggregation.Group{{Count: int(total.Load())}}}, nil
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,

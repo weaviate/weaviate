@@ -46,24 +46,15 @@ type s3Client struct {
 	region   string
 }
 
-func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket, path string) (*s3Client, error) {
+func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string) (*s3Client, error) {
 	region := os.Getenv("AWS_REGION")
 	if len(region) == 0 {
 		region = os.Getenv("AWS_DEFAULT_REGION")
 	}
 
-	var creds *credentials.Credentials
-	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
-		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
-		creds = credentials.NewEnvAWS()
-	} else {
-		creds = credentials.NewIAM("")
-		// .Get() got deprecated with 7.0.83
-		// and passing nil will use default context,
-		if _, err := creds.GetWithContext(nil); err != nil {
-			// can be anonymous access
-			creds = credentials.NewEnvAWS()
-		}
+	creds, err := resolveCredentials(config, region)
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve credentials")
 	}
 
 	client, err := minio.New(config.Endpoint, &minio.Options{
@@ -75,6 +66,124 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket
 		return nil, errors.Wrap(err, "create client")
 	}
 	return &s3Client{client, config, logger, dataPath, region}, nil
+}
+
+func resolveCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+	// When a Role ARN is configured, use STS AssumeRole to obtain
+	// temporary credentials. This supports cross-account access and
+	// the ExternalId parameter for confused-deputy prevention.
+	if config.RoleARN != "" {
+		return newSTSAssumeRoleCredentials(config, region)
+	}
+
+	// Prefer explicit env credentials to avoid IAM metadata lookup latency.
+	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
+		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
+		return credentials.NewEnvAWS(), nil
+	}
+
+	// Fall back to IAM (covers IRSA, EC2 instance roles, etc.),
+	// then to anonymous/env access.
+	creds := credentials.NewIAM("")
+	if _, err := creds.GetWithContext(nil); err != nil {
+		return credentials.NewEnvAWS(), nil
+	}
+	return creds, nil
+}
+
+// refreshableAssumeRole is a credentials.Provider that re-resolves base
+// credentials (from env or IAM) on every refresh, then calls STS AssumeRole.
+// This ensures that rotating base credentials (e.g. IRSA tokens) are always
+// fresh when the assumed-role token needs renewal.
+type refreshableAssumeRole struct {
+	credentials.Expiry
+	config *clientConfig
+	region string
+}
+
+func (r *refreshableAssumeRole) Retrieve() (credentials.Value, error) {
+	return r.RetrieveWithCredContext(nil)
+}
+
+func (r *refreshableAssumeRole) RetrieveWithCredContext(_ *credentials.CredContext) (credentials.Value, error) {
+	creds, err := doSTSAssumeRole(r.config, r.region)
+	if err != nil {
+		return credentials.Value{}, err
+	}
+	val, err := creds.GetWithContext(nil)
+	if err != nil {
+		return credentials.Value{}, err
+	}
+	if !val.Expiration.IsZero() {
+		r.SetExpiration(val.Expiration, -1)
+	}
+	return val, nil
+}
+
+func newSTSAssumeRoleCredentials(config *clientConfig, region string) (*credentials.Credentials, error) {
+	// Verify base credentials are available before returning the provider.
+	if _, err := doSTSAssumeRole(config, region); err != nil {
+		return nil, err
+	}
+	return credentials.New(&refreshableAssumeRole{
+		config: config,
+		region: region,
+	}), nil
+}
+
+// doSTSAssumeRole fetches fresh base credentials and creates a one-shot
+// STS AssumeRole credentials object.
+func doSTSAssumeRole(config *clientConfig, region string) (*credentials.Credentials, error) {
+	// Default to the regional STS endpoint for lower latency;
+	// fall back to the global endpoint if no region is set.
+	stsEndpoint := config.STSEndpoint
+	if stsEndpoint == "" {
+		if region != "" {
+			stsEndpoint = "https://sts." + region + ".amazonaws.com"
+		} else {
+			stsEndpoint = "https://sts.amazonaws.com"
+		}
+	}
+
+	sessionName := config.RoleSessionName
+	if sessionName == "" {
+		sessionName = "weaviate-backup-s3"
+	}
+
+	// Fetch fresh base credentials (static env or IAM/IRSA).
+	var accessKey, secretKey, sessionToken string
+	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
+		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
+		baseCreds := credentials.NewEnvAWS()
+		val, err := baseCreds.GetWithContext(nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "get base credentials for STS AssumeRole")
+		}
+		accessKey = val.AccessKeyID
+		secretKey = val.SecretAccessKey
+		sessionToken = val.SessionToken
+	} else {
+		baseCreds := credentials.NewIAM("")
+		val, err := baseCreds.GetWithContext(nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "get IAM credentials for STS AssumeRole")
+		}
+		accessKey = val.AccessKeyID
+		secretKey = val.SecretAccessKey
+		sessionToken = val.SessionToken
+	}
+
+	opts := credentials.STSAssumeRoleOptions{
+		AccessKey:       accessKey,
+		SecretKey:       secretKey,
+		SessionToken:    sessionToken,
+		Location:        region,
+		RoleARN:         config.RoleARN,
+		RoleSessionName: sessionName,
+		ExternalID:      config.ExternalID,
+	}
+
+	return credentials.NewSTSAssumeRole(stsEndpoint, opts)
 }
 
 func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
@@ -91,24 +200,31 @@ func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
 	return s.client, nil
 }
 
-func (s *s3Client) makeObjectName(parts ...string) string {
+func (s *s3Client) makeObjectName(overridePath string, parts ...string) string {
 	base := path.Join(parts...)
+	if overridePath != "" {
+		return path.Join(overridePath, base)
+	}
 	return path.Join(s.config.BackupPath, base)
+}
+
+// bucketAndPath resolves the effective bucket and object path,
+// applying overrides when set (e.g. for export to a different S3 location).
+func (s *s3Client) bucketAndPath(backupID, key, overrideBucket, overridePath string) (bucket, objectName string) {
+	bucket = s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+	objectName = s.makeObjectName(overridePath, backupID, key)
+	return bucket, objectName
 }
 
 func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string {
 	remoteBucket := s.config.Bucket
-	remotePath := s.config.BackupPath
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath)
-	}
-
 	if overrideBucket != "" {
 		remoteBucket = overrideBucket
 	}
-
-	return "s3://" + path.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
+	return "s3://" + path.Join(remoteBucket, s.makeObjectName(overridePath, backupID))
 }
 
 func (s *s3Client) AllBackups(ctx context.Context,
@@ -168,16 +284,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	if err != nil {
 		return nil, errors.Wrap(err, "get object: failed to get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
-
-	bucket := s.config.Bucket
-	if overrideBucket != "" {
-		bucket = overrideBucket
-	}
+	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object %s", remotePath))
@@ -217,7 +324,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 		return errors.Wrap(err, "put object: failed to get client")
 	}
 
-	remotePath := s.makeObjectName(backupID, key)
+	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 	opt := minio.PutObjectOptions{
 		ContentType:    "application/octet-stream",
 		PartSize:       MINIO_MIN_PART_SIZE,
@@ -225,15 +332,6 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
-
-	bucket := s.config.Bucket
-	if overrideBucket != "" {
-		bucket = overrideBucket
-	}
 
 	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
@@ -260,9 +358,9 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
-	objectName := s.makeObjectName(backupID, key)
+	bucket, objectName := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 	opt := minio.RemoveObjectOptions{}
-	if err := client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
+	if err := client.RemoveObject(ctx, bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")
 	}
 
@@ -275,15 +373,7 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	if err != nil {
 		return errors.Wrap(err, "write to file: cannot get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
-
-	bucket := s.config.Bucket
-	if overrideBucket != "" {
-		bucket = overrideBucket
-	}
+	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 
 	err = client.FGetObject(ctx, bucket, remotePath, destPath, minio.GetObjectOptions{})
 	if err != nil {
@@ -310,21 +400,12 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	if err != nil {
 		return -1, errors.Wrap(err, "write: cannot get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
+	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
 		PartSize:         MINIO_MIN_PART_SIZE,
 		SendContentMd5:   true,
-	}
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
-
-	bucket := s.config.Bucket
-	if overrideBucket != "" {
-		bucket = overrideBucket
 	}
 
 	info, err := client.PutObject(ctx, bucket, remotePath, r, -1, opt)
@@ -345,16 +426,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	if err != nil {
 		return -1, errors.Wrap(err, "read: cannot get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
-
-	bucket := s.config.Bucket
-	if overrideBucket != "" {
-		bucket = overrideBucket
-	}
+	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
 
 	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {

@@ -170,7 +170,7 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	err := s.manager.DeleteClassVectorIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.VectorIndexName)
+	err := s.manager.DeleteClassVectorIndex(ctx, principal, params.ClassName, params.VectorIndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {

@@ -31,9 +31,9 @@ func (_m *MockBackupBackendProvider) EXPECT() *MockBackupBackendProvider_Expecte
 	return &MockBackupBackendProvider_Expecter{mock: &_m.Mock}
 }
 
-// BackupBackend provides a mock function with given fields: backend
-func (_m *MockBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	ret := _m.Called(backend)
+// BackupBackend provides a mock function with given fields: backend, useCase
+func (_m *MockBackupBackendProvider) BackupBackend(backend string, useCase modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
+	ret := _m.Called(backend, useCase)
 
 	if len(ret) == 0 {
 		panic("no return value specified for BackupBackend")
@@ -41,19 +41,19 @@ func (_m *MockBackupBackendProvider) BackupBackend(backend string) (modulecapabi
 
 	var r0 modulecapabilities.BackupBackend
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (modulecapabilities.BackupBackend, error)); ok {
-		return rf(backend)
+	if rf, ok := ret.Get(0).(func(string, modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error)); ok {
+		return rf(backend, useCase)
 	}
-	if rf, ok := ret.Get(0).(func(string) modulecapabilities.BackupBackend); ok {
-		r0 = rf(backend)
+	if rf, ok := ret.Get(0).(func(string, modulecapabilities.BackendUseCase) modulecapabilities.BackupBackend); ok {
+		r0 = rf(backend, useCase)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(modulecapabilities.BackupBackend)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(backend)
+	if rf, ok := ret.Get(1).(func(string, modulecapabilities.BackendUseCase) error); ok {
+		r1 = rf(backend, useCase)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -68,13 +68,14 @@ type MockBackupBackendProvider_BackupBackend_Call struct {
 
 // BackupBackend is a helper method to define mock.On call
 //   - backend string
-func (_e *MockBackupBackendProvider_Expecter) BackupBackend(backend interface{}) *MockBackupBackendProvider_BackupBackend_Call {
-	return &MockBackupBackendProvider_BackupBackend_Call{Call: _e.mock.On("BackupBackend", backend)}
+//   - useCase modulecapabilities.BackendUseCase
+func (_e *MockBackupBackendProvider_Expecter) BackupBackend(backend interface{}, useCase interface{}) *MockBackupBackendProvider_BackupBackend_Call {
+	return &MockBackupBackendProvider_BackupBackend_Call{Call: _e.mock.On("BackupBackend", backend, useCase)}
 }
 
-func (_c *MockBackupBackendProvider_BackupBackend_Call) Run(run func(backend string)) *MockBackupBackendProvider_BackupBackend_Call {
+func (_c *MockBackupBackendProvider_BackupBackend_Call) Run(run func(backend string, useCase modulecapabilities.BackendUseCase)) *MockBackupBackendProvider_BackupBackend_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(string), args[1].(modulecapabilities.BackendUseCase))
 	})
 	return _c
 }
@@ -84,7 +85,7 @@ func (_c *MockBackupBackendProvider_BackupBackend_Call) Return(_a0 modulecapabil
 	return _c
 }
 
-func (_c *MockBackupBackendProvider_BackupBackend_Call) RunAndReturn(run func(string) (modulecapabilities.BackupBackend, error)) *MockBackupBackendProvider_BackupBackend_Call {
+func (_c *MockBackupBackendProvider_BackupBackend_Call) RunAndReturn(run func(string, modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error)) *MockBackupBackendProvider_BackupBackend_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -141,7 +142,8 @@ func (_c *MockBackupBackendProvider_EnabledBackupBackends_Call) RunAndReturn(run
 func NewMockBackupBackendProvider(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockBackupBackendProvider {
+},
+) *MockBackupBackendProvider {
 	mock := &MockBackupBackendProvider{}
 	mock.Mock.Test(t)
 

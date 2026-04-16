@@ -17,6 +17,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,7 +274,7 @@ type fakeBackendProvider struct {
 	backend modulecapabilities.BackupBackend
 }
 
-func (p *fakeBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
+func (p *fakeBackendProvider) BackupBackend(_ string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	return p.backend, nil
 }
 
@@ -396,8 +397,12 @@ func (b *writeBlockingBackend) waitForParquetWrite(t *testing.T) {
 // testExportConfig returns an Export config with export enabled and a test bucket,
 // suitable for unit tests that need a non-nil exportConfig.
 func testExportConfig() config.Export {
+	pathSet := new(atomic.Bool)
+	pathSet.Store(true)
 	return config.Export{
-		Enabled:       configRuntime.NewDynamicValue(true),
-		DefaultBucket: configRuntime.NewDynamicValue("test-bucket"),
+		Enabled:          configRuntime.NewDynamicValue(true),
+		DefaultBucket:    configRuntime.NewDynamicValue("test-bucket"),
+		DefaultPath:      configRuntime.NewDynamicValue(""),
+		IsDefaultPathSet: pathSet,
 	}
 }

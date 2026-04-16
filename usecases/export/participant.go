@@ -28,12 +28,21 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
 	reservationTimeout          = 30 * time.Second
 	defaultStatusFlushInterval  = 10 * time.Second
 	defaultSiblingCheckInterval = 1 * time.Minute
+
+	// maxExportParallelismMultiplier caps EXPORT_PARALLELISM at
+	// GOMAXPROCS*N. Each worker holds a 16 MB buffered pipe and an LSM
+	// cursor, so an unbounded value (e.g. a mis-set env var) could pin
+	// many GBs of memory and exhaust file descriptors. 4x is chosen to
+	// still allow oversubscription for I/O wait without leaving room
+	// for pathological misconfiguration.
+	maxExportParallelismMultiplier = 4
 )
 
 // Participant handles export requests on a single node.
@@ -63,6 +72,10 @@ type Participant struct {
 	localNode    string
 	metrics      *ExportMetrics
 
+	// exportParallelism controls the number of concurrent scan workers.
+	// nil or 0 means GOMAXPROCS.
+	exportParallelism *configRuntime.DynamicValue[int]
+
 	// exportWg tracks in-flight export goroutines so Shutdown can wait for
 	// them to finish their cleanup (final status flush, sibling abort, metadata
 	// promotion) before the server process exits.
@@ -91,6 +104,7 @@ func NewParticipant(
 	nodeResolver NodeResolver,
 	localNode string,
 	metrics *ExportMetrics,
+	exportParallelism *configRuntime.DynamicValue[int],
 ) *Participant {
 	if client == nil {
 		panic("export: participant requires a non-nil client")
@@ -100,15 +114,16 @@ func NewParticipant(
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Participant{
-		shutdownCtx:    ctx,
-		shutdownCancel: cancel,
-		selector:       selector,
-		backends:       backends,
-		logger:         logger,
-		client:         client,
-		nodeResolver:   nodeResolver,
-		localNode:      localNode,
-		metrics:        metrics,
+		shutdownCtx:       ctx,
+		shutdownCancel:    cancel,
+		selector:          selector,
+		backends:          backends,
+		logger:            logger,
+		client:            client,
+		nodeResolver:      nodeResolver,
+		localNode:         localNode,
+		metrics:           metrics,
+		exportParallelism: exportParallelism,
 	}
 }
 
@@ -239,7 +254,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	// Abort/IsRunning callers. If initialization fails, backendStore stays
 	// nil and the main critical section below will handle the error with
 	// proper slot cleanup via clearAndRelease.
-	backendStore, backendErr := p.backends.BackupBackend(req.Backend)
+	backendStore, backendErr := p.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseExport)
 	if backendErr == nil {
 		if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
 			backendStore = nil
@@ -655,7 +670,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	}
 
 	// Scan all snapshots in parallel using an N-worker pool.
-	parallelism := runtime.GOMAXPROCS(0) * 2
+	parallelism := p.getExportParallelism()
 	jobCh := make(chan scanJob, parallelism)
 
 	// Start N workers that process scan jobs.
@@ -1202,4 +1217,30 @@ func (p *Participant) startNodeStatusWriter(
 			wg.Wait()
 		})
 	}
+}
+
+// getExportParallelism returns the number of concurrent scan workers for the
+// export pipeline. It reads the dynamic config value (settable via
+// EXPORT_PARALLELISM env var or runtime overrides). A value of 0 (default)
+// means GOMAXPROCS.
+//
+// Values above GOMAXPROCS*maxExportParallelismMultiplier are clamped to
+// bound memory (each worker holds a 16 MB pipe buffer plus an LSM cursor)
+// and a warning is logged.
+func (p *Participant) getExportParallelism() int {
+	maxP := runtime.GOMAXPROCS(0)
+	n := maxP
+	if p.exportParallelism != nil {
+		if configured := p.exportParallelism.Get(); configured > 0 {
+			n = configured
+		}
+	}
+	if limit := maxP * maxExportParallelismMultiplier; n > limit {
+		p.logger.WithField("action", "export_participant").
+			WithField("configured", n).
+			WithField("capped", limit).
+			Warnf("EXPORT_PARALLELISM=%d exceeds cap of GOMAXPROCS*%d=%d; clamping", n, maxExportParallelismMultiplier, limit)
+		n = limit
+	}
+	return n
 }

@@ -20,6 +20,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -45,9 +46,16 @@ type azureClient struct {
 	serviceURL string
 	dataPath   string
 	logger     logrus.FieldLogger
+	nodeID     string        // hostname, used to make access-check paths unique across nodes
+	counter    atomic.Uint64 // monotonic counter for unique access-check paths within a node
 }
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*azureClient, error) {
+	nodeID, err := os.Hostname()
+	if err != nil {
+		nodeID = strconv.Itoa(os.Getpid())
+	}
+
 	connectionString := os.Getenv("AZURE_STORAGE_CONNECTION_STRING")
 	if connectionString != "" {
 		client, err := azblob.NewClientFromConnectionString(connectionString, nil)
@@ -67,7 +75,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 				}
 			}
 		}
-		return &azureClient{client, *config, serviceURL, dataPath, logger}, nil
+		return &azureClient{client: client, config: *config, serviceURL: serviceURL, dataPath: dataPath, logger: logger, nodeID: nodeID}, nil
 	}
 
 	// Your account name and key can be obtained from the Azure Portal.
@@ -91,7 +99,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 		if err != nil {
 			return nil, err
 		}
-		return &azureClient{client, *config, serviceURL, dataPath, logger}, nil
+		return &azureClient{client: client, config: *config, serviceURL: serviceURL, dataPath: dataPath, logger: logger, nodeID: nodeID}, nil
 	}
 
 	options := &azblob.ClientOptions{
@@ -108,7 +116,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 	if err != nil {
 		return nil, err
 	}
-	return &azureClient{client, *config, serviceURL, dataPath, logger}, nil
+	return &azureClient{client: client, config: *config, serviceURL: serviceURL, dataPath: dataPath, logger: logger, nodeID: nodeID}, nil
 }
 
 func (a *azureClient) HomeDir(backupID, overrideBucket, overridePath string) string {
@@ -220,7 +228,10 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBuck
 }
 
 func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	key := "access-check"
+	// Each call gets a unique access-check file so concurrent Initialize calls
+	// from different nodes (or the same node) never interfere with each other.
+	seq := a.counter.Add(1)
+	key := "access-check-" + a.nodeID + "-" + strconv.FormatUint(seq, 10)
 
 	if err := a.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
