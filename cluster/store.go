@@ -577,6 +577,9 @@ func (st *Store) Ready() bool {
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
+	if st.dbLoaded.Load() {
+		return nil
+	}
 	t := time.NewTicker(period)
 	defer t.Stop()
 	for {

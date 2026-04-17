@@ -199,7 +199,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
