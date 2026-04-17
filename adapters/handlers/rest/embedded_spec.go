@@ -9631,8 +9631,12 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
+        "invertedIndexConfig": {
+          "description": "Optional collection-style inverted-index configuration. Used to supply a fallback ` + "`" + `stopwords` + "`" + ` config and/or user-defined ` + "`" + `stopwordPresets` + "`" + ` that ` + "`" + `analyzerConfig.stopwordPreset` + "`" + ` can reference. Mirrors the shape accepted on a collection, so the same config can be reused to preview tokenization behavior before creating a collection.",
+          "$ref": "#/definitions/InvertedIndexConfig"
+        },
         "stopwordPresets": {
-          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
+          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals). This is a richer, tokenize-only alternative to invertedIndexConfig.stopwordPresets (which takes plain word lists); on name conflict, this field wins.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/StopwordConfig"
@@ -9674,6 +9678,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "invertedIndexConfig": {
+          "description": "The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the stopword preset that was used (defaulting to 'en' when none was explicitly supplied), matching the property-level endpoint which inherits the collection's InvertedIndexConfig.",
+          "$ref": "#/definitions/InvertedIndexConfig"
         },
         "query": {
           "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
@@ -20188,8 +20196,12 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
+        "invertedIndexConfig": {
+          "description": "Optional collection-style inverted-index configuration. Used to supply a fallback ` + "`" + `stopwords` + "`" + ` config and/or user-defined ` + "`" + `stopwordPresets` + "`" + ` that ` + "`" + `analyzerConfig.stopwordPreset` + "`" + ` can reference. Mirrors the shape accepted on a collection, so the same config can be reused to preview tokenization behavior before creating a collection.",
+          "$ref": "#/definitions/InvertedIndexConfig"
+        },
         "stopwordPresets": {
-          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
+          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals). This is a richer, tokenize-only alternative to invertedIndexConfig.stopwordPresets (which takes plain word lists); on name conflict, this field wins.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/StopwordConfig"
@@ -20231,6 +20243,10 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "invertedIndexConfig": {
+          "description": "The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the stopword preset that was used (defaulting to 'en' when none was explicitly supplied), matching the property-level endpoint which inherits the collection's InvertedIndexConfig.",
+          "$ref": "#/definitions/InvertedIndexConfig"
         },
         "query": {
           "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",

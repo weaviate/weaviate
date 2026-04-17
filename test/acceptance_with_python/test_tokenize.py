@@ -92,17 +92,22 @@ class TestGenericTokenize:
     """Tests for POST /v1/tokenize."""
 
     @pytest.mark.parametrize(
-        "tokenization,text,expected_tokens",
+        "tokenization,text,expected_indexed,expected_query",
         [
-            ("word", "The quick brown fox", ["the", "quick", "brown", "fox"]),
-            ("lowercase", "Hello World Test", ["hello", "world", "test"]),
-            ("whitespace", "Hello World Test", ["Hello", "World", "Test"]),
-            ("field", "  Hello World  ", ["Hello World"]),
-            ("trigram", "Hello", ["hel", "ell", "llo"]),
+            # "the" is an English stopword, filtered from query by the default "en" preset
+            ("word", "The quick brown fox", ["the", "quick", "brown", "fox"], ["quick", "brown", "fox"]),
+            ("lowercase", "Hello World Test", ["hello", "world", "test"], ["hello", "world", "test"]),
+            ("whitespace", "Hello World Test", ["Hello", "World", "Test"], ["Hello", "World", "Test"]),
+            ("field", "  Hello World  ", ["Hello World"], ["Hello World"]),
+            ("trigram", "Hello", ["hel", "ell", "llo"], ["hel", "ell", "llo"]),
         ],
     )
     def test_tokenization_methods(
-        self, tokenization: str, text: str, expected_tokens: list[str]
+        self,
+        tokenization: str,
+        text: str,
+        expected_indexed: list[str],
+        expected_query: list[str],
     ) -> None:
         status, body = post_json(
             f"{WEAVIATE_URL}/v1/tokenize",
@@ -110,8 +115,185 @@ class TestGenericTokenize:
         )
         assert status == 200
         assert body["tokenization"] == tokenization
+        assert body["indexed"] == expected_indexed
+        assert body["query"] == expected_query
+
+    def test_default_stopword_preset_is_en_for_word_tokenization(self) -> None:
+        """For word tokenization, when no stopwordPreset is supplied the
+        endpoint defaults to the 'en' preset so the query output matches the
+        property-level endpoint (which inherits the collection's default,
+        also 'en'). The defaulted preset is surfaced in invertedIndexConfig,
+        not echoed on analyzerConfig."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {"text": "The quick brown fox", "tokenization": "word"},
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        assert body["query"] == ["quick", "brown", "fox"]
+        # The response must not invent an analyzerConfig the caller did not send.
+        assert body.get("analyzerConfig") in (None, {})
+        # The effective stopword preset is reported under invertedIndexConfig.
+        assert body["invertedIndexConfig"] == {"stopwords": {"preset": "en"}}
+
+    def test_default_stopword_preset_can_be_opted_out(self) -> None:
+        """Passing stopwordPreset='none' explicitly disables the default 'en' filtering."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The quick brown fox",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "none"},
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        assert body["query"] == ["the", "quick", "brown", "fox"]
+        assert body["invertedIndexConfig"] == {"stopwords": {"preset": "none"}}
+
+    def test_default_stopword_preset_applied_when_only_ascii_fold_passed(self) -> None:
+        """asciiFold without an explicit stopwordPreset should still default
+        to 'en' for word tokenization."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "The école est fermée",
+                "tokenization": "word",
+                "analyzerConfig": {"asciiFold": True},
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "ecole", "est", "fermee"]
+        assert "the" not in body["query"]
+        assert body["invertedIndexConfig"] == {"stopwords": {"preset": "en"}}
+
+    @pytest.mark.parametrize(
+        "tokenization,text,expected_tokens",
+        [
+            # Non-word tokenizations do not apply the default "en" preset, so
+            # "the" stays in the query output even though it is an English
+            # stopword, and invertedIndexConfig is omitted from the response.
+            ("lowercase", "the quick", ["the", "quick"]),
+            ("whitespace", "the quick", ["the", "quick"]),
+            ("field", "the quick", ["the quick"]),
+        ],
+    )
+    def test_default_stopword_preset_not_applied_for_non_word_tokenization(
+        self, tokenization: str, text: str, expected_tokens: list[str]
+    ) -> None:
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {"text": text, "tokenization": tokenization},
+        )
+        assert status == 200
+        assert body is not None
         assert body["indexed"] == expected_tokens
         assert body["query"] == expected_tokens
+        assert body.get("invertedIndexConfig") in (None, {})
+
+    def test_invertedIndexConfig_stopwords_fallback(self) -> None:
+        """invertedIndexConfig.stopwords is used as the fallback detector
+        when analyzerConfig.stopwordPreset is not set, mirroring the
+        property endpoint's inheritance from collection config."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "the quick brown fox",
+                "tokenization": "word",
+                "invertedIndexConfig": {
+                    "stopwords": {"preset": "en", "additions": ["quick"]},
+                },
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick", "brown", "fox"]
+        assert body["query"] == ["brown", "fox"]
+        # The response echoes back the effective fallback config.
+        assert body["invertedIndexConfig"] == {
+            "stopwords": {"preset": "en", "additions": ["quick"]}
+        }
+
+    def test_invertedIndexConfig_stopwordPresets_resolved_by_analyzer_preset(self) -> None:
+        """analyzerConfig.stopwordPreset can reference a named preset
+        defined in invertedIndexConfig.stopwordPresets."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "le chat et la souris",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "fr"},
+                "invertedIndexConfig": {
+                    "stopwordPresets": {"fr": ["le", "la", "et"]},
+                },
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["le", "chat", "et", "la", "souris"]
+        assert body["query"] == ["chat", "souris"]
+        assert body["invertedIndexConfig"] == {"stopwords": {"preset": "fr"}}
+
+    def test_analyzer_preset_overrides_invertedIndexConfig_stopwords(self) -> None:
+        """An explicit analyzerConfig.stopwordPreset overrides the
+        invertedIndexConfig.stopwords fallback, matching property-level
+        override semantics at the collection level."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "the quick",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "none"},
+                "invertedIndexConfig": {
+                    "stopwords": {"preset": "en"},
+                },
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick"]
+        assert body["query"] == ["the", "quick"]
+        assert body["invertedIndexConfig"] == {"stopwords": {"preset": "none"}}
+
+    def test_user_override_for_builtin_en_applies_to_default(self) -> None:
+        """A user-defined 'en' preset replaces the built-in entirely and is
+        applied to the default-en path for word tokenization, even when the
+        caller did not explicitly reference it via analyzerConfig. Matches
+        collection-level override semantics."""
+        status, body = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "the quick hello world",
+                "tokenization": "word",
+                "invertedIndexConfig": {
+                    # Replaces the built-in "en" entirely.
+                    "stopwordPresets": {"en": ["hello"]},
+                },
+            },
+        )
+        assert status == 200
+        assert body is not None
+        assert body["indexed"] == ["the", "quick", "hello", "world"]
+        # "the" no longer filtered (built-in en replaced), "hello" is.
+        assert body["query"] == ["the", "quick", "world"]
+        assert body["invertedIndexConfig"] == {"stopwords": {"preset": "en"}}
+
+    def test_unknown_preset_against_invertedIndexConfig_is_rejected(self) -> None:
+        status, _ = post_json(
+            f"{WEAVIATE_URL}/v1/tokenize",
+            {
+                "text": "hello",
+                "tokenization": "word",
+                "analyzerConfig": {"stopwordPreset": "missing"},
+                "invertedIndexConfig": {
+                    "stopwordPresets": {"other": ["hello"]},
+                },
+            },
+        )
+        assert status == 422
 
     def test_missing_text(self) -> None:
         status, _ = post_json(f"{WEAVIATE_URL}/v1/tokenize", {"tokenization": "word"})

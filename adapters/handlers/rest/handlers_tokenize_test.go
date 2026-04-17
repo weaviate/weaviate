@@ -32,16 +32,38 @@ func TestHandleGenericTokenize(t *testing.T) {
 		wantOK      bool
 		wantIndexed []string
 		wantQuery   []string
+		// Expected InvertedIndexConfig.Stopwords.Preset in the response,
+		// or empty string if InvertedIndexConfig should be nil.
+		wantInvertedIndexPreset string
 	}{
 		{
-			name: "word tokenization without stopwords",
+			// Word tokenization defaults to the "en" stopword preset when
+			// no analyzerConfig is supplied, matching the property-level
+			// endpoint (which inherits the collection's default, also "en").
+			name: "word tokenization defaults to en stopwords",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("The quick brown fox"),
 				Tokenization: strPtr("word"),
 			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "brown", "fox"},
-			wantQuery:   []string{"the", "quick", "brown", "fox"},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "brown", "fox"},
+			wantQuery:               []string{"quick", "brown", "fox"},
+			wantInvertedIndexPreset: "en",
+		},
+		{
+			// Callers can opt out of the default by passing "none".
+			name: "word tokenization with explicit stopwordPreset none disables default",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("The quick brown fox"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "none",
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "brown", "fox"},
+			wantQuery:               []string{"the", "quick", "brown", "fox"},
+			wantInvertedIndexPreset: "none",
 		},
 		{
 			name: "lowercase tokenization",
@@ -100,9 +122,10 @@ func TestHandleGenericTokenize(t *testing.T) {
 					ASCIIFold: true,
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"l", "ecole", "est", "fermee"},
-			wantQuery:   []string{"l", "ecole", "est", "fermee"},
+			wantOK:                  true,
+			wantIndexed:             []string{"l", "ecole", "est", "fermee"},
+			wantQuery:               []string{"l", "ecole", "est", "fermee"},
+			wantInvertedIndexPreset: "en",
 		},
 		{
 			name: "ascii fold with ignore",
@@ -114,9 +137,10 @@ func TestHandleGenericTokenize(t *testing.T) {
 					ASCIIFoldIgnore: []string{"é"},
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"l", "école", "est", "fermée"},
-			wantQuery:   []string{"l", "école", "est", "fermée"},
+			wantOK:                  true,
+			wantIndexed:             []string{"l", "école", "est", "fermée"},
+			wantQuery:               []string{"l", "école", "est", "fermée"},
+			wantInvertedIndexPreset: "en",
 		},
 		{
 			name: "stopword preset en",
@@ -127,9 +151,10 @@ func TestHandleGenericTokenize(t *testing.T) {
 					StopwordPreset: "en",
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "brown", "fox"},
-			wantQuery:   []string{"quick", "brown", "fox"},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "brown", "fox"},
+			wantQuery:               []string{"quick", "brown", "fox"},
+			wantInvertedIndexPreset: "en",
 		},
 		{
 			name: "stopword custom additions only via request-level preset",
@@ -143,9 +168,10 @@ func TestHandleGenericTokenize(t *testing.T) {
 					"custom": {Additions: []string{"test"}},
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"hello", "world", "test"},
-			wantQuery:   []string{"hello", "world"},
+			wantOK:                  true,
+			wantIndexed:             []string{"hello", "world", "test"},
+			wantQuery:               []string{"hello", "world"},
+			wantInvertedIndexPreset: "custom",
 		},
 		{
 			name: "stopword preset with removals via request-level preset",
@@ -159,9 +185,10 @@ func TestHandleGenericTokenize(t *testing.T) {
 					"en-no-the": {Preset: "en", Removals: []string{"the"}},
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick"},
-			wantQuery:   []string{"the", "quick"},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick"},
+			wantQuery:               []string{"the", "quick"},
+			wantInvertedIndexPreset: "en-no-the",
 		},
 		{
 			name: "ascii fold combined with stopwords",
@@ -173,9 +200,10 @@ func TestHandleGenericTokenize(t *testing.T) {
 					StopwordPreset: "en",
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "ecole", "est", "fermee"},
-			wantQuery:   []string{"ecole", "est", "fermee"},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "ecole", "est", "fermee"},
+			wantQuery:               []string{"ecole", "est", "fermee"},
+			wantInvertedIndexPreset: "en",
 		},
 		{
 			name: "unknown stopword preset is rejected",
@@ -189,14 +217,18 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name: "nil configs is backward compatible",
+			// Word tokenization with no config still gets the default "en"
+			// preset reflected in invertedIndexConfig, even when no tokens
+			// happen to be English stopwords.
+			name: "nil configs defaults to en",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello world"),
 				Tokenization: strPtr("word"),
 			},
-			wantOK:      true,
-			wantIndexed: []string{"hello", "world"},
-			wantQuery:   []string{"hello", "world"},
+			wantOK:                  true,
+			wantIndexed:             []string{"hello", "world"},
+			wantQuery:               []string{"hello", "world"},
+			wantInvertedIndexPreset: "en",
 		},
 		{
 			name: "ascii fold ignore without fold enabled is rejected",
@@ -238,9 +270,150 @@ func TestHandleGenericTokenize(t *testing.T) {
 					"en": {Additions: []string{"hello"}},
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "hello", "world"},
-			wantQuery:   []string{"the", "quick", "world"},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "hello", "world"},
+			wantQuery:               []string{"the", "quick", "world"},
+			wantInvertedIndexPreset: "en",
+		},
+		{
+			// invertedIndexConfig.stopwords is used as a fallback when
+			// analyzerConfig.stopwordPreset is not set, matching the
+			// property endpoint's inheritance from collection config.
+			name: "invertedIndexConfig.stopwords used as fallback",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick brown fox"),
+				Tokenization: strPtr("word"),
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					Stopwords: &models.StopwordConfig{
+						Preset:    "en",
+						Additions: []string{"quick"},
+					},
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "brown", "fox"},
+			wantQuery:               []string{"brown", "fox"},
+			wantInvertedIndexPreset: "en",
+		},
+		{
+			// analyzerConfig.stopwordPreset can reference a user-defined
+			// preset declared in invertedIndexConfig.stopwordPresets
+			// (plain word list, collection-shape).
+			name: "invertedIndexConfig.stopwordPresets resolved by analyzerConfig preset",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("le chat et la souris"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "fr",
+				},
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					StopwordPresets: map[string][]string{
+						"fr": {"le", "la", "et"},
+					},
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"le", "chat", "et", "la", "souris"},
+			wantQuery:               []string{"chat", "souris"},
+			wantInvertedIndexPreset: "fr",
+		},
+		{
+			// analyzerConfig.stopwordPreset overrides the
+			// invertedIndexConfig.stopwords fallback, same as a
+			// property-level preset override at the collection level.
+			name: "analyzerConfig preset overrides invertedIndexConfig.stopwords fallback",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "none",
+				},
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					Stopwords: &models.StopwordConfig{Preset: "en"},
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick"},
+			wantQuery:               []string{"the", "quick"},
+			wantInvertedIndexPreset: "none",
+		},
+		{
+			// Top-level stopwordPresets (richer StopwordConfig form) wins
+			// over invertedIndexConfig.stopwordPresets on name conflict.
+			name: "top-level stopwordPresets overrides invertedIndexConfig.stopwordPresets on conflict",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello world test"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "custom",
+				},
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					StopwordPresets: map[string][]string{
+						"custom": {"hello"}, // would filter "hello"
+					},
+				},
+				StopwordPresets: map[string]models.StopwordConfig{
+					"custom": {Additions: []string{"test"}}, // wins → filters "test"
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"hello", "world", "test"},
+			wantQuery:               []string{"hello", "world"},
+			wantInvertedIndexPreset: "custom",
+		},
+		{
+			// Unknown preset referenced by analyzerConfig is rejected.
+			name: "unknown preset against invertedIndexConfig is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "missing",
+				},
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					StopwordPresets: map[string][]string{
+						"other": {"hello"},
+					},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			// A user override for "en" via invertedIndexConfig.stopwordPresets
+			// is respected even when the caller did not explicitly reference
+			// it via analyzerConfig. This matches collection-level semantics
+			// where a user-defined "en" replaces the built-in entirely.
+			name: "user override for built-in en via invertedIndexConfig applies to default",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello world"),
+				Tokenization: strPtr("word"),
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					StopwordPresets: map[string][]string{
+						// Replaces the built-in "en" entirely — only "hello"
+						// is now an "en" stopword; "the" passes through.
+						"en": {"hello"},
+					},
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "hello", "world"},
+			wantQuery:               []string{"the", "quick", "world"},
+			wantInvertedIndexPreset: "en",
+		},
+		{
+			// Same for the richer top-level stopwordPresets form.
+			name: "user override for built-in en via stopwordPresets applies to default",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello world"),
+				Tokenization: strPtr("word"),
+				StopwordPresets: map[string]models.StopwordConfig{
+					"en": {Additions: []string{"hello"}},
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick", "hello", "world"},
+			wantQuery:               []string{"the", "quick", "world"},
+			wantInvertedIndexPreset: "en",
 		},
 	}
 
@@ -255,6 +428,15 @@ func TestHandleGenericTokenize(t *testing.T) {
 				assert.Equal(t, *tt.body.Tokenization, okResp.Payload.Tokenization)
 				assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
 				assert.Equal(t, tt.wantQuery, okResp.Payload.Query)
+				if tt.wantInvertedIndexPreset == "" {
+					assert.Nil(t, okResp.Payload.InvertedIndexConfig,
+						"expected no invertedIndexConfig when preset was not applied")
+				} else {
+					require.NotNil(t, okResp.Payload.InvertedIndexConfig)
+					require.NotNil(t, okResp.Payload.InvertedIndexConfig.Stopwords)
+					assert.Equal(t, tt.wantInvertedIndexPreset,
+						okResp.Payload.InvertedIndexConfig.Stopwords.Preset)
+				}
 			} else {
 				_, ok := resp.(*tokenizeops.TokenizeUnprocessableEntity)
 				assert.True(t, ok, "expected TokenizeUnprocessableEntity response")

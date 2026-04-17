@@ -34,7 +34,10 @@ type TokenizeRequest struct {
 	// Optional text analyzer configuration (e.g. ASCII folding).
 	AnalyzerConfig *TextAnalyzerConfig `json:"analyzerConfig,omitempty"`
 
-	// Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).
+	// Optional collection-style inverted-index configuration. Used to supply a fallback `stopwords` config and/or user-defined `stopwordPresets` that `analyzerConfig.stopwordPreset` can reference. Mirrors the shape accepted on a collection, so the same config can be reused to preview tokenization behavior before creating a collection.
+	InvertedIndexConfig *InvertedIndexConfig `json:"invertedIndexConfig,omitempty"`
+
+	// Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals). This is a richer, tokenize-only alternative to invertedIndexConfig.stopwordPresets (which takes plain word lists); on name conflict, this field wins.
 	StopwordPresets map[string]StopwordConfig `json:"stopwordPresets,omitempty"`
 
 	// The text to tokenize.
@@ -52,6 +55,10 @@ func (m *TokenizeRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAnalyzerConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateInvertedIndexConfig(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -84,6 +91,25 @@ func (m *TokenizeRequest) validateAnalyzerConfig(formats strfmt.Registry) error 
 				return ve.ValidateName("analyzerConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("analyzerConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *TokenizeRequest) validateInvertedIndexConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.InvertedIndexConfig) { // not required
+		return nil
+	}
+
+	if m.InvertedIndexConfig != nil {
+		if err := m.InvertedIndexConfig.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("invertedIndexConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("invertedIndexConfig")
 			}
 			return err
 		}
@@ -199,6 +225,10 @@ func (m *TokenizeRequest) ContextValidate(ctx context.Context, formats strfmt.Re
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateInvertedIndexConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateStopwordPresets(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -217,6 +247,22 @@ func (m *TokenizeRequest) contextValidateAnalyzerConfig(ctx context.Context, for
 				return ve.ValidateName("analyzerConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("analyzerConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *TokenizeRequest) contextValidateInvertedIndexConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.InvertedIndexConfig != nil {
+		if err := m.InvertedIndexConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("invertedIndexConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("invertedIndexConfig")
 			}
 			return err
 		}
