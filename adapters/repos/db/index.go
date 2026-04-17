@@ -3396,9 +3396,9 @@ func (i *Index) isRaftBacked() bool {
 }
 
 func (i *Index) validateConsistencyLevel(cl routerTypes.ConsistencyLevel) error {
-	if i.isRaftBacked() && cl.Is2PC() {
-		return fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", cl)
-	}
+	// if i.isRaftBacked() && cl.Is2PC() {
+	// 	return fmt.Errorf("consistency level %s is not supported for RAFT-backed shards; use EVENTUAL, STRONG, or DIRECT", cl)
+	// }
 	return nil
 }
 
