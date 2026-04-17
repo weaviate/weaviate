@@ -87,7 +87,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWPQMultiCompressor(
 					cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.pqConfig.Enabled = false
@@ -102,7 +102,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			} else {
 				h.compressor, err = compressionhelpers.NewHNSWSQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.vectorForID)
+					h.MinMMapSize, h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
 			}
 			if err != nil {
 				h.sqConfig.Enabled = false
@@ -119,7 +119,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		} else {
 			h.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store, h.MinMMapSize,
-				h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.vectorForID)
+				h.MaxWalReuseSize, h.allocChecker, h.getTargetVector(), h.multiVectorForNodeID)
 		}
 		if err != nil {
 			return err

@@ -248,7 +248,9 @@ func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 		return nil, storobj.NewErrNotFoundf(id, "recoverCompressedVector: empty raw vector")
 	}
 	compressed := compressor.quantizer.Encode(rawVec)
-	bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressed))
+	if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressed)); err != nil {
+		return nil, errors.Wrap(err, "recoverCompressedVector: persisting recovered vector")
+	}
 	return compressed, nil
 }
 
