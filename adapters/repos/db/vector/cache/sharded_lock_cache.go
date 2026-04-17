@@ -138,7 +138,8 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	s.shardedLocks.RLock(id)
 	if int(id) >= len(s.cache) {
 		s.shardedLocks.RUnlock(id)
-		return nil, errors.Errorf("id %d is out of bounds", id)
+		s.Grow(id)
+		return s.handleCacheMiss(ctx, id)
 	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
@@ -588,7 +589,9 @@ func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, 
 	s.shardedLocks.RLock(id)
 	if int(id) >= len(s.cache) {
 		s.shardedLocks.RUnlock(id)
-		return nil, errors.Errorf("id %d is out of bounds", id)
+		s.Grow(id)
+		docID, relativeID := s.GetKeys(id)
+		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
