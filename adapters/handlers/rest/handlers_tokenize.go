@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -64,6 +65,20 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
 			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
 		})
+	}
+
+	// Validate invertedIndexConfig with the same rules collection creation
+	// applies, so the shape accepted here genuinely "mirrors the shape
+	// accepted on a collection" (per the OpenAPI description). This also
+	// defaults Stopwords.Preset to "en" when the caller sent an empty preset,
+	// and rejects unknown presets, empty/whitespace preset names and empty
+	// word lists the same way a collection create/update would.
+	if params.Body.InvertedIndexConfig != nil {
+		if err := inverted.ValidateConfig(params.Body.InvertedIndexConfig); err != nil {
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid invertedIndexConfig: %s", err.Error())}},
+			})
+		}
 	}
 
 	// Build the stopword Provider, mirroring the collection-level configuration

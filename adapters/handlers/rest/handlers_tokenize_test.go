@@ -415,6 +415,71 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:               []string{"the", "quick", "world"},
 			wantInvertedIndexPreset: "en",
 		},
+		{
+			// invertedIndexConfig.stopwords with an empty Preset must be
+			// defaulted to "en", matching collection-level validation
+			// (adapters/repos/db/inverted/config.go: validateStopwordConfig).
+			// Without that defaulting, NewDetectorFromConfig would build an
+			// empty detector and no stopwords would be filtered.
+			name: "invertedIndexConfig.stopwords empty preset defaults to en",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick"),
+				Tokenization: strPtr("word"),
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					Stopwords: &models.StopwordConfig{},
+				},
+			},
+			wantOK:                  true,
+			wantIndexed:             []string{"the", "quick"},
+			wantQuery:               []string{"quick"},
+			wantInvertedIndexPreset: "en",
+		},
+		{
+			// Unknown preset name in invertedIndexConfig.stopwords must be
+			// rejected the same way collection creation would reject it.
+			name: "invertedIndexConfig.stopwords unknown preset is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					Stopwords: &models.StopwordConfig{Preset: "nonexistent"},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			// An empty word list for a user-defined preset is rejected by
+			// collection-level validateStopwordPresets, and the tokenize
+			// endpoint must reject it the same way.
+			name: "invertedIndexConfig.stopwordPresets empty list is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					StopwordPresets: map[string][]string{
+						"custom": {},
+					},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			// Same as collection-level: the same word cannot appear in both
+			// additions and removals of invertedIndexConfig.stopwords.
+			name: "invertedIndexConfig.stopwords conflicting addition and removal is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					Stopwords: &models.StopwordConfig{
+						Preset:    "en",
+						Additions: []string{"foo"},
+						Removals:  []string{"foo"},
+					},
+				},
+			},
+			wantOK: false,
+		},
 	}
 
 	for _, tt := range tests {
