@@ -103,14 +103,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return err
 	}
 
-	// Flush memtables again after draining the queues. Queue tasks (e.g. HNSW
-	// insertions) may have written compressed vectors to the LSM store between
-	// the initial FlushMemtables call above and the point where the queues were
-	// fully drained/paused by PrepareForBackup. Without a second flush those
-	// compressed vectors would be absent from the backup while the HNSW commit
-	// log (captured below) references the corresponding nodes as part of the
-	// graph — including potentially as the entrypoint. On restore this leads to
-	// "entrypoint was deleted in the object store" errors on every search.
+	// Flush memtables after draining the queues and preparing the indexes.
+	// Queue tasks (e.g. HNSW insertions) and index PrepareForBackup (e.g.
+	// HFresh queue drains) may have written compressed vectors to the LSM
+	// store after the initial FlushMemtables call above. Without this flush
+	// those compressed vectors stay in the memtable (WAL only) and are absent
+	// from the backup while the HNSW commit log references them — including
+	// potentially as the entrypoint. On restore this leads to "entrypoint was
+	// deleted in the object store" errors on every search.
 	if err = s.store.FlushMemtables(ctx); err != nil {
 		return fmt.Errorf("flush memtables after queue drain: %w", err)
 	}
