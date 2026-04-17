@@ -91,7 +91,11 @@ func TestGRPC_Batching(t *testing.T) {
 		err := send(stream, objects, references, nil)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
-		stream.CloseSend()
+		require.NoError(t, stream.CloseSend())
+
+		ackCount, successCount, errorCount := waitForServerClose(t, stream, 10*time.Second)
+		require.Equal(t, len(objects)+len(references), ackCount, "all objects and references should be acked before server close")
+		require.Equal(t, len(objects)+len(references), successCount+errorCount, "all objects and references should have a result before server close")
 
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -142,6 +146,10 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Equal(t, "class Article has multi-tenancy disabled, but request was with tenant", msg.GetResults().GetErrors()[0].GetError())
 		require.Equal(t, objects[1].Uuid, msg.GetResults().GetErrors()[0].GetUuid(), "Errored object should be the second one")
 
+		// All acks and results have been consumed above; waitForServerClose
+		// just asserts the server closes its send half within the deadline.
+		waitForServerClose(t, stream, 10*time.Second)
+
 		list, err := helper.ListObjects(t, clsA.Class)
 		require.NoError(t, err, "ListObjects should not return an error")
 		require.Len(t, list.Objects, 2, "There should be two articles")
@@ -189,6 +197,10 @@ func TestGRPC_Batching(t *testing.T) {
 		require.Equal(t, "property hasParagraphss does not exist for class Article", msg.GetResults().GetErrors()[0].GetError())
 		require.Equal(t, toBeacon(references[1]), msg.GetResults().GetErrors()[0].GetBeacon(), "Second reference beacon should match")
 
+		// All acks and results have been consumed above; waitForServerClose
+		// just asserts the server closes its send half within the deadline.
+		waitForServerClose(t, stream, 10*time.Second)
+
 		obj, err := helper.GetObject(t, clsA.Class, strfmt.UUID(uuid0))
 		require.NoError(t, err, "ListObjects should not return an error")
 		require.Equal(t, 1, len(obj.Properties.(map[string]any)["hasParagraphs"].([]any)), "Article should have 1 paragraph")
@@ -201,8 +213,13 @@ func TestGRPC_Batching(t *testing.T) {
 		stream := start(ctx, t, grpcClient, "")
 
 		acked := make(chan struct{})
+		// recvDone is closed when the recv goroutine exits, which only
+		// happens on clean server close (io.EOF) or a stream error. It
+		// lets us assert a bounded shutdown after Stop+CloseSend below.
+		recvDone := make(chan struct{})
 		// Start a goroutine to read messages from the stream
 		go func() {
+			defer close(recvDone)
 			defer close(acked)
 			// Verify no errors returned from the stream
 			for {
@@ -255,7 +272,18 @@ func TestGRPC_Batching(t *testing.T) {
 		}
 		t.Log("Done adding objects to stream")
 		stop(stream)
-		stream.CloseSend()
+		require.NoError(t, stream.CloseSend())
+
+		// Assert the recv goroutine exits within a bounded time — i.e. the
+		// server closes its send half after our Stop+CloseSend. A missing
+		// close here would hang any client that blocks on recv.
+		select {
+		case <-recvDone:
+			// server closed cleanly
+		case <-time.After(60 * time.Second):
+			t.Fatalf("server did not close stream within 60s after client Stop+CloseSend — " +
+				"a client blocked on stream.Recv would hang indefinitely in this situation")
+		}
 
 		// Verify that all objects are present after shutdown and restart
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -290,6 +318,54 @@ func TestGRPC_Batching(t *testing.T) {
 				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
 			}
 		}, 240*time.Second, 5*time.Second, "Objects not created within time")
+	})
+
+	t.Run("server closes stream cleanly after Stop with a small batch", func(t *testing.T) {
+		defer setupClasses()()
+
+		stream := start(ctx, t, grpcClient, "")
+
+		objects := []*pb.BatchObject{
+			{Collection: clsA.Class, Uuid: uuid.NewString()},
+			{Collection: clsA.Class, Uuid: uuid.NewString()},
+			{Collection: clsA.Class, Uuid: uuid.NewString()},
+		}
+		require.NoError(t, send(stream, objects, nil, nil), "send should not error")
+
+		stop(stream)
+		require.NoError(t, stream.CloseSend(), "CloseSend should not error")
+
+		ackCount, successCount, errorCount := waitForServerClose(t, stream, 10*time.Second)
+		require.Equal(t, len(objects), ackCount, "all objects should be acked before server close")
+		require.Equal(t, len(objects), successCount+errorCount, "all objects should have a result before server close")
+	})
+
+	t.Run("server closes stream cleanly after pipelined send without per-batch ack waits", func(t *testing.T) {
+		defer setupClasses()()
+
+		stream := start(ctx, t, grpcClient, "")
+
+		const numObjects = 100_000
+		const batchSize = 1_000
+
+		objects := make([]*pb.BatchObject, 0, batchSize)
+		for i := 0; i < numObjects; i++ {
+			objects = append(objects, &pb.BatchObject{Collection: clsA.Class, Uuid: uuid.NewString()})
+			if len(objects) == batchSize {
+				require.NoError(t, send(stream, objects, nil, nil), "send should not error")
+				objects = objects[:0]
+			}
+		}
+		if len(objects) > 0 {
+			require.NoError(t, send(stream, objects, nil, nil), "send should not error")
+		}
+
+		stop(stream)
+		require.NoError(t, stream.CloseSend(), "CloseSend should not error")
+
+		ackCount, successCount, errorCount := waitForServerClose(t, stream, 120*time.Second)
+		require.Equal(t, numObjects, ackCount, "every sent object should be acked before server close")
+		require.Equal(t, numObjects, successCount+errorCount, "every sent object should have a result before server close")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
@@ -430,6 +506,11 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
 		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
+
+		// After sending the OutOfMemory message the server closes the stream
+		// gracefully (see handleRecvErr in stream.go). Assert that happens
+		// within a bounded window rather than leaving the client to hang.
+		waitForServerClose(t, stream, 10*time.Second)
 	})
 }
 
@@ -491,7 +572,11 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		err := send(stream, objects, references, nil)
 		require.NoError(t, err, "sending Objects and References over the stream should not return an error")
 		stop(stream)
-		stream.CloseSend()
+		require.NoError(t, stream.CloseSend())
+
+		ackCount, successCount, errorCount := waitForServerClose(t, stream, 30*time.Second)
+		require.Equal(t, len(objects)+len(references), ackCount, "all objects and references should be acked before server close")
+		require.Equal(t, len(objects)+len(references), successCount+errorCount, "all objects and references should have a result before server close")
 
 		// Validate the number of articles created
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -870,6 +955,53 @@ func stop(stream pb.Weaviate_BatchStreamClient) {
 		Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
 	})
 	require.NoError(nil, err, "sending Stop over the stream should not return an error")
+}
+
+// waitForServerClose reads and discards messages from the stream until either
+// io.EOF arrives (clean server close) or the deadline expires. It fails the
+// test if the server does not close within `within` — a bounded assertion
+// that is otherwise absent from these tests and is the core contract any
+// long-lived streaming client (e.g. the Python client's recv loop) depends
+// on to exit its shutdown wait.
+//
+// Returns counts of acked uuids and results successes/errors observed
+// between invocation and the server close, so callers can assert that no
+// acks or results were silently dropped (e.g. by the per-stream reporting
+// queue's 1s send timeout on the server).
+func waitForServerClose(t *testing.T, stream pb.Weaviate_BatchStreamClient, within time.Duration) (ackedUuids, resultSuccesses, resultErrors int) {
+	t.Helper()
+	done := make(chan struct{})
+	var ackCount, successCount, errorCount int
+
+	go func() {
+		defer close(done)
+		for {
+			resp, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			if err != nil {
+				t.Errorf("stream.Recv returned unexpected error while waiting for server close: %v", err)
+				return
+			}
+			if acks := resp.GetAcks(); acks != nil {
+				ackCount += len(acks.GetUuids())
+			}
+			if results := resp.GetResults(); results != nil {
+				successCount += len(results.GetSuccesses())
+				errorCount += len(results.GetErrors())
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+		// server closed the stream cleanly
+	case <-time.After(within):
+		t.Fatalf("server did not close stream within %s after client Stop+CloseSend — "+
+			"a client blocked on stream.Recv would hang indefinitely in this situation", within)
+	}
+	return ackCount, successCount, errorCount
 }
 
 func toBeacon(ref *pb.BatchReference) string {
