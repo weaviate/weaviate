@@ -1021,7 +1021,7 @@
           "$ref": "#/definitions/StopwordConfig"
         },
         "invertedIndexConfig": {
-          "description": "The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the stopword preset that was used (defaulting to 'en' when none was explicitly supplied), matching the property-level endpoint which inherits the collection's InvertedIndexConfig.",
+          "description": "The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the effective `stopwords.preset` that was used (defaulting to 'en' when none was explicitly supplied). The returned preset name may be a user-defined preset resolved via `stopwordPresets` / `invertedIndexConfig.stopwordPresets`, not only a built-in stopword list such as `en` or `none`, matching the property-level endpoint which inherits the collection's InvertedIndexConfig.",
           "$ref": "#/definitions/InvertedIndexConfig"
         },
         "indexed": {

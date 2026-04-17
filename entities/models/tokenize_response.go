@@ -35,7 +35,7 @@ type TokenizeResponse struct {
 	// The tokens as they would be stored in the inverted index.
 	Indexed []string `json:"indexed"`
 
-	// The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the stopword preset that was used (defaulting to 'en' when none was explicitly supplied), matching the property-level endpoint which inherits the collection's InvertedIndexConfig.
+	// The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the effective `stopwords.preset` that was used (defaulting to 'en' when none was explicitly supplied). The returned preset name may be a user-defined preset resolved via `stopwordPresets` / `invertedIndexConfig.stopwordPresets`, not only a built-in stopword list such as `en` or `none`, matching the property-level endpoint which inherits the collection's InvertedIndexConfig.
 	InvertedIndexConfig *InvertedIndexConfig `json:"invertedIndexConfig,omitempty"`
 
 	// The tokens as they would be used for query matching (e.g., after stopword removal).
