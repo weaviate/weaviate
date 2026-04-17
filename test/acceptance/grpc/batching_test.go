@@ -345,6 +345,29 @@ func TestGRPC_Batching(t *testing.T) {
 
 		stream := start(ctx, t, grpcClient, "")
 
+		recvDone := make(chan struct{})
+		var ackCount, successCount, errorCount atomic.Int64
+		go func() {
+			defer close(recvDone)
+			for {
+				resp, err := stream.Recv()
+				if errors.Is(err, io.EOF) {
+					return
+				}
+				if err != nil {
+					t.Errorf("stream.Recv returned unexpected error: %v", err)
+					return
+				}
+				if acks := resp.GetAcks(); acks != nil {
+					ackCount.Add(int64(len(acks.GetUuids())))
+				}
+				if results := resp.GetResults(); results != nil {
+					successCount.Add(int64(len(results.GetSuccesses())))
+					errorCount.Add(int64(len(results.GetErrors())))
+				}
+			}
+		}()
+
 		const numObjects = 100_000
 		const batchSize = 1_000
 
@@ -363,9 +386,24 @@ func TestGRPC_Batching(t *testing.T) {
 		stop(stream)
 		require.NoError(t, stream.CloseSend(), "CloseSend should not error")
 
-		ackCount, successCount, errorCount := waitForServerClose(t, stream, 120*time.Second)
-		require.Equal(t, numObjects, ackCount, "every sent object should be acked before server close")
-		require.Equal(t, numObjects, successCount+errorCount, "every sent object should have a result before server close")
+		// Critical assertion: the server must close its send half within
+		// a bounded window after we close ours, even under pipelined
+		// load. Without this test, a client that blocks on recv would
+		// hang indefinitely in this situation — which is the exact
+		// symptom the Python client has been hitting.
+		select {
+		case <-recvDone:
+			// server closed cleanly
+		case <-time.After(120 * time.Second):
+			t.Fatalf("server did not close stream within 120s after client Stop+CloseSend — " +
+				"a client blocked on stream.Recv would hang indefinitely in this situation")
+		}
+
+		// Also assert no acks or results were silently dropped. The
+		// per-stream reporting queue on the server has a 1s send timeout
+		// that drops reports under load; these assertions surface that.
+		require.Equal(t, int64(numObjects), ackCount.Load(), "every sent object should be acked before server close")
+		require.Equal(t, int64(numObjects), successCount.Load()+errorCount.Load(), "every sent object should have a result before server close")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
@@ -985,7 +1023,7 @@ func waitForServerClose(t *testing.T, stream pb.Weaviate_BatchStreamClient, with
 				return
 			}
 			if acks := resp.GetAcks(); acks != nil {
-				ackCount += len(acks.GetUuids())
+				ackCount += len(acks.GetUuids()) + len(acks.GetBeacons())
 			}
 			if results := resp.GetResults(); results != nil {
 				successCount += len(results.GetSuccesses())
