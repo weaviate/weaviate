@@ -51,6 +51,10 @@ var (
 
 	// ErrAlreadyClosed is returned when an operation is attempted on a closed cluster.
 	ErrAlreadyClosed = errors.New("raft cluster already closed")
+
+	// ErrLeaderElectionTimeout is returned when the store cannot observe a
+	// leader before the caller's context deadline expires.
+	ErrLeaderElectionTimeout = errors.New("timed out waiting for shard raft leader election")
 )
 
 // StoreConfig holds configuration for a shard's RAFT cluster.
@@ -465,6 +469,56 @@ func (s *Store) LastAppliedIndex() uint64 {
 // their local state has caught up before performing a local read.
 func (s *Store) WaitForAppliedIndex(ctx context.Context, targetIndex uint64) error {
 	return s.fsm.WaitForIndex(ctx, targetIndex)
+}
+
+// WaitForLeader blocks until this node observes a leader for the shard's RAFT
+// cluster (either local or remote), or the context is cancelled.
+func (s *Store) WaitForLeader(ctx context.Context) error {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return ErrAlreadyClosed
+	}
+	if !s.started {
+		s.mu.RUnlock()
+		return ErrNotStarted
+	}
+	r := s.raft
+	s.mu.RUnlock()
+
+	if hasLeader(r) {
+		return nil
+	}
+
+	leaderCh := r.LeaderCh()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return ErrLeaderElectionTimeout
+			}
+			return ctx.Err()
+		case <-leaderCh:
+			if hasLeader(r) {
+				return nil
+			}
+		case <-ticker.C:
+			if hasLeader(r) {
+				return nil
+			}
+		}
+	}
+}
+
+func hasLeader(r *raft.Raft) bool {
+	if r == nil {
+		return false
+	}
+	addr, id := r.LeaderWithID()
+	return addr != "" && id != ""
 }
 
 type Response struct {

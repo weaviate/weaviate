@@ -127,6 +127,9 @@ func (r *replicator) apply(ctx context.Context, req *shardproto.ApplyRequest) (*
 	if store == nil {
 		return nil, fmt.Errorf("raft store not found for %s/%s", req.Class, req.Shard)
 	}
+	if err := store.WaitForLeader(ctx); err != nil {
+		return nil, fmt.Errorf("wait for leader on %s/%s: %w", req.Class, req.Shard, err)
+	}
 
 	if r.IsLeader(req.Shard) {
 		v, err := store.Apply(ctx, req)
@@ -150,7 +153,7 @@ func (r *replicator) forwardToLeader(
 	bo := backoff.NewExponentialBackOff()
 	bo.InitialInterval = 100 * time.Millisecond
 	bo.MaxInterval = 2 * time.Second
-	bo.MaxElapsedTime = 10 * time.Second
+	bo.MaxElapsedTime = 0
 	bo.Reset()
 
 	// Wrap with context

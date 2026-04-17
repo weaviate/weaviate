@@ -500,7 +500,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return fmt.Errorf("failed to read sharding state: %w", err)
 	}
 
-	if !i.Config.EnableLazyLoadShards {
+	eagerInit := !i.Config.EnableLazyLoadShards || i.Config.RaftReplicationEnabled
+	if eagerInit {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 

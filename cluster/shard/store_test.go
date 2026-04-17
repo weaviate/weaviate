@@ -326,6 +326,75 @@ func TestStore_State_Leader(t *testing.T) {
 	assert.Equal(t, raft.Leader, store.State())
 }
 
+func TestStore_WaitForLeader_HappyPath(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	err := store.Start(context.Background())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Stop() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, store.WaitForLeader(ctx))
+	assert.True(t, store.IsLeader())
+}
+
+func TestStore_WaitForLeader_NotStarted(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	err := store.WaitForLeader(context.Background())
+	assert.ErrorIs(t, err, shard.ErrNotStarted)
+}
+
+func TestStore_WaitForLeader_AlreadyClosed(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	err := store.Start(context.Background())
+	require.NoError(t, err)
+
+	err = store.Stop()
+	require.NoError(t, err)
+
+	err = store.WaitForLeader(context.Background())
+	assert.ErrorIs(t, err, shard.ErrAlreadyClosed)
+}
+
+func TestStore_WaitForLeader_TimeoutNoQuorum(t *testing.T) {
+	_, transport := raft.NewInmemTransport("")
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	cfg := shard.StoreConfig{
+		ClassName:          testClassName,
+		ShardName:          testShardName,
+		NodeID:             testNodeID,
+		DataPath:           t.TempDir(),
+		Members:            []string{testNodeID, "missing-node-2", "missing-node-3"},
+		Logger:             logger,
+		Transport:          transport,
+		HeartbeatTimeout:   150 * time.Millisecond,
+		ElectionTimeout:    150 * time.Millisecond,
+		LeaderLeaseTimeout: 100 * time.Millisecond,
+		SnapshotInterval:   10 * time.Second,
+		SnapshotThreshold:  1024,
+	}
+
+	store, err := shard.NewStore(cfg)
+	require.NoError(t, err)
+	store.SetShard(mocks.NewMockshard(t))
+
+	require.NoError(t, store.Start(context.Background()))
+	t.Cleanup(func() { _ = store.Stop() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	err = store.WaitForLeader(ctx)
+	assert.ErrorIs(t, err, shard.ErrLeaderElectionTimeout)
+}
+
 func TestStore_Stop_Idempotent(t *testing.T) {
 	store, _ := newTestStore(t)
 
