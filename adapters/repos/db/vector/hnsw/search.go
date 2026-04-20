@@ -709,6 +709,40 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
+// entrypointResult holds the result of resolving an entry point for search.
+// When found is false, the graph is effectively empty and search should return
+// empty results rather than fail.
+// findFallbackEntrypoint scans for any valid node to use as entry point when
+// the configured entry point is missing. Returns (0, 0, 0, false) if no valid node exists.
+func (h *hnsw) findFallbackEntrypoint(
+	compressorDistancer compressionhelpers.CompressorDistancer,
+	searchVec []float32,
+) (id uint64, level int, dist float32, found bool) {
+	h.RLock()
+	nodeCount := len(h.nodes)
+	h.RUnlock()
+
+	for i := 0; i < nodeCount; i++ {
+		node := h.nodeByID(uint64(i))
+		if node == nil || h.hasTombstone(uint64(i)) {
+			continue
+		}
+
+		d, err := h.distToNode(compressorDistancer, uint64(i), searchVec)
+		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findFallbackEntrypoint")
+			}
+			continue
+		}
+
+		return uint64(i), node.level, d, true
+	}
+
+	return 0, 0, 0, false
+}
+
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
@@ -731,15 +765,21 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
+
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID, "knnSearchByVector")
-			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+			// Configured entry point missing - find fallback
+			var found bool
+			entryPointID, maxLayer, entryPointDistance, found = h.findFallbackEntrypoint(compressorDistancer, searchVec)
+			if !found {
+				return nil, nil, nil
+			}
+		} else {
+			return nil, nil, errors.Wrap(err, "knn search: distance to entrypoint")
 		}
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	// stop at layer 1, not 0!
