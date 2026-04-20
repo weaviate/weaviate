@@ -9631,17 +9631,20 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
-        "invertedIndexConfig": {
-          "description": "Optional collection-style inverted-index configuration. Used to supply a fallback ` + "`" + `stopwords` + "`" + ` config and/or user-defined ` + "`" + `stopwordPresets` + "`" + ` that ` + "`" + `analyzerConfig.stopwordPreset` + "`" + ` can reference. Mirrors the shape accepted on a collection, so the same config can be reused to preview tokenization behavior before creating a collection.",
-          "$ref": "#/definitions/InvertedIndexConfig"
-        },
         "stopwordPresets": {
-          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals). This is a richer, tokenize-only alternative to invertedIndexConfig.stopwordPresets (which takes plain word lists); on name conflict, this field wins.",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in, matching collection-level override semantics.",
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/StopwordConfig"
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection, so the same config can be reused to preview tokenization behavior before creating a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -20196,17 +20199,20 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
-        "invertedIndexConfig": {
-          "description": "Optional collection-style inverted-index configuration. Used to supply a fallback ` + "`" + `stopwords` + "`" + ` config and/or user-defined ` + "`" + `stopwordPresets` + "`" + ` that ` + "`" + `analyzerConfig.stopwordPreset` + "`" + ` can reference. Mirrors the shape accepted on a collection, so the same config can be reused to preview tokenization behavior before creating a collection.",
-          "$ref": "#/definitions/InvertedIndexConfig"
-        },
         "stopwordPresets": {
-          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals). This is a richer, tokenize-only alternative to invertedIndexConfig.stopwordPresets (which takes plain word lists); on name conflict, this field wins.",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in, matching collection-level override semantics.",
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/StopwordConfig"
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection, so the same config can be reused to preview tokenization behavior before creating a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",

@@ -67,70 +67,44 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		})
 	}
 
-	// Validate invertedIndexConfig with the same rules collection creation
-	// applies, so the shape accepted here genuinely "mirrors the shape
-	// accepted on a collection" (per the OpenAPI description). This also
-	// defaults Stopwords.Preset to "en" when the caller sent an empty preset,
-	// and rejects unknown presets, empty/whitespace preset names and empty
-	// word lists the same way a collection create/update would.
-	if params.Body.InvertedIndexConfig != nil {
-		if err := inverted.ValidateConfig(params.Body.InvertedIndexConfig); err != nil {
-			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid invertedIndexConfig: %s", err.Error())}},
-			})
-		}
+	// Validate stopwords/stopwordPresets with the same rules collection
+	// creation applies, so the shape accepted here genuinely "matches the
+	// shape accepted on a collection" (per the OpenAPI description). This
+	// also defaults Stopwords.Preset to "en" when the caller sent an empty
+	// preset. We run validation through inverted.ValidateConfig by wrapping
+	// the two request fields in a synthetic InvertedIndexConfig; other
+	// fields stay zero-valued and pass trivially.
+	synthConfig := &models.InvertedIndexConfig{
+		Stopwords:       params.Body.Stopwords,
+		StopwordPresets: params.Body.StopwordPresets,
+	}
+	if err := inverted.ValidateConfig(synthConfig); err != nil {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
+		})
 	}
 
 	// Build the stopword Provider, mirroring the collection-level configuration
-	// the property-level endpoint inherits. Two optional request fields feed it:
-	//   - invertedIndexConfig.stopwordPresets (map[string][]string, collection-shape)
-	//   - stopwordPresets                      (map[string]StopwordConfig, richer tokenize-only form)
-	// Top-level stopwordPresets wins on name conflict, matching the
-	// "user-defined preset replaces built-in of same name" semantics we already
-	// document at the collection level.
-	var iicPresets map[string][]string
-	if params.Body.InvertedIndexConfig != nil {
-		iicPresets = params.Body.InvertedIndexConfig.StopwordPresets
-	}
-	presetDetectors, err := stopwords.BuildPresetDetectors(iicPresets)
+	// the property-level endpoint inherits.
+	presetDetectors, err := stopwords.BuildPresetDetectors(params.Body.StopwordPresets)
 	if err != nil {
 		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
 			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
 		})
 	}
-	if len(params.Body.StopwordPresets) > 0 && presetDetectors == nil {
-		presetDetectors = map[string]*stopwords.Detector{}
-	}
-	for name, cfg := range params.Body.StopwordPresets {
-		// No explicit base → treat like "none" so additions/removals are
-		// evaluated against an empty list (the same override semantics used
-		// at the collection level).
-		if cfg.Preset == "" {
-			cfg.Preset = "none"
-		}
-		d, err := stopwords.NewDetectorFromConfig(cfg)
-		if err != nil {
-			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopwordPresets[%q]: %s", name, err.Error())}},
-			})
-		}
-		presetDetectors[name] = d
-	}
 
-	// Collection-level fallback: invertedIndexConfig.stopwords is applied when
+	// Collection-level fallback: stopwords is applied when
 	// analyzerConfig.stopwordPreset is not set, matching the property endpoint
 	// (which falls back to class.InvertedIndexConfig.Stopwords).
 	var fallback stopwords.StopwordDetector
-	var fallbackConfig *models.StopwordConfig
-	if params.Body.InvertedIndexConfig != nil && params.Body.InvertedIndexConfig.Stopwords != nil {
-		d, err := stopwords.NewDetectorFromConfig(*params.Body.InvertedIndexConfig.Stopwords)
-		if err != nil {
+	if params.Body.Stopwords != nil {
+		d, derr := stopwords.NewDetectorFromConfig(*params.Body.Stopwords)
+		if derr != nil {
 			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid invertedIndexConfig.stopwords: %s", err.Error())}},
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopwords: %s", derr.Error())}},
 			})
 		}
 		fallback = d
-		fallbackConfig = params.Body.InvertedIndexConfig.Stopwords
 	}
 
 	provider := stopwords.NewProvider(fallback, presetDetectors)
@@ -139,7 +113,6 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 	// endpoint uses: analyzerConfig.stopwordPreset plays the role of a
 	// property-level preset override.
 	var detector tokenizer.StopwordDetector
-	var effectiveStopwords *models.StopwordConfig
 
 	callerPreset := ""
 	if params.Body.AnalyzerConfig != nil {
@@ -151,21 +124,18 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		d, perr := provider.Get(&models.Property{TextAnalyzer: params.Body.AnalyzerConfig})
 		if perr != nil {
 			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; define it in invertedIndexConfig.stopwordPresets / stopwordPresets or use a built-in preset ('en', 'none')", callerPreset)}},
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; define it in stopwordPresets or use a built-in preset ('en', 'none')", callerPreset)}},
 			})
 		}
 		detector = d
-		effectiveStopwords = &models.StopwordConfig{Preset: callerPreset}
 	case fallback != nil:
 		detector = fallback
-		effectiveStopwords = fallbackConfig
 	case *params.Body.Tokenization == "word":
 		// Default to "en" for word tokenization so the endpoint matches the
 		// property-level endpoint's behavior when the collection's default
 		// inverted index config is in effect. Route through the Provider so
-		// a user override for "en" (in stopwordPresets or
-		// invertedIndexConfig.stopwordPresets) is respected even when the
-		// caller did not explicitly set analyzerConfig.stopwordPreset.
+		// a user override for "en" in stopwordPresets is respected even when
+		// the caller did not explicitly set analyzerConfig.stopwordPreset.
 		d, perr := provider.Get(&models.Property{
 			TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: stopwords.EnglishPreset},
 		})
@@ -175,25 +145,14 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 			})
 		}
 		detector = d
-		effectiveStopwords = &models.StopwordConfig{Preset: stopwords.EnglishPreset}
 	}
 
 	prepared := tokenizer.NewPreparedAnalyzer(params.Body.AnalyzerConfig)
 	result := tokenizer.Analyze(*params.Body.Text, *params.Body.Tokenization, "", prepared, detector)
 
-	// Surface the effective inverted-index configuration that produced the
-	// query output, so callers can see which stopwords were applied.
-	var invertedIndexConfig *models.InvertedIndexConfig
-	if effectiveStopwords != nil {
-		invertedIndexConfig = &models.InvertedIndexConfig{Stopwords: effectiveStopwords}
-	}
-
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
-		Tokenization:        *params.Body.Tokenization,
-		AnalyzerConfig:      params.Body.AnalyzerConfig,
-		InvertedIndexConfig: invertedIndexConfig,
-		Indexed:             result.Indexed,
-		Query:               result.Query,
+		Indexed: result.Indexed,
+		Query:   result.Query,
 	})
 }
 
