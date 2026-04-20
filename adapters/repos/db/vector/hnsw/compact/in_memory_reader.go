@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -20,6 +21,11 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
+
+// errInvalidNodeID is returned by growIndexToAccommodateNode when the node ID
+// exceeds maxNodeID, indicating corrupt WAL data. Callers should skip the
+// commit and continue processing.
+var errInvalidNodeID = fmt.Errorf("node ID exceeds maximum (%d), likely corrupt WAL data", maxNodeID)
 
 const (
 	maxConnectionsPerNodeInMemory = 4096
@@ -86,16 +92,20 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 		case *ReplaceLinksAtLevelCommit:
 			err = r.readReplaceLinks(commit, out, keepLinkReplaceInformation)
 		case *AddTombstoneCommit:
-			out.Graph.Tombstones[commit.ID] = struct{}{}
+			if commit.ID <= maxNodeID {
+				out.Graph.Tombstones[commit.ID] = struct{}{}
+			}
 		case *RemoveTombstoneCommit:
-			_, ok := out.Graph.Tombstones[commit.ID]
-			if !ok {
-				// Tombstone is not present but may exist in older commit log
-				// We need to keep track of it so we can delete it later
-				out.Graph.TombstonesDeleted[commit.ID] = struct{}{}
-			} else {
-				// Tombstone is present, we can delete it
-				delete(out.Graph.Tombstones, commit.ID)
+			if commit.ID <= maxNodeID {
+				_, ok := out.Graph.Tombstones[commit.ID]
+				if !ok {
+					// Tombstone is not present but may exist in older commit log
+					// We need to keep track of it so we can delete it later
+					out.Graph.TombstonesDeleted[commit.ID] = struct{}{}
+				} else {
+					// Tombstone is present, we can delete it
+					delete(out.Graph.Tombstones, commit.ID)
+				}
 			}
 		case *ClearLinksCommit:
 			err = r.readClearLinks(commit, out, keepLinkReplaceInformation)
@@ -146,6 +156,9 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 
 func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResult) error {
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -180,6 +193,9 @@ func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResu
 
 func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *ent.DeserializationResult) error {
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -222,6 +238,9 @@ func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *ent.Deseria
 	}
 
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -253,6 +272,9 @@ func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *ent
 	}
 
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -288,6 +310,9 @@ func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *ent
 
 func (r *InMemoryReader) readClearLinks(c *ClearLinksCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -307,6 +332,9 @@ func (r *InMemoryReader) readClearLinks(c *ClearLinksCommit, res *ent.Deserializ
 
 func (r *InMemoryReader) readClearLinksAtLevel(c *ClearLinksAtLevelCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -371,6 +399,9 @@ func (r *InMemoryReader) readClearLinksAtLevel(c *ClearLinksAtLevelCommit, res *
 
 func (r *InMemoryReader) readDeleteNode(c *DeleteNodeCommit, res *ent.DeserializationResult) error {
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
+	if errors.Is(err, errInvalidNodeID) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -386,16 +417,14 @@ func (r *InMemoryReader) readDeleteNode(c *DeleteNodeCommit, res *ent.Deserializ
 
 // growIndexToAccommodateNode grows the nodes slice if needed to accommodate the given ID.
 // Returns the new slice (if grown), whether it changed, and any error.
-// Invalid node IDs (beyond maxNodeID) are logged and skipped to prevent panics
-// from corrupt WAL data after crashes.
+// Returns errInvalidNodeID if the ID exceeds maxNodeID (corrupt WAL data);
+// callers should skip the commit and continue processing.
 func growIndexToAccommodateNode(index []*ent.Vertex, id uint64, logger logrus.FieldLogger) ([]*ent.Vertex, bool, error) {
-	// Safety check for node ID to protect against corrupt WAL data.
-	// If the id is beyond maxNodeID, it is probably invalid (e.g. corrupt commit log).
 	if id > maxNodeID {
 		logger.WithField("action", "hnsw_loader").
 			WithField("node_id", id).
-			Warnf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
-		return nil, false, nil
+			Warnf("skipping commit with node ID beyond maxNodeID (%d), likely corrupt WAL data", maxNodeID)
+		return nil, false, errInvalidNodeID
 	}
 
 	previousSize := uint64(len(index))
