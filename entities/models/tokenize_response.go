@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// TokenizeResponse Response from the tokenize endpoints. The generic /v1/tokenize returns only indexed and query — it does not echo fields the caller already sent. The property endpoint additionally populates tokenization, since that value is resolved server-side from the property's schema and is not part of the request.
+// TokenizeResponse Response from the tokenize endpoints. The generic /v1/tokenize returns only `indexed` and `query` — it does not echo fields the caller already sent (tokenization, analyzerConfig, stopwords, stopwordPresets). The property endpoint additionally populates `tokenization`, since that value is resolved server-side from the property's schema rather than passed by the caller.
 //
 // swagger:model TokenizeResponse
 type TokenizeResponse struct {
@@ -34,7 +34,7 @@ type TokenizeResponse struct {
 	// The tokens as they would be used for query matching (e.g., after stopword removal).
 	Query []string `json:"query"`
 
-	// The tokenization method that was applied. Populated only by the property-level endpoint, where the tokenization is resolved from the property's schema rather than passed by the caller.
+	// The tokenization method that was applied. Populated only by the property-level endpoint.
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -43,7 +43,7 @@ func (m *TokenizeResponse) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this tokenize response based on the context it is used
+// ContextValidate validates this tokenize response based on context it is used
 func (m *TokenizeResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }

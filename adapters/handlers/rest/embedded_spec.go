@@ -9668,23 +9668,15 @@ func init() {
       }
     },
     "TokenizeResponse": {
-      "description": "Response from the tokenize endpoint.",
+      "description": "Response from the tokenize endpoints. The generic /v1/tokenize returns only ` + "`" + `indexed` + "`" + ` and ` + "`" + `query` + "`" + ` — it does not echo fields the caller already sent (tokenization, analyzerConfig, stopwords, stopwordPresets). The property endpoint additionally populates ` + "`" + `tokenization` + "`" + `, since that value is resolved server-side from the property's schema rather than passed by the caller.",
       "type": "object",
       "properties": {
-        "analyzerConfig": {
-          "description": "The text analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyzerConfig"
-        },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
           "type": "array",
           "items": {
             "type": "string"
           }
-        },
-        "invertedIndexConfig": {
-          "description": "The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the effective ` + "`" + `stopwords.preset` + "`" + ` that was used (defaulting to 'en' when none was explicitly supplied). The returned preset name may be a user-defined preset resolved via ` + "`" + `stopwordPresets` + "`" + ` / ` + "`" + `invertedIndexConfig.stopwordPresets` + "`" + `, not only a built-in stopword list such as ` + "`" + `en` + "`" + ` or ` + "`" + `none` + "`" + `, matching the property-level endpoint which inherits the collection's InvertedIndexConfig.",
-          "$ref": "#/definitions/InvertedIndexConfig"
         },
         "query": {
           "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
@@ -9693,12 +9685,8 @@ func init() {
             "type": "string"
           }
         },
-        "stopwordConfig": {
-          "description": "The stopword configuration that was used, if any.",
-          "$ref": "#/definitions/StopwordConfig"
-        },
         "tokenization": {
-          "description": "The tokenization method that was applied.",
+          "description": "The tokenization method that was applied. Populated only by the property-level endpoint.",
           "type": "string"
         }
       }
@@ -20236,23 +20224,15 @@ func init() {
       }
     },
     "TokenizeResponse": {
-      "description": "Response from the tokenize endpoint.",
+      "description": "Response from the tokenize endpoints. The generic /v1/tokenize returns only ` + "`" + `indexed` + "`" + ` and ` + "`" + `query` + "`" + ` — it does not echo fields the caller already sent (tokenization, analyzerConfig, stopwords, stopwordPresets). The property endpoint additionally populates ` + "`" + `tokenization` + "`" + `, since that value is resolved server-side from the property's schema rather than passed by the caller.",
       "type": "object",
       "properties": {
-        "analyzerConfig": {
-          "description": "The text analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyzerConfig"
-        },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
           "type": "array",
           "items": {
             "type": "string"
           }
-        },
-        "invertedIndexConfig": {
-          "description": "The effective inverted-index configuration that was applied to produce the query output. For word tokenization this includes the effective ` + "`" + `stopwords.preset` + "`" + ` that was used (defaulting to 'en' when none was explicitly supplied). The returned preset name may be a user-defined preset resolved via ` + "`" + `stopwordPresets` + "`" + ` / ` + "`" + `invertedIndexConfig.stopwordPresets` + "`" + `, not only a built-in stopword list such as ` + "`" + `en` + "`" + ` or ` + "`" + `none` + "`" + `, matching the property-level endpoint which inherits the collection's InvertedIndexConfig.",
-          "$ref": "#/definitions/InvertedIndexConfig"
         },
         "query": {
           "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
@@ -20261,12 +20241,8 @@ func init() {
             "type": "string"
           }
         },
-        "stopwordConfig": {
-          "description": "The stopword configuration that was used, if any.",
-          "$ref": "#/definitions/StopwordConfig"
-        },
         "tokenization": {
-          "description": "The tokenization method that was applied.",
+          "description": "The tokenization method that was applied. Populated only by the property-level endpoint.",
           "type": "string"
         }
       }
