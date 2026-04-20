@@ -859,6 +859,9 @@ func TestReplicationCompareDigests(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		// timeoutUnit*20 is the per-request deadline; set it large enough to
+		// survive CI scheduling jitter without relying on retry.
+		c.timeoutUnit = time.Second
 		_, err := c.CompareDigests(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.NoError(t, err)
 	})
@@ -873,6 +876,7 @@ func TestReplicationCompareDigests(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		got, err := c.CompareDigests(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
@@ -899,6 +903,7 @@ func TestReplicationCompareDigests(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		got, err := c.CompareDigests(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.NoError(t, err)
 		require.Len(t, got, 2)
@@ -918,6 +923,7 @@ func TestReplicationCompareDigests(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		got, err := c.CompareDigests(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -937,6 +943,7 @@ func TestReplicationCompareDigests(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.CompareDigests(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status code")
@@ -950,6 +957,7 @@ func TestReplicationCompareDigests(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.CompareDigests(context.Background(), server.URL[7:], "C1", "S1", input)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read compare digests record")
