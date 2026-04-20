@@ -401,112 +401,19 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"the", "quick", "fast"},
 		},
 		{
-			// Both stopwords and stopwordPresets supplied, with an explicit
-			// analyzerConfig.stopwordPreset. Mirrors the property endpoint's
-			// override order: analyzerConfig.stopwordPreset (property-level)
-			// beats the stopwords fallback (collection-level default), so
-			// the "fr" user preset wins over the en-based fallback.
-			name: "analyzerConfig preset wins over stopwords fallback when both are set",
+			// Passing both stopwords and stopwordPresets is rejected:
+			// the two input shapes are mutually exclusive to keep the
+			// mental model simple. Callers must pick one.
+			name: "both stopwords and stopwordPresets is rejected",
 			body: &models.TokenizeRequest{
-				Text:         strPtr("the quick frword hello"),
-				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TextAnalyzerConfig{
-					StopwordPreset: "fr",
-				},
-				Stopwords: &models.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"hello"},
-				},
-				StopwordPresets: map[string][]string{
-					"fr": {"frword"},
-				},
-			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "frword", "hello"},
-			// Only "frword" is filtered (from fr preset).
-			// "the" (en) and "hello" (addition) stay because the fallback is
-			// ignored when an analyzerConfig preset is set.
-			wantQuery: []string{"the", "quick", "hello"},
-			// Analyzer-preset path wins → response.Stopwords omitted; the
-			// caller's Stopwords fallback was ignored, and echoing "fr"
-			// under Stopwords would conflate the analyzer preset with the
-			// stopwords input the caller sent.
-		},
-		{
-			// "en" is set both as the stopwords fallback base AND as a
-			// user-defined preset in stopwordPresets. Mirrors a collection
-			// where invertedIndexConfig.stopwords.preset="en" and
-			// invertedIndexConfig.stopwordPresets["en"]=[...].
-			//
-			// Property-endpoint parallel: when a property has no
-			// stopwordPreset configured, the collection's stopwords fallback
-			// is used, and that fallback is built from the BUILT-IN "en"
-			// list — the user's stopwordPresets["en"] override is NOT
-			// consulted for the fallback. Here analyzerConfig.stopwordPreset
-			// is absent, so "the" (built-in en) is filtered and
-			// "customword" (user's en) passes through.
-			name: "fallback uses built-in en even when stopwordPresets overrides en",
-			body: &models.TokenizeRequest{
-				Text:         strPtr("the quick customword"),
+				Text:         strPtr("hello"),
 				Tokenization: strPtr("word"),
 				Stopwords:    &models.StopwordConfig{Preset: "en"},
 				StopwordPresets: map[string][]string{
-					"en": {"customword"},
+					"custom": {"hello"},
 				},
 			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "customword"},
-			wantQuery:   []string{"quick", "customword"},
-		},
-		{
-			// Same shape as the previous case, but now the caller explicitly
-			// references "en" via analyzerConfig.stopwordPreset. The
-			// Provider resolves "en" in the user-defined presets map first,
-			// so the user's override wins — "the" now passes through (it
-			// was dropped from the user's en list) and "customword" is
-			// filtered. Property-endpoint parallel: a property with
-			// textAnalyzer.stopwordPreset="en" against a collection that
-			// defines its own "en" preset will use the collection's version,
-			// not the built-in.
-			name: "analyzerConfig=en picks user's stopwordPresets override over built-in",
-			body: &models.TokenizeRequest{
-				Text:         strPtr("the quick customword"),
-				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TextAnalyzerConfig{
-					StopwordPreset: "en",
-				},
-				Stopwords: &models.StopwordConfig{Preset: "en"},
-				StopwordPresets: map[string][]string{
-					"en": {"customword"},
-				},
-			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "customword"},
-			wantQuery:   []string{"the", "quick"},
-		},
-		{
-			// Same inputs as above but WITHOUT analyzerConfig.stopwordPreset.
-			// Now the stopwords fallback wins (matches property endpoint
-			// behavior when the property has no stopwordPreset configured).
-			// The fr user preset is defined but not referenced, so it's
-			// inert.
-			name: "stopwords fallback wins when analyzerConfig preset is absent",
-			body: &models.TokenizeRequest{
-				Text:         strPtr("the quick frword hello"),
-				Tokenization: strPtr("word"),
-				Stopwords: &models.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"hello"},
-				},
-				StopwordPresets: map[string][]string{
-					"fr": {"frword"},
-				},
-			},
-			wantOK:      true,
-			wantIndexed: []string{"the", "quick", "frword", "hello"},
-			// "the" (en) and "hello" (addition) filtered; "frword"
-			// stays because fr preset was not selected.
-			wantQuery: []string{"quick", "frword"},
+			wantOK: false,
 		},
 		{
 			// Default "en" + additions + removals applied together.

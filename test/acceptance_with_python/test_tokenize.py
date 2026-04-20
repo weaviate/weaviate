@@ -238,90 +238,22 @@ class TestGenericTokenize:
         # "is" is still an en stopword, "the" was removed.
         assert body["query"] == ["the", "quick", "fast"]
 
-    def test_analyzer_preset_wins_over_stopwords_fallback_when_both_set(self) -> None:
-        """Both stopwords and stopwordPresets supplied, with an explicit
-        analyzerConfig.stopwordPreset. Mirrors the property endpoint's
-        override order: the analyzerConfig preset (property-level override)
-        wins over the stopwords fallback (collection-level default)."""
-        status, body = post_json(
+    def test_stopwords_and_stopwordPresets_are_mutually_exclusive(self) -> None:
+        """The two input shapes are mutually exclusive on the generic
+        endpoint. `stopwords` is for the simple "apply one base preset
+        (optionally tweaked)" case; `stopwordPresets` is for the
+        "define named presets, select via analyzerConfig" case. Passing
+        both is rejected to keep the mental model simple."""
+        status, _ = post_json(
             f"{WEAVIATE_URL}/v1/tokenize",
             {
-                "text": "the quick frword hello",
+                "text": "hello",
                 "tokenization": "word",
-                "analyzerConfig": {"stopwordPreset": "fr"},
-                "stopwords": {"preset": "en", "additions": ["hello"]},
-                "stopwordPresets": {"fr": ["frword"]},
+                "stopwords": {"preset": "en"},
+                "stopwordPresets": {"custom": ["hello"]},
             },
         )
-        assert status == 200
-        assert body is not None
-        assert body["indexed"] == ["the", "quick", "frword", "hello"]
-        # Only "frword" is filtered (from fr preset). The en-based fallback
-        # is ignored because an analyzerConfig preset was set, so "the" and
-        # "hello" pass through.
-        assert body["query"] == ["the", "quick", "hello"]
-
-    def test_en_on_both_stopwords_and_stopwordPresets_behaves_like_property(
-        self,
-    ) -> None:
-        """Mirrors a collection that sets both
-        invertedIndexConfig.stopwords.preset='en' AND
-        invertedIndexConfig.stopwordPresets['en']=[...].
-
-        Property-endpoint parallel: the collection's stopwords fallback is
-        built from the BUILT-IN 'en' list, not from the user's en override.
-        The override only applies when a property (here: analyzerConfig)
-        explicitly references 'en' via stopwordPreset.
-        """
-        body_base = {
-            "text": "the quick customword",
-            "tokenization": "word",
-            "stopwords": {"preset": "en"},
-            "stopwordPresets": {"en": ["customword"]},
-        }
-
-        # No analyzerConfig.stopwordPreset → fallback path uses built-in en.
-        # "the" is filtered (built-in en), "customword" passes (user en is
-        # NOT consulted for the fallback).
-        status, body = post_json(f"{WEAVIATE_URL}/v1/tokenize", body_base)
-        assert status == 200
-        assert body is not None
-        assert body["indexed"] == ["the", "quick", "customword"]
-        assert body["query"] == ["quick", "customword"]
-
-        # analyzerConfig.stopwordPreset='en' → resolved via the user-defined
-        # presets map first, so the user's en override wins. "the" now
-        # passes (not in user's en list) and "customword" is filtered.
-        status, body = post_json(
-            f"{WEAVIATE_URL}/v1/tokenize",
-            {**body_base, "analyzerConfig": {"stopwordPreset": "en"}},
-        )
-        assert status == 200
-        assert body is not None
-        assert body["indexed"] == ["the", "quick", "customword"]
-        assert body["query"] == ["the", "quick"]
-
-    def test_stopwords_fallback_wins_when_analyzer_preset_absent(self) -> None:
-        """Same inputs as the previous test but WITHOUT
-        analyzerConfig.stopwordPreset. Now the stopwords fallback wins
-        (matches property-endpoint behavior when the property has no
-        stopwordPreset configured). The 'fr' user preset is defined but
-        not referenced, so it's inert."""
-        status, body = post_json(
-            f"{WEAVIATE_URL}/v1/tokenize",
-            {
-                "text": "the quick frword hello",
-                "tokenization": "word",
-                "stopwords": {"preset": "en", "additions": ["hello"]},
-                "stopwordPresets": {"fr": ["frword"]},
-            },
-        )
-        assert status == 200
-        assert body is not None
-        assert body["indexed"] == ["the", "quick", "frword", "hello"]
-        # "the" (en) and "hello" (addition) filtered; "frword" stays because
-        # the fr preset was not selected.
-        assert body["query"] == ["quick", "frword"]
+        assert status == 422
 
     def test_stopwordPresets_resolved_by_analyzer_preset(self) -> None:
         """analyzerConfig.stopwordPreset can reference a named preset

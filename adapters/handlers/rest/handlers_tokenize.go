@@ -67,6 +67,19 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		})
 	}
 
+	// `stopwords` and `stopwordPresets` are mutually exclusive on this
+	// endpoint. `stopwords` is for the simple "apply one base preset
+	// optionally tweaked with additions/removals" case. `stopwordPresets`
+	// is for the "define named presets and select one via analyzerConfig"
+	// case. Allowing both on the same request creates subtle resolution
+	// corner cases (e.g. stopwords.preset="en" vs stopwordPresets.en=[...]);
+	// forcing callers to pick one keeps the mental model simple.
+	if params.Body.Stopwords != nil && len(params.Body.StopwordPresets) > 0 {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "stopwords and stopwordPresets are mutually exclusive; pass only one"}},
+		})
+	}
+
 	// Validate stopwords/stopwordPresets with the same rules collection
 	// creation applies, so the shape accepted here genuinely "matches the
 	// shape accepted on a collection" (per the OpenAPI description). This

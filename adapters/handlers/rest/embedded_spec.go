@@ -9632,7 +9632,7 @@ func init() {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "stopwordPresets": {
-          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in, matching collection-level override semantics.",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Mutually exclusive with stopwords — pass one or the other, not both.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -9643,7 +9643,7 @@ func init() {
           "x-omitempty": true
         },
         "stopwords": {
-          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection, so the same config can be reused to preview tokenization behavior before creating a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'.",
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
           "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
@@ -20188,7 +20188,7 @@ func init() {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "stopwordPresets": {
-          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in, matching collection-level override semantics.",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Mutually exclusive with stopwords — pass one or the other, not both.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -20199,7 +20199,7 @@ func init() {
           "x-omitempty": true
         },
         "stopwords": {
-          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection, so the same config can be reused to preview tokenization behavior before creating a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'.",
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
           "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
