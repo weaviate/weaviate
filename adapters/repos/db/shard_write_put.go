@@ -782,9 +782,6 @@ func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, shard *Shar
 		return nil
 	}
 
-	shard.asyncReplicationRWMux.RLock()
-	defer shard.asyncReplicationRWMux.RUnlock()
-
 	if err := queue.Insert(ctx, &common.Vector[T]{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
