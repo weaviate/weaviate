@@ -170,7 +170,8 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	// peers that we are ready to form a new cluster.
 	bootstrapCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
-	if hasState {
+	if hasState && c.config.BootstrapExpect > 1 {
+		// Multi-node cluster: re-join to update configuration with our current IP.
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
 		err = backoff.Retry(func() error {
 			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
@@ -180,6 +181,8 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
+	} else if hasState {
+		// Single-node cluster: skip joiner, node will elect itself leader.
 	} else {
 		bs := bootstrap.NewBootstrapper(
 			c.rpcClient,
@@ -198,7 +201,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
