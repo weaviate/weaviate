@@ -154,7 +154,25 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 	return out, nil
 }
 
+func (r *InMemoryReader) isCorruptLevel(level uint16, nodeID uint64, commitType string) bool {
+	if int(level) >= packedconn.MaxLayerCount {
+		r.logger.WithFields(logrus.Fields{
+			"action":  "hnsw_skip_corrupt_commit",
+			"node_id": nodeID,
+			"level":   level,
+			"commit":  commitType,
+		}).Error(fmt.Errorf("node level %d exceeds maximum %d, skipping corrupt commit",
+			level, packedconn.MaxLayerCount-1))
+		return true
+	}
+	return false
+}
+
 func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResult) error {
+	if r.isCorruptLevel(c.Level, c.ID, "AddNode") {
+		return nil
+	}
+
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
 	if errors.Is(err, errInvalidNodeID) {
 		return nil
@@ -192,6 +210,10 @@ func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResu
 }
 
 func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *ent.DeserializationResult) error {
+	if r.isCorruptLevel(c.Level, c.Source, "AddLink") {
+		return nil
+	}
+
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.Source, r.logger)
 	if errors.Is(err, errInvalidNodeID) {
 		return nil
@@ -230,6 +252,10 @@ func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *ent.Deserializat
 }
 
 func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *ent.DeserializationResult) error {
+	if r.isCorruptLevel(c.Level, c.Source, "AddLinks") {
+		return nil
+	}
+
 	targets := c.Targets
 	if len(targets) >= maxConnectionsPerNodeInMemory {
 		r.logger.Warnf("read AddLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d",
@@ -264,6 +290,10 @@ func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *ent.Deseria
 }
 
 func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
+	if r.isCorruptLevel(c.Level, c.Source, "ReplaceLinks") {
+		return nil
+	}
+
 	targets := c.Targets
 	if len(targets) >= maxConnectionsPerNodeInMemory {
 		r.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d",
@@ -331,6 +361,10 @@ func (r *InMemoryReader) readClearLinks(c *ClearLinksCommit, res *ent.Deserializ
 }
 
 func (r *InMemoryReader) readClearLinksAtLevel(c *ClearLinksAtLevelCommit, res *ent.DeserializationResult, keepReplaceInfo bool) error {
+	if r.isCorruptLevel(c.Level, c.ID, "ClearLinksAtLevel") {
+		return nil
+	}
+
 	newNodes, changed, err := growIndexToAccommodateNode(res.Graph.Nodes, c.ID, r.logger)
 	if errors.Is(err, errInvalidNodeID) {
 		return nil
