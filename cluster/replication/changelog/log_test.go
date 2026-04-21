@@ -67,9 +67,9 @@ func TestChangeLog_ConcurrentAppend_Monotonic(t *testing.T) {
 	}
 
 	var (
-		wg        sync.WaitGroup
-		recordsMu sync.Mutex
-		records   = make(map[uint64]record, totalWrite)
+		wg            sync.WaitGroup
+		recordsMu     sync.Mutex
+		records       = make(map[uint64]record, totalWrite)
 		perWriterLSNs = make([][]uint64, writers)
 	)
 	wg.Add(writers)
