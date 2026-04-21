@@ -718,3 +718,53 @@ func TestSnapshotWriter_CompressionHelpers(t *testing.T) {
 		assert.True(t, sw.isMuveraEnabled())
 	})
 }
+
+func TestSnapshotWriter_CommitsToNodeState_CorruptLevel(t *testing.T) {
+	tests := []struct {
+		name    string
+		level   uint16
+		wantNil bool
+	}{
+		{name: "valid level 0", level: 0, wantNil: false},
+		{name: "valid level 10", level: 10, wantNil: false},
+		{name: "valid max level", level: packedconn.MaxLayerCount - 1, wantNil: false},
+		{name: "corrupt level at limit", level: packedconn.MaxLayerCount, wantNil: true},
+		{name: "corrupt level 443", level: 443, wantNil: true},
+		{name: "corrupt level max uint16", level: 65535, wantNil: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sw := NewSnapshotWriter(nil).WithLogger(logrus.New())
+			nc := &NodeCommits{
+				NodeID: 42,
+				Commits: []Commit{
+					&AddNodeCommit{ID: 42, Level: tt.level},
+					&ReplaceLinksAtLevelCommit{Source: 42, Level: 0, Targets: []uint64{1, 2}},
+				},
+			}
+
+			state := sw.commitsToNodeState(nc)
+			if tt.wantNil {
+				assert.Nil(t, state)
+			} else {
+				require.NotNil(t, state)
+				assert.Equal(t, tt.level, state.level)
+			}
+		})
+	}
+}
+
+func TestSnapshotWriter_PackConnections_Overflow(t *testing.T) {
+	sw := NewSnapshotWriter(nil)
+
+	// 256 layers exceeds MaxLayerCount (255)
+	connections := make([][]uint64, 256)
+	for i := range connections {
+		connections[i] = []uint64{uint64(i)}
+	}
+
+	_, err := sw.packConnections(255, connections)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceed maximum")
+}
