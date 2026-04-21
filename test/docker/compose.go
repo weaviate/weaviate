@@ -219,6 +219,15 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 	return d
 }
 
+// WithModules adds the given module names to the list of enabled modules
+// without starting any supporting containers. Use this when the module's
+// backing service is already running externally or is not needed for the test
+// (e.g. when the test expects an early rejection before any S3 interaction).
+func (d *Compose) WithModules(moduleNames ...string) *Compose {
+	d.enableModules = append(d.enableModules, moduleNames...)
+	return d
+}
+
 // WithBackendS3 will prepare MinIO
 func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true

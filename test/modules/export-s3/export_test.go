@@ -1670,10 +1670,25 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// WithBackendS3/WithOffloadS3 are intentionally avoided here.
+	// Those helpers reuse the shared "test-minio" container (Reuse:true),
+	// which (a) is only connected to the shared Docker network — not this
+	// test's 10.100.0.0/16 subnet — and (b) would be terminated by
+	// compose.Terminate, killing the shared MinIO and breaking all
+	// subsequent tests. Since the export is rejected (422) before any S3
+	// operation, no real MinIO is needed; we enable the modules directly
+	// and provide placeholder S3 env vars.
 	compose, err := docker.New().
 		WithSubnet("10.100.0.0/16", "10.100.0.1").
-		WithBackendS3(s3Bucket, defaultS3Region).
-		WithOffloadS3(s3Bucket, defaultS3Region).
+		WithModules("backup-s3", "offload-s3").
+		WithWeaviateEnv("BACKUP_S3_BUCKET", s3Bucket).
+		WithWeaviateEnv("BACKUP_S3_ENDPOINT", "test-minio:9000").
+		WithWeaviateEnv("BACKUP_S3_USE_SSL", "false").
+		WithWeaviateEnv("OFFLOAD_S3_BUCKET", s3Bucket).
+		WithWeaviateEnv("OFFLOAD_S3_ENDPOINT", "http://test-minio:9000").
+		WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "true").
+		WithWeaviateEnv("AWS_ACCESS_KEY_ID", "aws_access_key").
+		WithWeaviateEnv("AWS_SECRET_KEY", "aws_secret_key").
 		WithWeaviateEnv("AWS_REGION", defaultS3Region).
 		WithWeaviateEnv("EXPORT_ENABLED", "true").
 		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", s3Bucket).
