@@ -7901,7 +7901,7 @@ func init() {
           "type": "boolean"
         },
         "stopwordPresets": {
-          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings.",
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -9632,7 +9632,7 @@ func init() {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "stopwordPresets": {
-          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Mutually exclusive with stopwords — pass one or the other, not both.",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -18277,7 +18277,7 @@ func init() {
           "type": "boolean"
         },
         "stopwordPresets": {
-          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings.",
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -20184,7 +20184,7 @@ func init() {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "stopwordPresets": {
-          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Mutually exclusive with stopwords — pass one or the other, not both.",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
