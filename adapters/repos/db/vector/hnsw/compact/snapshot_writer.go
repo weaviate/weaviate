@@ -14,12 +14,14 @@ package compact
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"hash/crc32"
 	"io"
 	"math"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
@@ -53,6 +55,7 @@ const (
 type SnapshotWriter struct {
 	w         io.Writer
 	blockSize int64
+	logger    logrus.FieldLogger
 
 	// Metadata collected before writing
 	entrypoint uint64
@@ -96,6 +99,13 @@ func NewSnapshotWriterWithBlockSize(w io.Writer, blockSize int64) *SnapshotWrite
 		blockSize:  blockSize,
 		tombstones: make(map[uint64]struct{}),
 	}
+}
+
+// WithLogger sets the logger for the snapshot writer. If set, corrupt nodes
+// encountered during compaction are logged before being skipped.
+func (s *SnapshotWriter) WithLogger(logger logrus.FieldLogger) *SnapshotWriter {
+	s.logger = logger
+	return s
 }
 
 // SetEntrypoint sets the entrypoint and max level for the snapshot.
@@ -531,6 +541,11 @@ func (s *SnapshotWriter) packConnections(level uint16, connections [][]uint64) (
 		return nil, nil
 	}
 
+	if len(connections) > packedconn.MaxLayerCount {
+		return nil, fmt.Errorf("connection layers (%d) exceed maximum (%d) for node with level %d",
+			len(connections), packedconn.MaxLayerCount, level)
+	}
+
 	// Use packedconn to create properly formatted connection data
 	pc, err := packedconn.NewWithElements(connections)
 	if err != nil {
@@ -664,6 +679,22 @@ func (s *SnapshotWriter) commitsToNodeState(nc *NodeCommits) *nodeStateWithTombs
 		if l > maxLevel {
 			maxLevel = l
 		}
+	}
+
+	// Validate that the level fits within packedconn's layer count limit.
+	// Normal HNSW levels are ~10-20; anything above MaxLayerCount (64)
+	// is corrupt data, likely from a WAL written during an ungraceful shutdown.
+	if int(maxLevel)+1 > packedconn.MaxLayerCount {
+		if s.logger != nil {
+			s.logger.WithFields(logrus.Fields{
+				"action":    "hnsw_compactor_skip_corrupt_node",
+				"node_id":   nc.NodeID,
+				"level":     maxLevel,
+				"max_level": packedconn.MaxLayerCount - 1,
+			}).Error(fmt.Errorf("node level %d exceeds maximum %d, skipping corrupt node",
+				maxLevel, packedconn.MaxLayerCount-1))
+		}
+		return nil
 	}
 
 	// Build connections slice
