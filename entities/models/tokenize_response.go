@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// TokenizeResponse Response from the tokenize endpoints. The generic /v1/tokenize returns only `indexed` and `query` — it does not echo fields the caller already sent (tokenization, analyzerConfig, stopwords, stopwordPresets). The property endpoint additionally populates `tokenization`, since that value is resolved server-side from the property's schema rather than passed by the caller.
+// TokenizeResponse Response from the tokenize endpoints. Returns `indexed` text and text used at `query` time
 //
 // swagger:model TokenizeResponse
 type TokenizeResponse struct {
@@ -33,9 +33,6 @@ type TokenizeResponse struct {
 
 	// The tokens as they would be used for query matching (e.g., after stopword removal).
 	Query []string `json:"query"`
-
-	// The tokenization method that was applied. Populated only by the property-level endpoint.
-	Tokenization string `json:"tokenization,omitempty"`
 }
 
 // Validate validates this tokenize response

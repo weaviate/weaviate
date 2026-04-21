@@ -255,9 +255,8 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	result := tokenizer.Analyze(*params.Body.Text, prop.Tokenization, className, prepared, detector)
 
 	return schemaops.NewSchemaObjectsPropertiesTokenizeOK().WithPayload(&models.TokenizeResponse{
-		Tokenization: prop.Tokenization,
-		Indexed:      result.Indexed,
-		Query:        result.Query,
+		Indexed: result.Indexed,
+		Query:   result.Query,
 	})
 }
 

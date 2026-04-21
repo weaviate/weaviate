@@ -482,9 +482,6 @@ func TestHandleGenericTokenize(t *testing.T) {
 				require.True(t, ok, "expected TokenizeOK response")
 				assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
 				assert.Equal(t, tt.wantQuery, okResp.Payload.Query)
-				// Generic endpoint does not echo tokenization; callers
-				// already know what they sent.
-				assert.Empty(t, okResp.Payload.Tokenization)
 			} else {
 				_, ok := resp.(*tokenizeops.TokenizeUnprocessableEntity)
 				assert.True(t, ok, "expected TokenizeUnprocessableEntity response")

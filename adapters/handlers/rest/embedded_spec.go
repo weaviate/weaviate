@@ -9668,7 +9668,7 @@ func init() {
       }
     },
     "TokenizeResponse": {
-      "description": "Response from the tokenize endpoints. The generic /v1/tokenize returns only ` + "`" + `indexed` + "`" + ` and ` + "`" + `query` + "`" + ` — it does not echo fields the caller already sent (tokenization, analyzerConfig, stopwords, stopwordPresets). The property endpoint additionally populates ` + "`" + `tokenization` + "`" + `, since that value is resolved server-side from the property's schema rather than passed by the caller.",
+      "description": "Response from the tokenize endpoints. Returns ` + "`" + `indexed` + "`" + ` text and text used at ` + "`" + `query` + "`" + ` time",
       "type": "object",
       "properties": {
         "indexed": {
@@ -9684,10 +9684,6 @@ func init() {
           "items": {
             "type": "string"
           }
-        },
-        "tokenization": {
-          "description": "The tokenization method that was applied. Populated only by the property-level endpoint.",
-          "type": "string"
         }
       }
     },
@@ -20224,7 +20220,7 @@ func init() {
       }
     },
     "TokenizeResponse": {
-      "description": "Response from the tokenize endpoints. The generic /v1/tokenize returns only ` + "`" + `indexed` + "`" + ` and ` + "`" + `query` + "`" + ` — it does not echo fields the caller already sent (tokenization, analyzerConfig, stopwords, stopwordPresets). The property endpoint additionally populates ` + "`" + `tokenization` + "`" + `, since that value is resolved server-side from the property's schema rather than passed by the caller.",
+      "description": "Response from the tokenize endpoints. Returns ` + "`" + `indexed` + "`" + ` text and text used at ` + "`" + `query` + "`" + ` time",
       "type": "object",
       "properties": {
         "indexed": {
@@ -20240,10 +20236,6 @@ func init() {
           "items": {
             "type": "string"
           }
-        },
-        "tokenization": {
-          "description": "The tokenization method that was applied. Populated only by the property-level endpoint.",
-          "type": "string"
         }
       }
     },
