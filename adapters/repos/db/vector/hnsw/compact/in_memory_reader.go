@@ -82,9 +82,20 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 		case *AddNodeCommit:
 			err = r.readNode(commit, out)
 		case *SetEntryPointMaxLevelCommit:
-			out.Graph.Entrypoint = commit.Entrypoint
-			out.Graph.Level = commit.Level
-			out.Graph.EntrypointChanged = true
+			if commit.Entrypoint > maxNodeID {
+				r.logger.WithFields(logrus.Fields{
+					"action":     "hnsw_skip_corrupt_commit",
+					"commit":     "SetEntryPointMaxLevel",
+					"entrypoint": commit.Entrypoint,
+				}).Error(fmt.Errorf("entrypoint %d exceeds maxNodeID %d, skipping corrupt commit",
+					commit.Entrypoint, maxNodeID))
+			} else if r.isCorruptLevel(commit.Level, commit.Entrypoint, "SetEntryPointMaxLevel") {
+				// logged by isCorruptLevel
+			} else {
+				out.Graph.Entrypoint = commit.Entrypoint
+				out.Graph.Level = commit.Level
+				out.Graph.EntrypointChanged = true
+			}
 		case *AddLinkAtLevelCommit:
 			err = r.readLink(commit, out)
 		case *AddLinksAtLevelCommit:
@@ -152,6 +163,29 @@ func (r *InMemoryReader) Do(initialState *ent.DeserializationResult, keepLinkRep
 	}
 
 	return out, nil
+}
+
+func filterValidTargets(targets []uint64, logger logrus.FieldLogger, source uint64, level uint16) []uint64 {
+	n := 0
+	dropped := 0
+	for _, t := range targets {
+		if t <= maxNodeID {
+			targets[n] = t
+			n++
+		} else {
+			dropped++
+		}
+	}
+	if dropped > 0 {
+		logger.WithFields(logrus.Fields{
+			"action":  "hnsw_skip_corrupt_targets",
+			"node_id": source,
+			"level":   level,
+			"dropped": dropped,
+			"kept":    n,
+		}).Warnf("dropped %d connection targets exceeding maxNodeID", dropped)
+	}
+	return targets[:n]
 }
 
 func (r *InMemoryReader) isCorruptLevel(level uint16, nodeID uint64, commitType string) bool {
@@ -247,6 +281,16 @@ func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *ent.Deserializat
 		res.Graph.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
 	}
 
+	if c.Target > maxNodeID {
+		r.logger.WithFields(logrus.Fields{
+			"action":  "hnsw_skip_corrupt_targets",
+			"node_id": c.Source,
+			"level":   c.Level,
+			"target":  c.Target,
+		}).Warnf("dropped connection target exceeding maxNodeID")
+		return nil
+	}
+
 	res.Graph.Nodes[c.Source].Connections.InsertAtLayer(c.Target, uint8(c.Level))
 	return nil
 }
@@ -285,6 +329,7 @@ func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *ent.Deseria
 		res.Graph.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
 	}
 
+	targets = filterValidTargets(targets, r.logger, c.Source, c.Level)
 	res.Graph.Nodes[c.Source].Connections.BulkInsertAtLayer(targets, uint8(c.Level))
 	return nil
 }
@@ -323,6 +368,7 @@ func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *ent
 		res.Graph.Nodes[c.Source].Connections.GrowLayersTo(uint8(c.Level))
 	}
 
+	targets = filterValidTargets(targets, r.logger, c.Source, c.Level)
 	res.Graph.Nodes[c.Source].Connections.ReplaceLayer(uint8(c.Level), targets)
 
 	if keepReplaceInfo {
