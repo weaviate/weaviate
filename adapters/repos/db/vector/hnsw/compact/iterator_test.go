@@ -357,6 +357,73 @@ func TestIterator_RemoveTombstoneCommit(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// truncatedCommitReader simulates a sorted file truncated mid-write:
+// it returns commits normally, then io.ErrUnexpectedEOF instead of io.EOF.
+type truncatedCommitReader struct {
+	commits []Commit
+	index   int
+}
+
+func (f *truncatedCommitReader) ReadNextCommit() (Commit, error) {
+	if f.index >= len(f.commits) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	commit := f.commits[f.index]
+	f.index++
+	return commit, nil
+}
+
+func TestIterator_TruncatedFile_GlobalCommitsOnly(t *testing.T) {
+	reader := &truncatedCommitReader{commits: []Commit{
+		&SetEntryPointMaxLevelCommit{Entrypoint: 1, Level: 1},
+	}}
+
+	it, err := NewIterator(reader, 0, logrus.New())
+	require.NoError(t, err)
+
+	assert.True(t, it.Exhausted())
+	assert.Equal(t, 1, len(it.GlobalCommits()))
+}
+
+func TestIterator_TruncatedFile_MidNode(t *testing.T) {
+	// Simulate: two complete nodes, then truncation where a third would start.
+	reader := &truncatedCommitReader{commits: []Commit{
+		&AddNodeCommit{ID: 1, Level: 0},
+		&AddLinksAtLevelCommit{Source: 1, Level: 0, Targets: []uint64{2}},
+		&AddNodeCommit{ID: 2, Level: 0},
+	}}
+
+	it, err := NewIterator(reader, 0, logrus.New())
+	require.NoError(t, err)
+
+	// Node 1
+	require.False(t, it.Exhausted())
+	assert.Equal(t, uint64(1), it.Current().NodeID)
+	assert.Equal(t, 2, len(it.Current().Commits))
+
+	// Node 2
+	hasNext, err := it.Next()
+	require.NoError(t, err)
+	assert.True(t, hasNext)
+	assert.Equal(t, uint64(2), it.Current().NodeID)
+
+	// Exhausted — truncation treated as EOF
+	hasNext, err = it.Next()
+	require.NoError(t, err)
+	assert.False(t, hasNext)
+	assert.True(t, it.Exhausted())
+}
+
+func TestIterator_TruncatedFile_Empty(t *testing.T) {
+	reader := &truncatedCommitReader{commits: []Commit{}}
+
+	it, err := NewIterator(reader, 0, logrus.New())
+	require.NoError(t, err)
+
+	assert.True(t, it.Exhausted())
+	assert.Nil(t, it.Current())
+}
+
 func TestIterator_ClearLinksCommit(t *testing.T) {
 	commits := []Commit{
 		&AddLinksAtLevelCommit{Source: 10, Level: 0, Targets: []uint64{1, 2, 3}},

@@ -18,6 +18,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// isEOF returns true if the error indicates end of data, either a clean EOF
+// or an unexpected EOF from a file truncated mid-write (e.g., crash during flush).
+func isEOF(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+}
+
 // NodeCommits represents all commits for a single node.
 type NodeCommits struct {
 	NodeID  uint64
@@ -69,7 +75,7 @@ func NewIterator(reader CommitReader, id int, logger logrus.FieldLogger) (*Itera
 	}
 
 	// Advance to the first node
-	if err := it.advance(); err != nil && !errors.Is(err, io.EOF) {
+	if err := it.advance(); err != nil && !isEOF(err) {
 		return nil, err
 	}
 
@@ -105,7 +111,7 @@ func (it *Iterator) Next() (bool, error) {
 	}
 
 	if err := it.advance(); err != nil {
-		if errors.Is(err, io.EOF) {
+		if isEOF(err) {
 			it.exhausted = true
 			it.currentNode = nil
 			return false, nil
@@ -122,8 +128,8 @@ func (it *Iterator) readGlobalCommits() error {
 	for {
 		c, err := it.reader.ReadNextCommit()
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				// File is all global commits
+			if isEOF(err) {
+				// File ended (possibly truncated mid-write)
 				return nil
 			}
 			return err
@@ -162,7 +168,7 @@ func (it *Iterator) advance() error {
 	for {
 		c, err := it.reader.ReadNextCommit()
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if isEOF(err) {
 				if nodeIDSet {
 					// We have commits for the current node, return them
 					it.currentNode = &NodeCommits{
