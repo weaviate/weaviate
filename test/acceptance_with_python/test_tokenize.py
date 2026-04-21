@@ -201,12 +201,11 @@ class TestGenericTokenize:
         assert body is not None
         assert body["indexed"] == ["the", "quick", "brown", "fox"]
         assert body["query"] == ["brown", "fox"]
-        # The response echoes back the effective fallback config.
 
     def test_stopwords_additions_without_preset_default_to_en(self) -> None:
         """Caller omits `preset`, supplies only `additions`. Validation
         defaults the preset to 'en' and the detector is built from en +
-        additions. The full effective config is echoed back."""
+        additions."""
         status, body = post_json(
             f"{WEAVIATE_URL}/v1/tokenize",
             {
@@ -653,7 +652,6 @@ class TestPropertyTokenize:
             {"text": "The quick brown fox"},
         )
         assert status == 200
-        assert body["tokenization"] == "word"
         assert body["indexed"] == ["the", "quick", "brown", "fox"]
 
     def test_field_property(self) -> None:
@@ -662,7 +660,6 @@ class TestPropertyTokenize:
             {"text": "  Hello World  "},
         )
         assert status == 200
-        assert body["tokenization"] == "field"
         assert body["indexed"] == ["Hello World"]
 
     def test_lowercase_first_letter_class_name(self) -> None:
@@ -737,7 +734,6 @@ class TestPropertyTokenize:
                 {"text": "the quick brown fox"},
             )
             assert status == 200
-            assert body["tokenization"] == "word"
             assert body["indexed"] == ["the", "quick", "brown", "fox"]
             # title has stopwordPreset='en' so 'the' should be filtered from the query
             assert "the" not in body["query"]

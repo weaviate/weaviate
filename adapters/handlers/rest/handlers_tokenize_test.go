@@ -48,8 +48,6 @@ func TestHandleGenericTokenize(t *testing.T) {
 		},
 		{
 			// Callers can opt out of the default by passing "none".
-			// Analyzer-preset path wins → response.Stopwords is not
-			// populated; the preset is visible via AnalyzerConfig echo.
 			name: "word tokenization with explicit stopwordPreset none disables default",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("The quick brown fox"),
@@ -211,8 +209,7 @@ func TestHandleGenericTokenize(t *testing.T) {
 		},
 		{
 			// Word tokenization with no config still gets the default "en"
-			// preset reflected in invertedIndexConfig, even when no tokens
-			// happen to be English stopwords.
+			// preset, even when no tokens happen to be English stopwords.
 			name: "nil configs defaults to en",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello world"),
