@@ -922,6 +922,11 @@ func TestExport_MultiTenant_AllCold(t *testing.T) {
 	assert.Equal(t, "SKIPPED", progressEmpty.Status, "empty cold tenant should be SKIPPED")
 	assert.Equal(t, int64(0), progressEmpty.ObjectsExported)
 
+	// S3-level check: the empty tenant must have produced no parquet
+	// objects at all.
+	assert.Empty(t, listTenantParquetKeys(t, exportID, className, "tenantEmpty"),
+		"empty cold tenant must produce no parquet files")
+
 	// All tenants must remain COLD — the export must not activate them.
 	tenantsResp, err := helper.GetTenants(t, className)
 	require.NoError(t, err)
@@ -929,6 +934,98 @@ func TestExport_MultiTenant_AllCold(t *testing.T) {
 		require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
 			"tenant %s should still be COLD after export", tenant.Name)
 	}
+
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
+// TestExport_MultiTenant_HotEmptyTenants verifies that a multi-tenant
+// export with a mix of populated and empty HOT tenants produces parquet
+// files only for the populated tenants. Empty tenants must appear as
+// SKIPPED in the shard status and must not create any parquet objects
+// on the backend.
+func TestExport_MultiTenant_HotEmptyTenants(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig:  &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	})
+	defer helper.DeleteClass(t, className)
+
+	// Populated and empty tenants are interleaved by name so the
+	// worker pool scans them in mixed order.
+	//
+	// Tenant names must not contain underscores; see listTenantParquetKeys.
+	populated := []string{"tenantA", "tenantC", "tenantE"}
+	empty := []string{"tenantB", "tenantD", "tenantF"}
+
+	allTenants := make([]*models.Tenant, 0, len(populated)+len(empty))
+	for _, name := range populated {
+		allTenants = append(allTenants, &models.Tenant{Name: name})
+	}
+	for _, name := range empty {
+		allTenants = append(allTenants, &models.Tenant{Name: name})
+	}
+	helper.CreateTenants(t, className, allTenants)
+
+	// Only populate the "populated" tenants. Empty tenants are created
+	// but receive no objects — they stay HOT by default.
+	var allObjects []*models.Object
+	for _, name := range populated {
+		objects := makeObjects(className, name, 25)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
+		allObjects = append(allObjects, objects...)
+	}
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	require.NotNil(t, resp.Payload.ShardStatus)
+	shardStatus := resp.Payload.ShardStatus[className]
+	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
+
+	// Populated tenants: SUCCESS with 25 objects each, and at least one
+	// parquet file per tenant in S3.
+	for _, name := range populated {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SUCCESS", progress.Status,
+			"populated tenant %s should be SUCCESS", name)
+		assert.Equal(t, int64(25), progress.ObjectsExported,
+			"populated tenant %s should have 25 objects exported", name)
+
+		assert.NotEmpty(t, listTenantParquetKeys(t, exportID, className, name),
+			"populated tenant %s should produce at least one parquet file", name)
+	}
+
+	// Empty tenants: SKIPPED with no objects exported, and zero
+	// parquet files on the backend.
+	for _, name := range empty {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SKIPPED", progress.Status,
+			"empty tenant %s should be SKIPPED", name)
+		assert.Equal(t, int64(0), progress.ObjectsExported,
+			"empty tenant %s should have 0 objects exported", name)
+
+		assert.Empty(t, listTenantParquetKeys(t, exportID, className, name),
+			"empty tenant %s must produce no parquet files", name)
+	}
+
+	// Every expected object ID must appear exactly once in the
+	// aggregated parquet output across all populated tenants.
+	verifyParquetExport(t, exportID, className, allObjects)
 
 	verifyParquetMetadata(t, exportID, className, true)
 }
@@ -1163,6 +1260,35 @@ func listParquetKeys(t *testing.T, exportID, className string) []string {
 	return keys
 }
 
+// listTenantParquetKeys lists S3 parquet keys that belong to a specific
+// tenant (shard). Parquet filenames follow the format
+// "{className}_{shardName}_{rangeIndex:04d}.parquet", so matching on the
+// "{className}_{tenantName}_" prefix isolates a single tenant. The trailing
+// underscore prevents partial-match false positives between tenant names
+// that share a prefix (e.g. "tenant" vs "tenantA"). Tenant names used in
+// tests must therefore not contain underscores.
+func listTenantParquetKeys(t *testing.T, exportID, className, tenantName string) []string {
+	t.Helper()
+	require.NotContains(t, tenantName, "_",
+		"tenant name must not contain underscores; would break prefix isolation")
+
+	prefix := fmt.Sprintf("%s/%s_%s_", exportID, className, tenantName)
+	resp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+		Bucket: aws.String(s3Bucket),
+		Prefix: aws.String(prefix),
+	})
+	require.NoError(t, err, "failed to list objects with prefix %s", prefix)
+
+	var keys []string
+	for _, obj := range resp.Contents {
+		key := aws.ToString(obj.Key)
+		if strings.HasSuffix(key, ".parquet") {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 func downloadS3Object(t *testing.T, bucket, key string) []byte {
 	t.Helper()
 
@@ -1341,60 +1467,6 @@ func TestExport_ExcludeFilter(t *testing.T) {
 		verifyParquetExport(t, exportID, includedClass, includedObjects)
 		verifyParquetExport(t, exportID, excludedClass, excludedObjects)
 	})
-}
-
-func TestExport_CustomConfig(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
-		},
-		ShardingConfig: map[string]interface{}{
-			"desiredCount": float64(1),
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	objects := makeObjects(className, "", 10)
-	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-
-	// Export with a custom path prefix
-	fileFormat := models.ExportCreateRequestFileFormatParquet
-	_, err := exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
-		ID:         &exportID,
-		Include:    []string{className},
-		FileFormat: &fileFormat,
-		Config: &models.ExportCreateRequestConfig{
-			Path: "custom/prefix",
-		},
-	})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, "custom/prefix")
-
-	// Verify files landed under the custom prefix in the configured bucket
-	prefix := fmt.Sprintf("custom/prefix/%s/%s", exportID, className)
-	listResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(s3Bucket),
-		Prefix: aws.String(prefix),
-	})
-	require.NoError(t, err)
-
-	var keys []string
-	for _, obj := range listResp.Contents {
-		key := aws.ToString(obj.Key)
-		if strings.HasSuffix(key, ".parquet") {
-			keys = append(keys, key)
-		}
-	}
-	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, s3Bucket)
 }
 
 func TestExport_DuplicateID(t *testing.T) {

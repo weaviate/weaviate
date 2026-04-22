@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // errorBackend embeds fakeBackend but overrides GetObject to always return
@@ -102,15 +103,15 @@ func TestScheduler_ExportDisabled(t *testing.T) {
 	s := &Scheduler{} // zero-value: Enabled defaults to false
 
 	t.Run("Export", func(t *testing.T) {
-		_, err := s.Export(context.Background(), nil, "test", "s3", nil, nil, "")
+		_, err := s.Export(context.Background(), nil, "test", "s3", nil, nil)
 		require.ErrorIs(t, err, ErrExportDisabled)
 	})
 	t.Run("Status", func(t *testing.T) {
-		_, err := s.Status(context.Background(), nil, "s3", "test", "")
+		_, err := s.Status(context.Background(), nil, "s3", "test")
 		require.ErrorIs(t, err, ErrExportDisabled)
 	})
 	t.Run("Cancel", func(t *testing.T) {
-		err := s.Cancel(context.Background(), nil, "s3", "test", "")
+		err := s.Cancel(context.Background(), nil, "s3", "test")
 		require.ErrorIs(t, err, ErrExportDisabled)
 	})
 }
@@ -150,11 +151,11 @@ func TestScheduler_ExportIDValidation(t *testing.T) {
 					var err error
 					switch method {
 					case "export":
-						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil, "")
+						_, err = s.Export(context.Background(), nil, tc.id, "s3", nil, nil)
 					case "status":
-						_, err = s.Status(context.Background(), nil, "s3", tc.id, "")
+						_, err = s.Status(context.Background(), nil, "s3", tc.id)
 					case "cancel":
-						err = s.Cancel(context.Background(), nil, "s3", tc.id, "")
+						err = s.Cancel(context.Background(), nil, "s3", tc.id)
 					}
 					if tc.wantErr {
 						require.Error(t, err)
@@ -169,6 +170,58 @@ func TestScheduler_ExportIDValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScheduler_StorageConfigValidation(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	newScheduler := func() *Scheduler {
+		return &Scheduler{
+			logger:       logger,
+			authorizer:   mocks.NewMockAuthorizer(),
+			exportConfig: testExportConfig(),
+			backends:     &fakeBackendProvider{backend: &fakeBackend{}},
+			client:       &fakeExportClient{},
+			nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+			selector:     &fakeSelector{classList: []string{"Article"}},
+			metrics:      testMetrics(),
+		}
+	}
+
+	// callAll invokes Export, Status and Cancel and returns all three errors so
+	// tests can assert the same validation behavior across the three endpoints.
+	callAll := func(s *Scheduler) map[string]error {
+		_, exportErr := s.Export(context.Background(), nil, "my-export", "s3", nil, nil)
+		_, statusErr := s.Status(context.Background(), nil, "s3", "my-export")
+		cancelErr := s.Cancel(context.Background(), nil, "s3", "my-export")
+		return map[string]error{
+			"Export": exportErr,
+			"Status": statusErr,
+			"Cancel": cancelErr,
+		}
+	}
+
+	t.Run("fails on all endpoints when bucket is missing for bucket-backed backend", func(t *testing.T) {
+		s := newScheduler()
+		s.exportConfig.DefaultBucket = configRuntime.NewDynamicValue("")
+		for name, err := range callAll(s) {
+			require.Errorf(t, err, "%s should error", name)
+			assert.ErrorIsf(t, err, ErrExportValidation, "%s should wrap ErrExportValidation", name)
+			assert.Containsf(t, err.Error(), "EXPORT_DEFAULT_BUCKET", "%s error should mention EXPORT_DEFAULT_BUCKET", name)
+		}
+	})
+
+	t.Run("passes validation when path is empty", func(t *testing.T) {
+		s := newScheduler()
+		s.exportConfig.DefaultPath = configRuntime.NewDynamicValue("")
+		// Empty path is a valid default. Downstream errors are fine because
+		// this scheduler is stubbed and may fail later for unrelated reasons.
+		for name, err := range callAll(s) {
+			if err != nil {
+				assert.NotContainsf(t, err.Error(), "EXPORT_DEFAULT_PATH", "%s should not fail on path validation", name)
+				assert.NotContainsf(t, err.Error(), "EXPORT_DEFAULT_BUCKET", "%s should not fail on bucket validation", name)
+			}
+		}
+	})
 }
 
 func TestScheduler_ErrorPaths(t *testing.T) {
@@ -233,9 +286,9 @@ func TestScheduler_ErrorPaths(t *testing.T) {
 			var err error
 			switch tc.method {
 			case "status":
-				_, err = s.Status(context.Background(), nil, "s3", "test-export", "")
+				_, err = s.Status(context.Background(), nil, "s3", "test-export")
 			case "cancel":
-				err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
+				err = s.Cancel(context.Background(), nil, "s3", "test-export")
 			}
 
 			require.Error(t, err)
@@ -302,11 +355,11 @@ func TestScheduler_CancelReturnsAlreadyFinishedWhenAllNodesFailed(t *testing.T) 
 		}},
 	}
 
-	err = s.Cancel(context.Background(), nil, "s3", "test-export", "")
+	err = s.Cancel(context.Background(), nil, "s3", "test-export")
 	require.ErrorIs(t, err, ErrExportAlreadyFinished)
 
 	// Verify the status is still FAILED, not overwritten with CANCELED.
-	resp, err := s.Status(context.Background(), nil, "s3", "test-export", "")
+	resp, err := s.Status(context.Background(), nil, "s3", "test-export")
 	require.NoError(t, err)
 	assert.Equal(t, string(export.Failed), resp.Status)
 }
@@ -376,7 +429,7 @@ func TestScheduler_StatusPromotesTerminalMetadata(t *testing.T) {
 				nodeResolver: resolver,
 			}
 
-			status, err := s.Status(context.Background(), nil, "s3", "test-export", "")
+			status, err := s.Status(context.Background(), nil, "s3", "test-export")
 			require.NoError(t, err)
 			assert.Equal(t, string(tc.expectedStatus), status.Status)
 

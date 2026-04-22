@@ -123,8 +123,8 @@ func TestHandleGenericTokenize(t *testing.T) {
 			body: &models.TokenizeRequest{
 				Text:         strPtr("The quick brown fox"),
 				Tokenization: strPtr("word"),
-				StopwordConfig: &models.StopwordConfig{
-					Preset: "en",
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "en",
 				},
 			},
 			wantOK:      true,
@@ -132,12 +132,15 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"quick", "brown", "fox"},
 		},
 		{
-			name: "stopword custom additions only",
+			name: "stopword custom additions only via request-level preset",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello world test"),
 				Tokenization: strPtr("word"),
-				StopwordConfig: &models.StopwordConfig{
-					Additions: []string{"test"},
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "custom",
+				},
+				StopwordPresets: map[string]models.StopwordConfig{
+					"custom": {Additions: []string{"test"}},
 				},
 			},
 			wantOK:      true,
@@ -145,13 +148,15 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"hello", "world"},
 		},
 		{
-			name: "stopword preset with removals",
+			name: "stopword preset with removals via request-level preset",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("the quick"),
 				Tokenization: strPtr("word"),
-				StopwordConfig: &models.StopwordConfig{
-					Preset:   "en",
-					Removals: []string{"the"},
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "en-no-the",
+				},
+				StopwordPresets: map[string]models.StopwordConfig{
+					"en-no-the": {Preset: "en", Removals: []string{"the"}},
 				},
 			},
 			wantOK:      true,
@@ -164,15 +169,24 @@ func TestHandleGenericTokenize(t *testing.T) {
 				Text:         strPtr("The école est fermée"),
 				Tokenization: strPtr("word"),
 				AnalyzerConfig: &models.TextAnalyzerConfig{
-					ASCIIFold: true,
-				},
-				StopwordConfig: &models.StopwordConfig{
-					Preset: "en",
+					ASCIIFold:      true,
+					StopwordPreset: "en",
 				},
 			},
 			wantOK:      true,
 			wantIndexed: []string{"the", "ecole", "est", "fermee"},
 			wantQuery:   []string{"ecole", "est", "fermee"},
+		},
+		{
+			name: "unknown stopword preset is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello world"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "nonexistent",
+				},
+			},
+			wantOK: false,
 		},
 		{
 			name: "nil configs is backward compatible",
@@ -207,6 +221,26 @@ func TestHandleGenericTokenize(t *testing.T) {
 				},
 			},
 			wantOK: false,
+		},
+		{
+			name: "request-level preset fully overrides built-in of same name",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello world"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "en",
+				},
+				StopwordPresets: map[string]models.StopwordConfig{
+					// No explicit Preset → defaults to "none". The
+					// user-defined "en" replaces the built-in entirely:
+					// only "hello" is filtered, "the" stays in the query
+					// because the built-in en list is no longer applied.
+					"en": {Additions: []string{"hello"}},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "hello", "world"},
+			wantQuery:   []string{"the", "quick", "world"},
 		},
 	}
 

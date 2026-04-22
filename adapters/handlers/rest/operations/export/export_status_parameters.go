@@ -20,7 +20,6 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 )
@@ -52,10 +51,6 @@ type ExportStatusParams struct {
 	  In: path
 	*/
 	ID string
-	/*Optional path prefix within the bucket. If not specified, uses the backend's default path.
-	  In: query
-	*/
-	Path *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -67,8 +62,6 @@ func (o *ExportStatusParams) BindRequest(r *http.Request, route *middleware.Matc
 
 	o.HTTPRequest = r
 
-	qs := runtime.Values(r.URL.Query())
-
 	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
 	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
 		res = append(res, err)
@@ -76,11 +69,6 @@ func (o *ExportStatusParams) BindRequest(r *http.Request, route *middleware.Matc
 
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qPath, qhkPath, _ := qs.GetOK("path")
-	if err := o.bindPath(qPath, qhkPath, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -113,24 +101,6 @@ func (o *ExportStatusParams) bindID(rawData []string, hasKey bool, formats strfm
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
-
-	return nil
-}
-
-// bindPath binds and validates parameter Path from query.
-func (o *ExportStatusParams) bindPath(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-	o.Path = &raw
 
 	return nil
 }

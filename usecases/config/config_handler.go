@@ -83,6 +83,11 @@ const (
 	DefaultObjectsTTLConcurrencyFactor   = 1
 	DefaultObjectsTTLPauseEveryNoBatches = 10
 	DefaultObjectsTTLPauseDuration       = time.Minute
+
+	// DefaultExportParallelism is the number of concurrent scan workers per
+	// export. Defaults to 0 which means GOMAXPROCS at runtime. The value is
+	// dynamically configurable via runtime overrides.
+	DefaultExportParallelism = 0
 )
 
 // Flags are input options
@@ -268,6 +273,10 @@ type Config struct {
 	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
 	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// ExportParallelism controls the number of concurrent scan workers per
+	// export. 0 (default) means GOMAXPROCS at runtime.
+	ExportParallelism *runtime.DynamicValue[int] `json:"export_parallelism" yaml:"export_parallelism"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
@@ -589,11 +598,20 @@ type CORS struct {
 // (using flat keys export_enabled / export_default_bucket).
 type Export struct {
 	// Enabled controls whether the export API is available. Defaults to false.
+	// Env: EXPORT_ENABLED, runtime config: export_enabled.
 	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
 
-	// Bucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// DefaultBucket is the storage bucket used for exports (e.g. S3 bucket name).
 	// Not required for backends that do not use buckets (e.g. filesystem).
+	// Env: EXPORT_DEFAULT_BUCKET, runtime config: export_default_bucket.
 	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
+
+	// DefaultPath is the default path prefix within the bucket or filesystem for exports.
+	// Defaults to empty string (no prefix). Each backup module provides a separate
+	// export backend that does not inherit the backup path (e.g. BACKUP_S3_PATH),
+	// so this value is used directly.
+	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
+	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
 }
 
 const (

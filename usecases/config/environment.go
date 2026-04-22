@@ -228,6 +228,13 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
+	}
+
 	cptParser := newCollectionPropsTenantsParser()
 
 	// variable expects string in format:
@@ -983,6 +990,8 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
+
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
 
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
@@ -1948,5 +1957,11 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
 	} else if c.Export.DefaultBucket == nil {
 		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultPath == nil {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
 	}
 }

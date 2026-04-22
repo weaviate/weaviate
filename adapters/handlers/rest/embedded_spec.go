@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-rc.0"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -2523,12 +2523,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path.",
-            "name": "path",
-            "in": "query"
           }
         ],
         "responses": {
@@ -2591,12 +2585,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional path prefix within the bucket.",
-            "name": "path",
-            "in": "query"
           }
         ],
         "responses": {
@@ -7654,16 +7642,6 @@ func init() {
         "file_format"
       ],
       "properties": {
-        "config": {
-          "description": "Backend-specific configuration",
-          "type": "object",
-          "properties": {
-            "path": {
-              "description": "Path prefix within the bucket or filesystem",
-              "type": "string"
-            }
-          }
-        },
         "exclude": {
           "description": "List of collection names to exclude from the export. Cannot be used with 'include'.",
           "type": "array",
@@ -7921,6 +7899,17 @@ func init() {
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
+        },
+        "stopwordPresets": {
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x-omitempty": true
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
@@ -8420,7 +8409,9 @@ func init() {
             "delete_aliases",
             "assign_and_revoke_groups",
             "read_groups",
-            "manage_mcp"
+            "create_mcp",
+            "read_mcp",
+            "update_mcp"
           ]
         },
         "aliases": {
@@ -8495,10 +8486,6 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
-        },
-        "mcp": {
-          "description": "resources applicable for MCP actions",
-          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -9623,6 +9610,11 @@ func init() {
             "type": "string"
           },
           "x-omitempty": true
+        },
+        "stopwordPreset": {
+          "description": "Stopword preset name. Overrides the collection-level invertedIndexConfig.stopwords for this property. Only applies to properties using 'word' tokenization. Can be a built-in preset ('en', 'none') or a user-defined preset from invertedIndexConfig.stopwordPresets.",
+          "type": "string",
+          "x-omitempty": true
         }
       },
       "x-omitempty": true
@@ -9639,9 +9631,13 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
-        "stopwordConfig": {
-          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
-          "$ref": "#/definitions/StopwordConfig"
+        "stopwordPresets": {
+          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/StopwordConfig"
+          },
+          "x-omitempty": true
         },
         "text": {
           "description": "The text to tokenize.",
@@ -10150,7 +10146,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-rc.0"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -12613,12 +12609,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path.",
-            "name": "path",
-            "in": "query"
           }
         ],
         "responses": {
@@ -12681,12 +12671,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "string",
-            "description": "Optional path prefix within the bucket.",
-            "name": "path",
-            "in": "query"
           }
         ],
         "responses": {
@@ -18006,16 +17990,6 @@ func init() {
         "file_format"
       ],
       "properties": {
-        "config": {
-          "description": "Backend-specific configuration",
-          "type": "object",
-          "properties": {
-            "path": {
-              "description": "Path prefix within the bucket or filesystem",
-              "type": "string"
-            }
-          }
-        },
         "exclude": {
           "description": "List of collection names to exclude from the export. Cannot be used with 'include'.",
           "type": "array",
@@ -18040,16 +18014,6 @@ func init() {
           "items": {
             "type": "string"
           }
-        }
-      }
-    },
-    "ExportCreateRequestConfig": {
-      "description": "Backend-specific configuration",
-      "type": "object",
-      "properties": {
-        "path": {
-          "description": "Path prefix within the bucket or filesystem",
-          "type": "string"
         }
       }
     },
@@ -18316,6 +18280,17 @@ func init() {
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
+        },
+        "stopwordPresets": {
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x-omitempty": true
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
@@ -18832,7 +18807,9 @@ func init() {
             "delete_aliases",
             "assign_and_revoke_groups",
             "read_groups",
-            "manage_mcp"
+            "create_mcp",
+            "read_mcp",
+            "update_mcp"
           ]
         },
         "aliases": {
@@ -18907,10 +18884,6 @@ func init() {
               "$ref": "#/definitions/GroupType"
             }
           }
-        },
-        "mcp": {
-          "description": "resources applicable for MCP actions",
-          "type": "object"
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -20194,6 +20167,11 @@ func init() {
             "type": "string"
           },
           "x-omitempty": true
+        },
+        "stopwordPreset": {
+          "description": "Stopword preset name. Overrides the collection-level invertedIndexConfig.stopwords for this property. Only applies to properties using 'word' tokenization. Can be a built-in preset ('en', 'none') or a user-defined preset from invertedIndexConfig.stopwordPresets.",
+          "type": "string",
+          "x-omitempty": true
         }
       },
       "x-omitempty": true
@@ -20210,9 +20188,13 @@ func init() {
           "description": "Optional text analyzer configuration (e.g. ASCII folding).",
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
-        "stopwordConfig": {
-          "description": "Optional stopword configuration. When provided, stopwords are removed from query tokens but preserved in indexed tokens.",
-          "$ref": "#/definitions/StopwordConfig"
+        "stopwordPresets": {
+          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/StopwordConfig"
+          },
+          "x-omitempty": true
         },
         "text": {
           "description": "The text to tokenize.",

@@ -48,7 +48,7 @@ type Searcher struct {
 	getClass               func(string) *models.Class
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	stopwords              stopwords.StopwordDetector
+	stopwordProvider       *stopwords.Provider
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
@@ -62,7 +62,7 @@ var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided.
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
+	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
@@ -72,7 +72,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		getClass:               getClass,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		stopwords:              stopwords,
+		stopwordProvider:       stopwordProvider,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
@@ -665,7 +665,11 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		} else {
 			var sw tokenizer.StopwordDetector
 			if prop.Tokenization == models.PropertyTokenizationWord {
-				sw = s.stopwords
+				d, err := s.stopwordProvider.Get(prop)
+				if err != nil {
+					return nil, err
+				}
+				sw = d
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
 			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)

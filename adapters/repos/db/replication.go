@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -183,6 +184,24 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 		return nil, pr.FirstError()
 	}
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
+	index, pr := db.replicatedIndex(indexName)
+	if pr != nil {
+		return 0, pr.FirstError()
+	}
+	return index.CountObjects(ctx, shardName)
+}
+
+func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
+	f *filters.LocalFilter, limit int,
+) ([]strfmt.UUID, error) {
+	index, pr := db.replicatedIndex(indexName)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
 }
 
 func (db *DB) CommitReplication(ctx context.Context,
@@ -886,6 +905,23 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return 0, fmt.Errorf("%w: shard %q", err, shardName)
+	}
+	defer release()
+	if shard == nil {
+		return 0, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return shard.ObjectCount(ctx)
+}
+
+func (i *Index) IncomingCountObjects(ctx context.Context, shardName string) (int, error) {
+	return i.CountObjects(ctx, shardName)
 }
 
 func (i *Index) FetchObject(ctx context.Context,

@@ -273,7 +273,7 @@ type fakeBackendProvider struct {
 	backend modulecapabilities.BackupBackend
 }
 
-func (p *fakeBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
+func (p *fakeBackendProvider) BackupBackend(_ string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	return p.backend, nil
 }
 
@@ -399,5 +399,6 @@ func testExportConfig() config.Export {
 	return config.Export{
 		Enabled:       configRuntime.NewDynamicValue(true),
 		DefaultBucket: configRuntime.NewDynamicValue("test-bucket"),
+		DefaultPath:   configRuntime.NewDynamicValue(""),
 	}
 }

@@ -31,9 +31,6 @@ import (
 // swagger:model ExportCreateRequest
 type ExportCreateRequest struct {
 
-	// config
-	Config *ExportCreateRequestConfig `json:"config,omitempty"`
-
 	// List of collection names to exclude from the export. Cannot be used with 'include'.
 	Exclude []string `json:"exclude"`
 
@@ -54,10 +51,6 @@ type ExportCreateRequest struct {
 func (m *ExportCreateRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateConfig(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateFileFormat(formats); err != nil {
 		res = append(res, err)
 	}
@@ -69,25 +62,6 @@ func (m *ExportCreateRequest) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ExportCreateRequest) validateConfig(formats strfmt.Registry) error {
-	if swag.IsZero(m.Config) { // not required
-		return nil
-	}
-
-	if m.Config != nil {
-		if err := m.Config.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("config")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("config")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -140,33 +114,8 @@ func (m *ExportCreateRequest) validateID(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this export create request based on the context it is used
+// ContextValidate validates this export create request based on context it is used
 func (m *ExportCreateRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateConfig(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *ExportCreateRequest) contextValidateConfig(ctx context.Context, formats strfmt.Registry) error {
-
-	if m.Config != nil {
-		if err := m.Config.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("config")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("config")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -181,43 +130,6 @@ func (m *ExportCreateRequest) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *ExportCreateRequest) UnmarshalBinary(b []byte) error {
 	var res ExportCreateRequest
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*m = res
-	return nil
-}
-
-// ExportCreateRequestConfig Backend-specific configuration
-//
-// swagger:model ExportCreateRequestConfig
-type ExportCreateRequestConfig struct {
-
-	// Path prefix within the bucket or filesystem
-	Path string `json:"path,omitempty"`
-}
-
-// Validate validates this export create request config
-func (m *ExportCreateRequestConfig) Validate(formats strfmt.Registry) error {
-	return nil
-}
-
-// ContextValidate validates this export create request config based on context it is used
-func (m *ExportCreateRequestConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (m *ExportCreateRequestConfig) MarshalBinary() ([]byte, error) {
-	if m == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(m)
-}
-
-// UnmarshalBinary interface implementation
-func (m *ExportCreateRequestConfig) UnmarshalBinary(b []byte) error {
-	var res ExportCreateRequestConfig
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

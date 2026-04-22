@@ -17,6 +17,12 @@ import "github.com/weaviate/weaviate/entities/models"
 // to legacy vector through named vector API.
 const DefaultNamedVectorName = "default"
 
+// VectorIndexTypeNone is the VectorIndexType value used to mark a named
+// vector whose search index has been dropped but whose vector data still
+// exists in the objects bucket. This is mirrored from entities/vectorindex
+// to avoid an import cycle.
+const VectorIndexTypeNone = "none"
+
 // ClassHasLegacyVectorIndex checks whether there is a legacy index configured on a class.
 func ClassHasLegacyVectorIndex(class *models.Class) bool {
 	return class.Vectorizer != "" || class.VectorIndexConfig != nil || class.VectorIndexType != ""
@@ -43,14 +49,8 @@ func ClassGetVectorConfig(class *models.Class, targetVector string) (models.Vect
 // IsVectorIndexDropped returns true if the named vector config entry represents
 // a dropped index — i.e. the vector data still exists in the objects bucket but
 // the search index has been removed from disk.
-//
-// A dropped entry is identified by BOTH an empty VectorIndexType AND a nil
-// VectorIndexConfig. Checking both conditions prevents a user-submitted class
-// with a missing VectorIndexType (the zero value) from being silently treated
-// as dropped and skipping validation. The DeleteClassVectorIndex handler
-// explicitly clears both fields when dropping an index.
 func IsVectorIndexDropped(cfg models.VectorConfig) bool {
-	return cfg.VectorIndexType == "" && cfg.VectorIndexConfig == nil
+	return cfg.VectorIndexType == VectorIndexTypeNone
 }
 
 func ClassUsesVectorisation(class *models.Class) bool {

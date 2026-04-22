@@ -1112,21 +1112,24 @@ func (p *Provider) HasMultipleVectorizers() bool {
 	return p.hasMultipleVectorizers
 }
 
-func (p *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+func (p *Provider) BackupBackend(backend string, useCase modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	module := p.GetByName(backend)
-	if module != nil {
-		if module.Type() == modulecapabilities.Backup {
-			module_backend, ok := module.(modulecapabilities.BackupBackend)
-			if ok {
-				return module_backend, nil
-			} else {
-				return nil, errors.Errorf("backup: %s is not a backup backend (actual type: %T)", backend, module)
-			}
-		} else {
-			return nil, errors.Errorf("backup: %s is not a backup backend type", backend)
+	if module == nil {
+		return nil, errors.Errorf("backup: %s not found", backend)
+	}
+	if module.Type() != modulecapabilities.Backup {
+		return nil, errors.Errorf("backup: %s is not a backup backend type", backend)
+	}
+	bb, ok := module.(modulecapabilities.BackupBackend)
+	if !ok {
+		return nil, errors.Errorf("backup: %s is not a backup backend (actual type: %T)", backend, module)
+	}
+	if useCase == modulecapabilities.BackendUseCaseExport {
+		if ep, ok := module.(modulecapabilities.ExportBackendProvider); ok {
+			return ep.ExportBackend(), nil
 		}
 	}
-	return nil, errors.Errorf("backup: %s not found", backend)
+	return bb, nil
 }
 
 func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool) {

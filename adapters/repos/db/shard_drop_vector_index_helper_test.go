@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 )
 
 func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
@@ -160,7 +161,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		class := &models.Class{
 			Class: "TestClass",
 			VectorConfig: map[string]models.VectorConfig{
-				"flat_bq":  {},
+				"flat_bq":  {VectorIndexType: vectorindex.VectorIndexTypeNone},
 				"hnsw_rq8": {VectorIndexType: "hnsw"},
 			},
 		}
@@ -187,8 +188,8 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		class := &models.Class{
 			Class: "TestClass",
 			VectorConfig: map[string]models.VectorConfig{
-				"flat_bq":  {},
-				"hnsw_rq8": {},
+				"flat_bq":  {VectorIndexType: vectorindex.VectorIndexTypeNone},
+				"hnsw_rq8": {VectorIndexType: vectorindex.VectorIndexTypeNone},
 			},
 		}
 
@@ -208,7 +209,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		class := &models.Class{
 			Class: "TestClass",
 			VectorConfig: map[string]models.VectorConfig{
-				"dropped": {},
+				"dropped": {VectorIndexType: vectorindex.VectorIndexTypeNone},
 			},
 		}
 

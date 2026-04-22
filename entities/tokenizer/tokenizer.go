@@ -12,6 +12,7 @@
 package tokenizer
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"strconv"
@@ -19,6 +20,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/sirupsen/logrus"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 
@@ -75,60 +78,81 @@ func init() {
 }
 
 func InitOptionalTokenizers() {
+	logger := logrus.StandardLogger().WithField("action", "tokenizer_init")
 	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
-		UseGse = true
-		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
-		init_gse()
+		if err := init_gse(); err != nil {
+			logger.WithField("tokenizer", "gse").Error(err)
+		}
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE_CH")) {
-		Tokenizations = append(Tokenizations, models.PropertyTokenizationGseCh)
-		UseGseCh = true
-		init_gse_ch()
+		if err := init_gse_ch(); err != nil {
+			logger.WithField("tokenizer", "gse_ch").Error(err)
+		}
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) && tokenizers.Korean == nil {
-		func() {
+		if err := func() error {
 			kagomeInitLock.Lock()
 			defer kagomeInitLock.Unlock()
+			var err error
+			tokenizers.Korean, err = initializeKagomeTokenizerKr(nil)
+			if err != nil {
+				return err
+			}
 			Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
-			tokenizers.Korean, _ = initializeKagomeTokenizerKr(nil)
-		}()
+			return nil
+		}(); err != nil {
+			logger.WithField("tokenizer", "kagome_kr").Error(err)
+		}
 	}
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) && tokenizers.Japanese == nil {
-		func() {
+		if err := func() error {
 			kagomeInitLock.Lock()
 			defer kagomeInitLock.Unlock()
+			var err error
+			tokenizers.Japanese, err = initializeKagomeTokenizerJa(nil)
+			if err != nil {
+				return err
+			}
 			Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
-			tokenizers.Japanese, _ = initializeKagomeTokenizerJa(nil)
-		}()
+			return nil
+		}(); err != nil {
+			logger.WithField("tokenizer", "kagome_ja").Error(err)
+		}
 	}
 }
 
-func init_gse() {
+func init_gse() error {
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	if gseTokenizer == nil {
 		startTime := time.Now()
 		seg, err := gse.New("ja")
 		if err != nil {
-			return
+			return fmt.Errorf("load ja dictionary: %w", err)
 		}
 		gseTokenizer = &seg
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+		UseGse = true
+		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationGse).Observe(time.Since(startTime).Seconds())
 	}
+	return nil
 }
 
-func init_gse_ch() {
+func init_gse_ch() error {
 	gseLock.Lock()
 	defer gseLock.Unlock()
 	if gseTokenizerCh == nil {
 		startTime := time.Now()
 		seg, err := gse.New("zh")
 		if err != nil {
-			return
+			return fmt.Errorf("load zh dictionary: %w", err)
 		}
 		gseTokenizerCh = &seg
-		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues("gse").Observe(time.Since(startTime).Seconds())
+		UseGseCh = true
+		Tokenizations = append(Tokenizations, models.PropertyTokenizationGseCh)
+		monitoring.GetMetrics().TokenizerInitializeDuration.WithLabelValues(models.PropertyTokenizationGseCh).Observe(time.Since(startTime).Seconds())
 	}
+	return nil
 }
 
 func TokenizeForClass(tokenization string, in string, class string) []string {

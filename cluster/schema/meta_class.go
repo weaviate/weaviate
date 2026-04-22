@@ -368,7 +368,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// we'll return an error but any other successful shard will be updated.
 	// If we're not adding a new shard we'll then check if the activity status needs to be changed
 	// If the activity status is changed we will deep copy the tenant and update the status
-	missingShards := []string{}
+	var partialErrs []error
 	writeIndex := 0
 
 	for i, requestTenant := range req.Tenants {
@@ -376,7 +376,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
-			missingShards = append(missingShards, requestTenant.Name)
+			partialErrs = append(partialErrs, fmt.Errorf("%w: %s", ErrShardNotFound, requestTenant.Name))
 			continue
 		}
 
@@ -385,12 +385,19 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		case req.Tenants[i].Status:
 			continue
 		case types.TenantActivityStatusFREEZING:
-			// ignore multiple freezing
+			// Allow the in-flight freeze to complete (FROZEN is the expected terminal state).
+			// Reject any other status change (e.g. HOT/COLD) while freeze is in progress to
+			// prevent a race where UNFREEZE is triggered before the FREEZE goroutine finishes,
+			// which can lead to permanent data loss.
 			if requestTenant.Status == models.TenantActivityStatusFROZEN {
 				continue
 			}
+			partialErrs = append(partialErrs, fmt.Errorf("%w: tenant %q is currently being frozen, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, requestTenant.Status))
+			continue
 		case types.TenantActivityStatusUNFREEZING:
-			// ignore multiple unfreezing
+			// Allow requests that match the status the ongoing unfreeze is targeting.
+			// Reject any conflicting status change while unfreeze is in progress.
 			req.ImplicitUpdateRequest = true
 			var statusInProgress string
 			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
@@ -403,6 +410,9 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == statusInProgress {
 				continue
 			}
+			partialErrs = append(partialErrs, fmt.Errorf("%w: tenant %q is currently being unfrozen to %s, cannot change status to %s",
+				ErrTenantTransitionalState, requestTenant.Name, statusInProgress, requestTenant.Status))
+			continue
 		}
 
 		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
@@ -453,10 +463,11 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Remove the ignore tenants from the request to act as filter on the subsequent DB update
 	req.Tenants = req.Tenants[:writeIndex]
 
-	// Check for any missing shard to return an error
+	// Wrap any partial errors (missing shards, transitional-state conflicts) so
+	// apply() knows to still call updateStore() for the tenants that succeeded.
 	var err error
-	if len(missingShards) > 0 {
-		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
+	if len(partialErrs) > 0 {
+		err = &PartialUpdateError{Errs: partialErrs}
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v

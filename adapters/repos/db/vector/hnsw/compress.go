@@ -109,7 +109,6 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 		}
-		h.compressor.PersistCompression(h.commitLog)
 	} else if cfg.BQ.Enabled {
 		var err error
 		if singleVector {
@@ -134,7 +133,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if singleVector {
 		compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 			func(index uint64) {
-				if data[index] == nil {
+				if len(data[index]) == 0 {
 					return
 				}
 				h.compressor.Preload(index, data[index])
@@ -150,6 +149,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			})
 	}
 
+	h.compressor.PersistCompression(h.commitLog)
 	h.compressed.Store(true)
 	h.cache.Drop()
 	return nil

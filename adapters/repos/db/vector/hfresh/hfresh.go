@@ -357,11 +357,13 @@ func (h *HFresh) Iterate(fn func(id uint64) bool) {
 }
 
 func (h *HFresh) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	queryVector = h.normalizeVec(queryVector)
 	distFunc := func(id uint64) (float32, error) {
 		vector, err := h.vectorForId(h.ctx, id)
 		if err != nil {
 			return 0, err
 		}
+		vector = h.normalizeVec(vector)
 		dist, err := h.config.DistanceProvider.SingleDist(queryVector, vector)
 		if err != nil {
 			return 0, err

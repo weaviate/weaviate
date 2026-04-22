@@ -18,6 +18,7 @@ import (
 type InvertedIndexConfig struct {
 	BM25                   BM25Config
 	Stopwords              models.StopwordConfig
+	StopwordPresets        map[string][]string
 	CleanupIntervalSeconds uint64
 	IndexTimestamps        bool
 	IndexNullState         bool
@@ -41,6 +42,14 @@ func InvertedIndexConfigFromModel(m models.InvertedIndexConfig) InvertedIndexCon
 	if m.Stopwords != nil {
 		i.Stopwords = *m.Stopwords
 	}
+	if m.StopwordPresets != nil {
+		i.StopwordPresets = make(map[string][]string, len(m.StopwordPresets))
+		for name, words := range m.StopwordPresets {
+			wordsCopy := make([]string, len(words))
+			copy(wordsCopy, words)
+			i.StopwordPresets[name] = wordsCopy
+		}
+	}
 	i.CleanupIntervalSeconds = uint64(m.CleanupIntervalSeconds)
 	i.IndexTimestamps = m.IndexTimestamps
 	i.IndexNullState = m.IndexNullState
@@ -62,6 +71,14 @@ func InvertedIndexConfigToModel(i InvertedIndexConfig) models.InvertedIndexConfi
 	// Force a copy to avoid references
 	*m.Stopwords = i.Stopwords
 
+	if i.StopwordPresets != nil {
+		m.StopwordPresets = make(map[string][]string, len(i.StopwordPresets))
+		for name, words := range i.StopwordPresets {
+			wordsCopy := make([]string, len(words))
+			copy(wordsCopy, words)
+			m.StopwordPresets[name] = wordsCopy
+		}
+	}
 	m.CleanupIntervalSeconds = int64(i.CleanupIntervalSeconds)
 	m.IndexTimestamps = i.IndexTimestamps
 	m.IndexNullState = i.IndexNullState

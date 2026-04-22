@@ -479,7 +479,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			GroupType: models.GroupType(splits[1]),
 		}
 	case authorization.McpDomain:
-		permission.Mcp = make(map[string]any)
+		// do nothing
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData

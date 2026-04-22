@@ -264,7 +264,8 @@ func Test_coordinatorPush(t *testing.T) {
 				replicas[i], replicas[j] = replicas[j], replicas[i]
 			}
 
-			client := clients.NewReplicationClient(&http.Client{})
+			client, err := clients.NewReplicationClient(&http.Client{})
+			require.NoError(t, err)
 			coordinator := replica.NewWriteCoordinator[replica.SimpleResponse, error](
 				client,
 				setupRouter(cl, replicas),
@@ -458,7 +459,8 @@ func Test_coordinatorPull(t *testing.T) {
 				{NodeName: "node3", ShardName: shard, HostAddr: tt.node3.URL[7:]},
 			}
 
-			client := clients.NewReplicationClient(&http.Client{})
+			client, err := clients.NewReplicationClient(&http.Client{})
+			require.NoError(t, err)
 			coordinator := replica.NewReadCoordinator[types.RepairResponse](
 				setupRouter(cl, replicas),
 				metrics,

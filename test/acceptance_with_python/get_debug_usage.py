@@ -203,7 +203,9 @@ def get_debug_usage() -> Report:
         raise exc
 
 
-def get_debug_usage_for_collection(collection: str, retries: int = 5, delay: float = 0.5) -> CollectionUsage:
+def get_debug_usage_for_collection(
+    collection: str, retries: int = 5, delay: float = 0.5
+) -> CollectionUsage:
     last_err = None
     for attempt in range(retries):
         try:

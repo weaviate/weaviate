@@ -28,8 +28,6 @@ type ExportCancelURL struct {
 	Backend string
 	ID      string
 
-	Path *string
-
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -75,18 +73,6 @@ func (o *ExportCancelURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
-
-	qs := make(url.Values)
-
-	var pathQ string
-	if o.Path != nil {
-		pathQ = *o.Path
-	}
-	if pathQ != "" {
-		qs.Set("path", pathQ)
-	}
-
-	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

@@ -43,7 +43,7 @@ const (
 var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
 
 type BackupBackendProvider interface {
-	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
+	BackupBackend(backend string, useCase modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error)
 	EnabledBackupBackends() []modulecapabilities.BackupBackend
 }
 
@@ -273,7 +273,7 @@ func validateID(backupID string) error {
 }
 
 func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucket, path string) (nodeStore, error) {
-	caps, err := provider.BackupBackend(backend)
+	caps, err := provider.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return nodeStore{}, err
 	}

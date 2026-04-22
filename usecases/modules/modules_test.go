@@ -345,8 +345,8 @@ func TestModulesProvider(t *testing.T) {
 
 		fmt.Printf("provider: %v\n", provider)
 
-		backendByName, err1 := provider.BackupBackend("SomeBackend")
-		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName")
+		backendByName, err1 := provider.BackupBackend("SomeBackend", modulecapabilities.BackendUseCaseBackup)
+		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName", modulecapabilities.BackendUseCaseBackup)
 
 		assert.NotNil(t, backendByName)
 		assert.Nil(t, err1)

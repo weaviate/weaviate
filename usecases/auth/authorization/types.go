@@ -147,7 +147,9 @@ var (
 	UpdateAliases = "update_aliases"
 	DeleteAliases = "delete_aliases"
 
-	ManageMcp = "manage_mcp"
+	CreateMcp = "create_mcp"
+	ReadMcp   = "read_mcp"
+	UpdateMcp = "update_mcp"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -205,6 +207,11 @@ var (
 		ReadAliases,
 		UpdateAliases,
 		DeleteAliases,
+
+		// MCP domain
+		CreateMcp,
+		ReadMcp,
+		UpdateMcp,
 	}
 )
 
