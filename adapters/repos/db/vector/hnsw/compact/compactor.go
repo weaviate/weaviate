@@ -542,8 +542,20 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 		return errors.Wrap(err, "commit snapshot file")
 	}
 
-	// Delete source files after successful snapshot creation
+	// Delete source files after successful snapshot creation.
+	//
+	// When a pre-existing snapshot and a sorted file share the same
+	// timestamp (e.g. after a 1.37.x → compactv2 upgrade where a
+	// .condensed file shares its timestamp with an existing snapshot),
+	// BuildMergedFilename(start=ts, end=ts, Snapshot) produces the same
+	// path as the input snapshot. SafeFileWriter.Commit() then atomically
+	// overwrites that input with the merged output. Removing it here
+	// would delete our own freshly-written snapshot and lose the HNSW
+	// graph on next startup. Skip any input whose path equals the output.
 	for _, f := range allInputFiles {
+		if f.Path == outPath {
+			continue
+		}
 		if err := c.fs.Remove(f.Path); err != nil && !os.IsNotExist(err) {
 			c.logger.WithError(err).WithField("file", f.Path).Warn("failed to delete source file after snapshot")
 		}
