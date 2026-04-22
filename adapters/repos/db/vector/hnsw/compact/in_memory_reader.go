@@ -14,6 +14,7 @@ package compact
 import (
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -291,6 +292,14 @@ func (r *InMemoryReader) readLink(c *AddLinkAtLevelCommit, res *ent.Deserializat
 		return nil
 	}
 
+	newNodes, changed, err = growIndexToAccommodateNode(res.Graph.Nodes, c.Target, r.logger)
+	if err != nil && !errors.Is(err, errInvalidNodeID) {
+		return err
+	}
+	if changed {
+		res.Graph.Nodes = newNodes
+	}
+
 	res.Graph.Nodes[c.Source].Connections.InsertAtLayer(c.Target, uint8(c.Level))
 	return nil
 }
@@ -330,6 +339,15 @@ func (r *InMemoryReader) readAddLinks(c *AddLinksAtLevelCommit, res *ent.Deseria
 	}
 
 	targets = filterValidTargets(targets, r.logger, c.Source, c.Level)
+	if len(targets) > 0 {
+		newNodes, changed, err = growIndexToAccommodateNode(res.Graph.Nodes, slices.Max(targets), r.logger)
+		if err != nil && !errors.Is(err, errInvalidNodeID) {
+			return err
+		}
+		if changed {
+			res.Graph.Nodes = newNodes
+		}
+	}
 	res.Graph.Nodes[c.Source].Connections.BulkInsertAtLayer(targets, uint8(c.Level))
 	return nil
 }
@@ -369,6 +387,15 @@ func (r *InMemoryReader) readReplaceLinks(c *ReplaceLinksAtLevelCommit, res *ent
 	}
 
 	targets = filterValidTargets(targets, r.logger, c.Source, c.Level)
+	if len(targets) > 0 {
+		newNodes, changed, err = growIndexToAccommodateNode(res.Graph.Nodes, slices.Max(targets), r.logger)
+		if err != nil && !errors.Is(err, errInvalidNodeID) {
+			return err
+		}
+		if changed {
+			res.Graph.Nodes = newNodes
+		}
+	}
 	res.Graph.Nodes[c.Source].Connections.ReplaceLayer(uint8(c.Level), targets)
 
 	if keepReplaceInfo {
