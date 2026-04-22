@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -233,6 +234,11 @@ type Shard struct {
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
+
+	// Lock order, outermost → innermost:
+	//   Index.backupLock.RLock(shard) > quiesceMux > asyncReplicationRWMux > docIdLock[poolId].
+	changeLogs atomic.Pointer[changelog.Set]
+	quiesceMux sync.RWMutex
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex

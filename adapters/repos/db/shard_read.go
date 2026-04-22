@@ -795,6 +795,9 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	s.quiesceMux.RLock()
+	defer s.quiesceMux.RUnlock()
+
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
@@ -844,6 +847,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}
+
+	logTime := updateTime
+	if !deletionTime.IsZero() {
+		logTime = deletionTime.UnixMilli()
+	}
+	s.AppendChangeLogDelete(idBytes, logTime)
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")

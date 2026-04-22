@@ -68,12 +68,23 @@ P2 and P3 are independent after P1 and can merge in either order. P4 directly de
 - `adapters/repos/db/shard.go`:
   - Add `changeLogs atomic.Pointer[changelog.Set]` in the atomics block around line 272.
   - Add per-shard write-quiesce latch (new `sync.RWMutex` or equivalent). Its only user in V1 is `FinalizeChangeLog`.
-  - Add methods: `ActivateChangeLog(opID)`, `FinalizeChangeLog(opID) (finalLSN, error)`, `StopChangeCapture(opID)`. Shape matches the RPC handlers that will wrap them in Phase 4.
-  - Add helpers `AppendChangeLogPut(obj, idBytes, objBinary)` and `AppendChangeLogDelete(idBytes, updateTimeMillis)` that early-return nil when `changeLogs.Load() == nil` — the common production case.
-- `adapters/repos/db/shard_write_put.go` — tee at line 281 after `upsertObjectDataLSM`, still under `docIdLock[poolId]` and `asyncReplicationRWMux.RLock`. Gate: `if !status.skipUpsert { s.AppendChangeLogPut(...) }`. The `docIDPreserved` branch (preserve=true, skip=false) still rewrites the bucket and MUST tee.
-- `adapters/repos/db/shard_write_delete.go` — tee at line 78 after `bucket.Delete` / `bucket.DeleteWith`; skip when `existing == nil`.
-- `adapters/repos/db/shard_write_merge.go` — tee inside `mutableMergeObjectLSM` after bucket put. (`mergeObjectInStorage` funnels through `putObjectLSM` → covered by the PUT tee.)
-- `adapters/repos/db/shard_read.go` — tee inside `batchDeleteObject` after bucket delete.
+  - Add methods: `ActivateChangeLog(opID) (*changelog.ChangeLog, error)`, `FinalizeChangeLog(opID) (finalLSN, error)`, `StopChangeCapture(opID) error`. `ActivateChangeLog` returns the `*ChangeLog` pointer for the Phase 4 gRPC handler's per-op state; the wire shape of `StartChangeCapture` remains `{op_id, snapshot_lsn}` — the pointer is internal-only and never crosses the gRPC boundary. See plan.md §"`Shard.ActivateChangeLog` return shape".
+  - Add helpers `AppendChangeLogPut(idBytes []byte, updateTimeMillis int64, objBinary []byte)` and `AppendChangeLogDelete(idBytes []byte, updateTimeMillis int64)` — **no `error` return**. The tee is contractually infallible from the caller's perspective (user writes must never fail because of tee issues); retry and deactivate are handled inline per the tee-error semantics below. The PUT helper accepts the already-marshalled `objBinary` slice each call site computes before its bucket write — the payload format is raw `storobj.Object` bytes, so the helper reuses the slice verbatim with zero marshal overhead on the tee (see plan.md §"Log entry payload" for the storobj-vs-VObject trade-off). Both helpers return immediately when `changeLogs.Load() == nil` — the common production case.
+  - Add orphan cleanup on activate: `ActivateChangeLog` sweeps any `.log` files in the shard's changelog directory whose op-id basename is not currently registered, then opens the new op's file. This bounds disk usage on long-lived HOT shards that cycle through repeated failed COPY ops without restarting — without introducing a new goroutine or a TTL. See plan.md §"Orphan cleanup".
+- `adapters/repos/db/shard_write_put.go` — tee inside `putObjectLSM` after `upsertObjectDataLSM` success and **before** `mayUpsertObjectHashTree`, under `docIdLock[poolId]`, `asyncReplicationRWMux.RLock`, and the new `quiesceMux.RLock`. Gate: `if !status.skipUpsert { s.AppendChangeLogPut(...) }` (the early-return at the top of the wrapped function already handles this). The `docIDPreserved` branch (preserve=true, skip=false) still rewrites the bucket and MUST tee.
+- `adapters/repos/db/shard_write_delete.go` — tee inside `DeleteObject` after `bucket.Delete` / `bucket.DeleteWith` success and before `mayDeleteObjectHashTree`; skip when `existing == nil` (already early-returns).
+- `adapters/repos/db/shard_write_merge.go` — **two tees**: one inside `mergeObjectInStorage` after its own `upsertObjectDataLSM` and before `mayUpsertObjectHashTree`, and one inside `mutableMergeObjectLSM` after its own `upsertObjectDataLSM` and before `mayUpsertObjectHashTree`. Both merge paths call `upsertObjectDataLSM` directly and do NOT funnel through `putObjectLSM`; each needs an explicit tee.
+- `adapters/repos/db/shard_read.go` — tee inside `batchDeleteObject` after bucket delete success and before `mayDeleteObjectHashTree`.
+
+All five tees fire **before** the hashtree update (`mayUpsertObjectHashTree` / `mayDeleteObjectHashTree`). The object bucket is the single source of truth for replica-movement catchup; the hashtree is a derived structure used by the non-movement async-replication path (which remains untouched by this phase). Placing the tee before hashtree guarantees that any write committed to the bucket is also logged, independent of hashtree outcomes.
+
+**Tee-error semantics.** The tee never fails the user write. On error:
+
+- **I/O errors on append** (anything other than `ErrLogFinalized` / `ErrLogDeactivated`) are treated as transient and retried up to 3 total attempts with short backoff (1 ms, 5 ms). All retries happen under the locks the write path already holds, so the backoff cap stays small.
+- The payload is pre-marshalled at the call site (the same `objBinary` used for the bucket write), so there is no tee-time marshal error to handle — any marshal failure already returned to the user before the tee ran.
+- On retry exhaustion: log at ERROR, call `changelog.Unregister` + `log.Deactivate()` inline for the affected op. The target's tailer observes `ErrLogDeactivated` next call, which the Phase 5 consumer translates into an aborted movement op. Other ops in the `Set` are unaffected.
+
+This preserves "Phase 2 leaves production unchanged" even after Phase 5 activates logs in production — user-visible writes are never failed by tee issues.
 
 **New tests (in `adapters/repos/db/`):**
 
@@ -90,13 +101,13 @@ P2 and P3 are independent after P1 and can merge in either order. P4 directly de
 
 ## Phase 3 — Target-side replay function
 
-**Scope:** pure DB-layer function that applies a batch of `VObject`s to a local shard with last-write-wins-by-timestamp semantics. Independent of Phase 2 (does not touch `Shard.changeLogs`) and of Phase 4 (no gRPC).
+**Scope:** pure DB-layer function that applies a batch of decoded change-log entries to a local shard with last-write-wins-by-timestamp semantics. Independent of Phase 2 (does not touch `Shard.changeLogs`) and of Phase 4 (no gRPC).
 
 **Modified files:**
 
 - `adapters/repos/db/replication.go`:
-  - Add `Index.OverwriteObjectsFromChangeLog(ctx, shard, updates []*objects.VObject) error` next to `OverwriteObjects`.
-  - Semantics per entry: skip if local is newer; otherwise `DeleteObject(id, ts)` or `PutObjectBatch([storobj])`. No `RepairResponse`; disk errors bubble up.
+  - Add `Index.OverwriteObjectsFromChangeLog(ctx, shard, updates []ChangeLogReplayEntry) error` next to `OverwriteObjects`, where `ChangeLogReplayEntry` carries `{ID, LastUpdateTimeUnixMilli, IsDelete, Payload}` and `Payload` is raw `storobj.Object` bytes (empty for deletes). See plan.md §"Replay path on target".
+  - Semantics per entry: skip if local is newer; on delete call `DeleteObject(id, ts)`; on put call `storobj.FromBinary(payload)` then `PutObjectBatch([storobj])`. Decode errors abort the movement. No `RepairResponse`; disk errors bubble up.
 
 **Tests (unit, adjacent to `replication_test.go` if one exists):**
 
@@ -157,6 +168,7 @@ P2 and P3 are independent after P1 and can merge in either order. P4 directly de
   - `processDehydratingOp` (lines 697-736): tail from `lastAppliedLSN` → delete replica via RAFT → finalize → drain → stop → sync → READY.
   - Remove `startAsyncReplication` / `waitForAsyncReplication` calls from these three functions. Helpers stay (used by non-movement async replication callers).
   - Remove `asyncReplicationUpperTimeBoundUnixMillis` and `asyncReplicationMinimumWait` fetches from these three functions.
+  - **Cleanup on error paths (required):** every error return out of `processHydratingOp`, `processFinalizingOp`, and `processDehydratingOp` that happens after `StartChangeCapture` succeeded must call `replicaCopier.StopChangeCapture(...)` before returning — a `defer` at the top of each handler is the cleanest pattern. This is the primary mechanism that keeps the source's `changelog/` directory from accumulating orphan `.log` files on a long-lived HOT shard. Phase 2 adds a safety-net sweep inside `ActivateChangeLog`, and `NewShard`'s restart-time sweep remains, but the consumer-side `defer` is what handles the expected case where a movement errors out mid-flight. See plan.md §"Orphan cleanup".
 - `test/acceptance/replication/replica_replication/fast/replica_replication_test.go`:
   - Uncomment `TestReplicaMovementTenantParallelWrites` (line 443).
   - Remove `REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT=10s` env setup — no longer meaningful for movement catchup.

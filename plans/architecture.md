@@ -86,8 +86,9 @@ and nothing else.
 - One `Set` per shard, swapped via CAS. The Set owns one `ChangeLog` per in-flight op.
 - LSN counter is atomic `uint64`, scoped to a single log (not global).
 - The log is single-writer (the source Shard). No consensus needed.
-- Entries carry full object snapshots (`VObject.MarshalBinaryV2`), not raw ops —
-  replay is idempotent and last-write-wins by timestamp.
+- Entries carry full object snapshots (raw `storobj.Object` bytes, reusing
+  the slice each write path already produces via `MarshalBinary`), not raw
+  ops — replay is idempotent and last-write-wins by timestamp.
 
 ---
 
@@ -119,19 +120,25 @@ guard the bucket write:
          └───────────────────────────┘
 ```
 
-Tee sites (Phase 2):
+Tee sites (Phase 2) — **5 total**. Every tee fires after the bucket write
+succeeds and *before* the hashtree update, so the object bucket remains the
+single source of truth for replica-movement catchup independent of hashtree
+outcomes. The hashtree is a derived structure used by the non-movement
+async-replication path, which remains untouched.
 
 | Entry point | File | Skip condition |
 |---|---|---|
-| PUT (incl. batch via `putObjectLSM`) | `shard_write_put.go:281` | `status.skipUpsert` |
-| DELETE (single) | `shard_write_delete.go:78` | `existing == nil` |
+| PUT (incl. batch via `putObjectLSM`) | `shard_write_put.go` (`putObjectLSM`) | `status.skipUpsert` |
+| MERGE (non-mutable path) | `shard_write_merge.go` (`mergeObjectInStorage`) | `status.skipUpsert` (already filtered upstream) |
 | MERGE (mutable path) | `shard_write_merge.go` (`mutableMergeObjectLSM`) | — |
-| DELETE (batch) | `shard_read.go` (`batchDeleteObject`) | — |
+| DELETE (single) | `shard_write_delete.go` (`DeleteObject`) | `existing == nil` |
+| DELETE (batch) | `shard_read.go` (`batchDeleteObject`) | `existing == nil` |
 
-The `mergeObjectInStorage` path funnels through `putObjectLSM`, so the PUT tee
-already covers it. Batch PUTs produce one LSN per object (because the tee sits
-inside `putObjectLSM`), not one LSN per batch — intentional, so replay granularity
-matches the source bucket granularity.
+Both merge paths call `upsertObjectDataLSM` directly and do NOT funnel through
+`putObjectLSM`, so each needs its own explicit tee. Batch PUTs do funnel
+through `putObjectLSM` via `objectsBatcher`, so one tee at the PUT site covers
+them and produces one LSN per object (not per batch) — intentional, so replay
+granularity matches the source bucket granularity.
 
 ---
 
@@ -318,7 +325,7 @@ the four existing primitives.
 - New package `cluster/replication/changelog` (Phase 1).
 - `Shard` gains `changeLogs atomic.Pointer[Set]`, quiesce latch, three lifecycle
   methods, and tee helpers (Phase 2).
-- Four tee sites on the write path (Phase 2).
+- Five tee sites on the write path (Phase 2).
 - New `OverwriteObjectsFromChangeLog` on `Index` (Phase 3).
 - Four new gRPC RPCs on `FileReplicationService`, plus copier client wrappers
   (Phase 4).

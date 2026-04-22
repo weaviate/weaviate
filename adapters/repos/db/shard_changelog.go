@@ -1,0 +1,213 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
+)
+
+var errNoSuchChangeLog = errors.New("shard: no active change-capture log for that op-id")
+
+const (
+	changelogDirName       = "changelog"
+	changelogFileExtension = ".log"
+	// Kept small because retries run under docIdLock + the two RLocks.
+	changelogRetryAttempts = 3
+)
+
+var changelogRetryBackoffs = []time.Duration{1 * time.Millisecond, 5 * time.Millisecond}
+
+// ActivateChangeLog opens a fresh log for opID and registers it. It first
+// sweeps any .log files whose op-id is not registered — the safety net for
+// orphans left by prior failed movements on a long-lived shard.
+func (s *Shard) ActivateChangeLog(opID string) (*changelog.ChangeLog, error) {
+	dir := s.changelogDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("shard %q: create changelog dir: %w", s.ID(), err)
+	}
+
+	keep := s.registeredOpIDs()
+	keep[opID] = struct{}{} // don't sweep the file we're about to Open(O_EXCL)
+	if err := s.sweepChangelogDirExcept(keep); err != nil {
+		return nil, fmt.Errorf("shard %q: sweep orphans before activate: %w", s.ID(), err)
+	}
+
+	path := filepath.Join(dir, opID+changelogFileExtension)
+	log, err := changelog.Open(path, s.index.logger)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q: open changelog for op %q: %w", s.ID(), opID, err)
+	}
+	changelog.Register(&s.changeLogs, opID, log)
+	return log, nil
+}
+
+// FinalizeChangeLog briefly takes quiesceMux.Lock so the returned LSN is a
+// true upper bound on writes that already passed the bucket-write boundary.
+func (s *Shard) FinalizeChangeLog(opID string) (uint64, error) {
+	log := s.changeLogs.Load().Get(opID)
+	if log == nil {
+		return 0, errNoSuchChangeLog
+	}
+	s.quiesceMux.Lock()
+	defer s.quiesceMux.Unlock()
+	return log.Finalize()
+}
+
+func (s *Shard) StopChangeCapture(opID string) error {
+	log := s.changeLogs.Load().Get(opID)
+	if log == nil {
+		return nil
+	}
+	changelog.Unregister(&s.changeLogs, opID)
+	return log.Deactivate()
+}
+
+// AppendChangeLogPut tees every committed PUT into every active log. It MUST
+// NOT fail the user write: exhausted-retry errors deactivate the log so the
+// target's tailer observes ErrLogDeactivated and aborts the movement.
+// objBinary is reused verbatim — the caller already marshalled it for the
+// bucket write.
+func (s *Shard) AppendChangeLogPut(idBytes []byte, updateTimeMillis int64, objBinary []byte) {
+	set := s.changeLogs.Load()
+	if set == nil {
+		return
+	}
+
+	var uuidArr [16]byte
+	copy(uuidArr[:], idBytes)
+
+	set.ForEach(func(opID string, log *changelog.ChangeLog) {
+		_, appendErr := s.appendWithRetry(func() (uint64, error) {
+			return log.AppendPut(uuidArr, updateTimeMillis, objBinary)
+		})
+		s.dispatchAppendResult(opID, log, appendErr)
+	})
+}
+
+func (s *Shard) AppendChangeLogDelete(idBytes []byte, updateTimeMillis int64) {
+	set := s.changeLogs.Load()
+	if set == nil {
+		return
+	}
+
+	var uuidArr [16]byte
+	copy(uuidArr[:], idBytes)
+
+	set.ForEach(func(opID string, log *changelog.ChangeLog) {
+		_, appendErr := s.appendWithRetry(func() (uint64, error) {
+			return log.AppendDelete(uuidArr, updateTimeMillis)
+		})
+		s.dispatchAppendResult(opID, log, appendErr)
+	})
+}
+
+// appendWithRetry short-circuits ErrLogFinalized/ErrLogDeactivated (retry
+// can't help) and otherwise retries changelogRetryAttempts times.
+func (s *Shard) appendWithRetry(attempt func() (uint64, error)) (uint64, error) {
+	var (
+		lsn uint64
+		err error
+	)
+	for i := range changelogRetryAttempts {
+		lsn, err = attempt()
+		if err == nil {
+			return lsn, nil
+		}
+		if errors.Is(err, changelog.ErrLogFinalized) || errors.Is(err, changelog.ErrLogDeactivated) {
+			return 0, err
+		}
+		if i < len(changelogRetryBackoffs) {
+			time.Sleep(changelogRetryBackoffs[i])
+		}
+	}
+	return 0, fmt.Errorf("changelog append: %d attempts exhausted: %w", changelogRetryAttempts, err)
+}
+
+func (s *Shard) dispatchAppendResult(opID string, log *changelog.ChangeLog, err error) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, changelog.ErrLogFinalized) || errors.Is(err, changelog.ErrLogDeactivated) {
+		return
+	}
+	s.handleChangeLogFailure(opID, log, err)
+}
+
+func (s *Shard) handleChangeLogFailure(opID string, log *changelog.ChangeLog, cause error) {
+	s.index.logger.
+		WithField("op_id", opID).
+		WithField("shard", s.ID()).
+		Error(fmt.Errorf("change-capture log entered terminal failure, deactivating: %w", cause))
+	changelog.Unregister(&s.changeLogs, opID)
+	if err := log.Deactivate(); err != nil {
+		s.index.logger.
+			WithField("op_id", opID).
+			WithField("shard", s.ID()).
+			Error(fmt.Errorf("change-capture log deactivate after failure: %w", err))
+	}
+}
+
+func (s *Shard) registeredOpIDs() map[string]struct{} {
+	set := s.changeLogs.Load()
+	if set == nil {
+		return make(map[string]struct{})
+	}
+	out := make(map[string]struct{}, set.Len())
+	set.ForEach(func(opID string, _ *changelog.ChangeLog) {
+		out[opID] = struct{}{}
+	})
+	return out
+}
+
+// sweepChangelogDirExcept removes every .log file whose op-id basename is
+// not in keep. Called from NewShard (keep=nil, everything is orphaned on
+// restart) and from ActivateChangeLog (keep = registered ops ∪ new opID).
+func (s *Shard) sweepChangelogDirExcept(keep map[string]struct{}) error {
+	dir := s.changelogDir()
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read changelog dir %q: %w", dir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != changelogFileExtension {
+			continue
+		}
+		opID := name[:len(name)-len(changelogFileExtension)]
+		if _, live := keep[opID]; live {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove orphaned changelog %q: %w", p, err)
+		}
+		s.index.logger.WithField("file", p).Info("removed orphaned changelog")
+	}
+	return nil
+}
+
+func (s *Shard) sweepChangelogDir() error {
+	return s.sweepChangelogDirExcept(nil)
+}
+
+func (s *Shard) changelogDir() string {
+	return filepath.Join(s.path(), changelogDirName)
+}

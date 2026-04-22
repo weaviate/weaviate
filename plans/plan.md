@@ -44,18 +44,28 @@ Chosen over an lsmkv bucket or in-memory ring.
   [8B  updateTimeUnixMillis, LE]
   [16B UUID binary]
   [4B  payloadLen, LE]
-  [N   payload bytes]            // VObjectV2 bytes; empty deletes have deleted=true + no object
+  [N   payload bytes]            // raw storobj.Object bytes; deletes carry no payload (flag + updateTime are sufficient)
   [4B  CRC32 of frame]
   ```
 - In-memory `offsetIndex []int64` maps `lsn-snapshotLSN-1 → file offset` so tailers can seek to `fromLSN` without scanning.
 - `bufio.Writer` for append throughput; `fd.Sync()` only on `Deactivate` (V1 does not need crash-durability — see decisions).
 - Cleanup on Deactivate: close fd, `os.Remove(path)`, drop in-memory state.
 
-## Log entry payload: reuse VObject V2
+## Log entry payload: raw `storobj.Object` bytes
 
-Do not invent a new object-on-wire format. Use `VObject.MarshalBinaryV2()` (`usecases/objects/replication.go`). Payload carries UUID, `LastUpdateTimeUnixMilli`, `Deleted`, `Vector`/`Vectors`/`MultiVectors`, and a serialized `models.Object`. The target unmarshals into `VObject` and feeds to `OverwriteObjectsFromChangeLog`.
+Use the already-marshalled `storobj.Object` bytes that every PUT / MERGE call site computes just before its bucket write (`objBinary` at `shard_write_put.go:276`, `objBytes` at `shard_write_merge.go:168` and `:267`). The tee reuses that slice verbatim — no additional marshal, no wrapper object. The target decodes via `storobj.FromBinary` and feeds the result to `PutObjectBatch` / `DeleteObject` from `OverwriteObjectsFromChangeLog`.
 
-Trade-off: the tee site has a serialized `storobj.Object` (`objBinary` at `shard_write_put.go:273`) and lives objects in memory. Re-wrapping as VObject costs one marshal per write. Accepted for uniformity with the replay path. If profiling shows it hot, we can emit raw storobj bytes and reconstruct VObject on the target — not a V1 concern.
+Deletes carry **no payload**: the frame header's `isDelete` flag and `updateTimeUnixMillis` are sufficient for the target's LWW replay. The `updateTimeUnixMillis` field in the header is the only ordering key; tombstoning happens at replay-time by calling `DeleteObject(id, ts)`.
+
+Why not `VObject.MarshalBinaryV2`? An earlier draft proposed wrapping the payload in `objects.VObject` for uniformity with the existing `OverwriteObjects` call shape. It didn't pull its weight:
+
+- `VObject.Deleted` duplicates information the frame header already carries.
+- `VObject.StaleUpdateTime` is used only by the conflict-detection path of `OverwriteObjects`; changelog replay is pure LWW-by-timestamp and doesn't need it.
+- `VObject.LatestObject` wraps the same `models.Object` that `storobj` embeds.
+- Each tee call site already computes `storobj` bytes for the bucket write — wrapping as `VObject` would add a second marshal for every tee'd write.
+- The target-side replay would unwrap `VObject → models.Object → storobj.Object` anyway before inserting.
+
+Using raw `storobj` bytes is smaller, faster on the hot path, and keeps the replay path aligned with the DB's existing primitives (`storobj.FromBinary`, `PutObjectBatch`).
 
 ## Tee points (single Shard helper, called from 5 sites)
 
@@ -66,26 +76,43 @@ Add on `Shard`:
 // Loaded under atomic.Pointer to avoid adding a mutex on the write hot path.
 changeLogs atomic.Pointer[changelog.Set]
 
-func (s *Shard) appendChangeLogPut(obj *storobj.Object, idBytes []byte, objBinary []byte) error
-func (s *Shard) appendChangeLogDelete(idBytes []byte, updateTimeMillis int64) error
+func (s *Shard) AppendChangeLogPut(idBytes []byte, updateTimeMillis int64, objBinary []byte)
+func (s *Shard) AppendChangeLogDelete(idBytes []byte, updateTimeMillis int64)
 ```
 
-Both return early (nil) when `changeLogs.Load() == nil`, which is the common case. When active, they iterate all logs in the set and append.
+Both return immediately when `changeLogs.Load() == nil`, which is the common production case. When active, they iterate all logs in the set and append.
 
-Tee call sites (all under `docIdLock[poolId]`, inside existing `asyncReplicationRWMux.RLock`):
+Neither helper returns `error`: the tee is contractually infallible from the caller's perspective — user writes must never fail because of tee issues. Any internal error is handled inline per the retry-and-deactivate policy below. An `error` return would force every write-path call site to write a dead `return err` branch that rots and misleads readers. See the Tee-error semantics section for the failure path.
 
-| Site | File:line | After |
+The PUT helper takes the already-marshalled `objBinary` slice (the bytes produced by `obj.MarshalBinary()` at the call site just before the bucket write) — the payload format is raw `storobj.Object` bytes, so the helper reuses the slice verbatim. Zero marshal overhead on the tee. See §"Log entry payload" above for why we use `storobj` bytes instead of a wrapper format.
+
+**Tee placement: before hashtree, after bucket.** Each of the five tees fires immediately after the bucket write succeeds and *before* the hashtree update (`mayUpsertObjectHashTree` / `mayDeleteObjectHashTree`). The object bucket is the single source of truth for replica-movement catchup; the hashtree is a derived structure used by the non-movement async-replication path and continues to serve that path unchanged. Placing the tee before hashtree ensures that any write committed to the bucket is also logged, independent of hashtree outcomes.
+
+Tee call sites (all under `docIdLock[poolId]`, inside existing `asyncReplicationRWMux.RLock`, and inside the new `quiesceMux.RLock` added in Phase 2):
+
+| Site | File:line | Placement |
 |---|---|---|
-| PUT (covers batch + merge non-mutable) | `adapters/repos/db/shard_write_put.go:280` | `upsertObjectDataLSM` success; skip when `status.skipUpsert` is true |
-| MERGE mutable | `adapters/repos/db/shard_write_merge.go` (inside `mutableMergeObjectLSM` bucket put) | bucket put success |
-| DELETE single | `adapters/repos/db/shard_write_delete.go:77` | `bucket.Delete` / `bucket.DeleteWith` success; skip when `existing == nil` |
-| DELETE batch | `adapters/repos/db/shard_read.go` (inside `batchDeleteObject`) | bucket delete success |
+| PUT (covers batch) | `adapters/repos/db/shard_write_put.go` (inside `putObjectLSM`) | after `upsertObjectDataLSM` success, before `mayUpsertObjectHashTree`; skip when `status.skipUpsert` is true |
+| MERGE non-mutable | `adapters/repos/db/shard_write_merge.go` (inside `mergeObjectInStorage`) | after its own `upsertObjectDataLSM`, before `mayUpsertObjectHashTree` |
+| MERGE mutable | `adapters/repos/db/shard_write_merge.go` (inside `mutableMergeObjectLSM`) | after its own `upsertObjectDataLSM`, before `mayUpsertObjectHashTree` |
+| DELETE single | `adapters/repos/db/shard_write_delete.go` (inside `DeleteObject`) | after `bucket.Delete` / `bucket.DeleteWith` success, before `mayDeleteObjectHashTree`; skip when `existing == nil` |
+| DELETE batch | `adapters/repos/db/shard_read.go` (inside `batchDeleteObject`) | after bucket delete success, before `mayDeleteObjectHashTree` |
 
-Batch PUTs funnel through `putObjectLSM` via `objectsBatcher`, so one tee covers them. Note: `shard_write_merge.go` has two paths (`mergeObjectInStorage` → `putObjectLSM` is covered by the PUT tee; `mutableMergeObjectLSM` writes through a different path and needs its own tee).
+Batch PUTs funnel through `putObjectLSM` via `objectsBatcher`, so one tee covers them. **Both merge paths need their own tees**: `mergeObjectInStorage` calls `upsertObjectDataLSM` directly (it does NOT funnel through `putObjectLSM`), and `mutableMergeObjectLSM` writes through a different path. That's 5 tee sites total.
+
+### Tee-error semantics
+
+The tee never fails the user write. On error:
+
+- **I/O errors on append** (anything other than `ErrLogFinalized` / `ErrLogDeactivated`) are treated as transient and retried up to 3 total attempts with short backoff (1 ms, 5 ms). All retries happen under the locks the write path already holds, so the backoff cap stays small.
+- There is no separate marshal-error branch: the payload (`objBinary`) is already marshalled by the caller before the bucket write, so by the time the tee runs the payload slice is known-good. Any marshal failure already surfaced to the user before the tee was reached.
+- On retry exhaustion: log at ERROR, call `changelog.Unregister` + `log.Deactivate()` inline for the affected op. The target's tailer observes `ErrLogDeactivated` on its next call, and the Phase 5 consumer translates that into an aborted movement op. Other ops in the `Set` are unaffected.
+
+User-visible writes are never failed by tee issues, regardless of movement state.
 
 Skip cases are correct no-ops:
 - `status.skipUpsert == true`: verified via `compareObjsForInsertStatus` (`shard_write_put.go:545-573`) — this flag is set only when geo props, legacy vector, target vectors, multi-vectors, additional props, AND regular properties are all byte-identical to the stored object. No bucket write, no inverted index update, no hashtree update happens on the source. Source state is unchanged; target (which has the matching state via the file snapshot or a prior LSN replay) is also unchanged. No log entry needed.
-- **Important:** only skip on `skipUpsert == true`. The `docIDPreserved` branch (`preserve=true, skip=false`, when additional props OR regular props differ while vectors are equal) DOES rewrite the object bucket and update the inverted index — the tee must fire in that case. Check specifically `if !status.skipUpsert { appendChangeLogPut(...) }`, not `if compareObjsForInsertStatus returned anything`.
+- **Important:** only skip on `skipUpsert == true`. The `docIDPreserved` branch (`preserve=true, skip=false`, when additional props OR regular props differ while vectors are equal) DOES rewrite the object bucket and update the inverted index — the tee must fire in that case. Check specifically `if !status.skipUpsert { AppendChangeLogPut(...) }`, not `if compareObjsForInsertStatus returned anything`.
 - `DeleteObject` with `existing == nil`: nothing was deleted.
 
 ## LSN generation
@@ -114,13 +141,17 @@ Source-side RPCs (all added to `FileReplicationService`):
 
 | RPC | When | Effect |
 |---|---|---|
-| `StartChangeCapture(index, shard, op_id)` | Source receives it from the target-side consumer before file listing. Under `backupLock.Lock(shard)`: flush memtable, create log file + counter (snapshotLSN = 0), register it in `shard.changeLogs`. Returns `{op_id, snapshot_lsn}`. |
+| `StartChangeCapture(index, shard, op_id)` | Source receives it from the target-side consumer before file listing. Under `backupLock.Lock(shard)`: opportunistically sweep the shard's `changelog/` directory of any `.log` files whose op-id is not currently registered (covers orphans left by prior failed movements on a long-lived HOT shard — see "Orphan cleanup" below), flush memtable, create log file + counter (snapshotLSN = 0), register it in `shard.changeLogs`. Returns `{op_id, snapshot_lsn}`. |
 | `ListFiles` | Unchanged — `FlushMemtables` is idempotent. Log already active. |
 | `GetChangeLog(index, shard, op_id, from_lsn) → stream ChangeLogStreamEntry` | Target tails. Server blocks on `cond.Wait` when no new entries; on each Append the producer wakes the streamer. Closes when finalized AND `lastSentLSN >= finalLSN`. |
 | `FinalizeChangeLog(index, shard, op_id) → {final_lsn}` | Acquires a **per-shard write-quiesce latch** (new), takes `cl.mu`, sets `cl.finalized = true`, snapshots `final_lsn = cl.lsn`, broadcasts. Writes attempting to append after finalize return `ErrLogFinalized`; the quiesce latch returns `storagestate.ErrStatusReadOnly`-style error to clients, who retry against the cluster (which by now has the target in the replica set via RAFT). Expected duration: milliseconds. |
 | `StopChangeCapture(index, shard, op_id)` | Close fd, remove file, deregister from `shard.changeLogs`, release the quiesce latch. |
 
 Activation is *driven by the target-side consumer in `processHydratingOp`* immediately before `CopyReplicaFiles`. Concretely: the consumer calls a new copier method `StartChangeCapture` which wraps the RPC to the source. Then `CopyReplicaFiles` proceeds unchanged; the file snapshot is captured with the log already active, so `snapshotLSN = 0` and every post-listing write lands in the log.
+
+### `Shard.ActivateChangeLog` return shape
+
+The in-process method returns `(*changelog.ChangeLog, error)`, not just `error`. The wire shape for `StartChangeCapture` above is still `{op_id, snapshot_lsn}` — the pointer is internal-only. Phase 4's `IncomingStartChangeCapture` handler stores the returned `*ChangeLog` in its per-op server-side state so that subsequent `IncomingGetChangeLog` calls can open a tailer against it without re-looking-up via `s.changeLogs.Load().Get(opID)` on every stream open. "Shape matches the Phase 4 handler" refers to this internal handler state, not the gRPC wire shape.
 
 ### Per-op concurrency
 
@@ -130,11 +161,34 @@ Activation is *driven by the target-side consumer in `processHydratingOp`* immed
 
 On source restart, all `changeLogs` are gone from memory (not reloaded). Any inflight movement ops transition to failed — the consumer will re-issue from REGISTERED on the next tick. This matches today's behavior where replica movement is not checkpoint-resumable.
 
+### Orphan cleanup
+
+The `.log` file for an op-id is removed in three ways, in order of how soon they catch a leak:
+
+1. **On a clean exit path** — `StopChangeCapture` closes and removes the file.
+2. **On a shard restart** — `NewShard` runs `sweepChangelogDir()` with an empty "keep" set, removing every file in the directory (V1 never resumes in-flight movements, so anything at init is by construction orphaned).
+3. **On the next `ActivateChangeLog` call against the same shard** — before opening the new op's file, `ActivateChangeLog` removes every `.log` file whose basename is not in the currently-registered `changeLogs`. This is the safety net that bounds disk usage on a long-lived HOT shard which cycles through repeated failed COPY ops without ever restarting.
+
+Path 3 is independent of path 2 and runs at a much finer cadence. It is cheap (one `os.ReadDir` per activation, which is a rare movement-driven event), requires no new goroutine, and has no TTL to tune — liveness comes from the authoritative `changeLogs` atomic pointer.
+
+Phase 5's consumer is also expected to call `StopChangeCapture` on error paths so path 1 handles the common case; paths 2 and 3 exist for the process-crash and consumer-bug cases respectively.
+
 ## Replay path on target
 
 New function in `adapters/repos/db/replication.go`, adjacent to `OverwriteObjects`:
 
 ```go
+// ChangeLogReplayEntry is the decoded form of a single changelog frame: the
+// header fields needed for LWW ordering plus the raw storobj payload for
+// PUTs. The Phase 4 copier client decodes gRPC stream entries into this
+// shape and hands a batch to OverwriteObjectsFromChangeLog.
+type ChangeLogReplayEntry struct {
+    ID                      strfmt.UUID
+    LastUpdateTimeUnixMilli int64
+    IsDelete                bool
+    Payload                 []byte // raw storobj.Object bytes for PUTs; empty for deletes
+}
+
 // OverwriteObjectsFromChangeLog applies change-log entries to the local shard
 // with pure last-write-wins semantics by LastUpdateTimeUnixMilli. Unlike
 // OverwriteObjects it does NOT emit conflicts on StaleUpdateTime mismatch;
@@ -144,15 +198,15 @@ New function in `adapters/repos/db/replication.go`, adjacent to `OverwriteObject
 func (idx *Index) OverwriteObjectsFromChangeLog(
     ctx context.Context,
     shard string,
-    updates []*objects.VObject,
+    updates []ChangeLogReplayEntry,
 ) error
 ```
 
 Semantics per entry:
-- If `u.Deleted` and local update time > `u.LastUpdateTimeUnixMilli`: skip.
-- Else if `u.Deleted`: `DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli))`.
+- If `u.IsDelete` and local update time > `u.LastUpdateTimeUnixMilli`: skip.
+- Else if `u.IsDelete`: `DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli))`.
 - Else if local update time > `u.LastUpdateTimeUnixMilli`: skip.
-- Else: `PutObjectBatch(ctx, []*storobj.Object{storobj.FromObject(...)})`.
+- Else: decode payload via `storobj.FromBinary(u.Payload)` and call `PutObjectBatch(ctx, []*storobj.Object{decoded})`. Decoding errors abort the movement.
 
 No `RepairResponse` return — disk errors bubble up and abort the movement.
 
@@ -263,8 +317,8 @@ Note the COPY-vs-MOVE asymmetry: FINALIZING-COPY finalizes before the dual-write
 ## Code primitives to reuse (do not re-implement)
 
 - `usecases/byteops` — all frame encoding on hot paths. Avoid `binary.Read`.
-- `usecases/objects.VObject` + `MarshalBinaryV2` — log payload.
-- `storobj.Object.MarshalBinary` — already called at the PUT tee site; `objBinary` is in scope.
+- `storobj.Object.MarshalBinary` — already called at every PUT / MERGE tee site (`objBinary` / `objBytes` in scope); the slice is reused verbatim as the log payload, so the tee adds no marshal cost.
+- `storobj.FromBinary` — used on the target replay side to decode the payload back into a `*storobj.Object` for `PutObjectBatch`.
 - `entities/errors/go_wrapper.go` (`enterrors.GoWrapper`) — any new goroutine (e.g. streaming server handler) must use this. Bare `go` statements will fail `tools/linter_go_routines.sh`.
 - `FileReplicationService` basic-auth interceptors (`adapters/handlers/rest/clusterapi/grpc/server.go:107-173`) — new RPCs on the same service inherit auth automatically.
 - Logrus `.Error(err)` convention (not `WithError`).
