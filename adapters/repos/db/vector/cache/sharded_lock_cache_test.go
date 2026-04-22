@@ -762,3 +762,109 @@ func TestPreloadCountAccuracy(t *testing.T) {
 		assert.Equal(t, 6, countMultiCached(smlc))
 	})
 }
+
+func TestShardedLockCache_HandleCacheMissCountAccuracy(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("count not incremented when vectorForID returns nil", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, nil // returns nil vector, no error
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		initialCount := cache.CountVectors()
+
+		// Get triggers cache miss, vectorForID returns nil
+		vec, err := cache.Get(context.Background(), 0)
+		assert.NoError(t, err)
+		assert.Nil(t, vec)
+
+		// Count should NOT have increased since nothing was cached
+		assert.Equal(t, initialCount, cache.CountVectors())
+		assert.Equal(t, 0, countCached(slc))
+	})
+
+	t.Run("count not incremented when vectorForID returns error", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, errors.New("storage error")
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		initialCount := cache.CountVectors()
+
+		vec, err := cache.Get(context.Background(), 0)
+		assert.Error(t, err)
+		assert.Nil(t, vec)
+
+		// Count should NOT have increased
+		assert.Equal(t, initialCount, cache.CountVectors())
+		assert.Equal(t, 0, countCached(slc))
+	})
+
+	t.Run("count incremented only once for concurrent misses on same id", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			// Simulate some delay to allow concurrent calls
+			time.Sleep(10 * time.Millisecond)
+			return []float32{float32(id)}, nil
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		// Launch multiple concurrent gets for the same ID
+		var wg sync.WaitGroup
+		concurrentGets := 10
+		wg.Add(concurrentGets)
+
+		for i := 0; i < concurrentGets; i++ {
+			go func() {
+				defer wg.Done()
+				_, _ = cache.Get(context.Background(), 0)
+			}()
+		}
+
+		wg.Wait()
+
+		// Count should be exactly 1, not 10
+		assert.Equal(t, int64(1), cache.CountVectors())
+		assert.Equal(t, 1, countCached(slc))
+
+		// Subsequent gets should not increment count
+		_, _ = cache.Get(context.Background(), 0)
+		assert.Equal(t, int64(1), cache.CountVectors())
+	})
+
+	t.Run("count matches actual cached vectors after concurrent operations", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			return []float32{float32(id)}, nil
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		// Concurrent gets for multiple IDs, with multiple goroutines per ID
+		numIDs := 50
+		goroutinesPerID := 5
+
+		var wg sync.WaitGroup
+		for id := 0; id < numIDs; id++ {
+			for g := 0; g < goroutinesPerID; g++ {
+				wg.Add(1)
+				go func(id uint64) {
+					defer wg.Done()
+					_, _ = cache.Get(context.Background(), id)
+				}(uint64(id))
+			}
+		}
+
+		wg.Wait()
+
+		// Count should equal number of unique IDs, not total goroutines
+		assert.Equal(t, int64(numIDs), cache.CountVectors())
+
+		// Verify by actually counting cached vectors
+		actualCached := countCached(slc)
+		assert.Equal(t, numIDs, actualCached)
+		assert.Equal(t, int64(actualCached), cache.CountVectors())
+	})
+}
