@@ -55,7 +55,34 @@ func TestRaftConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "custom timeouts with multiplier",
+			name: "custom timeouts with multiplier (multi-node)",
+			config: Config{
+				NodeID:             "node1",
+				Logger:             logrus.New(),
+				Voter:              true,
+				WorkDir:            t.TempDir(),
+				Host:               "localhost",
+				RaftPort:           9090,
+				RPCPort:            9091,
+				BootstrapExpect:    3,
+				HeartbeatTimeout:   2 * time.Second,
+				ElectionTimeout:    3 * time.Second,
+				LeaderLeaseTimeout: 4 * time.Second,
+				TimeoutsMultiplier: 2,
+			},
+			expectedConfig: func(cfg *raft.Config) {
+				assert.Equal(t, raft.ServerID("node1"), cfg.LocalID)
+				assert.Equal(t, "info", cfg.LogLevel)
+				assert.True(t, cfg.NoLegacyTelemetry)
+				assert.NotNil(t, cfg.Logger)
+				// Timeouts should be multiplied by 2 for multi-node clusters
+				assert.Equal(t, 4*time.Second, cfg.HeartbeatTimeout)
+				assert.Equal(t, 6*time.Second, cfg.ElectionTimeout)
+				assert.Equal(t, 8*time.Second, cfg.LeaderLeaseTimeout)
+			},
+		},
+		{
+			name: "custom timeouts with multiplier ignored for single-node",
 			config: Config{
 				NodeID:             "node1",
 				Logger:             logrus.New(),
@@ -72,13 +99,10 @@ func TestRaftConfig(t *testing.T) {
 			},
 			expectedConfig: func(cfg *raft.Config) {
 				assert.Equal(t, raft.ServerID("node1"), cfg.LocalID)
-				assert.Equal(t, "info", cfg.LogLevel)
-				assert.True(t, cfg.NoLegacyTelemetry)
-				assert.NotNil(t, cfg.Logger)
-				// Timeouts should be multiplied by 2
-				assert.Equal(t, 4*time.Second, cfg.HeartbeatTimeout)
-				assert.Equal(t, 6*time.Second, cfg.ElectionTimeout)
-				assert.Equal(t, 8*time.Second, cfg.LeaderLeaseTimeout)
+				// Multiplier not applied for single-node clusters
+				assert.Equal(t, 2*time.Second, cfg.HeartbeatTimeout)
+				assert.Equal(t, 3*time.Second, cfg.ElectionTimeout)
+				assert.Equal(t, 4*time.Second, cfg.LeaderLeaseTimeout)
 			},
 		},
 		{
