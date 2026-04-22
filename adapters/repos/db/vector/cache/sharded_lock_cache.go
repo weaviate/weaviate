@@ -289,7 +289,10 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
-	atomic.AddInt64(&s.count, 1)
+	// Only increment count if slot was previously empty
+	if s.cache[id] == nil {
+		atomic.AddInt64(&s.count, 1)
+	}
 	s.cache[id] = vec
 }
 
@@ -567,6 +570,10 @@ func (s *shardedMultipleLockCache[T]) All() [][]T {
 
 func (s *shardedMultipleLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
 	s.shardedLocks.RLock(id)
+	if int(id) >= len(s.vectorDocID) {
+		s.shardedLocks.RUnlock(id)
+		return 0, 0
+	}
 	keys := s.vectorDocID[id]
 	s.shardedLocks.RUnlock(id)
 	return keys.DocID, keys.RelativeID
@@ -576,10 +583,16 @@ func (s *shardedMultipleLockCache[T]) SetKeys(id uint64, docID uint64, relativeI
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
+	if int(id) >= len(s.vectorDocID) {
+		return
+	}
 	s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: relativeID}
 }
 
 func (s *shardedMultipleLockCache[T]) GetKeysNoLock(id uint64) (uint64, uint64) {
+	if int(id) >= len(s.vectorDocID) {
+		return 0, 0
+	}
 	keys := s.vectorDocID[id]
 	return keys.DocID, keys.RelativeID
 }
@@ -591,11 +604,12 @@ func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, 
 		return nil, errors.Errorf("id %d is out of bounds", id)
 	}
 	vec := s.cache[id]
+	// Read keys under the same lock to avoid race between cache check and keys read
+	keys := s.vectorDocID[id]
 	s.shardedLocks.RUnlock(id)
 
-	if len(vec) == 0 {
-		docID, relativeID := s.GetKeys(id)
-		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
+	if vec == nil {
+		return s.handleMultipleCacheMiss(ctx, id, keys.DocID, keys.RelativeID)
 	}
 
 	return vec, nil
@@ -606,21 +620,40 @@ func (s *shardedLockCache[T]) GetDoc(ctx context.Context, docID uint64) ([][]flo
 }
 
 func (s *shardedMultipleLockCache[T]) GetDoc(ctx context.Context, docID uint64) ([][]float32, error) {
+	if s.multipleVectorForDocID == nil {
+		return nil, errors.New("GetDoc is not supported for this cache type")
+	}
 	return s.multipleVectorForDocID(ctx, docID)
 }
 
 func (s *shardedMultipleLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
 	out := make([][]T, len(ids))
-	errs := make([]error, len(ids))
+	var errs []error // lazy allocation
 
 	for i, id := range ids {
-
 		s.shardedLocks.RLock(id)
+		if int(id) >= len(s.cache) {
+			s.shardedLocks.RUnlock(id)
+			if errs == nil {
+				errs = make([]error, len(ids))
+			}
+			errs[i] = errors.Errorf("id %d is out of bounds", id)
+			continue
+		}
 		vec := s.cache[id]
+		// Read keys under the same lock to avoid race
+		keys := s.vectorDocID[id]
 		s.shardedLocks.RUnlock(id)
-		if len(vec) == 0 {
-			docID, relativeID := s.GetKeys(id)
-			vec, errs[i] = s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
+
+		if vec == nil {
+			var err error
+			vec, err = s.handleMultipleCacheMiss(ctx, id, keys.DocID, keys.RelativeID)
+			if err != nil {
+				if errs == nil {
+					errs = make([]error, len(ids))
+				}
+				errs[i] = err
+			}
 		}
 
 		out[i] = vec
@@ -633,7 +666,7 @@ func (s *shardedMultipleLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
-	if int(id) >= len(s.cache) || len(s.cache[id]) == 0 {
+	if int(id) >= len(s.cache) || s.cache[id] == nil {
 		return
 	}
 
@@ -669,10 +702,13 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 		return nil, err
 	}
 
-	atomic.AddInt64(&s.count, 1)
-	if len(vec) != 0 {
+	if vec != nil {
 		s.shardedLocks.Lock(id)
-		s.cache[id] = vec
+		// Double-check: only store and increment count if not already cached
+		if s.cache[id] == nil {
+			s.cache[id] = vec
+			atomic.AddInt64(&s.count, 1)
+		}
 		s.shardedLocks.Unlock(id)
 	}
 
@@ -691,16 +727,28 @@ func (s *shardedMultipleLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
 	defer s.shardedLocks.RUnlock(id)
 
+	if int(id) >= len(s.cache) {
+		return
+	}
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
 func (s *shardedMultipleLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]T) {
-	atomic.AddInt64(&s.count, int64(len(ids)))
+	newEntries := int64(0)
 	for i, id := range ids {
 		s.shardedLocks.Lock(id)
-		s.cache[id] = vecs[i]
-		s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: uint64(i)}
+		if int(id) < len(s.cache) && i < len(vecs) {
+			// Only count as new entry if slot was previously empty
+			if s.cache[id] == nil {
+				newEntries++
+			}
+			s.cache[id] = vecs[i]
+			s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: uint64(i)}
+		}
 		s.shardedLocks.Unlock(id)
+	}
+	if newEntries > 0 {
+		atomic.AddInt64(&s.count, newEntries)
 	}
 }
 
@@ -708,9 +756,16 @@ func (s *shardedMultipleLockCache[T]) PreloadPassage(id uint64, docID uint64, re
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
+	if int(id) >= len(s.cache) {
+		return
+	}
+	// Only increment count if slot was previously empty
+	wasEmpty := s.cache[id] == nil
 	s.cache[id] = vec
 	s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: relativeID}
-	atomic.AddInt64(&s.count, int64(1))
+	if wasEmpty {
+		atomic.AddInt64(&s.count, 1)
+	}
 }
 
 func (s *shardedMultipleLockCache[T]) Preload(docID uint64, vec []T) {
