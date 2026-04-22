@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -199,8 +200,10 @@ type Store struct {
 
 	// open is set on opening the store
 	open atomic.Bool
-	// dbLoaded is set when the DB is loaded at startup
-	dbLoaded atomic.Bool
+	// dbLoadedCh is closed when the DB is loaded at startup
+	dbLoadedCh chan struct{}
+	// dbLoadedOnce ensures dbLoadedCh is closed exactly once
+	dbLoadedOnce sync.Once
 
 	// raft implementation from external library
 	raft          *raft.Raft
@@ -334,7 +337,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
 		}),
-		metrics: newStoreMetrics(cfg.NodeID, reg),
+		metrics:    newStoreMetrics(cfg.NodeID, reg),
+		dbLoadedCh: make(chan struct{}),
 	}
 }
 
@@ -397,7 +401,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
 	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// if empty node report ready
-		st.dbLoaded.Store(true)
+		st.setDBLoaded()
 	}
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
@@ -570,31 +574,35 @@ func (st *Store) Close(ctx context.Context) error {
 func (st *Store) SetDB(db schema.Indexer) { st.schemaManager.SetIndexer(db) }
 
 func (st *Store) Ready() bool {
-	return st.open.Load() && st.dbLoaded.Load() && st.Leader() != ""
+	return st.open.Load() && st.isDBLoaded() && st.Leader() != ""
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
-func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
-	if st.dbLoaded.Load() {
-		return nil
+func (st *Store) isDBLoaded() bool {
+	select {
+	case <-st.dbLoadedCh:
+		return true
+	default:
+		return false
 	}
-	t := time.NewTicker(period)
-	defer t.Stop()
-	for {
-		select {
-		case <-close:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-t.C:
-			if st.dbLoaded.Load() {
-				return nil
-			} else {
-				st.log.Info("waiting for database to be restored")
-			}
-		}
+}
+
+func (st *Store) setDBLoaded() {
+	st.dbLoadedOnce.Do(func() {
+		close(st.dbLoadedCh)
+	})
+}
+
+func (st *Store) WaitToRestoreDB(ctx context.Context, closeCh chan struct{}) error {
+	select {
+	case <-st.dbLoadedCh:
+		return nil
+	case <-closeCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -687,7 +695,7 @@ func (st *Store) Stats() map[string]any {
 	stats["candidates"] = st.candidates
 	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
 	stats["last_applied_index"] = st.lastIndex()
-	stats["db_loaded"] = st.dbLoaded.Load()
+	stats["db_loaded"] = st.isDBLoaded()
 
 	// If the raft stats exist, add them as a nested map
 	if st.raft != nil {
@@ -737,15 +745,14 @@ func (st *Store) assertFuture(fut raft.IndexFuture) error {
 
 func (st *Store) raftConfig() *raft.Config {
 	cfg := raft.DefaultConfig()
-	// If the TimeoutsMultiplier is set, use it to multiply the timeout values
-	// This is used to speed up the raft election, heartbeat, and leader lease
-	// in a multi-node cluster.
-	// the default value is 1
-	// for production requirement,it's recommended to set it to 5
-	// this in order to tolerate the network delay and avoid extensive leader election triggered more frequently
-	// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+	// TimeoutsMultiplier scales raft heartbeat, election, and leader lease timeouts
+	// to tolerate network delays in multi-node clusters and reduce unnecessary
+	// leader elections under heavy load. The default is 5 (via RAFT_TIMEOUTS_MULTIPLIER).
+	// For single-node clusters the multiplier is not applied since there are no
+	// network peers to tolerate delays from.
+	// See: https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
 	timeOutMultiplier := 1
-	if st.cfg.TimeoutsMultiplier > 1 {
+	if st.cfg.BootstrapExpect > 1 && st.cfg.TimeoutsMultiplier > 1 {
 		timeOutMultiplier = st.cfg.TimeoutsMultiplier
 	}
 	if st.cfg.HeartbeatTimeout > 0 {
@@ -788,7 +795,7 @@ func (st *Store) raftConfig() *raft.Config {
 }
 
 func (st *Store) openDatabase(ctx context.Context) {
-	if st.dbLoaded.Load() {
+	if st.isDBLoaded() {
 		return
 	}
 
@@ -816,7 +823,7 @@ func (st *Store) reloadDBFromSchema() {
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
-	st.dbLoaded.Store(true)
+	st.setDBLoaded()
 
 	// in this path it means it was called from Apply()
 	// or forced Restore()

@@ -44,9 +44,8 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 
 	// Ensure Raft starts and a leader is elected
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
-	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, make(chan struct{})))
+	assert.True(t, tryNTimesWithWait(30, time.Millisecond*200, srv.Ready))
 	assert.True(t, srv.store.IsLeader())
 
 	// DeleteClass
@@ -108,9 +107,8 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Once()
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
-	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, make(chan struct{})))
+	assert.True(t, tryNTimesWithWait(30, time.Millisecond*200, srv.Ready))
 
 	// Ensure that the class has been restored and that the tenant is present with the right state
 	schemaReader = srv.SchemaReader()
