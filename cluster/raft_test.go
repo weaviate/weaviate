@@ -385,8 +385,8 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	assert.True(t, tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader))
+	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
 }
