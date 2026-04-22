@@ -22,6 +22,7 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
@@ -98,6 +99,13 @@ func parseHostPort(uri string) (host, port string) {
 func NewClient(t *testing.T, uri string) *client.Weaviate {
 	scheme, remaining := parseScheme(uri)
 	host, port := parseHostPort(remaining)
+	if host == "" || port == "" {
+		if t != nil {
+			require.Failf(t, "invalid URI", "NewClient: URI %q is not in host:port form", uri)
+		} else {
+			panic(fmt.Sprintf("NewClient: URI %q is not in host:port form", uri))
+		}
+	}
 
 	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{scheme})
 

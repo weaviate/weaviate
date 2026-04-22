@@ -386,7 +386,10 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	// After snapshot restore, the node starts as a follower and must wait for the
+	// election timeout (up to 2*ElectionTimeout=2s) before winning an election.
+	// Use a generous retry window to avoid flakiness in slow CI environments.
+	assert.True(t, tryNTimesWithWait(30, time.Millisecond*200, srv.Ready))
 	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))

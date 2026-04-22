@@ -742,3 +742,16 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	result := m.roaringSetRange
 	return result
 }
+
+// ForEachReplaceEntry iterates over all key-value entries in a Replace-strategy
+// memtable, calling fn for each entry in ascending key order. fn receives the
+// raw key bytes, the raw value bytes, and a tombstone flag (true = deletion).
+// This is a no-op for non-Replace strategies or an empty memtable.
+func (m *Memtable) ForEachReplaceEntry(fn func(key []byte, value []byte, tombstone bool)) {
+	if m.strategy != StrategyReplace || m.key == nil {
+		return
+	}
+	for _, node := range m.key.flattenInOrder() {
+		fn(node.key, node.value, node.tombstone)
+	}
+}

@@ -44,12 +44,14 @@ func (suite *ReplicationNotImplementedTestSuite) SetupSuite() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "5").
 		Start(ctx)
 	require.Nil(t, err)
 	if cancel != nil {
 		cancel()
 	}
 	suite.compose = compose
+	helper.SetupClient(compose.GetWeaviate().URI())
 	suite.down = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
@@ -71,8 +73,6 @@ func TestReplicationNotImplementedTestSuite(t *testing.T) {
 
 func (suite *ReplicationNotImplementedTestSuite) TestReplicationNotImplemented() {
 	t := suite.T()
-
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	t.Run("POST /replication/replicate", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{

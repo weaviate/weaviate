@@ -1660,3 +1660,235 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentAsyncReplicationDisabled(t *testing.T) {
+	cases := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"not given", []string{}, false},
+		{"true", []string{"true"}, true},
+		{"false", []string{"false"}, false},
+		{"1", []string{"1"}, true},
+		{"0", []string{"0"}, false},
+		{"on", []string{"on"}, true},
+		{"off", []string{"off"}, false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("ASYNC_REPLICATION_DISABLED", tt.value[0])
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+			require.Equal(t, tt.expected, conf.Replication.AsyncReplicationDisabled.Get())
+		})
+	}
+}
+
+func TestEnvironmentAsyncReplicationClusterMaxWorkers(t *testing.T) {
+	cases := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"not given", []string{}, min(runtime.GOMAXPROCS(0), DefaultAsyncReplicationClusterMaxWorkers), false},
+		{"valid", []string{"5"}, 5, false},
+		{"negative", []string{"-1"}, 0, true},
+		{"zero", []string{"0"}, 0, true},
+		{"non-numeric", []string{"not-a-number"}, 0, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("ASYNC_REPLICATION_CLUSTER_MAX_WORKERS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.Replication.AsyncReplicationClusterMaxWorkers.Get())
+			}
+		})
+	}
+}
+
+func TestEnvironmentAsyncReplicationAliveNodesCheckingFrequency(t *testing.T) {
+	cases := []struct {
+		name        string
+		value       []string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{"not given", []string{}, DefaultAsyncReplicationAliveNodesCheckingFrequency, false},
+		{"valid seconds", []string{"30s"}, 30 * time.Second, false},
+		{"valid milliseconds", []string{"500ms"}, 500 * time.Millisecond, false},
+		{"valid minutes", []string{"2m"}, 2 * time.Minute, false},
+		{"zero", []string{"0s"}, 0, true},
+		{"negative", []string{"-1s"}, 0, true},
+		{"invalid format", []string{"not-a-duration"}, 0, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("ASYNC_REPLICATION_ALIVE_NODES_CHECKING_FREQUENCY", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.Replication.AsyncReplicationAliveNodesCheckingFrequency.Get())
+			}
+		})
+	}
+}
+
+// TestEnvironmentAsyncReplicationIntOrZeroVars covers all per-shard integer
+// env vars that use parsePositiveIntOrZero: unset → 0 (sentinel), positive →
+// accepted, zero explicitly set or negative → error.
+func TestEnvironmentAsyncReplicationIntOrZeroVars(t *testing.T) {
+	cases := []struct {
+		name        string
+		value       string
+		expected    int
+		expectedErr bool
+	}{
+		{"not set", "", 0, false},
+		{"valid", "10", 10, false},
+		{"large value", "10000", 10000, false},
+		{"negative", "-1", 0, true},
+		{"zero explicitly set", "0", 0, true},
+		{"non-numeric", "not-a-number", 0, true},
+	}
+
+	envVars := []struct {
+		envName string
+		getter  func(conf Config) int
+	}{
+		{
+			"ASYNC_REPLICATION_MAX_WORKERS",
+			func(c Config) int { return c.Replication.AsyncReplicationMaxWorkers.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_HASHTREE_HEIGHT",
+			func(c Config) int { return c.Replication.AsyncReplicationHashtreeHeight.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_DIFF_BATCH_SIZE",
+			func(c Config) int { return c.Replication.AsyncReplicationDiffBatchSize.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_PROPAGATION_LIMIT",
+			func(c Config) int { return c.Replication.AsyncReplicationPropagationLimit.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_PROPAGATION_CONCURRENCY",
+			func(c Config) int { return c.Replication.AsyncReplicationPropagationConcurrency.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE",
+			func(c Config) int { return c.Replication.AsyncReplicationPropagationBatchSize.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N",
+			func(c Config) int { return c.Replication.AsyncReplicationInitShieldCPUEveryN.Get() },
+		},
+	}
+
+	for _, ev := range envVars {
+		t.Run(ev.envName, func(t *testing.T) {
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					if tc.value != "" {
+						t.Setenv(ev.envName, tc.value)
+					}
+					conf := Config{}
+					err := FromEnv(&conf)
+					if tc.expectedErr {
+						require.NotNil(t, err)
+					} else {
+						require.NoError(t, err)
+						require.Equal(t, tc.expected, ev.getter(conf))
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestEnvironmentAsyncReplicationDurationVars covers all per-shard duration
+// env vars that use parsePositiveDuration with a zero default (sentinel meaning
+// "not configured at cluster level"). Unset → 0, valid → accepted, zero or
+// negative or unparseable → error.
+func TestEnvironmentAsyncReplicationDurationVars(t *testing.T) {
+	cases := []struct {
+		name        string
+		value       string
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{"not set", "", 0, false},
+		{"valid seconds", "5s", 5 * time.Second, false},
+		{"valid milliseconds", "200ms", 200 * time.Millisecond, false},
+		{"valid minutes", "3m", 3 * time.Minute, false},
+		{"zero", "0s", 0, true},
+		{"negative", "-1s", 0, true},
+		{"invalid format", "not-a-duration", 0, true},
+	}
+
+	envVars := []struct {
+		envName string
+		getter  func(conf Config) time.Duration
+	}{
+		{
+			"ASYNC_REPLICATION_FREQUENCY",
+			func(c Config) time.Duration { return c.Replication.AsyncReplicationFrequency.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING",
+			func(c Config) time.Duration { return c.Replication.AsyncReplicationFrequencyWhilePropagating.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_LOGGING_FREQUENCY",
+			func(c Config) time.Duration { return c.Replication.AsyncReplicationLoggingFrequency.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT",
+			func(c Config) time.Duration { return c.Replication.AsyncReplicationDiffPerNodeTimeout.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT",
+			func(c Config) time.Duration { return c.Replication.AsyncReplicationPrePropagationTimeout.Get() },
+		},
+		{
+			"ASYNC_REPLICATION_PROPAGATION_TIMEOUT",
+			func(c Config) time.Duration { return c.Replication.AsyncReplicationPropagationTimeout.Get() },
+		},
+	}
+
+	for _, ev := range envVars {
+		t.Run(ev.envName, func(t *testing.T) {
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					if tc.value != "" {
+						t.Setenv(ev.envName, tc.value)
+					}
+					conf := Config{}
+					err := FromEnv(&conf)
+					if tc.expectedErr {
+						require.NotNil(t, err)
+					} else {
+						require.NoError(t, err)
+						require.Equal(t, tc.expected, ev.getter(conf))
+					}
+				})
+			}
+		})
+	}
+}

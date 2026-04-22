@@ -274,7 +274,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				RootPath:             t.TempDir(),
 				ReplicationFactor:    1,
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
+				EnableLazyLoadShards: tt.lazyLoading,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)

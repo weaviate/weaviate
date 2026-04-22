@@ -46,6 +46,9 @@ type ReplicationAsyncConfig struct {
 	// Height of the hashtree used for diffing.
 	HashtreeHeight *int64 `json:"hashtreeHeight,omitempty"`
 
+	// Number of objects processed between scheduler yield points during hashtree initialisation scan. Yielding periodically lets query goroutines make forward progress during the potentially long on-disk scan.
+	InitShieldCPUEveryN *int64 `json:"initShieldCpuEveryN,omitempty"`
+
 	// Interval in seconds at which async replication logs its status.
 	LoggingFrequency *int64 `json:"loggingFrequency,omitempty"`
 
@@ -60,9 +63,6 @@ type ReplicationAsyncConfig struct {
 
 	// Maximum number of concurrent propagation workers.
 	PropagationConcurrency *int64 `json:"propagationConcurrency,omitempty"`
-
-	// Delay in milliseconds before newly added or updated objects are propagated.
-	PropagationDelay *int64 `json:"propagationDelay,omitempty"`
 
 	// Maximum number of objects to propagate in a single async replication run.
 	PropagationLimit *int64 `json:"propagationLimit,omitempty"`

@@ -460,6 +460,8 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	idx.shards.Store(shardName, shard)
 
+	t.Cleanup(func() { _ = repo.Shutdown(context.Background()) })
+
 	return idx.shards.Load(shardName), idx
 }
 

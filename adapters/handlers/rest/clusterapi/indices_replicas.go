@@ -49,7 +49,12 @@ type replicatedIndices struct {
 
 	requestQueueConfig cluster.RequestQueueConfig
 	requestQueue       *shared.RequestQueue[queuedRequest]
-	logger             logrus.FieldLogger
+	// shutdownStartedCh is closed once Close() begins so that callers can
+	// synchronize with the moment shutdown starts without polling.
+	shutdownStartedCh chan struct{}
+	// closeOnce ensures shutdownStartedCh is closed exactly once
+	closeOnce sync.Once
+	logger    logrus.FieldLogger
 	// nodeReady reports whether the node is ready to accept requests
 	nodeReady func() bool
 }
@@ -57,6 +62,9 @@ type replicatedIndices struct {
 const (
 	responseShuttingDown = "503 Service Unavailable - shutting down"
 	responseQueueFull    = "too many buffered requests"
+
+	// compareDigestsMaxBodyBytes is the maximum body size accepted by postCompareDigests (4 MiB).
+	compareDigestsMaxBodyBytes = 4 * 1024 * 1024
 )
 
 // zstdDecoderPool pools *zstd.Decoder instances to avoid the allocation cost
@@ -88,6 +96,8 @@ var (
 		`\/shards\/(` + sh + `)\/objects/_digest`)
 	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
+	regexCompareDigests = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/compareDigests`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -122,6 +132,7 @@ func NewReplicatedIndices(
 		requestQueueConfig:     requestQueueConfig,
 		logger:                 logger,
 		nodeReady:              nodeReady,
+		shutdownStartedCh:      make(chan struct{}),
 	}
 
 	i.requestQueue = shared.NewRequestQueue(requestQueueConfig, logger,
@@ -211,6 +222,14 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 	case regxObjectsDigest.MatchString(path):
 		if r.Method == http.MethodGet {
 			i.getObjectsDigest().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regexCompareDigests.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.postCompareDigests().ServeHTTP(w, r)
 			return
 		}
 
@@ -517,6 +536,94 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 		}
 
 		writeDigestsInRangeResponse(w, r, digests)
+	})
+}
+
+// postCompareDigests decodes a binary-encoded list of source digests, delegates
+// to the replicator to compare against local state, and returns the actionable
+// subset as a binary stream. The protocol is binary-only: there is no JSON
+// fallback and no content-negotiation header required.
+//
+// Both request and response use replica.CompareDigestsRecordLength (25-byte)
+// records: 16-byte UUID + 8-byte UpdateTime (int64 big-endian) + 1-byte flags.
+// Bit 0 of the flags byte (CompareDigestsFlagDeleted) is set in the response
+// when the target has a tombstone that should win, instructing the source to
+// delete its copy.
+func (i *replicatedIndices) postCompareDigests() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regexCompareDigests.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, compareDigestsMaxBodyBytes))
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Decode binary request: N × CompareDigestsRecordLength bytes.
+		var sourceDigests []types.RepairResponse
+		if len(body) > 0 {
+			if len(body)%replica.CompareDigestsRecordLength != 0 {
+				http.Error(w, "invalid binary payload length", http.StatusBadRequest)
+				return
+			}
+			n := len(body) / replica.CompareDigestsRecordLength
+			sourceDigests = make([]types.RepairResponse, n)
+			for j := 0; j < n; j++ {
+				off := j * replica.CompareDigestsRecordLength
+				rec := body[off : off+replica.CompareDigestsRecordLength]
+				id, err := uuid.FromBytes(rec[:16])
+				if err != nil {
+					http.Error(w, "parse uuid from binary: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				sourceDigests[j] = types.RepairResponse{
+					ID:         id.String(),
+					UpdateTime: int64(binary.BigEndian.Uint64(rec[16:24])),
+					Deleted:    rec[24]&replica.CompareDigestsFlagDeleted != 0,
+				}
+			}
+		}
+
+		stale, err := i.replicator.CompareDigests(r.Context(), index, shard, sourceDigests)
+		if err != nil {
+			http.Error(w, "compare digests: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Encode all records before writing headers so that a UUID parse error
+		// doesn't produce an http.Error after headers have been sent.
+		out := make([]byte, 0, len(stale)*replica.CompareDigestsRecordLength)
+		var obuf [replica.CompareDigestsRecordLength]byte
+		for _, d := range stale {
+			id, err := uuid.Parse(d.ID)
+			if err != nil {
+				http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			copy(obuf[:16], id[:])
+			binary.BigEndian.PutUint64(obuf[16:24], uint64(d.UpdateTime))
+			obuf[24] = 0
+			if d.Deleted {
+				obuf[24] = replica.CompareDigestsFlagDeleted
+			}
+			out = append(out, obuf[:]...)
+		}
+
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+		w.Write(out) //nolint:errcheck
 	})
 }
 
@@ -1046,5 +1153,18 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
+	i.logger.WithField("action", "close_replicated_indices").Debug("attempting to shut down replicated indices")
+	// Signal waiters that shutdown is beginning. closeOnce ensures this is done
+	// exactly once even if Close is called concurrently or multiple times.
+	i.closeOnce.Do(func() {
+		close(i.shutdownStartedCh)
+	})
 	return i.requestQueue.Close(ctx)
+}
+
+// ShuttingDown returns a channel that is closed as soon as Close begins
+// (i.e. the moment isShutdown transitions to true). Callers can select on
+// this channel to synchronize with shutdown without polling.
+func (i *replicatedIndices) ShuttingDown() <-chan struct{} {
+	return i.shutdownStartedCh
 }
