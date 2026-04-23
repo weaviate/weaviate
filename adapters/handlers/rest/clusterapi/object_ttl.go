@@ -149,7 +149,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			logger.WithFields(logrus.Fields{
 				"collections":       colNames,
 				"collections_count": len(colNames),
-			}).Info("incoming ttl deletion on remote node started")
+			}).Debug("incoming ttl deletion on remote node started")
 			defer func() {
 				took := time.Since(started)
 
@@ -168,7 +168,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					logger.WithError(err).Error("incoming ttl deletion on remote node failed")
 					return
 				}
-				logger.Info("incoming ttl deletion on remote node finished")
+				logger.Debug("incoming ttl deletion on remote node finished")
 			}()
 
 			ec := errorcompounder.NewSafe()
