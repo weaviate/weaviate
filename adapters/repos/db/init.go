@@ -173,22 +173,17 @@ func (db *DB) init(ctx context.Context) error {
 					)
 					return lazyLoadShardEnabled
 				}(),
-				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
-				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
-				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
-				ReplicationFactor:                            class.ReplicationConfig.Factor,
-				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
-				AsyncReplicationConfig:                       asyncConfig,
-				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
-				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
-				ShardLoadLimiter:                             db.shardLoadLimiter,
-				BucketLoadLimiter:                            db.bucketLoadLimiter,
-				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
-				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
-				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,
-				HNSWSnapshotOnStartup:                        db.config.HNSWSnapshotOnStartup,
-				HNSWSnapshotMinDeltaCommitlogsNumber:         db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
-				HNSWSnapshotMinDeltaCommitlogsSizePercentage: db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+				ForceFullReplicasSearch:             db.config.ForceFullReplicasSearch,
+				TransferInactivityTimeout:           db.config.TransferInactivityTimeout,
+				LSMEnableSegmentsChecksumValidation: db.config.LSMEnableSegmentsChecksumValidation,
+				ReplicationFactor:                   class.ReplicationConfig.Factor,
+				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
+				AsyncReplicationConfig:              asyncConfig,
+				AsyncReplicationWorkersLimiter:      db.asyncReplicationWorkersLimiter,
+				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+				ShardLoadLimiter:                    db.shardLoadLimiter,
+				BucketLoadLimiter:                   db.bucketLoadLimiter,
+				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill: func() bool {
 					// don't wait if lazy load shard is enabled
 					if lazyLoadShardEnabled {

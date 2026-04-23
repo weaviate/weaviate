@@ -173,9 +173,6 @@ type hnsw struct {
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
 
-	disableSnapshots  bool
-	snapshotOnStartup bool
-
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
@@ -336,8 +333,6 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		disableSnapshots:      cfg.DisableSnapshots,
-		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,

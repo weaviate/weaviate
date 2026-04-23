@@ -114,8 +114,6 @@ type dynamic struct {
 	db                           *bbolt.DB
 	ctx                          context.Context
 	cancel                       context.CancelFunc
-	hnswDisableSnapshots         bool
-	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
@@ -166,8 +164,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                           cfg.SharedDB,
 		ctx:                          ctx,
 		cancel:                       cancel,
-		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
 		AllocChecker:                 cfg.AllocChecker,
 		MakeBucketOptions:            cfg.MakeBucketOptions,
@@ -194,8 +190,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
-				DisableSnapshots:             index.hnswDisableSnapshots,
-				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
 				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
 				AllocChecker:                 index.AllocChecker,
 				MakeBucketOptions:            index.MakeBucketOptions,
@@ -536,8 +530,6 @@ func (dynamic *dynamic) doUpgrade() error {
 			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
-			DisableSnapshots:             dynamic.hnswDisableSnapshots,
-			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
 			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
 			AllocChecker:                 dynamic.AllocChecker,
 			MakeBucketOptions:            dynamic.MakeBucketOptions,

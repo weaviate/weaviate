@@ -518,38 +518,28 @@ func FromEnv(config *Config) error {
 	}
 
 	// ---- HNSW snapshots ----
-	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
-	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
-		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
-	}
-
-	if err := parseNonNegativeInt(
+	//
+	// These variables were meaningful back when HNSW snapshots were an
+	// optional add-on layered on top of the commit log. In the compactv2
+	// world the compactor owns the full on-disk lifecycle — snapshots are
+	// first-class, not an optional speedup — and there is no safe or useful
+	// interpretation for "disable snapshots" or for the interval / delta
+	// thresholds that used to throttle their creation.
+	//
+	// The environment variables are still recognized so existing deployments
+	// parse without error. If any is set we emit a one-line warning so the
+	// operator is not silently misled into thinking their setting has an
+	// effect. Unset means no warning. See RFC / commit message for context.
+	for _, envVar := range []string{
+		"PERSISTENCE_HNSW_DISABLE_SNAPSHOTS",
 		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
-		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
-		DefaultHNSWSnapshotIntervalSeconds,
-	); err != nil {
-		return err
-	}
-
-	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
-	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
-		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
-	}
-
-	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP",
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
-		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
-		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
-	); err != nil {
-		return err
-	}
-
-	if err := parseNonNegativeInt(
 		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
-		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
-		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
-	); err != nil {
-		return err
+	} {
+		if _, set := os.LookupEnv(envVar); set {
+			logrus.Warnf("%s is set but is a no-op as of 1.38.0: HNSW snapshots are always created and managed automatically; this variable has no effect and will be removed in a future version", envVar)
+		}
 	}
 	// ---- HNSW snapshots ----
 
