@@ -197,8 +197,19 @@ func (s *SnapshotWriter) ensureNodesCapacity(nodeID uint64) {
 	s.nodes = newNodes
 }
 
-// AddTombstone marks a node as having a tombstone without adding node data.
-// This is used for nodes that were deleted but still need tombstone tracking.
+// AddTombstone marks a standalone tombstone for a nil slot.
+//
+// Note that this does NOT cause a tombstone to be emitted to the snapshot
+// body: the V3 snapshot format has only three existence bytes (0=absent,
+// 1=alive-with-tombstone, 2=alive-without-tombstone) and no encoding for a
+// "deleted-with-tombstone" slot. Tombstones on nil slots are dropped by
+// writeBody on purpose — see the comment there for why that is safe under
+// the runtime's cleanup ordering.
+//
+// The method is retained for API symmetry and because it still has a visible
+// side effect on sizing: it grows the nodes slice so that the nodes-array
+// length reported in the metadata block covers nodeID. Use AddNode with
+// hasTombstone=true to persist a tombstone for an alive node.
 func (s *SnapshotWriter) AddTombstone(nodeID uint64) {
 	// Expand nodes slice if needed to include this tombstone
 	s.ensureNodesCapacity(nodeID)
@@ -453,15 +464,21 @@ func (s *SnapshotWriter) writeBody() error {
 			_ = writeUint32(&nodeBuf, uint32(len(connData)))
 			_, _ = nodeBuf.Write(connData)
 		} else {
-			// Check if this is a tombstone-only entry
-			if _, hasTombstone := s.tombstones[nodeID]; hasTombstone {
-				// Node was deleted but has tombstone - write as nil
-				// (tombstone info is tracked separately)
-				_ = writeByte(&nodeBuf, 0)
-			} else {
-				// nil node
-				_ = writeByte(&nodeBuf, 0)
-			}
+			// Nil slot: either the node never existed or it was deleted.
+			// If an entry for this ID exists in s.tombstones it is dropped
+			// on purpose — the snapshot format has no encoding for a
+			// deleted-but-tombstoned slot, and it does not need one.
+			// DeleteNode is only emitted by the runtime after
+			// reassignNeighborsOf has rewritten every surviving node's
+			// outbound links to exclude this ID (see
+			// adapters/repos/db/vector/hnsw/delete.go, cleanUpTombstonedNodes:
+			// reassignNeighborsOf is ordered strictly before
+			// removeTombstonesAndNodes, which is the only writer of
+			// DeleteNode). In a snapshot — which is an absolute-state root
+			// file, never layered on top of older logs — no survivor
+			// references this slot, so the tombstone has nothing left to
+			// drive and is operationally equivalent to "never existed".
+			_ = writeByte(&nodeBuf, 0)
 		}
 
 		// Check if node fits in current block
@@ -587,18 +604,15 @@ func (s *SnapshotWriter) WriteFromMerger(merger *NWayMerger) error {
 			break
 		}
 
-		// Convert commits to absolute state
+		// Convert commits to absolute state. A nil return means the node
+		// is deleted (commitsToNodeState's only nil-return path) and is
+		// therefore absent from the snapshot's absolute state. Any
+		// AddTombstoneCommit paired with a DeleteNodeCommit is dropped
+		// here deliberately — see writeBody for the invariant that makes
+		// this safe.
 		state := s.commitsToNodeState(nodeCommits)
 		if state != nil {
 			s.AddNode(nodeCommits.NodeID, state.level, state.connections, state.hasTombstone)
-		} else {
-			// Check if there's just a tombstone for this node
-			for _, c := range nodeCommits.Commits {
-				if _, ok := c.(*AddTombstoneCommit); ok {
-					s.AddTombstone(nodeCommits.NodeID)
-					break
-				}
-			}
 		}
 	}
 

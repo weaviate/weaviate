@@ -440,7 +440,6 @@ func TestCrashRecovery_CorruptedCommitType(t *testing.T) {
 	// (truncate and recover) or by returning an error. It should NOT panic.
 	loader := NewLoader(LoaderConfig{Dir: dir, Logger: logger})
 	result, err := loader.Load()
-
 	// We accept either: error returned, or successful recovery with valid prefix
 	if err != nil {
 		// Error is acceptable — the key thing is no panic
