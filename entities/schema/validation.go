@@ -14,6 +14,7 @@ package schema
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var (
@@ -22,6 +23,20 @@ var (
 	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
 	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
 	reservedPropertyNames           = []string{"_additional", "_id", "id"}
+	// reservedPropertyNameSuffixes are suffixes appended to property names to
+	// form internal bucket/directory names for inverted and auxiliary indices.
+	// A user property ending in one of these would collide with the bucket of
+	// another property. Kept in sync with helpers.BucketSearchableFromPropNameLSM,
+	// helpers.BucketRangeableFromPropNameLSM, helpers.TempBucketFromBucketName,
+	// helpers.MetaCountProp, filters.InternalPropertyLength, filters.InternalNullIndex.
+	reservedPropertyNameSuffixes = []string{
+		"_searchable",
+		"_rangeable",
+		"_temp",
+		"__meta_count",
+		"_propertyLength",
+		"_nullState",
+	}
 )
 
 const (
@@ -161,6 +176,19 @@ func ValidateReservedPropertyName(name string) error {
 	for i := range reservedPropertyNames {
 		if name == reservedPropertyNames[i] {
 			return fmt.Errorf("'%s' is a reserved property name", name)
+		}
+	}
+	return nil
+}
+
+// ValidateReservedPropertyNameSuffix rejects property names whose suffix would
+// collide with internal bucket/directory names derived from other properties.
+// Only applied on creation paths — existing schemas (backup restore, startup)
+// must continue to load even if they contain legacy names matching these suffixes.
+func ValidateReservedPropertyNameSuffix(name string) error {
+	for _, suffix := range reservedPropertyNameSuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return fmt.Errorf("'%s' is not a valid property name: suffix '%s' is reserved for internal indices", name, suffix)
 		}
 	}
 	return nil

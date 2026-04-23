@@ -58,6 +58,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		if prop.DataType == nil {
 			return nil, 0, fmt.Errorf("property must contain dataType")
 		}
+		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
