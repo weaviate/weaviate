@@ -24,10 +24,6 @@ import (
 func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32,
 	dist float32, ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
-	if h.isEmpty() {
-		return nil, nil
-	}
-
 	h.RLock()
 	entryPointID := h.entryPointID
 	maxLayer := h.currentMaximumLayer

@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -95,6 +95,7 @@ func (m *mockVectorCompressor) NewBag() compressionhelpers.CompressionDistanceBa
 func (m *mockVectorCompressor) PersistCompression(compressionhelpers.CommitLogger) {}
 func (m *mockVectorCompressor) Stats() compressionhelpers.CompressionStats         { return nil }
 func (m *mockVectorCompressor) Get(id uint64) ([]float32, error)                   { return m.vectors[id], nil }
+func (m *mockVectorCompressor) GetCompressed(id uint64) (any, error)               { return nil, nil }
 
 // TestSearchWithMissingEntrypoint is a behavioral regression test.
 // Without fix: search returns error "entrypoint was deleted..."

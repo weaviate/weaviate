@@ -746,10 +746,6 @@ func (h *hnsw) findFallbackEntrypoint(
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	if h.isEmpty() {
-		return nil, nil, nil
-	}
-
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
 	}
