@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type reassignOperation struct {
@@ -59,6 +60,18 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 	// of the vector in other postings.
 	version, err = h.VersionMap.Increment(ctx, op.VectorID, version)
 	if err != nil {
+		if errors.Is(err, storagestate.ErrStatusReadOnly) {
+			// The shard is transiently READONLY (e.g. during a config update).
+			// Clear our deduplicator slot so EnqueueReassign can accept the retry,
+			// then re-enqueue. The deferred ReassignDone above will call done()
+			// again on return, which is a safe no-op on an already-absent key.
+			h.taskQueue.ReassignDone(op.VectorID)
+			if enqErr := h.taskQueue.EnqueueReassign(op.PostingID, op.VectorID, version); enqErr != nil {
+				h.logger.WithField("vectorID", op.VectorID).
+					Error("hfresh: failed to re-enqueue reassign after transient read-only error: " + enqErr.Error())
+			}
+			return nil
+		}
 		h.logger.WithField("vectorID", op.VectorID).
 			WithError(err).
 			Error("failed to increment version map for vector, skipping reassign operation")
