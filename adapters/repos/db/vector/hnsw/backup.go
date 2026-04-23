@@ -57,7 +57,13 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 			return statErr
 		}
 
-		// only list non-empty files
+		// Only list non-empty files. This is the sole filter needed to
+		// exclude the active commit log: PrepareForBackup rotates the writer
+		// to a freshly created empty raw file before ListFiles runs, so the
+		// live append target has size 0 and is skipped here. Starting with
+		// the "always create a new raw file at startup" invariant, the live
+		// file is by construction empty whenever ListFiles is called
+		// immediately after PrepareForBackup.
 		if st.Size() > 0 {
 			rel, relErr := filepath.Rel(basePath, pth)
 			if relErr != nil {
@@ -71,19 +77,6 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files for hnsw commitlog: %w", err)
 	}
-
-	curr, _, err := getCurrentCommitLogFileName(logRoot)
-	if err != nil {
-		return nil, fmt.Errorf("current commitlog file name: %w", err)
-	}
-
-	// remove active log from list, as
-	// it is not part of the backup
-	path, err := filepath.Rel(basePath, filepath.Join(logRoot, curr))
-	if err != nil {
-		return nil, fmt.Errorf("delete active log: %w", err)
-	}
-	delete(found, path)
 
 	files = make([]string, 0, len(found))
 	for file := range found {

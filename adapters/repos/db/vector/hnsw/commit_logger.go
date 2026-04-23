@@ -58,7 +58,6 @@ type hnswCommitLogger struct {
 
 	// Config
 	maxSizeIndividual int64
-	forceNewFile      bool // if true, create a new file instead of appending to existing
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -87,9 +86,18 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	// Create or open the current commit log file.
-	// If forceNewFile is set (e.g., after crash recovery), always create a new file.
-	fd, fileName, err := getLatestCommitFileOrCreate(rootPath, name, l.forceNewFile, l.fs)
+	// Always start a fresh raw commit log file. Reusing an existing file is a
+	// footgun: getCurrentCommitLogFileName used to select the append target
+	// by highest parsed timestamp, which let it hand back a .snapshot /
+	// .sorted / .condensed file and the next AddNode would corrupt it (block
+	// CRCs become invalid on next SnapshotReader load). Creating a new file
+	// every startup eliminates the class of bug — the append path can never
+	// land on anything but a freshly created raw file that we own.
+	//
+	// Any existing zero-byte raw files from previous startups that the
+	// compactor hasn't yet absorbed are pruned first so the directory never
+	// accumulates more than one empty raw file at a time.
+	fd, fileName, err := createNewCommitFile(rootPath, name, l.fs, l.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -126,26 +134,40 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func getLatestCommitFileOrCreate(rootPath, name string, forceNewFile bool, fs common.FS) (common.File, string, error) {
+// createNewCommitFile always starts a fresh raw commit log file, regardless
+// of what already exists in the directory. Before creating the new file, any
+// zero-byte raw files left behind by previous startups (that the compactor
+// hasn't yet absorbed into a .sorted file) are pruned so the directory holds
+// at most one empty raw file at a time.
+//
+// This is the append target — so by construction it is:
+//   - a raw file (pure-timestamp name, no .snapshot/.sorted/.condensed suffix)
+//   - newly created in this process, never reused across restarts
+//
+// Previous versions picked the highest-timestamp file in the directory as the
+// append target, which could return a snapshot/sorted/condensed file and
+// corrupt it on the next WAL write.
+func createNewCommitFile(rootPath, name string, fs common.FS, logger logrus.FieldLogger) (common.File, string, error) {
 	dir := commitLogDirectory(rootPath, name)
-	err := fs.MkdirAll(dir, os.ModePerm)
-	if err != nil {
+	if err := fs.MkdirAll(dir, os.ModePerm); err != nil {
 		return nil, "", errors.Wrap(err, "create commit logger directory")
 	}
 
-	fileName, ok, err := getCurrentCommitLogFileName(dir)
-	if err != nil {
-		return nil, "", errors.Wrap(err, "find commit logger file in directory")
+	if err := pruneEmptyRawCommitLogs(dir, logger); err != nil {
+		// Pruning is best-effort housekeeping — never fatal. A leftover empty
+		// raw file will simply be absorbed by the next compaction cycle.
+		logger.WithError(err).
+			WithField("action", "hnsw_commit_log_prune_empty").
+			Warn("failed to prune empty raw commit log files; continuing")
 	}
 
-	if !ok || forceNewFile {
-		// Create a new commit log with the current timestamp.
-		// forceNewFile is used after crash recovery to avoid appending to
-		// a potentially corrupted file.
-		fileName = fmt.Sprintf("%d", time.Now().Unix())
-	}
-
+	fileName := fmt.Sprintf("%d", time.Now().Unix())
 	filePath := commitLogFileName(rootPath, name, fileName)
+	// Still pass O_CREATE for correctness on a fresh directory; O_EXCL would
+	// fail in the (extremely unlikely) case of a 1-second restart collision
+	// where a prior empty raw file with the same timestamp still exists, and
+	// the consequences of the O_APPEND fallback here are harmless because
+	// the prior file is — by definition — also a raw file we own.
 	fd, err := fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "create commit log file")
@@ -154,67 +176,72 @@ func getLatestCommitFileOrCreate(rootPath, name string, forceNewFile bool, fs co
 	return fd, filePath, nil
 }
 
-// getCurrentCommitLogFileName returns the fileName and true if a file was
-// present. If no file was present, the second arg is false.
-func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
+// pruneEmptyRawCommitLogs removes zero-byte raw commit log files from the
+// directory. Raw files are identified by a pure-numeric filename; any file
+// with a suffix like .snapshot/.sorted/.condensed or a range form with '_'
+// is not a raw file and is never touched by this function.
+func pruneEmptyRawCommitLogs(dir string, logger logrus.FieldLogger) error {
+	entries, err := listRawCommitLogFiles(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			// Entry vanished between ReadDir and Info; nothing to prune.
+			continue
+		}
+		if info.Size() != 0 {
+			continue
+		}
+		path := fmt.Sprintf("%s/%s", dir, entry.Name())
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logger.WithError(err).
+				WithField("action", "hnsw_commit_log_prune_empty").
+				WithField("file", entry.Name()).
+				Warn("failed to remove empty raw commit log file")
+			continue
+		}
+		logger.WithFields(logrus.Fields{
+			"action": "hnsw_commit_log_prune_empty",
+			"file":   entry.Name(),
+		}).Debug("removed empty raw commit log file from a previous startup")
+	}
+	return nil
+}
+
+// listRawCommitLogFiles returns the directory entries that represent raw
+// commit log files — i.e. entries whose name is a pure timestamp with no
+// ".snapshot" / ".sorted" / ".condensed" suffix and no "_" range separator.
+// Hidden files and ".tmp" scratch files are also excluded.
+func listRawCommitLogFiles(dirPath string) ([]os.DirEntry, error) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return "", false, errors.Wrap(err, "browse commit logger directory")
+		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
 
-	// Filter and find the most recent file
-	var latestName string
-	var latestTS int64
-
+	raws := make([]os.DirEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-
-		// Skip hidden files and temp files
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
 		if strings.HasSuffix(name, ".tmp") {
 			continue
 		}
-
-		// Parse timestamp from filename
-		ts, err := parseTimestamp(name)
-		if err != nil {
+		// A raw file's name must be a pure timestamp: no extension, no range.
+		if strings.ContainsAny(name, "._") {
 			continue
 		}
-
-		if ts > latestTS {
-			latestTS = ts
-			latestName = name
+		if _, err := strconv.ParseInt(name, 10, 64); err != nil {
+			continue
 		}
+		raws = append(raws, entry)
 	}
-
-	if latestName == "" {
-		return "", false, nil
-	}
-
-	return latestName, true, nil
-}
-
-// parseTimestamp extracts the start timestamp from a commit log filename.
-// Handles formats like: "1234567890", "1234567890.condensed", "1234567890.sorted",
-// and range formats like "1234567890_1234567891.sorted".
-func parseTimestamp(name string) (int64, error) {
-	// Remove known suffixes
-	baseName := name
-	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
-		baseName = strings.TrimSuffix(baseName, suffix)
-	}
-
-	// Handle range format: {start}_{end}
-	if idx := strings.Index(baseName, "_"); idx != -1 {
-		baseName = baseName[:idx]
-	}
-
-	return strconv.ParseInt(baseName, 10, 64)
+	return raws, nil
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions

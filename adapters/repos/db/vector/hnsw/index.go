@@ -120,11 +120,6 @@ type hnsw struct {
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
 
-	// recoveredFromCrash is set to true if a truncated/corrupt WAL file was
-	// detected during startup. When true, the commit logger should start a
-	// new file instead of appending to the existing one.
-	recoveredFromCrash atomic.Bool
-
 	commitLog CommitLogger
 
 	// a lookup of current tombstones (i.e. nodes that have received a tombstone,

@@ -31,20 +31,16 @@ import (
 func (h *hnsw) init(cfg Config) error {
 	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
 
-	// First restore from disk to determine if crash recovery occurred.
-	// This must happen before creating the commit logger so we can pass
-	// the forceNewFile option if needed.
+	// Restore from disk. This loads existing snapshot/sorted/raw files into
+	// in-memory state.
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
 
-	// Create commit logger for future writes.
-	// If crash recovery occurred, force creation of a new file.
-	var commitLogOpts []CommitlogOption
-	if h.recoveredFromCrash.Load() {
-		commitLogOpts = append(commitLogOpts, WithForceNewFile())
-	}
-	cl, err := cfg.MakeCommitLoggerThunk(commitLogOpts...)
+	// Create commit logger for future writes. The logger unconditionally
+	// creates a new raw file and never appends to an existing one — see
+	// createNewCommitFile's comment for why.
+	cl, err := cfg.MakeCommitLoggerThunk()
 	if err != nil {
 		return errors.Wrap(err, "create commit logger")
 	}
@@ -60,7 +56,9 @@ func (h *hnsw) init(cfg Config) error {
 }
 
 // restoreFromDisk loads the HNSW state from commit log files using compact.Loader.
-// If a truncated/corrupt WAL file is detected, it sets h.recoveredFromCrash to true.
+// A truncated/corrupt WAL file is logged for diagnostic purposes but does not
+// change the commit logger's behavior: the commit logger always starts a new
+// raw file anyway, so there is no "append to the corrupted file" path to avoid.
 func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
@@ -98,12 +96,11 @@ func (h *hnsw) restoreFromDisk() error {
 		return nil
 	}
 
-	// If we recovered from a crash (truncated a corrupt WAL file), we should
-	// start a new commit log file instead of appending to the potentially
-	// corrupted one. Store this flag for use when creating the commit logger.
+	// A truncated/corrupt WAL was detected and truncated during load. Log
+	// for diagnostic visibility. The commit logger will start a fresh raw
+	// file regardless, so no further action is needed here.
 	if loadResult.RecoveredFromCrash {
-		h.recoveredFromCrash.Store(true)
-		h.logger.Info("recovered from crash - will start new commit log file")
+		h.logger.Info("recovered from crash - truncated corrupt WAL tail during restore")
 	}
 
 	// Apply loaded state to index
