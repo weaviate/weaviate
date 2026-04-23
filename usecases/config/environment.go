@@ -960,6 +960,16 @@ func FromEnv(config *Config) error {
 	}
 	config.QuerySlowLogThreshold = configRuntime.NewDynamicValue(querySlowLogThreshold)
 
+	queryHedgedTimeout := time.Duration(0)
+	if v := os.Getenv("QUERY_HEDGED_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_HEDGED_TIMEOUT as time.Duration: %w", err)
+		}
+		queryHedgedTimeout = d
+	}
+	config.QueryHedgedTimeout = configRuntime.NewDynamicValue(queryHedgedTimeout)
+
 	envName := "QUERY_BITMAP_BUFS_MAX_MEMORY"
 	config.QueryBitmapBufsMaxMemory = DefaultQueryBitmapBufsMaxMemory
 	if v := os.Getenv(envName); v != "" {

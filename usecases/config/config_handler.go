@@ -206,6 +206,8 @@ type Config struct {
 	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 
+	QueryHedgedTimeout *runtime.DynamicValue[time.Duration] `json:"query_hedged_timeout" yaml:"query_hedged_timeout"`
+
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 

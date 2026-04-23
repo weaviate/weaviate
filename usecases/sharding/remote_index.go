@@ -35,13 +35,16 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
+
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 type RemoteIndex struct {
-	class        string
-	stateGetter  shardingStateGetter
-	client       RemoteIndexClient
-	nodeResolver nodeResolver
+	class         string
+	stateGetter   shardingStateGetter
+	client        RemoteIndexClient
+	nodeResolver  nodeResolver
+	hedgedTimeout *configRuntime.DynamicValue[time.Duration]
 }
 
 type shardingStateGetter interface {
@@ -53,12 +56,14 @@ type shardingStateGetter interface {
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
 	client RemoteIndexClient,
+	hedgedTimeout *configRuntime.DynamicValue[time.Duration],
 ) *RemoteIndex {
 	return &RemoteIndex{
-		class:        className,
-		stateGetter:  stateGetter,
-		client:       client,
-		nodeResolver: nodeResolver,
+		class:         className,
+		stateGetter:   stateGetter,
+		client:        client,
+		nodeResolver:  nodeResolver,
+		hedgedTimeout: hedgedTimeout,
 	}
 }
 
@@ -318,7 +323,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		first  []*storobj.Object
 		second []float32
 	}
-	f := func(node, host string) (interface{}, error) {
+	f := func(ctx context.Context, node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
 		if err != nil {
@@ -326,7 +331,11 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		}
 		return pair{objs, scores}, err
 	}
-	rr, node, err := ri.queryReplicas(ctx, shard, f)
+	var hedgedTimeout time.Duration
+	if ri.hedgedTimeout != nil {
+		hedgedTimeout = ri.hedgedTimeout.Get()
+	}
+	rr, node, err := ri.queryReplicas(ctx, shard, hedgedTimeout, f)
 	if err != nil {
 		return nil, nil, node, err
 	}
@@ -339,14 +348,18 @@ func (ri *RemoteIndex) Aggregate(
 	shard string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	f := func(_, host string) (interface{}, error) {
+	f := func(ctx context.Context, _, host string) (interface{}, error) {
 		r, err := ri.client.Aggregate(ctx, host, ri.class, shard, params)
 		if err != nil {
 			return nil, err
 		}
 		return r, nil
 	}
-	rr, _, err := ri.queryReplicas(ctx, shard, f)
+	var hedgedTimeout time.Duration
+	if ri.hedgedTimeout != nil {
+		hedgedTimeout = ri.hedgedTimeout.Get()
+	}
+	rr, _, err := ri.queryReplicas(ctx, shard, hedgedTimeout, f)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +522,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 func (ri *RemoteIndex) queryReplicas(
 	ctx context.Context,
 	shard string,
-	do func(nodeName, host string) (interface{}, error),
+	hedgedTimeout time.Duration,
+	do func(ctx context.Context, nodeName, host string) (interface{}, error),
 ) (resp interface{}, node string, err error) {
 	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
 	if err != nil || len(replicas) == 0 {
@@ -518,28 +532,128 @@ func (ri *RemoteIndex) queryReplicas(
 			fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
 	}
 
-	queryOne := func(replica string) (interface{}, error) {
+	queryOne := func(ctx context.Context, replica string) (interface{}, error) {
 		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
 			return nil, fmt.Errorf("resolve node name %q to host", replica)
 		}
-		return do(replica, host)
+		return do(ctx, replica, host)
 	}
 
-	queryUntil := func(replicas []string) (resp interface{}, node string, err error) {
-		for _, node = range replicas {
+	// Build an ordered replica list starting from a random offset so that load
+	// is spread across replicas across requests.
+	first := rand.Intn(len(replicas))
+	ordered := make([]string, 0, len(replicas))
+	ordered = append(ordered, replicas[first:]...)
+	ordered = append(ordered, replicas[:first]...)
+
+	if hedgedTimeout <= 0 {
+		// Sequential fallback: try replicas one at a time in order.
+		for _, node = range ordered {
 			if errC := ctx.Err(); errC != nil {
 				return nil, node, errC
 			}
-			if resp, err = queryOne(node); err == nil {
+			if resp, err = queryOne(ctx, node); err == nil {
 				return resp, node, nil
 			}
 		}
 		return resp, node, err
 	}
-	first := rand.Intn(len(replicas))
-	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
-		return queryUntil(replicas[:first])
+
+	// Short-circuit if the context is already cancelled before starting any work.
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
 	}
-	return resp, node, err
+
+	// Hedged requests: launch a request to the first replica immediately, then
+	// after each hedgedTimeout interval without a successful response, launch a
+	// concurrent request to the next replica. The first successful response wins
+	// and all remaining in-flight requests are cancelled via hedgeCtx. If the
+	// outer context expires before any replica responds, its error is returned.
+	type result struct {
+		resp interface{}
+		node string
+		err  error
+	}
+	resultCh := make(chan result, len(ordered))
+
+	hedgeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	launchQuery := func(n string) {
+		// The outer GoWrapper goroutine always sends to resultCh.
+		// GoWrapperWithBlock runs queryOne in an inner goroutine: if queryOne
+		// panics, the panic is logged and reported to Sentry by the inner wrapper
+		// and returned as an error here, so the outer goroutine can still send a
+		// result to resultCh instead of leaving the main loop blocked forever.
+		enterrors.GoWrapper(func() {
+			var r interface{}
+			var e error
+			if panicErr := enterrors.GoWrapperWithBlock(func() {
+				r, e = queryOne(hedgeCtx, n)
+			}, logrus.StandardLogger()); panicErr != nil {
+				e = panicErr
+			}
+			resultCh <- result{r, n, e}
+		}, logrus.StandardLogger())
+	}
+
+	launchQuery(ordered[0])
+	launched := 1
+
+	timer := time.NewTimer(hedgedTimeout)
+	defer timer.Stop()
+
+	var lastErr error
+	var lastNode string
+	received := 0
+	for {
+		select {
+		case <-hedgeCtx.Done():
+			// Return the last launched node for observability when no result has
+			// arrived yet (lastNode is empty before the first result is received).
+			node := lastNode
+			if node == "" {
+				node = ordered[launched-1]
+			}
+			return nil, node, hedgeCtx.Err()
+		case r := <-resultCh:
+			received++
+			lastNode = r.node
+			if r.err == nil {
+				cancel()
+				return r.resp, r.node, nil
+			}
+			lastErr = r.err
+			if received == len(ordered) {
+				return nil, lastNode, lastErr
+			}
+			// Fast failure: launch the next replica immediately rather than
+			// waiting for the hedge timer to fire.
+			if launched < len(ordered) {
+				launchQuery(ordered[launched])
+				launched++
+				if launched < len(ordered) {
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(hedgedTimeout)
+				}
+			}
+		case <-timer.C:
+			// Guard against the race where both timer.C and hedgeCtx.Done() are
+			// ready simultaneously and Go's select chose timer.C — don't launch
+			// new queries after the hedge context has already been cancelled.
+			if launched < len(ordered) && hedgeCtx.Err() == nil {
+				launchQuery(ordered[launched])
+				launched++
+				if launched < len(ordered) {
+					timer.Reset(hedgedTimeout)
+				}
+			}
+		}
+	}
 }
