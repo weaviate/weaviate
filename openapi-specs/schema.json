@@ -10111,7 +10111,7 @@
     },
     {
       "name": "users",
-      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (`db` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (`db` or `oidc`), like retrieving their own information (username and assigned roles).<br/><br/>**User Types:**<br/>* **`db` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.<br/>* **`oidc` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the `authz` endpoints."
+      "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (`db` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (`db` or `oidc`), like retrieving their own information (username and assigned roles).\n\n**User Types:**\n* **`db` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\n* **`oidc` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the `authz` endpoints."
     },
     {
       "name": "classifications",
@@ -10123,7 +10123,7 @@
     },
     {
       "name": "mcp",
-      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport."
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport. Check out the [Weaviate MCP server documentation](https://docs.weaviate.io/weaviate/mcp/mcp-server) for more info."
     }
   ]
 }
