@@ -135,10 +135,8 @@ type VoyageRLModel struct {
 
 func New(apiKey string, timeout time.Duration, urlBuilder UrlBuilder, logger logrus.FieldLogger) *Client {
 	return &Client{
-		apiKey: apiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		apiKey:     apiKey,
+		httpClient: modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilder: urlBuilder,
 		logger:     logger,
 	}

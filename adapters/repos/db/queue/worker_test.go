@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func TestWorkerDo_RetryOnTransient(t *testing.T) {
@@ -111,41 +112,59 @@ func (m *mockWorkerTask) Op() uint8 {
 }
 
 func TestWorker_TransientErrorRetryIndefinitely(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	w := &Worker{
-		logger: logger,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Task that fails 3 times with transient error, then succeeds
-	failCount := int32(3) // Changed from 5
-	task := &mockWorkerTask{
-		executeFunc: func(ctx context.Context) error {
-			if atomic.LoadInt32(&failCount) > 0 {
-				atomic.AddInt32(&failCount, -1)
-				return enterrors.NewNotEnoughMemory("simulated OOM")
-			}
-			return nil
+	tests := []struct {
+		name    string
+		errFunc func() error
+	}{
+		{
+			name:    "OOM",
+			errFunc: func() error { return enterrors.NewNotEnoughMemory("simulated OOM") },
+		},
+		{
+			name:    "ReadOnly",
+			errFunc: func() error { return storagestate.ErrStatusReadOnly },
 		},
 	}
 
-	batch := &Batch{
-		Ctx:   ctx,
-		Tasks: []Task{task},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			w := &Worker{
+				logger: logger,
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Task that fails 3 times with transient error, then succeeds
+			failCount := int32(3)
+			task := &mockWorkerTask{
+				executeFunc: func(ctx context.Context) error {
+					if atomic.LoadInt32(&failCount) > 0 {
+						atomic.AddInt32(&failCount, -1)
+						return tt.errFunc()
+					}
+					return nil
+				},
+			}
+
+			batch := &Batch{
+				Ctx:   ctx,
+				Tasks: []Task{task},
+			}
+
+			start := time.Now()
+			err := w.do(batch)
+			duration := time.Since(start)
+
+			require.NoError(t, err, "batch should succeed after retries")
+			assert.Equal(t, int32(0), atomic.LoadInt32(&failCount), "all failures should be retried")
+
+			// With 3 failures: 1s + 2s + 4s = 7s total backoff
+			expectedMin := 7 * time.Second
+			assert.GreaterOrEqual(t, duration, expectedMin, "should have exponential backoff")
+		})
 	}
-
-	start := time.Now()
-	err := w.do(batch)
-	duration := time.Since(start)
-
-	require.NoError(t, err, "batch should succeed after retries")
-	assert.Equal(t, int32(0), atomic.LoadInt32(&failCount), "all failures should be retried")
-
-	// With 3 failures: 1s + 2s + 4s = 7s total backoff
-	expectedMin := 7 * time.Second // Changed from 1500ms
-	assert.GreaterOrEqual(t, duration, expectedMin, "should have exponential backoff")
 }
 
 func TestWorker_PermanentErrorFailImmediately(t *testing.T) {

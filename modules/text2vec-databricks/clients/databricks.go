@@ -61,10 +61,8 @@ type client struct {
 func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		databricksToken: databricksToken,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		httpClient:      modulecomponents.NewBaseHttpClient(timeout),
+		logger:          logger,
 	}
 }
 
@@ -120,7 +118,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.ErrorCode != "" {

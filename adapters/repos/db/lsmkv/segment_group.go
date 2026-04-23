@@ -100,6 +100,7 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// Store the average property length for segments in this sg,
@@ -128,6 +129,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
@@ -160,10 +162,27 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		sequentialAccess:             cfg.sequentialAccess,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
+	}
+
+	// Clean up stale scratch directories left behind by a prior version that
+	// used scratch files during compaction/flushing. These are no longer
+	// created, but may linger after an upgrade if the process crashed mid-
+	// compaction before the old code could remove them.
+	if entries, err := os.ReadDir(cfg.dir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && strings.HasSuffix(e.Name(), ".scratch.d") {
+				p := filepath.Join(cfg.dir, e.Name())
+				if err := os.RemoveAll(p); err != nil {
+					logger.WithError(err).WithField("path", p).
+						Warn("failed to remove stale scratch directory")
+				}
+			}
+		}
 	}
 
 	segmentIndex := 0
@@ -235,6 +254,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					sequentialAccess:         sg.sequentialAccess,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
@@ -358,6 +378,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
@@ -548,6 +569,7 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
@@ -638,13 +660,19 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 // existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
 // This is more efficient than getWithSegmentList() when only existence check is needed.
 func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) error {
+	return sg.existsWithSegmentListUpTo(key, 0, segments)
+}
+
+// existsWithSegmentList checks if a key exists and is not deleted, without reading the full value.
+// This is more efficient than getWithSegmentList() when only existence check is needed.
+func (sg *SegmentGroup) existsWithSegmentListUpTo(key []byte, segIdx int, segments []Segment) error {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return fmt.Errorf("SegmentGroup::existsWithSegmentList(): %w", err)
+		return fmt.Errorf("SegmentGroup::existsWithSegmentListUpTo(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
-	for i := len(segments) - 1; i >= 0; i-- {
+	for i := len(segments) - 1; i >= segIdx; i-- {
 		beforeSegment := time.Now()
 		err := segments[i].exists(key)
 		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
@@ -671,9 +699,9 @@ func (sg *SegmentGroup) existsWithSegmentList(key []byte, segments []Segment) er
 
 func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffer []byte,
 	segments []Segment,
-) ([]byte, []byte, []byte, error) {
+) ([]byte, []byte, []byte, int, error) {
 	if err := CheckExpectedStrategy(sg.strategy, StrategyReplace); err != nil {
-		return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
+		return nil, nil, nil, -1, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList(): %w", err)
 	}
 
 	// start with latest and exit as soon as something is found, thus making sure
@@ -690,16 +718,16 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 				}).Debug("waited over 100ms to get result from individual segment")
 		}
 		if err == nil {
-			return k, v, allocBuf, nil
+			return k, v, allocBuf, i, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			return nil, nil, nil, err
+			return nil, nil, nil, i, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, nil, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
+			return nil, nil, nil, i, fmt.Errorf("SegmentGroup::getBySecondaryWithSegmentList() %q: %w", segments[i].getPath(), err)
 		}
 	}
-	return nil, nil, nil, lsmkv.NotFound
+	return nil, nil, nil, -1, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
@@ -868,6 +896,15 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	defer sg.maintenanceLock.Unlock()
 
 	for _, seg := range sg.segments {
+		// For sequential-access buckets, drop page cache entries before
+		// closing to avoid polluting the cache with pages that won't be
+		// accessed again. Best-effort: fadvise is purely advisory.
+		if sg.sequentialAccess {
+			if cs, ok := seg.(*segment); ok && cs.contentFile != nil {
+				_ = fadviseDontNeed(cs.contentFile, cs.size)
+			}
+		}
+
 		if err := seg.close(); err != nil {
 			return err
 		}

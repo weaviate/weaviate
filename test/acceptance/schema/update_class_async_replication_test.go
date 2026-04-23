@@ -53,7 +53,7 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 		{
 			name: "workload 1",
 			config: &models.ReplicationAsyncConfig{
-				MaxWorkers:                  int64Ptr(20),
+				MaxWorkers:                  int64Ptr(10),
 				HashtreeHeight:              int64Ptr(10),
 				Frequency:                   int64Ptr(60000),
 				FrequencyWhilePropagating:   int64Ptr(5000),

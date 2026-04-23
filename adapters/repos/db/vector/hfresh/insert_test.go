@@ -70,7 +70,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 			name:                   "max posting size kb large vector",
 			maxPostingSizeKB:       8,
 			vectorDim:              4096,
-			expectedMaxPostingSize: 16,
+			expectedMaxPostingSize: 192,
 		},
 	}
 
@@ -96,7 +96,7 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 			cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 
 			scheduler.Start()
-			defer scheduler.Close()
+			defer scheduler.Close(t.Context())
 
 			uc := ent.NewDefaultUserConfig()
 			uc.MaxPostingSizeKB = tt.maxPostingSizeKB

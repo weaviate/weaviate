@@ -45,6 +45,9 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)
 	}
+	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
+		logger = logger.WithField("client_identifier", clientIdentifier)
+	}
 
 	if len(principal.Groups) > 0 {
 		logger = logger.WithField("groups", principal.Groups)
@@ -126,6 +129,9 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		"component":      authorization.ComponentName,
 		"request_action": verb,
 	})
+	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
+		logger = logger.WithField("client_identifier", clientIdentifier)
+	}
 
 	if len(principal.Groups) > 0 {
 		logger = logger.WithField("groups", principal.Groups)

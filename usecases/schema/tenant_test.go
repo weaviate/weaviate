@@ -13,14 +13,17 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestAddTenants(t *testing.T) {
@@ -524,5 +527,113 @@ func TestGetConsistentTenants_WithAlias(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, expectedTenants, tenants)
 		fakeSchemaManager.AssertExpectations(t)
+	})
+}
+
+// autoActivateSM wraps fakeSchemaManager with a proper QueryTenantsShards
+// that returns configurable tenant statuses, needed to trigger auto-activation.
+type autoActivateSM struct {
+	*fakeSchemaManager
+	tenantStatuses map[string]string
+}
+
+func (a *autoActivateSM) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+	result := make(map[string]string, len(tenants))
+	for _, t := range tenants {
+		if s, ok := a.tenantStatuses[t]; ok {
+			result[t] = s
+		} else {
+			result[t] = models.TenantActivityStatusHOT
+		}
+	}
+	return result, 0, nil
+}
+
+// TestAutoTenantActivation_TransitionalStateRejected verifies that when a request
+// triggers auto-activation of a tenant that is currently mid-freeze or mid-unfreeze,
+// the activation fails and the error propagates back to the original caller.
+//
+// This guards against the data-loss race where an HOT request (via auto-activation)
+// would trigger UNFREEZE while the FREEZE goroutine is still running.
+func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
+	ctx := context.Background()
+	const (
+		className  = "TestClass"
+		tenantName = "tenant1"
+	)
+
+	// Build a class with AutoTenantActivation enabled
+	autoActClass := &models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: true,
+		},
+	}
+
+	t.Run("activateTenantIfInactive propagates ErrTenantTransitionalState", func(t *testing.T) {
+		// This is the core of the bug: auto-activation calls UpdateTenants(HOT) while
+		// the tenant is FREEZING. The schema layer now returns ErrTenantTransitionalState
+		// which must propagate back to the caller so the original request is rejected.
+		sm := &fakeSchemaManager{}
+		sm.On("UpdateTenants", className, mock.Anything).Return(
+			uint64(0),
+			fmt.Errorf("%w: mid-freeze", clusterSchema.ErrTenantTransitionalState),
+		)
+
+		m := &Manager{
+			Handler: Handler{
+				schemaManager: sm,
+			},
+		}
+
+		// Tenant is in FREEZING (mid-freeze), so activateTenantIfInactive will call UpdateTenants
+		status := map[string]string{tenantName: models.TenantActivityStatusFREEZING}
+		_, _, err := m.activateTenantIfInactive(ctx, className, status)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, clusterSchema.ErrTenantTransitionalState)
+		sm.AssertExpectations(t)
+	})
+
+	t.Run("TenantsShardsWithVersion auto-activation rejects transitional tenant", func(t *testing.T) {
+		// Full end-to-end path: TenantsShardsWithVersion → AllowImplicitTenantActivation
+		// → activateTenantIfInactive → UpdateTenants → ErrTenantTransitionalState.
+		sm := &fakeSchemaManager{}
+
+		// Read is called by AllowImplicitTenantActivation; invoke the callback with a
+		// class that has AutoTenantActivation enabled.
+		sm.On("Read", className, mock.Anything).
+			Run(func(args mock.Arguments) {
+				reader := args.Get(1).(func(*models.Class, *sharding.State) error)
+				_ = reader(autoActClass, nil)
+			}).
+			Return(nil)
+
+		// UpdateTenants is called by activateTenantIfInactive with the HOT request.
+		sm.On("UpdateTenants", className, mock.Anything).Return(
+			uint64(0),
+			fmt.Errorf("%w: mid-freeze", clusterSchema.ErrTenantTransitionalState),
+		)
+
+		// Wrap with autoActivateSM so QueryTenantsShards returns FREEZING (mid-freeze),
+		// which triggers auto-activation and matches the transitional-state scenario.
+		asm := &autoActivateSM{
+			fakeSchemaManager: sm,
+			tenantStatuses:    map[string]string{tenantName: models.TenantActivityStatusFREEZING},
+		}
+
+		m := &Manager{
+			Handler: Handler{
+				schemaManager: asm,
+				schemaReader:  sm,
+			},
+		}
+
+		_, _, err := m.TenantsShardsWithVersion(ctx, className, tenantName)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, clusterSchema.ErrTenantTransitionalState)
+		sm.AssertExpectations(t)
 	})
 }

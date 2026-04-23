@@ -377,7 +377,7 @@ func TestObjectTTLMultiNode(t *testing.T) {
 					t.Logf("tenant %q has %d objects, expected 50", tenant.Name, count)
 				}
 
-				require.Equal(t, int(count), 50) // unaffected
+				require.Equal(t, 50, int(count)) // unaffected
 			}
 		}
 	})

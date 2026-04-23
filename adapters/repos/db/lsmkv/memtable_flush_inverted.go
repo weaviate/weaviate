@@ -13,20 +13,17 @@ package lsmkv
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"math"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/gobenc"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
@@ -173,6 +170,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 			actuallyWritten++
 		}
 	}
+	keys = keys[:actuallyWritten]
 
 	tombstoneOffset := totalWritten
 
@@ -187,8 +185,6 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	}
 	totalWritten += len(tombstoneBuffer)
 	propLengthsOffset := totalWritten
-
-	b := new(bytes.Buffer)
 
 	propLengthAvg := float64(propLengthSum) / float64(propLengthCount)
 
@@ -208,25 +204,22 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	}
 	totalWritten += 8
 
-	e := gob.NewEncoder(b)
-
-	// Encoding the map
-	err := e.Encode(docIdsLengths)
+	encoded, err := gobenc.Encode(docIdsLengths)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
+	binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
 	if _, err := bw.Write(buf); err != nil {
 		return nil, nil, err
 	}
 	totalWritten += 8
 
-	if _, err := bw.Write(b.Bytes()); err != nil {
+	if _, err := bw.Write(encoded); err != nil {
 		return nil, nil, err
 	}
 
-	totalWritten += b.Len()
+	totalWritten += len(encoded)
 
 	treeOffset := totalWritten
 
@@ -242,14 +235,9 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: m.secondaryIndices,
-		ScratchSpacePath:    m.path + ".scratch.d",
-		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
-			"strategy":  m.strategy,
-			"operation": "writeIndices",
-		}),
 	}
 
-	if _, err := f.WriteIndexes(indexes, int64(m.size)); err != nil {
+	if _, err := f.WriteIndexes(indexes); err != nil {
 		return nil, nil, err
 	}
 
@@ -265,5 +253,5 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		return nil, nil, fmt.Errorf("write headers: %w", err)
 	}
 
-	return keys[:actuallyWritten], tombstones, nil
+	return keys, tombstones, nil
 }

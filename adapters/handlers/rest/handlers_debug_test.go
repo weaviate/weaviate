@@ -18,152 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	ucfg "github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
-
-func TestSkipSensitiveConfig(t *testing.T) {
-	tests := []struct {
-		name                 string
-		input                ucfg.Config
-		expectAuthZero       bool
-		expectAuthzZero      bool
-		expectBasicAuthEmpty bool
-		expectIntact         func(*testing.T, ucfg.Config)
-	}{
-		{
-			name: "authentication with API keys is skipped",
-			input: ucfg.Config{
-				Authentication: ucfg.Authentication{
-					APIKey: ucfg.StaticAPIKey{
-						Enabled:     true,
-						AllowedKeys: []string{"secret-key"},
-					},
-				},
-				Persistence: ucfg.Persistence{DataPath: "/test/data"},
-			},
-			expectAuthZero:       true,
-			expectAuthzZero:      true,
-			expectBasicAuthEmpty: true,
-			expectIntact: func(t *testing.T, result ucfg.Config) {
-				assert.Equal(t, "/test/data", result.Persistence.DataPath)
-			},
-		},
-		{
-			name: "authorization with users is skipped",
-			input: ucfg.Config{
-				Authorization: ucfg.Authorization{
-					AdminList: adminlist.Config{
-						Enabled: true,
-						Users:   []string{"admin"},
-					},
-				},
-				Persistence: ucfg.Persistence{DataPath: "/test/data"},
-			},
-			expectAuthZero:       true,
-			expectAuthzZero:      true,
-			expectBasicAuthEmpty: true,
-			expectIntact: func(t *testing.T, result ucfg.Config) {
-				assert.Equal(t, "/test/data", result.Persistence.DataPath)
-			},
-		},
-		{
-			name: "cluster basic auth credentials are cleared",
-			input: ucfg.Config{
-				Cluster: cluster.Config{
-					AuthConfig: cluster.AuthConfig{
-						BasicAuth: cluster.BasicAuth{
-							Username: "admin",
-							Password: "secret",
-						},
-					},
-					Hostname: "test-host",
-				},
-				Persistence: ucfg.Persistence{DataPath: "/test/data"},
-			},
-			expectAuthZero:       true,
-			expectAuthzZero:      true,
-			expectBasicAuthEmpty: true,
-			expectIntact: func(t *testing.T, result ucfg.Config) {
-				assert.Equal(t, "test-host", result.Cluster.Hostname)
-				assert.Equal(t, "/test/data", result.Persistence.DataPath)
-			},
-		},
-		{
-			name: "all sensitive sections are skipped",
-			input: ucfg.Config{
-				Authentication: ucfg.Authentication{
-					APIKey: ucfg.StaticAPIKey{
-						Enabled:     true,
-						AllowedKeys: []string{"secret-key"},
-					},
-				},
-				Authorization: ucfg.Authorization{
-					Rbac: rbacconf.Config{
-						Enabled:   true,
-						RootUsers: []string{"root"},
-					},
-				},
-				Cluster: cluster.Config{
-					AuthConfig: cluster.AuthConfig{
-						BasicAuth: cluster.BasicAuth{
-							Username: "user",
-							Password: "pass",
-						},
-					},
-				},
-				Persistence:   ucfg.Persistence{DataPath: "/test/data"},
-				QueryDefaults: ucfg.QueryDefaults{Limit: 100},
-			},
-			expectAuthZero:       true,
-			expectAuthzZero:      true,
-			expectBasicAuthEmpty: true,
-			expectIntact: func(t *testing.T, result ucfg.Config) {
-				assert.Equal(t, "/test/data", result.Persistence.DataPath)
-				assert.Equal(t, int64(100), result.QueryDefaults.Limit)
-			},
-		},
-		{
-			name: "non-sensitive config remains intact",
-			input: ucfg.Config{
-				Persistence:             ucfg.Persistence{DataPath: "/test/data"},
-				QueryDefaults:           ucfg.QueryDefaults{Limit: 10},
-				DefaultVectorizerModule: "text2vec-openai",
-			},
-			expectAuthZero:       true,
-			expectAuthzZero:      true,
-			expectBasicAuthEmpty: true,
-			expectIntact: func(t *testing.T, result ucfg.Config) {
-				assert.Equal(t, "/test/data", result.Persistence.DataPath)
-				assert.Equal(t, int64(10), result.QueryDefaults.Limit)
-				assert.Equal(t, "text2vec-openai", result.DefaultVectorizerModule)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := skipSensitiveConfig(tt.input)
-
-			if tt.expectAuthZero {
-				assert.Equal(t, ucfg.Authentication{}, result.Authentication)
-			}
-			if tt.expectAuthzZero {
-				assert.Equal(t, ucfg.Authorization{}, result.Authorization)
-			}
-			if tt.expectBasicAuthEmpty {
-				assert.Equal(t, "", result.Cluster.AuthConfig.BasicAuth.Username)
-				assert.Equal(t, "", result.Cluster.AuthConfig.BasicAuth.Password)
-			}
-			if tt.expectIntact != nil {
-				tt.expectIntact(t, result)
-			}
-		})
-	}
-}
 
 func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
 	// Test that runtime DynamicValue updates are reflected in the marshaled output
@@ -173,7 +30,7 @@ func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
 		Persistence:         ucfg.Persistence{DataPath: "/test/data"},
 	}
 
-	jsonBytesBefore, err := json.MarshalIndent(skipSensitiveConfig(cfg), "", "  ")
+	jsonBytesBefore, err := json.MarshalIndent(cfg, "", "  ")
 	require.NoError(t, err)
 	jsonStrBefore := string(jsonBytesBefore)
 
@@ -182,7 +39,7 @@ func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
 	cfg.QuerySlowLogEnabled.SetValue(true) // runtime: true
 
 	// Second call: Marshal after runtime update - should show updated runtime value
-	jsonBytesAfter, err := json.MarshalIndent(skipSensitiveConfig(cfg), "", "  ")
+	jsonBytesAfter, err := json.MarshalIndent(cfg, "", "  ")
 	require.NoError(t, err)
 	jsonStrAfter := string(jsonBytesAfter)
 

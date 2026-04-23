@@ -70,6 +70,7 @@ type Segment interface {
 	newCollectionCursor() innerCursorCollection
 	newCollectionCursorReusable() *segmentCursorCollectionReusable
 	newCursor() innerCursorReplaceAllKeys
+	newReplaceCursorReusable() *segmentCursorReplaceReusable
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() innerCursorMap
 	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
@@ -166,6 +167,7 @@ type segmentConfig struct {
 	calcCountNetAdditions        bool
 	overwriteDerived             bool
 	enableChecksumValidation     bool
+	sequentialAccess             bool // hint kernel for sequential read-ahead (export snapshots)
 	MinMMapSize                  int64
 	allocChecker                 memwatch.AllocChecker
 	fileList                     map[string]int64
@@ -196,6 +198,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
+	}
+
+	if cfg.sequentialAccess {
+		// Best-effort: hint the kernel to enable aggressive read-ahead.
+		// Errors are ignored — fadvise is purely advisory.
+		_ = fadviseSequential(file)
 	}
 
 	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.

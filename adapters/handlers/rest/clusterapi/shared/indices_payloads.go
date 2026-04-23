@@ -1,0 +1,1235 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package shared
+
+import (
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/file"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+)
+
+var IndicesPayloads = indicesPayloads{}
+
+const (
+	MethodGet string = "GET"
+	MethodPut string = "PUT"
+)
+
+type indicesPayloads struct {
+	ErrorList                  errorListPayload
+	SingleObject               singleObjectPayload
+	MergeDoc                   mergeDocPayload
+	ObjectList                 objectListPayload
+	VersionedObjectList        versionedObjectListPayload
+	SearchResults              searchResultsPayload
+	SearchParams               searchParamsPayload
+	VectorDistanceParams       vectorDistanceParamsPayload
+	VectorDistanceResults      vectorDistanceResultsPayload
+	ReferenceList              referenceListPayload
+	AggregationParams          aggregationParamsPayload
+	AggregationResult          aggregationResultPayload
+	FindUUIDsParams            findUUIDsParamsPayload
+	FindUUIDsResults           findUUIDsResultsPayload
+	BatchDeleteParams          batchDeleteParamsPayload
+	BatchDeleteResults         batchDeleteResultsPayload
+	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
+	GetShardStatusParams       getShardStatusParamsPayload
+	GetShardStatusResults      getShardStatusResultsPayload
+	UpdateShardStatusParams    updateShardStatusParamsPayload
+	UpdateShardsStatusResults  updateShardsStatusResultsPayload
+	ShardFiles                 shardFilesPayload
+	ShardFileMetadataResults   shardFileMetadataResultsPayload
+	ShardFilesResults          shardFilesResultsPayload
+	AsyncReplicationTargetNode asyncReplicationTargetNode
+}
+
+type shardFileMetadataResultsPayload struct{}
+
+func (p shardFileMetadataResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardfilemetadataresults+json"
+}
+
+func (p shardFileMetadataResultsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFileMetadataResultsPayload) Unmarshal(in []byte) (file.FileMetadata, error) {
+	var md file.FileMetadata
+	if err := json.Unmarshal(in, &md); err != nil {
+		return file.FileMetadata{}, fmt.Errorf("unmarshal shard file metadata: %w", err)
+	}
+	return md, nil
+}
+
+type shardFilesResultsPayload struct{}
+
+func (p shardFilesResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardfilesresults+json"
+}
+
+func (p shardFilesResultsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
+	var shardFiles []string
+	if err := json.Unmarshal(in, &shardFiles); err != nil {
+		return nil, fmt.Errorf("unmarshal shard files: %w", err)
+	}
+	return shardFiles, nil
+}
+
+type asyncReplicationTargetNode struct{}
+
+func (p asyncReplicationTargetNode) MIME() string {
+	return "application/vnd.weaviate.asyncreplicationtargetnode+json"
+}
+
+func (p asyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p asyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+type errorListPayload struct{}
+
+func (e errorListPayload) MIME() string {
+	return "application/vnd.weaviate.error.list+json"
+}
+
+func (e errorListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", e.MIME())
+}
+
+func (e errorListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == e.MIME()
+}
+
+func (e errorListPayload) Marshal(in []error) ([]byte, error) {
+	converted := make([]interface{}, len(in))
+	for i, err := range in {
+		if err == nil {
+			continue
+		}
+
+		converted[i] = err.Error()
+	}
+
+	return json.Marshal(converted)
+}
+
+func (e errorListPayload) Unmarshal(in []byte) []error {
+	var msgs []interface{}
+	json.Unmarshal(in, &msgs)
+
+	converted := make([]error, len(msgs))
+
+	for i, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+
+		converted[i] = errors.New(msg.(string))
+	}
+
+	return converted
+}
+
+// marshallStorObj converts a *storobj.Object to a byte slice suitable for network transmission
+// This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
+// This function ensures that the models.Object vectors are nil and that only the storobj vectors are sent
+func marshallStorObj(in *storobj.Object) ([]byte, error) {
+	obj := storobj.Object{
+		MarshallerVersion: in.MarshallerVersion,
+		Object: models.Object{
+			Additional:         in.Object.Additional,
+			Class:              in.Object.Class,
+			CreationTimeUnix:   in.Object.CreationTimeUnix,
+			ID:                 in.Object.ID,
+			LastUpdateTimeUnix: in.Object.LastUpdateTimeUnix,
+			Properties:         in.Object.Properties,
+			Tenant:             in.Object.Tenant,
+			// TODO(tommy): Vector and Vectors will be removed from this layer to avoid double sending and only kept in storobj in a future version
+			// This code needs to be released to all deployed clusters before that change can be made to avoid breaking cluster compatibilities during rolling restarts
+			Vector:  in.Object.Vector,
+			Vectors: in.Object.Vectors,
+		},
+		Vector:         in.Vector,
+		VectorLen:      in.VectorLen,
+		BelongsToNode:  in.BelongsToNode,
+		BelongsToShard: in.BelongsToShard,
+		IsConsistent:   in.IsConsistent,
+		DocID:          in.DocID,
+		Vectors:        in.Vectors,
+		MultiVectors:   in.MultiVectors,
+	}
+	return obj.MarshalBinary()
+}
+
+// unmarshallStorObj converts a byte slice received over the network into a *storobj.Object
+// This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
+// This function ensures that the models.Object vectors are properly populated from the storobj vectors when required
+func unmarshallStorObj(in []byte) (*storobj.Object, error) {
+	obj, err := storobj.FromBinary(in)
+	if err != nil {
+		return nil, err
+	}
+	obj.Object.Vector = obj.Vector
+	if len(obj.Vectors) == 0 && len(obj.MultiVectors) == 0 {
+		return obj, nil
+	}
+	obj.Object.Vectors = make(models.Vectors)
+	for k, v := range obj.Vectors {
+		obj.Object.Vectors[k] = v
+	}
+	for k, v := range obj.MultiVectors {
+		obj.Object.Vectors[k] = v
+	}
+	return obj, nil
+}
+
+type singleObjectPayload struct{}
+
+func (p singleObjectPayload) MIME() string {
+	return "application/vnd.weaviate.storobj+octet-stream"
+}
+
+func (p singleObjectPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p singleObjectPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p singleObjectPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p singleObjectPayload) Marshal(in *storobj.Object, method string) ([]byte, error) {
+	switch method {
+	case MethodPut:
+		// Need to take vectors out of models.Object into storobj
+		return marshallStorObj(in)
+	case MethodGet:
+		// Don't need to modify anything since GET requests don't double send
+		return in.MarshalBinary()
+	default:
+		return nil, fmt.Errorf("unsupported operation type: %s", method)
+	}
+}
+
+func (p singleObjectPayload) Unmarshal(in []byte, method string) (*storobj.Object, error) {
+	switch method {
+	case MethodPut:
+		// Need to add vectors back to models.Object from storobj
+		return unmarshallStorObj(in)
+	case MethodGet:
+		// Don't need to modify anything since GET requests don't double send
+		return storobj.FromBinary(in)
+	default:
+		return nil, fmt.Errorf("unsupported operation type: %s", method)
+	}
+}
+
+type objectListPayload struct{}
+
+func (p objectListPayload) MIME() string {
+	return "application/vnd.weaviate.storobj.list+octet-stream"
+}
+
+func (p objectListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p objectListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p objectListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p objectListPayload) Marshal(in []*storobj.Object, method string) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		if ind != nil {
+			var bytes []byte
+			var err error
+			switch method {
+			case MethodPut:
+				// Need to take vectors out of models.Object into storobj
+				bytes, err = marshallStorObj(ind)
+			case MethodGet:
+				// Don't need to modify anything since GET requests don't double send
+				bytes, err = ind.MarshalBinary()
+			default:
+				return nil, fmt.Errorf("unsupported operation type: %s", method)
+			}
+			if err != nil {
+				return nil, err
+			}
+
+			length := uint64(len(bytes))
+			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+			out = append(out, reusableLengthBuf...)
+			out = append(out, bytes...)
+		}
+	}
+
+	return out, nil
+}
+
+// MarshalWithAdditional is like Marshal but uses MarshalBinaryOptional to conditionally
+// include vectors and properties based on the additional.Properties parameter.
+// This reduces network bandwidth by not transmitting vectors when they are not requested.
+func (p objectListPayload) MarshalWithAdditional(in []*storobj.Object, addProps additional.Properties) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		if ind != nil {
+			bytes, err := ind.MarshalBinaryOptional(addProps)
+			if err != nil {
+				return nil, err
+			}
+
+			length := uint64(len(bytes))
+			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+			out = append(out, reusableLengthBuf...)
+			out = append(out, bytes...)
+		}
+	}
+
+	return out, nil
+}
+
+func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Object, error) {
+	var out []*storobj.Object
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		payloadBytes := make([]byte, binary.LittleEndian.Uint64(reusableLengthBuf))
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, fmt.Errorf("payload read: %w", err)
+		}
+
+		var obj *storobj.Object
+		switch method {
+		case MethodPut:
+			// Need to add vectors back to models.Object from storobj
+			obj, err = unmarshallStorObj(payloadBytes)
+		case MethodGet:
+			// Don't need to modify anything since GET requests don't double send
+			obj, err = storobj.FromBinary(payloadBytes)
+		default:
+			return nil, fmt.Errorf("unsupported operation type: %s", method)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("method %v: %w", method, err)
+		}
+
+		out = append(out, obj)
+	}
+
+	return out, nil
+}
+
+type versionedObjectListPayload struct{}
+
+func (p versionedObjectListPayload) MIME() string {
+	return "application/vnd.weaviate.vobject.list+octet-stream"
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+// MarshalV2 encodes each VObject using the compact binary format (MarshalBinaryV2)
+// instead of the JSON-wrapped format used by Marshal. The framing (8-byte length
+// prefix per object) is identical so the same reader loop works for both.
+func (p versionedObjectListPayload) MarshalV2(in []*objects.VObject) ([]byte, error) {
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinaryV2()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+// UnmarshalV2 decodes a payload produced by MarshalV2 (binary V2 per-object encoding).
+func (p versionedObjectListPayload) UnmarshalV2(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	lenBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := io.ReadFull(r, lenBuf)
+		if errors.Is(err, io.EOF) {
+			// Reader was already empty before we started — clean end of stream.
+			break
+		}
+		if err != nil {
+			// io.ErrUnexpectedEOF: stream ended mid-prefix (truncated length field).
+			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
+		}
+
+		ln := binary.LittleEndian.Uint64(lenBuf)
+		if ln > uint64(r.Len()) {
+			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
+		}
+		if ln > math.MaxInt {
+			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
+		}
+
+		payloadBytes := make([]byte, int(ln))
+		if _, err = io.ReadFull(r, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
+		}
+
+		var vobj objects.VObject
+		if err = vobj.UnmarshalBinaryV2(payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
+		}
+
+		out = append(out, &vobj)
+	}
+
+	return out, nil
+}
+
+func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	lenBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := io.ReadFull(r, lenBuf)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("versioned object list: read length prefix: %w", err)
+		}
+
+		ln := binary.LittleEndian.Uint64(lenBuf)
+		if ln > uint64(r.Len()) {
+			return nil, fmt.Errorf("versioned object list: object payload length %d exceeds remaining %d bytes", ln, r.Len())
+		}
+		if ln > math.MaxInt {
+			return nil, fmt.Errorf("versioned object list: object payload length %d overflows int", ln)
+		}
+
+		payloadBytes := make([]byte, int(ln))
+		if _, err = io.ReadFull(r, payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: read object payload: %w", err)
+		}
+
+		var vobj objects.VObject
+		if err = vobj.UnmarshalBinary(payloadBytes); err != nil {
+			return nil, fmt.Errorf("versioned object list: decode object: %w", err)
+		}
+
+		out = append(out, &vobj)
+	}
+
+	return out, nil
+}
+
+type mergeDocPayload struct{}
+
+func (p mergeDocPayload) MIME() string {
+	return "application/vnd.weaviate.mergedoc+json"
+}
+
+func (p mergeDocPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p mergeDocPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p mergeDocPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p mergeDocPayload) Marshal(in objects.MergeDocument) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(in)
+}
+
+func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
+	var mergeDoc objects.MergeDocument
+	err := json.Unmarshal(in, &mergeDoc)
+	return mergeDoc, err
+}
+
+type vectorDistanceParamsPayload struct{}
+
+func (p vectorDistanceParamsPayload) Marshal(id strfmt.UUID, targets []string, searchVectors [][]float32,
+) ([]byte, error) {
+	type params struct {
+		Id            strfmt.UUID `json:"id"`
+		Targets       []string    `json:"targets"`
+		SearchVectors [][]float32 `json:"searchVectors"`
+	}
+
+	par := params{id, targets, searchVectors}
+	return json.Marshal(par)
+}
+
+func (p vectorDistanceParamsPayload) Unmarshal(in []byte) (strfmt.UUID, []string, [][]float32, error,
+) {
+	type params struct {
+		Id            strfmt.UUID `json:"id"`
+		Targets       []string    `json:"targets"`
+		SearchVectors [][]float32 `json:"searchVectors"`
+	}
+	var par params
+	err := json.Unmarshal(in, &par)
+	return par.Id, par.Targets, par.SearchVectors, err
+}
+
+func (p vectorDistanceParamsPayload) MIME() string {
+	return "vnd.weaviate.vectordistanceparams+json"
+}
+
+func (p vectorDistanceParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p vectorDistanceParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type vectorDistanceResultsPayload struct{}
+
+func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
+	read := uint64(0)
+
+	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	dists := make([]float32, distsLength)
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
+
+	return dists, nil
+}
+
+func (p vectorDistanceResultsPayload) Marshal(dists []float32) ([]byte, error) {
+	buf := byteops.NewReadWriter(make([]byte, 8+len(dists)*4))
+	buf.WriteUint64(uint64(len(dists)))
+
+	byteops.CopySliceToBytes(buf.Buffer[buf.Position:buf.Position+uint64(len(dists))*byteops.Uint32Len], dists)
+	buf.MoveBufferPositionForward(uint64(len(dists)) * byteops.Uint32Len)
+
+	return buf.Buffer, nil
+}
+
+func (p vectorDistanceResultsPayload) MIME() string {
+	return "application/vnd.weaviate.vectordistanceresults+octet-stream"
+}
+
+func (p vectorDistanceResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p vectorDistanceResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type searchParametersPayload struct {
+	SearchVector      []float32                    `json:"searchVector"`
+	TargetVector      string                       `json:"targetVector"`
+	Distance          float32                      `json:"distance"`
+	Limit             int                          `json:"limit"`
+	Filters           *filters.LocalFilter         `json:"filters"`
+	KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
+	Sort              []filters.Sort               `json:"sort"`
+	Cursor            *filters.Cursor              `json:"cursor"`
+	GroupBy           *searchparams.GroupBy        `json:"groupBy"`
+	Additional        additional.Properties        `json:"additional"`
+	SearchVectors     []models.Vector              `json:"searchVectors"`
+	TargetVectors     []string                     `json:"TargetVectors"`
+	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
+	Properties        []string                     `json:"properties"`
+	Selection         *searchparams.Selection      `json:"selection,omitempty"`
+}
+
+func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
+	type alias searchParametersPayload
+	aux := &struct {
+		SearchVectors json.RawMessage `json:"searchVectors"`
+		*alias
+	}{
+		alias: (*alias)(p),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// SearchVectors are nil
+	if aux.SearchVectors == nil {
+		return nil
+	}
+
+	// Try unmarshaling as []float32
+	var vectors [][]float32
+	if err := json.Unmarshal(aux.SearchVectors, &vectors); err == nil {
+		if len(vectors) > 0 {
+			asVectors := make([]models.Vector, len(vectors))
+			for i := range vectors {
+				asVectors[i] = vectors[i]
+			}
+			p.SearchVectors = asVectors
+		}
+		return nil
+	}
+
+	// Try unmarshaling as [][]float32
+	var multiVectors [][][]float32
+	if err := json.Unmarshal(aux.SearchVectors, &multiVectors); err == nil {
+		if len(multiVectors) > 0 {
+			asVectors := make([]models.Vector, len(multiVectors))
+			for i := range multiVectors {
+				asVectors[i] = multiVectors[i]
+			}
+			p.SearchVectors = asVectors
+		}
+		return nil
+	}
+
+	return fmt.Errorf("searchVectors: cannot unmarshal into either [][]float32 or [][][]float32: %v", aux.SearchVectors)
+}
+
+type searchParamsPayload struct{}
+
+func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, distance float32, limit int,
+	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+	selection *searchparams.Selection,
+) ([]byte, error) {
+	var vector []float32
+	var targetVector string
+	// BC with pre 1.26
+	if len(vectors) == 1 {
+		// we only add a vector here only if it's []float32 vector to be backward compatible with pre v1.26 versions
+		if v, ok := vectors[0].([]float32); ok {
+			vector = v
+			targetVector = targetVectors[0]
+		}
+	}
+
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, selection}
+	return json.Marshal(par)
+}
+
+func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
+	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection, error,
+) {
+	var par searchParametersPayload
+	err := json.Unmarshal(in, &par)
+
+	if len(par.SearchVector) > 0 {
+		par.SearchVectors = []models.Vector{par.SearchVector}
+		par.TargetVectors = []string{par.TargetVector}
+	}
+
+	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Selection, err
+}
+
+func (p searchParamsPayload) MIME() string {
+	return "vnd.weaviate.searchparams+json"
+}
+
+func (p searchParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p searchParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type searchResultsPayload struct{}
+
+func (p searchResultsPayload) Unmarshal(in []byte) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	read := uint64(0)
+
+	objsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(in[read:read+objsLength], MethodGet)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	read += objsLength
+
+	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	dists := make([]float32, distsLength)
+	byteops.CopyBytesToSlice(dists, in[read:read+distsLength*4])
+	read += distsLength * 4
+
+	// Parse optional query profile data appended after dists.
+	var queryProfiles []helpers.ShardQueryProfile
+	if read+8 <= uint64(len(in)) {
+		profilesLength := binary.LittleEndian.Uint64(in[read : read+8])
+		read += 8
+		if profilesLength > 0 {
+			if read+profilesLength > uint64(len(in)) {
+				return nil, nil, nil, fmt.Errorf("query profiles data truncated: need %d bytes, have %d", profilesLength, uint64(len(in))-read)
+			}
+			if err := json.Unmarshal(in[read:read+profilesLength], &queryProfiles); err != nil {
+				return nil, nil, nil, fmt.Errorf("unmarshal query profiles: %w", err)
+			}
+		}
+	}
+
+	return objs, dists, queryProfiles, nil
+}
+
+func (p searchResultsPayload) Marshal(objs []*storobj.Object,
+	dists []float32,
+) ([]byte, error) {
+	reusableLengthBuf := make([]byte, 8)
+	var out []byte
+	objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs, MethodGet)
+	if err != nil {
+		return nil, err
+	}
+
+	objsLength := uint64(len(objsBytes))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
+
+	out = append(out, reusableLengthBuf...)
+	out = append(out, objsBytes...)
+
+	distsLength := uint64(len(dists))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
+	out = append(out, reusableLengthBuf...)
+
+	distsBuf := make([]byte, distsLength*4)
+	byteops.CopySliceToBytes(distsBuf, dists)
+	out = append(out, distsBuf...)
+
+	return out, nil
+}
+
+// MarshalWithAdditional is like Marshal but uses MarshalWithAdditional to conditionally
+// include vectors and properties based on the additional.Properties parameter.
+// This reduces network bandwidth by not transmitting vectors when they are not requested.
+func (p searchResultsPayload) MarshalWithAdditional(objs []*storobj.Object,
+	dists []float32, addProps additional.Properties, queryProfiles []helpers.ShardQueryProfile,
+) ([]byte, error) {
+	reusableLengthBuf := make([]byte, 8)
+	var out []byte
+	objsBytes, err := IndicesPayloads.ObjectList.MarshalWithAdditional(objs, addProps)
+	if err != nil {
+		return nil, err
+	}
+
+	objsLength := uint64(len(objsBytes))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, objsLength)
+
+	out = append(out, reusableLengthBuf...)
+	out = append(out, objsBytes...)
+
+	distsLength := uint64(len(dists))
+	binary.LittleEndian.PutUint64(reusableLengthBuf, distsLength)
+	out = append(out, reusableLengthBuf...)
+
+	distsBuf := make([]byte, distsLength*4)
+	byteops.CopySliceToBytes(distsBuf, dists)
+	out = append(out, distsBuf...)
+
+	// Append optional profile data.
+	var profilesBytes []byte
+	if len(queryProfiles) > 0 {
+		profilesBytes, err = json.Marshal(queryProfiles)
+		if err != nil {
+			return nil, fmt.Errorf("marshal query profiles: %w", err)
+		}
+	}
+	binary.LittleEndian.PutUint64(reusableLengthBuf, uint64(len(profilesBytes)))
+	out = append(out, reusableLengthBuf...)
+	out = append(out, profilesBytes...)
+
+	return out, nil
+}
+
+func (p searchResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardsearchresults+octet-stream"
+}
+
+func (p searchResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p searchResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type referenceListPayload struct{}
+
+func (p referenceListPayload) MIME() string {
+	return "application/vnd.weaviate.references.list+json"
+}
+
+func (p referenceListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p referenceListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p referenceListPayload) Marshal(in objects.BatchReferences) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(in)
+}
+
+func (p referenceListPayload) Unmarshal(in []byte) (objects.BatchReferences, error) {
+	var out objects.BatchReferences
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+type aggregationParamsPayload struct{}
+
+func (p aggregationParamsPayload) Marshal(params aggregation.Params) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(params)
+}
+
+func (p aggregationParamsPayload) Unmarshal(in []byte) (aggregation.Params, error) {
+	var out aggregation.Params
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p aggregationParamsPayload) MIME() string {
+	return "application/vnd.weaviate.aggregations.params+json"
+}
+
+func (p aggregationParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p aggregationParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type aggregationResultPayload struct{}
+
+func (p aggregationResultPayload) MIME() string {
+	return "application/vnd.weaviate.aggregations.result+json"
+}
+
+func (p aggregationResultPayload) CheckContentTypeHeader(res *http.Response) (string, bool) {
+	ct := res.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p aggregationResultPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p aggregationResultPayload) Marshal(in *aggregation.Result) ([]byte, error) {
+	// assumes that this type is fully json-marshable. Not the most
+	// bandwidth-efficient way, but this is unlikely to become a bottleneck. If it
+	// does, a custom binary marshaller might be more appropriate
+	return json.Marshal(in)
+}
+
+func (p aggregationResultPayload) Unmarshal(in []byte) (*aggregation.Result, error) {
+	var out aggregation.Result
+	err := json.Unmarshal(in, &out)
+	return &out, err
+}
+
+type findUUIDsParamsPayload struct{}
+
+func (p findUUIDsParamsPayload) Marshal(filter *filters.LocalFilter, limit int) ([]byte, error) {
+	type params struct {
+		Filters *filters.LocalFilter `json:"filters"`
+		Limit   int                  `json:"limit"`
+	}
+
+	par := params{filter, limit}
+	return json.Marshal(par)
+}
+
+func (p findUUIDsParamsPayload) Unmarshal(in []byte) (*filters.LocalFilter, int, error) {
+	type findUUIDsParametersPayload struct {
+		Filters *filters.LocalFilter `json:"filters"`
+		Limit   int
+	}
+	var par findUUIDsParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.Filters, par.Limit, err
+}
+
+func (p findUUIDsParamsPayload) MIME() string {
+	return "vnd.weaviate.finduuidsparams+json"
+}
+
+func (p findUUIDsParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p findUUIDsParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type findUUIDsResultsPayload struct{}
+
+func (p findUUIDsResultsPayload) Unmarshal(in []byte) ([]strfmt.UUID, error) {
+	var out []strfmt.UUID
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p findUUIDsResultsPayload) Marshal(in []strfmt.UUID) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p findUUIDsResultsPayload) MIME() string {
+	return "application/vnd.weaviate.findUUIDsresults+octet-stream"
+}
+
+func (p findUUIDsResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p findUUIDsResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type batchDeleteParamsPayload struct{}
+
+func (p batchDeleteParamsPayload) Marshal(uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) ([]byte, error) {
+	type params struct {
+		UUIDs                 []strfmt.UUID `json:"uuids"`
+		DeletionTimeUnixMilli int64         `json:"deletionTimeUnixMilli"`
+		DryRun                bool          `json:"dryRun"`
+	}
+
+	par := params{uuids, deletionTime.UnixMilli(), dryRun}
+	return json.Marshal(par)
+}
+
+func (p batchDeleteParamsPayload) Unmarshal(in []byte) ([]strfmt.UUID, time.Time, bool, error) {
+	type batchDeleteParametersPayload struct {
+		UUIDs                 []strfmt.UUID `json:"uuids"`
+		DeletionTimeUnixMilli int64         `json:"deletionTimeUnixMilli"`
+		DryRun                bool          `json:"dryRun"`
+	}
+	var par batchDeleteParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.UUIDs, time.UnixMilli(par.DeletionTimeUnixMilli), par.DryRun, err
+}
+
+func (p batchDeleteParamsPayload) MIME() string {
+	return "vnd.weaviate.batchdeleteparams+json"
+}
+
+func (p batchDeleteParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p batchDeleteParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type batchDeleteResultsPayload struct{}
+
+func (p batchDeleteResultsPayload) Unmarshal(in []byte) (objects.BatchSimpleObjects, error) {
+	var out objects.BatchSimpleObjects
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p batchDeleteResultsPayload) Marshal(in objects.BatchSimpleObjects) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p batchDeleteResultsPayload) MIME() string {
+	return "application/vnd.weaviate.batchdeleteresults+octet-stream"
+}
+
+func (p batchDeleteResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p batchDeleteResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type getShardQueueSizeParamsPayload struct{}
+
+func (p getShardQueueSizeParamsPayload) MIME() string {
+	return "vnd.weaviate.getshardqueuesizeparams+json"
+}
+
+func (p getShardQueueSizeParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p getShardQueueSizeParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type getShardQueueSizeResultsPayload struct{}
+
+func (p getShardQueueSizeResultsPayload) Unmarshal(in []byte) (int64, error) {
+	var out int64
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p getShardQueueSizeResultsPayload) Marshal(in int64) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p getShardQueueSizeResultsPayload) MIME() string {
+	return "application/vnd.weaviate.getshardqueuesizeresults+octet-stream"
+}
+
+func (p getShardQueueSizeResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p getShardQueueSizeResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type getShardStatusParamsPayload struct{}
+
+func (p getShardStatusParamsPayload) MIME() string {
+	return "vnd.weaviate.getshardstatusparams+json"
+}
+
+func (p getShardStatusParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p getShardStatusParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type getShardStatusResultsPayload struct{}
+
+func (p getShardStatusResultsPayload) Unmarshal(in []byte) (string, error) {
+	var out string
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p getShardStatusResultsPayload) Marshal(in string) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p getShardStatusResultsPayload) MIME() string {
+	return "application/vnd.weaviate.getshardstatusresults+octet-stream"
+}
+
+func (p getShardStatusResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p getShardStatusResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type updateShardStatusParamsPayload struct{}
+
+func (p updateShardStatusParamsPayload) Marshal(targetStatus string) ([]byte, error) {
+	type params struct {
+		TargetStatus string `json:"targetStatus"`
+	}
+
+	par := params{targetStatus}
+	return json.Marshal(par)
+}
+
+func (p updateShardStatusParamsPayload) Unmarshal(in []byte) (string, error) {
+	type updateShardStatusParametersPayload struct {
+		TargetStatus string `json:"targetStatus"`
+	}
+	var par updateShardStatusParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.TargetStatus, err
+}
+
+func (p updateShardStatusParamsPayload) MIME() string {
+	return "vnd.weaviate.updateshardstatusparams+json"
+}
+
+func (p updateShardStatusParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p updateShardStatusParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type updateShardsStatusResultsPayload struct{}
+
+func (p updateShardsStatusResultsPayload) MIME() string {
+	return "application/vnd.weaviate.updateshardstatusresults+octet-stream"
+}
+
+func (p updateShardsStatusResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p updateShardsStatusResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type shardFilesPayload struct{}
+
+func (p shardFilesPayload) MIME() string {
+	return "application/vnd.weaviate.indexfiles+octet-stream"
+}
+
+func (p shardFilesPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFilesPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}

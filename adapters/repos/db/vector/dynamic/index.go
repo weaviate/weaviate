@@ -17,7 +17,6 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -485,9 +485,7 @@ func (dynamic *dynamic) Upgraded() bool {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
@@ -559,6 +557,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		dynamic.RUnlock()
 		return err
 	}
+
+	// Start commit-log maintenance on the new HNSW index. The cache prefill
+	// is a no-op because cachePrefilled was already set during init (fresh
+	// index with no commit-log state) and the cache is populated by AddBatch.
+	index.PostStartup(dynamic.ctx)
 
 	// end of read-only zone
 	dynamic.RUnlock()

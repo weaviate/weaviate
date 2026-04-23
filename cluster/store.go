@@ -322,7 +322,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			IsLocalHost:        cfg.IsLocalHost,
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 			LocalName:          cfg.NodeID,
-			LocalAddress:       fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:      schemaManager,
 		snapshotter:        snapshotter,
@@ -441,13 +441,13 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	advertiseAddress := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
+	advertiseAddress := net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RaftPort))
 	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
 		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
-	bindAddress := fmt.Sprintf("%s:%d", st.cfg.BindAddr, st.cfg.RaftPort)
+	bindAddress := net.JoinHostPort(st.cfg.BindAddr, fmt.Sprintf("%d", st.cfg.RaftPort))
 	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -577,6 +577,9 @@ func (st *Store) Ready() bool {
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
+	if st.dbLoaded.Load() {
+		return nil
+	}
 	t := time.NewTicker(period)
 	defer t.Stop()
 	for {
@@ -880,7 +883,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	exNode := servers[0]
 	newNode := raft.Server{
 		ID:       raft.ServerID(st.cfg.NodeID),
-		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Address:  raft.ServerAddress(net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RPCPort))),
 		Suffrage: raft.Voter,
 	}
 

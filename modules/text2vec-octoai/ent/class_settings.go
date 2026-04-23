@@ -44,5 +44,11 @@ func (cs *classSettings) BaseURL() string {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	return cs.BaseClassSettings.Validate(class)
+	if err := cs.BaseClassSettings.Validate(class); err != nil {
+		return err
+	}
+	if err := cs.BaseClassSettings.ValidateBaseURL(cs.BaseURL()); err != nil {
+		return err
+	}
+	return nil
 }

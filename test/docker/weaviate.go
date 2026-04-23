@@ -14,22 +14,23 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
 
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
-	Weaviate1      = "weaviate"
-	Weaviate2      = "weaviate2"
-	Weaviate3      = "weaviate3"
-	Weaviate       = "weaviate"
+	Weaviate0      = "weaviate-0"
+	Weaviate1      = "weaviate-1"
+	Weaviate2      = "weaviate-2"
 	SecondWeaviate = "second-weaviate"
 )
 
@@ -39,6 +40,7 @@ func startWeaviate(ctx context.Context,
 	weaviateImage, hostname string,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
+	files []testcontainers.ContainerFile,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -73,7 +75,7 @@ func startWeaviate(ctx context.Context,
 			KeepImage:     false,
 		}
 	}
-	containerName := Weaviate1
+	containerName := Weaviate0
 	if hostname != "" {
 		containerName = hostname
 	}
@@ -87,6 +89,10 @@ func startWeaviate(ctx context.Context,
 		"DISABLE_TELEMETRY":                 "true",
 		"RAFT_DRAIN_SLEEP":                  "1ms", // almost as no sleep, no 0 because will fail validation
 		"RAFT_TIMEOUTS_MULTIPLIER":          "1",   // force raft timeouts to 1 to not affect tests which does do heavy restarts
+	}
+	// Forward replication gRPC flag from host env if set (for CI matrix testing)
+	if v := os.Getenv("REPLICATION_GRPC_ENABLED"); v != "" {
+		env["REPLICATION_GRPC_ENABLED"] = v
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -143,6 +149,7 @@ func startWeaviate(ctx context.Context,
 		ExposedPorts: exposedPorts,
 		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
+		Files:        files,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
@@ -156,7 +163,7 @@ func startWeaviate(ctx context.Context,
 
 								return waitStrategy.WaitUntilReady(ctx, container)
 							}(); err != nil {
-								return err
+								return fmt.Errorf("startWeaviate(%s): PostStart wait failed: %w", containerName, err)
 							}
 						}
 						return nil
@@ -165,43 +172,67 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
+	if ip := StaticIPForHostname(containerName); ip != "" && networkName != "" {
+		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
+			s := settings[networkName]
+			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{
+				IPv4Address: ip,
+			}
+		}
+	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 		Reuse:            false,
 	})
 	if err != nil {
-		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
-			return nil, fmt.Errorf("%w: failed to terminate: %w", err, terminateErr)
+		// Capture container logs before terminating — critical for diagnosing
+		// startup crashes (exit code 1) where the container is gone by the time
+		// test helpers try to read logs.
+		if c != nil {
+			if reader, logErr := c.Logs(ctx); logErr == nil {
+				logs, _ := io.ReadAll(reader)
+				reader.Close()
+				lines := strings.Split(string(logs), "\n")
+				if len(lines) > 50 {
+					lines = lines[len(lines)-50:]
+				}
+				err = fmt.Errorf("%w\n--- %s container logs (last 50 lines) ---\n%s",
+					err, containerName, strings.Join(lines, "\n"))
+			}
 		}
-		return nil, err
+		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
+			return nil, fmt.Errorf("startWeaviate(%s): container create/start failed: %w: failed to terminate: %w", containerName, err, terminateErr)
+		}
+		return nil, fmt.Errorf("startWeaviate(%s): container create/start failed: %w", containerName, err)
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("startWeaviate(%s): get HTTP endpoint: %w", containerName, err)
 	}
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{httpPort, httpUri}
+	endpoints[MCP] = endpoint{httpPort, fmt.Sprintf("%s/v1/mcp", httpUri)}
 
 	// Map the cluster API endpoint if the port is exposed.
 	if hasClusterPort {
 		clusterURI, err := c.PortEndpoint(ctx, clusterPort, "")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("startWeaviate(%s): get cluster endpoint: %w", containerName, err)
 		}
 		endpoints[CLUSTER] = endpoint{clusterPort, clusterURI}
 	}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("startWeaviate(%s): get gRPC endpoint: %w", containerName, err)
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
 	}
 	if exposeDebugPort {
 		debugUri, err := c.PortEndpoint(ctx, debugPort, "")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("startWeaviate(%s): get debug endpoint: %w", containerName, err)
 		}
 		endpoints[DEBUG] = endpoint{debugPort, debugUri}
 	}
@@ -209,6 +240,6 @@ func startWeaviate(ctx context.Context,
 		name:        containerName,
 		endpoints:   endpoints,
 		container:   c,
-		envSettings: nil,
+		envSettings: env,
 	}, nil
 }

@@ -133,15 +133,21 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	defer l.shardLoadLimiter.Release()
 
+	l.shardOpts.promMetrics.StartLoadingShard()
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
 		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool)
 	if err != nil {
+		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		return errors.New(msg)
 	}
+
+	l.shardOpts.promMetrics.FinishLoadingShard()
+	shard.metricsRegistered.Store(true)
 
 	l.shard = shard
 	l.loaded = true
@@ -255,11 +261,11 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
-func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+func (l *LazyLoadShard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
 	if err := l.Load(ctx); err != nil {
-		return nil, err
+		return types.RepairResponse{}, err
 	}
-	return l.shard.ObjectByIDErrDeleted(ctx, id, props, additional)
+	return l.shard.ObjectDigestErrDeleted(ctx, id)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
@@ -276,11 +282,11 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties)
+	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties, selection)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
@@ -360,13 +366,19 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
+func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectDigests(ctx, query)
+}
+
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) (objs []types.RepairResponse, err error) {
-	if !l.isLoaded() {
+	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-
 	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
@@ -412,6 +424,9 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			}
 		}
 
+		// decrement unloaded shard count since this shard is being deleted
+		l.shardOpts.promMetrics.DeleteUnloadedShard()
+
 		return nil
 	}
 
@@ -448,25 +463,49 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
 		}
 		return nil
 	})
+}
+
+func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	if l.isLoaded() {
+		return l.shard.DropVectorIndex(ctx, targetVector)
+	} else {
+		return l.dropUnloadedVectorIndex(targetVector)
+	}
+}
+
+func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
+	// Shard is not loaded — remove files directly from disk. Delegate to the
+	// shared helper so file path logic is defined in one place.
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+		return err
+	}
+
+	// Remove the index checkpoint entry for this vector.
+	if l.shardOpts.indexCheckpoints != nil {
+		if err := l.shardOpts.indexCheckpoints.Delete(l.ID(), targetVector); err != nil {
+			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+		}
+	}
+	return nil
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -476,11 +515,18 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
-func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	return l.shard.ListBackupFiles(ctx, ret)
+}
+
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -575,6 +621,11 @@ func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *Ve
 	return l.shard.ForEachVectorQueue(f)
 }
 
+func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachGeoQueue(f)
+}
+
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -603,10 +654,20 @@ func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
-	return l.shard.Shutdown(ctx)
+
+	if err := l.shard.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	// Mark as unloaded so drop() knows the correct state
+	l.loaded = false
+	return nil
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {

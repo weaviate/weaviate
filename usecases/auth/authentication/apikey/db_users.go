@@ -317,10 +317,16 @@ func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	defer c.lock.RUnlock()
 
 	for userID, lastUsed := range users {
-		if c.data.Users[userID].LastUsedAt.Before(lastUsed) {
-			c.data.Users[userID].Lock()
-			c.data.Users[userID].LastUsedAt = lastUsed
-			c.data.Users[userID].Unlock()
+		user, ok := c.data.Users[userID]
+		if !ok {
+			continue
+		}
+		if user.LastUsedAt.Before(lastUsed) {
+			func() {
+				user.Lock()
+				defer user.Unlock()
+				user.LastUsedAt = lastUsed
+			}()
 		}
 	}
 }

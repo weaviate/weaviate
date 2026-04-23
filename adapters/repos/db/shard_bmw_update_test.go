@@ -162,7 +162,7 @@ func TestUpdateDocBMWIndex(t *testing.T) {
 
 	queue.Scheduler().Schedule(context.Background())
 	time.Sleep(50 * time.Millisecond)
-	queue.Wait()
+	require.NoError(t, queue.Wait(t.Context()))
 
 	expectedNextDocID := uint64(1)
 	require.Equal(t, expectedNextDocID, shard.Counter().Get())

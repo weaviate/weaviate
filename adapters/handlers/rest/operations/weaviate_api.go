@@ -18,6 +18,7 @@ package operations
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -37,12 +38,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
@@ -70,6 +74,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		YamlConsumer: yamlpc.YAMLConsumer(),
 
 		JSONProducer: runtime.JSONProducer(),
+		TextEventStreamProducer: runtime.ProducerFunc(func(w io.Writer, data interface{}) error {
+			return errors.NotImplemented("textEventStream producer has not yet been implemented")
+		}),
 
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
@@ -170,6 +177,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
 		}),
+		ExportExportCancelHandler: export.ExportCancelHandlerFunc(func(params export.ExportCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCancel has not yet been implemented")
+		}),
+		ExportExportCreateHandler: export.ExportCreateHandlerFunc(func(params export.ExportCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportCreate has not yet been implemented")
+		}),
+		ExportExportStatusHandler: export.ExportStatusHandlerFunc(func(params export.ExportStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation export.ExportStatus has not yet been implemented")
+		}),
 		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
 		}),
@@ -226,6 +242,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ReplicationListReplicationHandler: replication.ListReplicationHandlerFunc(func(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ListReplication has not yet been implemented")
+		}),
+		McpMcpDeleteHandler: mcp.McpDeleteHandlerFunc(func(params mcp.McpDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation mcp.McpDelete has not yet been implemented")
+		}),
+		McpMcpGetHandler: mcp.McpGetHandlerFunc(func(params mcp.McpGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation mcp.McpGet has not yet been implemented")
+		}),
+		McpMcpPostHandler: mcp.McpPostHandlerFunc(func(params mcp.McpPostParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation mcp.McpPost has not yet been implemented")
 		}),
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
@@ -329,6 +354,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsPropertiesDeleteHandler: schema.SchemaObjectsPropertiesDeleteHandlerFunc(func(params schema.SchemaObjectsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesDelete has not yet been implemented")
 		}),
+		SchemaSchemaObjectsPropertiesTokenizeHandler: schema.SchemaObjectsPropertiesTokenizeHandlerFunc(func(params schema.SchemaObjectsPropertiesTokenizeParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesTokenize has not yet been implemented")
+		}),
 		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
 		}),
@@ -337,6 +365,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
+		}),
+		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
 		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
@@ -355,6 +386,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
+		}),
+		TokenizeTokenizeHandler: tokenize.TokenizeHandlerFunc(func(params tokenize.TokenizeParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation tokenize.Tokenize has not yet been implemented")
 		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
@@ -409,6 +443,9 @@ type WeaviateAPI struct {
 	// JSONProducer registers a producer for the following mime types:
 	//   - application/json
 	JSONProducer runtime.Producer
+	// TextEventStreamProducer registers a producer for the following mime types:
+	//   - text/event-stream
+	TextEventStreamProducer runtime.Producer
 
 	// OidcAuth registers a function that takes an access token and a collection of required scopes and returns a principal
 	// it performs authentication based on an oauth2 bearer token provided in the request
@@ -483,6 +520,12 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
+	// ExportExportCancelHandler sets the operation handler for the export cancel operation
+	ExportExportCancelHandler export.ExportCancelHandler
+	// ExportExportCreateHandler sets the operation handler for the export create operation
+	ExportExportCreateHandler export.ExportCreateHandler
+	// ExportExportStatusHandler sets the operation handler for the export status operation
+	ExportExportStatusHandler export.ExportStatusHandler
 	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
@@ -521,6 +564,12 @@ type WeaviateAPI struct {
 	UsersListAllUsersHandler users.ListAllUsersHandler
 	// ReplicationListReplicationHandler sets the operation handler for the list replication operation
 	ReplicationListReplicationHandler replication.ListReplicationHandler
+	// McpMcpDeleteHandler sets the operation handler for the mcp delete operation
+	McpMcpDeleteHandler mcp.McpDeleteHandler
+	// McpMcpGetHandler sets the operation handler for the mcp get operation
+	McpMcpGetHandler mcp.McpGetHandler
+	// McpMcpPostHandler sets the operation handler for the mcp post operation
+	McpMcpPostHandler mcp.McpPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
 	// NodesNodesGetHandler sets the operation handler for the nodes get operation
@@ -589,12 +638,16 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
 	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
 	SchemaSchemaObjectsPropertiesDeleteHandler schema.SchemaObjectsPropertiesDeleteHandler
+	// SchemaSchemaObjectsPropertiesTokenizeHandler sets the operation handler for the schema objects properties tokenize operation
+	SchemaSchemaObjectsPropertiesTokenizeHandler schema.SchemaObjectsPropertiesTokenizeHandler
 	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
+	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
+	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -607,6 +660,8 @@ type WeaviateAPI struct {
 	SchemaTenantsGetOneHandler schema.TenantsGetOneHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
+	// TokenizeTokenizeHandler sets the operation handler for the tokenize operation
+	TokenizeTokenizeHandler tokenize.TokenizeHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -691,6 +746,9 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.JSONProducer == nil {
 		unregistered = append(unregistered, "JSONProducer")
+	}
+	if o.TextEventStreamProducer == nil {
+		unregistered = append(unregistered, "TextEventStreamProducer")
 	}
 
 	if o.OidcAuth == nil {
@@ -796,6 +854,15 @@ func (o *WeaviateAPI) Validate() error {
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
 	}
+	if o.ExportExportCancelHandler == nil {
+		unregistered = append(unregistered, "export.ExportCancelHandler")
+	}
+	if o.ExportExportCreateHandler == nil {
+		unregistered = append(unregistered, "export.ExportCreateHandler")
+	}
+	if o.ExportExportStatusHandler == nil {
+		unregistered = append(unregistered, "export.ExportStatusHandler")
+	}
 	if o.ReplicationForceDeleteReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
 	}
@@ -852,6 +919,15 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ReplicationListReplicationHandler == nil {
 		unregistered = append(unregistered, "replication.ListReplicationHandler")
+	}
+	if o.McpMcpDeleteHandler == nil {
+		unregistered = append(unregistered, "mcp.McpDeleteHandler")
+	}
+	if o.McpMcpGetHandler == nil {
+		unregistered = append(unregistered, "mcp.McpGetHandler")
+	}
+	if o.McpMcpPostHandler == nil {
+		unregistered = append(unregistered, "mcp.McpPostHandler")
 	}
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
@@ -955,6 +1031,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsPropertiesDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesDeleteHandler")
 	}
+	if o.SchemaSchemaObjectsPropertiesTokenizeHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesTokenizeHandler")
+	}
 	if o.SchemaSchemaObjectsShardsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
 	}
@@ -963,6 +1042,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
+	}
+	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -981,6 +1063,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
+	}
+	if o.TokenizeTokenizeHandler == nil {
+		unregistered = append(unregistered, "tokenize.TokenizeHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -1051,6 +1136,8 @@ func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Produ
 		switch mt {
 		case "application/json":
 			result["application/json"] = o.JSONProducer
+		case "text/event-stream":
+			result["text/event-stream"] = o.TextEventStreamProducer
 		}
 
 		if p, ok := o.customProducers[mt]; ok {
@@ -1223,6 +1310,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/export/{backend}/{id}"] = export.NewExportCancel(o.context, o.ExportExportCancelHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/export/{backend}"] = export.NewExportCreate(o.context, o.ExportExportCreateHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/export/{backend}/{id}"] = export.NewExportStatus(o.context, o.ExportExportStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1299,6 +1398,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/replication/replicate/list"] = replication.NewListReplication(o.context, o.ReplicationListReplicationHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/mcp"] = mcp.NewMcpDelete(o.context, o.McpMcpDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/mcp"] = mcp.NewMcpGet(o.context, o.McpMcpGetHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/mcp"] = mcp.NewMcpPost(o.context, o.McpMcpPostHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1435,6 +1546,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/properties/{propertyName}/index/{indexName}"] = schema.NewSchemaObjectsPropertiesDelete(o.context, o.SchemaSchemaObjectsPropertiesDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/{className}/properties/{propertyName}/tokenize"] = schema.NewSchemaObjectsPropertiesTokenize(o.context, o.SchemaSchemaObjectsPropertiesTokenizeHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1447,6 +1562,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}
@@ -1471,6 +1590,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/tokenize"] = tokenize.NewTokenize(o.context, o.TokenizeTokenizeHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

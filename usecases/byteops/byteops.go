@@ -252,10 +252,7 @@ func Fp64SliceToBytes(floats []float64) []byte {
 
 func Fp32SliceFromBytes(vector []byte) []float32 {
 	floats := make([]float32, len(vector)/Uint32Len)
-	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint32(vector[i*Uint32Len : (i+1)*Uint32Len])
-		floats[i] = math.Float32frombits(asUint)
-	}
+	CopyBytesToSlice(floats, vector)
 	return floats
 }
 

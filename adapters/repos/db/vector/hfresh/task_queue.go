@@ -164,7 +164,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	return &tq, nil
 }
 
-func (tq *TaskQueue) Close() error {
+func (tq *TaskQueue) Close(ctx context.Context) error {
 	var errs []error
 	if err := tq.Flush(); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush task queue before close"))
@@ -174,19 +174,19 @@ func (tq *TaskQueue) Close() error {
 		errs = append(errs, errors.Wrap(err, "failed to flush reassign list"))
 	}
 
-	if err := tq.analyzeQueue.Close(); err != nil {
+	if err := tq.analyzeQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close analyze queue"))
 	}
 
-	if err := tq.splitQueue.Close(); err != nil {
+	if err := tq.splitQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close split queue"))
 	}
 
-	if err := tq.reassignQueue.Close(); err != nil {
+	if err := tq.reassignQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close reassign queue"))
 	}
 
-	if err := tq.mergeQueue.Close(); err != nil {
+	if err := tq.mergeQueue.Close(ctx); err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to close merge queue"))
 	}
 
@@ -249,7 +249,7 @@ func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
 		return errors.Wrap(err, "failed to push analyze operation to queue")
 	}
 
-	tq.index.metrics.EnqueueAnalyzeTask()
+	tq.index.metrics.SetPendingAnalyzeTasks(tq.analyzeQueue.Size())
 	return nil
 }
 
@@ -263,7 +263,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
-	tq.index.metrics.EnqueueSplitTask()
+	tq.index.metrics.SetPendingSplitTasks(tq.splitQueue.Size())
 
 	return nil
 }
@@ -278,7 +278,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 
-	tq.index.metrics.EnqueueMergeTask()
+	tq.index.metrics.SetPendingMergeTasks(tq.mergeQueue.Size())
 
 	return nil
 }
@@ -293,16 +293,22 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version Vec
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
-	tq.index.metrics.EnqueueReassignTask()
+	tq.index.metrics.SetPendingReassignTasks(tq.reassignQueue.Size())
 
 	return nil
 }
 
-// Flush the vector index after a batch is processed.
+// Flush the vector index after a batch is processed
+// and update pending metrics now that the queue sizes have been decremented.
 func (tq *TaskQueue) OnBatchProcessed() {
 	if err := tq.index.Flush(); err != nil {
 		tq.index.logger.WithError(err).Error("failed to flush vector index")
 	}
+
+	tq.index.metrics.SetPendingAnalyzeTasks(tq.analyzeQueue.Size())
+	tq.index.metrics.SetPendingSplitTasks(tq.splitQueue.Size())
+	tq.index.metrics.SetPendingMergeTasks(tq.mergeQueue.Size())
+	tq.index.metrics.SetPendingReassignTasks(tq.reassignQueue.Size())
 }
 
 func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
@@ -372,7 +378,6 @@ func (t *AnalyzeTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueAnalyzeTask()
 	t.idx.metrics.IncAnalyzeCount()
 	return nil
 }
@@ -401,7 +406,6 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueSplitTask()
 	t.idx.metrics.IncSplitCount()
 	return nil
 }
@@ -431,7 +435,6 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueMergeTask()
 	t.idx.metrics.IncMergeCount()
 	return nil
 }
@@ -460,7 +463,6 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueReassignTask()
 	t.idx.metrics.IncReassignCount()
 	return nil
 }

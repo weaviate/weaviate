@@ -1,0 +1,28 @@
+name: Weaviate Security Lint
+description: >
+  Scans a pull request diff for hidden Unicode / trojan-source
+  characters (https://trojansource.codes/).
+
+inputs:
+  pr-number:
+    description: Pull request number whose diff will be scanned.
+    required: true
+  github-token:
+    description: GitHub token used to fetch the PR diff.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check PR diff for hidden Unicode
+      shell: bash
+      # Inputs are passed through env vars — never interpolated into the
+      # run block directly — so attacker-controlled values can't escape
+      # the shell context (GHA script injection / CWE-94).
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+      run: |
+        gh pr diff "$PR_NUMBER" \
+          --repo "$GITHUB_REPOSITORY" \
+          | bash "$GITHUB_ACTION_PATH/linter_hidden_unicode.sh" --stdin

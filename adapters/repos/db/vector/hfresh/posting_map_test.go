@@ -35,11 +35,13 @@ func makePostingMetadataStore(t *testing.T) *PostingMap {
 
 var idCounter atomic.Uint64
 
-func makeVectors(n, dims int) []Vector {
+func makeVectors(t *testing.T, n, dims int) []Vector {
+	t.Helper()
 	vectors, _ := testinghelpers.RandomVecsFixedSeed(n, 0, dims)
 	result := make([]Vector, n)
 
-	quantizer := compressionhelpers.NewBinaryRotationalQuantizer(dims, 42, distancer.NewL2SquaredProvider())
+	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(dims, 42, distancer.NewL2SquaredProvider())
+	require.NoError(t, err)
 
 	for i := 0; i < n; i++ {
 		compressed := quantizer.CompressedBytes(quantizer.Encode(vectors[i]))
@@ -494,7 +496,7 @@ func TestPostingMetadataStore(t *testing.T) {
 
 	t.Run("SetVectorIDs and Get", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
-		posting := Posting(makeVectors(10, 16))
+		posting := Posting(makeVectors(t, 10, 16))
 		err := store.SetVectorIDs(ctx, 42, posting)
 		require.NoError(t, err)
 
@@ -551,11 +553,11 @@ func TestPostingMetadataStore(t *testing.T) {
 	t.Run("CountAllVectors with multiple postings", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
 
-		posting1 := Posting(makeVectors(5, 16))
+		posting1 := Posting(makeVectors(t, 5, 16))
 		err := store.SetVectorIDs(ctx, 42, posting1)
 		require.NoError(t, err)
 
-		posting2 := Posting(makeVectors(5, 16))
+		posting2 := Posting(makeVectors(t, 5, 16))
 		err = store.SetVectorIDs(ctx, 43, posting2)
 		require.NoError(t, err)
 

@@ -469,6 +469,15 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		}
 	}
 
+	// Removing the old docId from the factory solves an issue,
+	// where, if using a NotEquals filter on a property,
+	// there is a possible time period where that docId has been deleted from the inverted index,
+	// but is still present in HNSW or other vector indices.
+	// For any NotEquals filter, we do an Equals filter and invert it's results.
+	if status.docIDChanged {
+		s.bitmapFactory.RemoveIds(status.oldDocID)
+	}
+
 	if err := s.SetPropertyLengths(props); err != nil {
 		return errors.Wrap(err, "store field length values for props")
 	}

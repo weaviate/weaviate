@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -39,6 +38,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -112,7 +112,11 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if index.compressionType == CompressionBQ {
 		index.compressed.Store(true)
 		builder := NewQuantizerBuilder(cfg.DistanceProvider)
-		index.quantizer = builder.CreateQuantizer(index.compressionType, 0)
+		quantizer, err := builder.CreateQuantizer(index.compressionType, 0)
+		if err != nil {
+			return nil, err
+		}
+		index.quantizer = quantizer
 	}
 
 	cached, cacheType := extractCache(uc)
@@ -308,30 +312,22 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 }
 
 func byteSliceFromUint64Slice(vector []uint64, slice []byte) []byte {
-	for i := range vector {
-		binary.LittleEndian.PutUint64(slice[i*8:], vector[i])
-	}
+	byteops.CopySliceToBytes(slice[:len(vector)*8], vector)
 	return slice
 }
 
 func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
-	for i := range vector {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vector[i]))
-	}
+	byteops.CopySliceToBytes(slice[:len(vector)*4], vector)
 	return slice
 }
 
 func uint64SliceFromByteSlice(vector []byte, slice []uint64) []uint64 {
-	for i := range slice {
-		slice[i] = binary.LittleEndian.Uint64(vector[i*8:])
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*8])
 	return slice
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
@@ -350,7 +346,12 @@ func (index *flat) initializeDimensionsAndRQ(vector []float32) {
 
 	if !index.Compressed() && (index.compressionType == CompressionRQ1 || index.compressionType == CompressionRQ8) {
 		builder := NewQuantizerBuilder(index.distancerProvider)
-		index.quantizer = builder.CreateQuantizer(index.compressionType, dims)
+		quantizer, err := builder.CreateQuantizer(index.compressionType, dims)
+		if err != nil {
+			index.logger.WithError(err).Error("could not create quantizer")
+			return // Fail the entire initialization
+		}
+		index.quantizer = quantizer
 		if err := index.persistRQData(); err != nil {
 			index.logger.WithError(err).Error("could not persist RQ data")
 			return // Fail the entire initialization

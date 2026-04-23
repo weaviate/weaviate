@@ -124,6 +124,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
+	schema.HashBlobHashProperties(class, updates)
+
 	vectors, multiVectors, err := dto.GetVectors(updates.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)

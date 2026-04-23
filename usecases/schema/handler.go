@@ -35,6 +35,7 @@ import (
 var (
 	ErrNotFound           = errors.New("not found")
 	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
+	ErrValidation         = errors.New("validation")
 )
 
 // SchemaManager is responsible for consistent schema operations.
@@ -102,6 +103,7 @@ type SchemaReader interface {
 	ReadSchema(reader func(models.Class, uint64)) error
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
+	LocalActiveShardsCount(class string) (int, error)
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias

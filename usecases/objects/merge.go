@@ -155,6 +155,10 @@ func (m *Manager) patchObject(ctx context.Context, prevObj, updates *models.Obje
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
 
+	// Convert BlobHash properties from raw base64 to hashes after vectorization
+	// so that vectorizers see the original media data, but only hashes are stored.
+	schema.HashBlobHashPrimitiveProperties(class, primitive)
+
 	// Only include vectors in the MergeDocument if they changed.
 	// This  reduces network bandwidth when replicating patches
 	// that don't trigger re-vectorization. The replica-side code in

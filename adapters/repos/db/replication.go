@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -183,6 +184,24 @@ func (db *DB) HashTreeLevel(ctx context.Context, className, shardName string, le
 		return nil, pr.FirstError()
 	}
 	return index.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (db *DB) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
+	index, pr := db.replicatedIndex(indexName)
+	if pr != nil {
+		return 0, pr.FirstError()
+	}
+	return index.CountObjects(ctx, shardName)
+}
+
+func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
+	f *filters.LocalFilter, limit int,
+) ([]strfmt.UUID, error) {
+	index, pr := db.replicatedIndex(indexName)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
 }
 
 func (db *DB) CommitReplication(ctx context.Context,
@@ -479,7 +498,8 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("flush memtables: %w", err)
 	}
 
-	if err := shard.ListBackupFiles(ctx, &sd); err != nil {
+	sdFiles, err := shard.ListBackupFiles(ctx, &sd)
+	if err != nil {
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
@@ -498,7 +518,7 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		sd.PropLengthTrackerPath,
 		sd.ShardVersionPath,
 	}
-	files = append(files, sd.Files...)
+	files = append(files, sdFiles...)
 
 	return files, nil
 }
@@ -676,9 +696,9 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		var currUpdateTime int64 // 0 means object doesn't exist on this node
 		var locallyDeleted bool
 
-		localObj, err := s.ObjectByIDErrDeleted(ctx, id, nil, additional.Properties{})
+		localObj, err := s.ObjectDigestErrDeleted(ctx, id)
 		if err == nil {
-			currUpdateTime = localObj.LastUpdateTimeUnix()
+			currUpdateTime = localObj.UpdateTime
 		} else if errors.Is(err, lsmkv.Deleted) {
 			locallyDeleted = true
 			var errDeleted lsmkv.ErrDeleted
@@ -788,8 +808,6 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
-	result = make([]types.RepairResponse, len(ids))
-
 	s, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
@@ -809,41 +827,36 @@ func (i *Index) DigestObjects(ctx context.Context,
 		multiIDs[j] = multi.Identifier{ID: ids[j].String()}
 	}
 
-	objs, err := s.MultiObjectByID(ctx, multiIDs)
+	objs, err := s.ObjectDigests(ctx, multiIDs)
 	if err != nil {
 		return nil, fmt.Errorf("shard objects digest: %w", err)
 	}
 
 	for j := range objs {
-		if objs[j] == nil {
-			deleted, deletionTime, err := s.WasDeleted(ctx, ids[j])
-			if err != nil {
-				return nil, err
-			}
+		if objs[j].ID != "" {
+			continue
+		}
 
-			var updateTime int64
-			if deleted && !deletionTime.IsZero() {
-				updateTime = deletionTime.UnixMilli()
-			}
+		deleted, deletionTime, err := s.WasDeleted(ctx, ids[j])
+		if err != nil {
+			return nil, err
+		}
 
-			result[j] = types.RepairResponse{
-				ID:         ids[j].String(),
-				Deleted:    deleted,
-				UpdateTime: updateTime,
-				// TODO: use version when supported
-				Version: 0,
-			}
-		} else {
-			result[j] = types.RepairResponse{
-				ID:         objs[j].ID().String(),
-				UpdateTime: objs[j].LastUpdateTimeUnix(),
-				// TODO: use version when supported
-				Version: 0,
-			}
+		var updateTime int64
+		if deleted && !deletionTime.IsZero() {
+			updateTime = deletionTime.UnixMilli()
+		}
+
+		objs[j] = types.RepairResponse{
+			ID:         ids[j].String(),
+			Deleted:    deleted,
+			UpdateTime: updateTime,
+			// TODO: use version when supported
+			Version: 0,
 		}
 	}
 
-	return result, err
+	return objs, nil
 }
 
 func (i *Index) IncomingDigestObjects(ctx context.Context,
@@ -892,6 +905,23 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return i.HashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (i *Index) CountObjects(ctx context.Context, shardName string) (int, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return 0, fmt.Errorf("%w: shard %q", err, shardName)
+	}
+	defer release()
+	if shard == nil {
+		return 0, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return shard.ObjectCount(ctx)
+}
+
+func (i *Index) IncomingCountObjects(ctx context.Context, shardName string) (int, error) {
+	return i.CountObjects(ctx, shardName)
 }
 
 func (i *Index) FetchObject(ctx context.Context,

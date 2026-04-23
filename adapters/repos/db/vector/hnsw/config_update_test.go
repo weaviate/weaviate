@@ -64,20 +64,16 @@ func TestUserConfigUpdates(t *testing.T) {
 						"attempted change from \"cosine\" to \"l2-squared\""),
 			},
 			{
-				name:    "attempting to change skipDefaultQuantization",
-				initial: ent.UserConfig{SkipDefaultQuantization: true},
-				update:  ent.UserConfig{SkipDefaultQuantization: false},
-				expectedError: errors.Errorf(
-					"skipDefaultQuantization is immutable: " +
-						"attempted change from \"true\" to \"false\""),
+				name:          "attempting to change skipDefaultQuantization",
+				initial:       ent.UserConfig{SkipDefaultQuantization: true},
+				update:        ent.UserConfig{SkipDefaultQuantization: false},
+				expectedError: nil,
 			},
 			{
-				name:    "attempting to change trackDefaultQuantization",
-				initial: ent.UserConfig{TrackDefaultQuantization: true},
-				update:  ent.UserConfig{TrackDefaultQuantization: false},
-				expectedError: errors.Errorf(
-					"trackDefaultQuantization is immutable: " +
-						"attempted change from \"true\" to \"false\""),
+				name:          "attempting to change trackDefaultQuantization",
+				initial:       ent.UserConfig{TrackDefaultQuantization: true},
+				update:        ent.UserConfig{TrackDefaultQuantization: false},
+				expectedError: nil,
 			},
 			{
 				name: "attempting to change multivector",

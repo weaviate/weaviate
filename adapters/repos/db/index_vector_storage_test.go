@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -53,7 +54,6 @@ const (
 
 func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 	ctx := context.Background()
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
@@ -131,6 +131,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Use a separate temporary directory per test case to avoid
+			// LSM bucket re-registration conflicts and TempDir cleanup issues.
+			dirName, err := os.MkdirTemp("", "weaviate-unloaded-vectors-*")
+			require.NoError(t, err)
+			defer os.RemoveAll(dirName)
+
 			// Create sharding state
 			shardState := &sharding.State{
 				Physical: map[string]sharding.Physical{
@@ -398,7 +404,6 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 	ctx := context.Background()
-	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
 	tests := []struct {
@@ -449,6 +454,12 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Use a separate temporary directory per test case to avoid
+			// LSM bucket re-registration conflicts and TempDir cleanup issues.
+			dirName, err := os.MkdirTemp("", "weaviate-unloaded-dims-*")
+			require.NoError(t, err)
+			defer os.RemoveAll(dirName)
+
 			// Create sharding state
 			shardState := &sharding.State{
 				Physical: map[string]sharding.Physical{
