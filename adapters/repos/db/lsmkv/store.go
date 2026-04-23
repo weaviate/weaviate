@@ -46,7 +46,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
-	bucketsByName    map[string]*Bucket
+	bucketsByName    sync.Map // map[string]*Bucket
 
 	logger  logrus.FieldLogger
 	metrics *Metrics
@@ -72,7 +72,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadL
 	s := &Store{
 		dir:           dir,
 		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
+		bucketsByName: sync.Map{},
 		bucketsLocks:  wsync.NewKeyLocker(),
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
@@ -85,10 +85,11 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, loadL
 }
 
 func (s *Store) Bucket(name string) *Bucket {
-	s.bucketAccessLock.RLock()
-	defer s.bucketAccessLock.RUnlock()
-
-	return s.bucketsByName[name]
+	b, _ := s.bucketsByName.Load(name)
+	if b == nil {
+		return nil
+	}
+	return b.(*Bucket)
 }
 
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
@@ -105,11 +106,13 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	for _, b := range s.bucketsByName {
+	s.bucketsByName.Range(func(key, value interface{}) bool {
+		b := value.(*Bucket)
 		if b != nil {
 			b.UpdateStatus(targetStatus)
 		}
-	}
+		return true
+	})
 
 	return nil
 }
@@ -211,7 +214,7 @@ func (s *Store) setBucket(name string, b *Bucket) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	s.bucketsByName[name] = b
+	s.bucketsByName.Store(name, b)
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
@@ -231,9 +234,9 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	eg.SetLimit(runtime.GOMAXPROCS(0))
 
-	for name, bucket := range s.bucketsByName {
-		name := name
-		bucket := bucket
+	s.bucketsByName.Range(func(key, value interface{}) bool {
+		name := key.(string)
+		bucket := value.(*Bucket)
 
 		eg.Go(func() error {
 			if err := bucket.Shutdown(ctx); err != nil {
@@ -241,7 +244,8 @@ func (s *Store) Shutdown(ctx context.Context) error {
 			}
 			return nil
 		})
-	}
+		return true
+	})
 
 	return eg.Wait()
 }
@@ -253,14 +257,15 @@ func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	bucket, ok := s.bucketsByName[bucketName]
+	bucketValue, ok := s.bucketsByName.Load(bucketName)
 	if !ok {
 		return fmt.Errorf("shutdown bucket %q of store %q: bucket not found", bucketName, s.dir)
 	}
+	bucket := bucketValue.(*Bucket)
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "shutdown bucket %q of store %q", bucketName, s.dir)
 	}
-	delete(s.bucketsByName, bucketName)
+	s.bucketsByName.Delete(bucketName)
 
 	return nil
 }
@@ -276,10 +281,15 @@ func (s *Store) WriteWALs() error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	for name, bucket := range s.bucketsByName {
-		if err := bucket.WriteWAL(); err != nil {
-			return errors.Wrapf(err, "bucket %q", name)
+	var errs errorcompounder.ErrorCompounder
+	s.bucketsByName.Range(func(name, bucket interface{}) bool {
+		if err := bucket.(*Bucket).WriteWAL(); err != nil {
+			errs.Add(errors.Wrapf(err, "bucket %q", name))
 		}
+		return true
+	})
+	if errs.Len() != 0 {
+		return errs.ToError()
 	}
 
 	return nil
@@ -362,13 +372,22 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	s.bucketAccessLock.Lock()
 	var (
 		status      = newBucketJobStatus()
-		resultQueue = make(chan interface{}, len(s.bucketsByName))
+		bucketCount = 0
+	)
+
+	s.bucketsByName.Range(func(_, _ interface{}) bool {
+		bucketCount++
+		return true
+	})
+
+	var (
+		resultQueue = make(chan interface{}, bucketCount)
 		wg          = sync.WaitGroup{}
 	)
 
-	for _, bucket := range s.bucketsByName {
+	s.bucketsByName.Range(func(_, bucket interface{}) bool {
 		wg.Add(1)
-		b := bucket
+		b := bucket.(*Bucket)
 		f := func() {
 			defer wg.Done()
 			status.Lock()
@@ -378,7 +397,8 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 			status.buckets[b] = err
 		}
 		enterrors.GoWrapper(f, s.logger)
-	}
+		return true
+	})
 	s.bucketAccessLock.Unlock()
 	wg.Wait()
 	close(resultQueue)
@@ -417,9 +437,10 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 	defer s.bucketAccessLock.RUnlock()
 
 	newMap := map[string]*Bucket{}
-	for name, bucket := range s.bucketsByName {
-		newMap[name] = bucket
-	}
+	s.bucketsByName.Range(func(name, bucket interface{}) bool {
+		newMap[name.(string)] = bucket.(*Bucket)
+		return true
+	})
 
 	return newMap
 }
@@ -513,17 +534,20 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	bucket := s.bucketsByName[bucketName]
-	if bucket == nil {
+	bucketValue, ok := s.bucketsByName.Load(bucketName)
+	if !ok {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
 	}
+	bucket := bucketValue.(*Bucket)
 
-	replacementBucket := s.bucketsByName[replacementBucketName]
-	if replacementBucket == nil {
+	replacementBucketValue, ok := s.bucketsByName.Load(replacementBucketName)
+	if !ok {
 		return fmt.Errorf("replacement bucket '%s' not found", replacementBucketName)
 	}
-	s.bucketsByName[bucketName] = replacementBucket
-	delete(s.bucketsByName, replacementBucketName)
+	replacementBucket := replacementBucketValue.(*Bucket)
+
+	s.bucketsByName.Store(bucketName, replacementBucket)
+	s.bucketsByName.Delete(replacementBucketName)
 
 	var currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir string
 	var err error
@@ -568,12 +592,14 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
-	currBucket := s.bucketsByName[bucketName]
-	if currBucket == nil {
+	currBucketValue, ok := s.bucketsByName.Load(bucketName)
+	if !ok {
 		return fmt.Errorf("bucket '%s' not found", bucketName)
 	}
-	newBucket := s.bucketsByName[newBucketName]
-	if newBucket != nil {
+	currBucket := currBucketValue.(*Bucket)
+
+	_, ok = s.bucketsByName.Load(newBucketName)
+	if ok {
 		return fmt.Errorf("bucket '%s' already exists", newBucketName)
 	}
 
@@ -599,8 +625,8 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	}
 	currBucket.active = mt
 
-	s.bucketsByName[newBucketName] = currBucket
-	delete(s.bucketsByName, bucketName)
+	s.bucketsByName.Store(newBucketName, currBucket)
+	s.bucketsByName.Delete(bucketName)
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)

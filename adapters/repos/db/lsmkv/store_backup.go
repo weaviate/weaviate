@@ -38,9 +38,11 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 	defer s.bucketAccessLock.RUnlock()
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
-	for _, b := range s.bucketsByName {
+	s.bucketsByName.Range(func(key, value interface{}) bool {
+		b := value.(*Bucket)
 		b.doStartPauseTimer()
-	}
+		return true
+	})
 
 	return nil
 }
@@ -55,9 +57,11 @@ func (s *Store) ResumeCompaction(ctx context.Context) error {
 	defer s.bucketAccessLock.RUnlock()
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
-	for _, b := range s.bucketsByName {
+	s.bucketsByName.Range(func(key, value interface{}) bool {
+		b := value.(*Bucket)
 		b.doStopPauseTimer()
-	}
+		return true
+	})
 
 	return nil
 }
