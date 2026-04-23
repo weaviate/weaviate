@@ -449,6 +449,32 @@ func TestRaftClose(t *testing.T) {
 	assert.Less(t, after.Sub(now), 2*time.Second)
 }
 
+func TestServiceCloseChannelsAreBuffered(t *testing.T) {
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	cfg := m.cfg
+	cfg.BindAddr = cfg.Host
+	cfg.RPCPort = utils.MustGetFreeTCPPort()
+
+	svc := New(cfg, nil, nil, nil)
+
+	assert.Equal(t, 1, cap(svc.closeBootstrapper))
+	assert.Equal(t, 1, cap(svc.closeOnFSMCaughtUp))
+	assert.Equal(t, 1, cap(svc.closeWaitForDB))
+
+	assertNonBlockingSend(t, svc.closeBootstrapper)
+	assertNonBlockingSend(t, svc.closeOnFSMCaughtUp)
+	assertNonBlockingSend(t, svc.closeWaitForDB)
+}
+
+func assertNonBlockingSend(t *testing.T, ch chan struct{}) {
+	t.Helper()
+	select {
+	case ch <- struct{}{}:
+	default:
+		t.Fatal("channel send should not block")
+	}
+}
+
 func TestRaftPanics(t *testing.T) {
 	m := NewMockStore(t, "Node-1", 9091)
 
