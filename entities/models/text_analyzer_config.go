@@ -27,6 +27,7 @@ import (
 //
 // swagger:model TextAnalyzerConfig
 type TextAnalyzerConfig struct {
+
 	// If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.
 	ASCIIFold bool `json:"asciiFold,omitempty"`
 
