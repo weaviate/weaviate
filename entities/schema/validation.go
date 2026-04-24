@@ -17,25 +17,34 @@ import (
 	"strings"
 )
 
+// Canonical suffixes appended to property names to form internal bucket or
+// directory names for inverted and auxiliary indices. Also re-exported from
+// entities/filters (InternalPropertyLength, InternalNullIndex) for API
+// stability.
+const (
+	InternalPropertyLengthSuffix = "_propertyLength"
+	InternalNullStateSuffix      = "_nullState"
+	InternalSearchableSuffix     = "_searchable"
+	InternalRangeableSuffix      = "_rangeable"
+	InternalTempSuffix           = "_temp"
+	InternalMetaCountSuffix      = "__meta_count"
+)
+
 var (
 	validateClassNameRegex          = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
 	validateTenantNameRegex         = regexp.MustCompile(`^` + ShardNameRegexCore + `$`)
 	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
 	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
 	reservedPropertyNames           = []string{"_additional", "_id", "id"}
-	// reservedPropertyNameSuffixes are suffixes appended to property names to
-	// form internal bucket/directory names for inverted and auxiliary indices.
-	// A user property ending in one of these would collide with the bucket of
-	// another property. Kept in sync with helpers.BucketSearchableFromPropNameLSM,
-	// helpers.BucketRangeableFromPropNameLSM, helpers.TempBucketFromBucketName,
-	// helpers.MetaCountProp, filters.InternalPropertyLength, filters.InternalNullIndex.
+	// reservedPropertyNameSuffixes lists the suffixes a user property may not
+	// end in — each would collide with a bucket derived from another property.
 	reservedPropertyNameSuffixes = []string{
-		"_searchable",
-		"_rangeable",
-		"_temp",
-		"__meta_count",
-		"_propertyLength",
-		"_nullState",
+		InternalSearchableSuffix,
+		InternalRangeableSuffix,
+		InternalTempSuffix,
+		InternalMetaCountSuffix,
+		InternalPropertyLengthSuffix,
+		InternalNullStateSuffix,
 	}
 )
 
