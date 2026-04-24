@@ -136,6 +136,48 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		}
 	})
 
+	// backup-1 (clsA) is now persisted. The subtests below cover the RBAC
+	// behaviour of the status/cancel/list endpoints:
+	//   - list returns a 200 filtered response containing only the backups
+	//     whose classes the caller has READ on,
+	//   - status/cancel authorize against the resolved classes of the
+	//     target backup, so a caller without permission on those classes
+	//     gets 403 once the meta has been read.
+	t.Run("list backups filters in response instead of returning 403", func(t *testing.T) {
+		// Admin sees every backup.
+		adminResp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.Len(t, adminResp.Payload, 1)
+		require.Equal(t, backupID, adminResp.Payload[0].ID)
+
+		// customUser has manage_backups on clsA → sees backup-1.
+		customResp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+		require.Len(t, customResp.Payload, 1)
+		require.Equal(t, backupID, customResp.Payload[0].ID)
+
+		// Viewer has no backup permissions → 200 with an empty list, not 403.
+		viewerResp, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(viewerKey))
+		require.Nil(t, err)
+		require.Len(t, viewerResp.Payload, 0)
+	})
+
+	t.Run("backup status is 403 for callers without permission on the backup classes", func(t *testing.T) {
+		_, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsCreateStatusForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("cancel is 403 for callers without permission on the backup classes", func(t *testing.T) {
+		err := helper.CancelBackupWithAuthz(t, backend, backupID, helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsCancelForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
 	t.Run("delete clsA", func(t *testing.T) {
 		helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
 	})
@@ -157,6 +199,16 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Equal(t, "", resp.Payload.Error)
 
 		helper.ExpectBackupEventuallyRestored(t, backupID, backend, helper.CreateAuth(adminKey))
+	})
+
+	t.Run("restoration status is 403 for callers without permission on the backup classes", func(t *testing.T) {
+		// Restore meta has been written by the previous step; the authz
+		// check resolves its classes and rejects the viewer.
+		_, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+		var parsed *backups.BackupsRestoreStatusForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("successfully cancel an in-progress backup", func(t *testing.T) {

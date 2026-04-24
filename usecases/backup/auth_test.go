@@ -44,34 +44,45 @@ func Test_Authorization(t *testing.T) {
 		ignoreAuthZ      bool
 	}
 
+	// The expected verb/resource below is the *first* authz call made by the
+	// scheduler method; any subsequent, more fine-grained checks fall through
+	// to the catch-all registered in the test body.
 	tests := []testCase{
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
 			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Backups("ABC")[0],
+			expectedResource: authorization.Backups()[0], // "*" until req.Include is resolved
 			classes:          []string{"ABC"},
 		},
 		{
-			methodName:     "BackupStatus",
-			additionalArgs: []interface{}{"filesystem", "123", "", ""},
-			classes:        []string{"ABC"},
-			ignoreAuthZ:    true,
+			// BackupStatus authorizes against the backup's actual classes
+			// (resolved from the meta).
+			methodName:       "BackupStatus",
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req, false},
 			expectedVerb:     authorization.CREATE,
+			expectedResource: authorization.Backups()[0], // "*" until req.Include is resolved
+			classes:          []string{"ABC"},
+		},
+		{
+			// RestorationStatus authorizes against the backup's actual classes
+			// (resolved from the meta).
+			methodName:       "RestorationStatus",
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
+			expectedVerb:     authorization.READ,
 			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},
 		},
 		{
-			methodName:     "RestorationStatus",
-			additionalArgs: []interface{}{"filesystem", "123", "", ""},
-			classes:        []string{"ABC"},
-			ignoreAuthZ:    true,
-		},
-		{
+			// Cancel authorizes DELETE against the backup's actual classes
+			// (resolved from the meta).
 			methodName:       "Cancel",
 			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
 			expectedVerb:     authorization.DELETE,
@@ -86,10 +97,14 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
-			methodName:     "List",
-			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
-			classes:        []string{"ABC"},
-			ignoreAuthZ:    true,
+			// List authorizes per-backup against its resolved classes
+			// ("backups/collections/ABC") and filters the response to what
+			// the caller is permitted to see.
+			methodName:       "List",
+			additionalArgs:   []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 	}
 
@@ -174,7 +189,11 @@ func Test_Authorization(t *testing.T) {
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
-					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
+					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
+					// Subsequent fine-grained authz calls (e.g. Backup/Restore
+					// re-authorizing on resolved classes, Cancel re-authorizing
+					// on meta classes) are allowed but not required.
+					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)
