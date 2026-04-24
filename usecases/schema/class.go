@@ -110,15 +110,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
+	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	for _, prop := range cls.Properties {
 		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
 			return nil, 0, err
 		}
-	}
-
-	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
-	if err != nil {
-		return nil, 0, err
 	}
 
 	classGetterWithAuth := func(name string) (*models.Class, error) {
