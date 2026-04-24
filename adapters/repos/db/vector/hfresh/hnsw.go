@@ -66,9 +66,9 @@ type HNSWIndex struct {
 	vectorProvider *MedoidVectorProvider
 }
 
-// defaultCentroidRescoreLimit is the multiplier for k to determine the rescore limit.
-// With RQ8, 1.5x gives good recall/performance tradeoff.
-const defaultCentroidRescoreMultiplier = 1.5
+// defaultCentroidRescoreLimit is the fixed rescore limit for centroid HNSW.
+// This matches the rescore limit used in the final search (350).
+const defaultCentroidRescoreLimit = 350
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
 	vectorProvider := &MedoidVectorProvider{}
@@ -94,9 +94,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.EF = 64
 	userConfig.EFConstruction = 64
 	userConfig.RQ.Enabled = true
-	userConfig.RQ.Bits = 8
-	// RescoreLimit = 1.5 * EF to allow accurate distance computation with medoid vectors
-	userConfig.RQ.RescoreLimit = int(math.Ceil(defaultCentroidRescoreMultiplier * float64(userConfig.EF)))
+	userConfig.RQ.Bits = 1 // RQ1: 1-bit compression for maximum memory efficiency
+	// Fixed rescore limit to ensure accurate distance computation using medoid vectors
+	userConfig.RQ.RescoreLimit = defaultCentroidRescoreLimit
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
@@ -128,14 +128,18 @@ func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmp, err := hnsw.GetCompressedVector[byte](i.hnsw, id)
-	if err != nil {
-		return nil, err
+
+	// Compress using HFresh's quantizer format (not HNSW's internal RQ format)
+	// This is needed because Centroid.Distance uses HFresh's distancer which
+	// expects HFresh's compression format
+	var compressed []byte
+	if i.quantizer != nil {
+		compressed = i.quantizer.CompressedBytes(i.quantizer.Encode(vec))
 	}
 
 	return &Centroid{
 		Uncompressed: vec,
-		Compressed:   cmp,
+		Compressed:   compressed,
 		Deleted:      false,
 	}, nil
 }

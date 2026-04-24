@@ -103,7 +103,7 @@ func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 				hnsw.WithAllocChecker(memwatch.NewDummyMonitor()),
 			)
 		},
-		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		DistanceProvider:  distancer.NewL2SquaredProvider(),
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		AllocChecker:      memwatch.NewDummyMonitor(),
 		GetViewThunk:      getViewThunk,
