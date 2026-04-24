@@ -202,13 +202,17 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 ) error
 ```
 
-Semantics per entry:
+Semantics per entry, applied **strictly in LSN order, one call per entry** (no deferred PUT batching):
 - If `u.IsDelete` and local update time > `u.LastUpdateTimeUnixMilli`: skip.
 - Else if `u.IsDelete`: `DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli))`.
 - Else if local update time > `u.LastUpdateTimeUnixMilli`: skip.
-- Else: decode payload via `storobj.FromBinary(u.Payload)` and call `PutObjectBatch(ctx, []*storobj.Object{decoded})`. Decoding errors abort the movement.
+- Else: decode payload via `storobj.FromBinary(u.Payload)` and call `PutObjectBatch(ctx, []*storobj.Object{decoded})`. Decoding errors abort the movement at the offending entry; no subsequent entries are applied.
 
-No `RepairResponse` return — disk errors bubble up and abort the movement.
+The local update time comes from `Shard.ObjectDigestErrDeleted`, which surfaces `lsmkv.Deleted` (use the tombstone's `DeletionTime().UnixMilli()` as `currUpdateTime`) and `lsmkv.NotFound` (leave `currUpdateTime = 0` so the incoming entry always wins).
+
+One-call-per-entry is load-bearing: mirroring `OverwriteObjects`'s "defer PUTs, fire DELETEs inline" pattern would mis-order a PUT → DELETE sequence for the same UUID within a single batch, which Phase 4's in-LSN-order tailer can legitimately produce. Phase 3's caller therefore does not need to group or pre-sort entries beyond preserving the LSN order they arrived in.
+
+No `RepairResponse` return — disk errors bubble up and abort the movement. Unlike `OverwriteObjects`, replay does NOT consult `idx.DeletionStrategy()` and does NOT emit `StaleUpdateTime` conflicts: pure LWW by `LastUpdateTimeUnixMilli`.
 
 ## State machine integration
 

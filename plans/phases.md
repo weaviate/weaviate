@@ -107,17 +107,20 @@ This preserves "Phase 2 leaves production unchanged" even after Phase 5 activate
 
 - `adapters/repos/db/replication.go`:
   - Add `Index.OverwriteObjectsFromChangeLog(ctx, shard, updates []ChangeLogReplayEntry) error` next to `OverwriteObjects`, where `ChangeLogReplayEntry` carries `{ID, LastUpdateTimeUnixMilli, IsDelete, Payload}` and `Payload` is raw `storobj.Object` bytes (empty for deletes). See plan.md §"Replay path on target".
-  - Semantics per entry: skip if local is newer; on delete call `DeleteObject(id, ts)`; on put call `storobj.FromBinary(payload)` then `PutObjectBatch([storobj])`. Decode errors abort the movement. No `RepairResponse`; disk errors bubble up.
+  - Semantics per entry, applied **strictly in LSN order, one call per entry** (no deferred PUT batching): read local update time via `s.ObjectDigestErrDeleted` (treating `lsmkv.Deleted` as the tombstone's deletion time and `lsmkv.NotFound` as `currUpdateTime = 0`); skip if local is strictly newer; on delete call `DeleteObject(ctx, id, time.UnixMilli(ts))`; on put call `storobj.FromBinary(payload)` then `PutObjectBatch(ctx, []*storobj.Object{decoded})`. Decode errors abort the movement at the offending entry; no subsequent entries are applied. No `RepairResponse`; disk errors bubble up. Pure LWW — unlike `OverwriteObjects`, we do NOT consult `DeletionStrategy` or emit `StaleUpdateTime` conflicts.
+  - One-call-per-entry is load-bearing: mirroring `OverwriteObjects`'s deferred-PUT pattern would mis-order a PUT → DELETE sequence for the same UUID within a single batch, which Phase 4's in-LSN-order tailer can legitimately produce.
 
-**Tests (unit, adjacent to `replication_test.go` if one exists):**
+**Tests** (integration, `//go:build integrationTest`, new file `adapters/repos/db/replication_changelog_integration_test.go`; bootstrap follows `TestOverwriteObjects` at `crud_integration_test.go:2443`):
 
-- Local-newer-than-update skip (put and delete variants).
-- Successful overwrite of older local.
-- Successful delete (tombstone).
-- Disk error propagates.
+- `TestOverwriteObjectsFromChangeLog_SkipsWhenLocalNewer` — LWW skip gate on both verbs.
+- `TestOverwriteObjectsFromChangeLog_AppliesWhenLocalOlder` — encode/decode round-trip via real `obj.MarshalBinary()` + `storobj.FromBinary`.
+- `TestOverwriteObjectsFromChangeLog_DeletesAndTombstoneWinsOverOlderPut` — guards the `lsmkv.Deleted` branch that uses the tombstone's deletion time as `currUpdateTime`.
+- `TestOverwriteObjectsFromChangeLog_InOrderPutThenDelete` — same-UUID PUT@10, DELETE@15 in one batch ends deleted; guards the ordering choice vs. the deferred-PUT anti-pattern.
+- `TestOverwriteObjectsFromChangeLog_DecodeErrorAborts` — mid-batch decode error aborts replay and a following valid entry is NOT applied.
 
 **Merge gate:**
 - `go test -race -count 1 ./adapters/repos/db/...` passes.
+- `go test -tags integrationTest -race -count 1 ./adapters/repos/db/...` passes — includes the 5 new cases alongside the existing `TestOverwriteObjects`.
 - Can land before or after Phase 2; both are needed before Phase 4.
 
 ---

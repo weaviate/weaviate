@@ -722,6 +722,87 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 	return i.OverwriteObjects(ctx, shardName, vobjects)
 }
 
+// ChangeLogReplayEntry is the decoded form of a single changelog frame for
+// target-side replay.
+type ChangeLogReplayEntry struct {
+	ID                      strfmt.UUID
+	LastUpdateTimeUnixMilli int64
+	IsDelete                bool
+	// Payload is the raw storobj.Object bytes for PUTs; empty for deletes.
+	Payload []byte
+}
+
+// OverwriteObjectsFromChangeLog applies change-log entries to the local shard
+// with pure last-write-wins by LastUpdateTimeUnixMilli. Unlike OverwriteObjects
+// it does NOT emit StaleUpdateTime conflicts and does NOT consult
+// DeletionStrategy — a strictly-newer local silently wins.
+//
+// Entries MUST be supplied in LSN order; each is applied in-place with one
+// call to Shard (no deferred PUT batching).
+func (idx *Index) OverwriteObjectsFromChangeLog(
+	ctx context.Context, shard string, updates []ChangeLogReplayEntry,
+) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	s, release, err := idx.GetShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("shard %q not found locally", shard)
+	}
+	defer release()
+	if s == nil {
+		return fmt.Errorf("shard %q not found locally", shard)
+	}
+
+	for i := range updates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		u := &updates[i]
+
+		var currUpdateTime int64
+		localObj, err := s.ObjectDigestErrDeleted(ctx, u.ID)
+		switch {
+		case err == nil:
+			currUpdateTime = localObj.UpdateTime
+		case errors.Is(err, lsmkv.Deleted):
+			var errDeleted lsmkv.ErrDeleted
+			if errors.As(err, &errDeleted) {
+				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
+			}
+		case errors.Is(err, lsmkv.NotFound):
+			// currUpdateTime stays 0; incoming always wins.
+		default:
+			return fmt.Errorf("read local digest for %s: %w", u.ID, err)
+		}
+
+		if currUpdateTime > u.LastUpdateTimeUnixMilli {
+			continue
+		}
+
+		if u.IsDelete {
+			if err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli)); err != nil {
+				return fmt.Errorf("replay delete for %s: %w", u.ID, err)
+			}
+			continue
+		}
+
+		decoded, err := storobj.FromBinary(u.Payload)
+		if err != nil {
+			return fmt.Errorf("replay decode payload for %s: %w", u.ID, err)
+		}
+		errs := s.PutObjectBatch(ctx, []*storobj.Object{decoded})
+		for _, e := range errs {
+			if e != nil {
+				return fmt.Errorf("replay put for %s: %w", u.ID, e)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []types.RepairResponse, err error) {
