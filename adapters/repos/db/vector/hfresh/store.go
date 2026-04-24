@@ -246,3 +246,74 @@ func (p *PostingVersionsStore) Set(ctx context.Context, postingID uint64, versio
 	p.cache.Set(postingID, version)
 	return nil
 }
+
+// MedoidStore stores the medoid ID for each posting.
+// The medoid is the real vector that represents the cluster.
+type MedoidStore struct {
+	bucket    *lsmkv.Bucket
+	keyPrefix []byte
+	cache     *otter.Cache[uint64, uint64]
+}
+
+func NewMedoidStore(bucket *lsmkv.Bucket) *MedoidStore {
+	cache, _ := otter.New[uint64, uint64](nil)
+	return &MedoidStore{
+		bucket:    bucket,
+		keyPrefix: medoidBucketPrefix,
+		cache:     cache,
+	}
+}
+
+func (m *MedoidStore) key(postingID uint64) []byte {
+	buf := make([]byte, len(m.keyPrefix)+8)
+	copy(buf, m.keyPrefix)
+	binary.LittleEndian.PutUint64(buf[len(m.keyPrefix):], postingID)
+	return buf
+}
+
+// Get returns the medoid ID for the given posting ID.
+// Returns (medoidID, true, nil) if found, (0, false, nil) if not found.
+func (m *MedoidStore) Get(ctx context.Context, postingID uint64) (uint64, bool, error) {
+	medoidID, err := m.cache.Get(ctx, postingID, otter.LoaderFunc[uint64, uint64](func(ctx context.Context, key uint64) (uint64, error) {
+		k := m.key(postingID)
+		v, err := m.bucket.Get(k[:])
+		if err != nil {
+			return 0, errors.Wrapf(err, "failed to get medoid for posting %d", postingID)
+		}
+		if len(v) == 0 {
+			return 0, otter.ErrNotFound
+		}
+		if len(v) != 8 {
+			return 0, fmt.Errorf("invalid medoid data length: %d", len(v))
+		}
+		return binary.LittleEndian.Uint64(v), nil
+	}))
+	if errors.Is(err, otter.ErrNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return medoidID, true, nil
+}
+
+// Set stores the medoid ID for the given posting ID.
+func (m *MedoidStore) Set(ctx context.Context, postingID uint64, medoidID uint64) error {
+	key := m.key(postingID)
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], medoidID)
+	err := m.bucket.Put(key[:], buf[:])
+	if err != nil {
+		return err
+	}
+	m.cache.Set(postingID, medoidID)
+	return nil
+}
+
+// Delete removes the medoid ID for the given posting ID.
+// Note: The cache entry is not explicitly removed; it will be invalidated
+// on the next Get call when the bucket returns empty.
+func (m *MedoidStore) Delete(ctx context.Context, postingID uint64) error {
+	key := m.key(postingID)
+	return m.bucket.Delete(key[:])
+}

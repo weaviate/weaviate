@@ -118,21 +118,33 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
 		}
 
+		// store the medoid ID for this posting
+		err = h.MedoidStore.Set(ctx, newPostingID, result[i].MedoidID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to set medoid for posting %d after split operation", newPostingID)
+		}
+
 		// add the new centroid to the SPTAG index
+		// The centroid uses the medoid's real vector for accurate HNSW search
 		err = h.Centroids.Insert(newPostingID, &Centroid{
 			Uncompressed: result[i].Uncompressed,
 			Compressed:   result[i].Centroid,
 			Deleted:      false,
+			MedoidID:     result[i].MedoidID,
 		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to upsert new centroid %d after split operation", newPostingID)
 		}
 	}
 
-	// delete the old centroid
+	// delete the old centroid and its medoid mapping
 	err = h.Centroids.MarkAsDeleted(postingID)
 	if err != nil {
 		return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
+	}
+	err = h.MedoidStore.Delete(ctx, postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to delete medoid for posting %d after split operation", postingID)
 	}
 	err = h.PostingMap.SetVectorIDs(ctx, postingID, Posting{})
 	if err != nil {
@@ -164,27 +176,57 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 }
 
 // splitPosting takes a posting and returns two groups.
+// It uses k-means to cluster the vectors, but instead of using the computed
+// centroids (which are based on decompressed/approximated vectors), it uses
+// the medoid - the real vector closest to the centroid in each cluster.
+// This eliminates the approximation error from RQ decompression.
 func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(h.dims), 0)
 
 	data := posting.Uncompress(h.quantizer)
 
-	idsAssignments, err := enc.FitBalanced(data)
+	idsAssignments, medoidIndices, err := enc.FitBalancedWithMedoid(data)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fit KMeans encoder for split operation")
 	}
 
 	results := make([]SplitResult, 2)
-	for i := range results {
-		results[i] = SplitResult{
-			Uncompressed: enc.Centroid(byte(i)),
-		}
 
-		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(enc.Centroid(byte(i))))
-	}
-
+	// First, assign vectors to their clusters
 	for i, v := range idsAssignments {
 		results[v].Posting = results[v].Posting.AddVector(posting[i])
+	}
+
+	// Now set up the medoid for each cluster
+	for i := range results {
+		medoidIdx := medoidIndices[i]
+		medoidVector := posting[medoidIdx]
+		results[i].MedoidIndex = medoidIdx
+		results[i].MedoidID = medoidVector.ID()
+
+		var realVector []float32
+
+		// Get the real (uncompressed) vector for the medoid from the store
+		if h.vectorForId != nil {
+			var err error
+			realVector, err = h.vectorForId(h.ctx, results[i].MedoidID)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to get real vector for medoid %d", results[i].MedoidID)
+			}
+		}
+
+		// Fallback to decompressed vector if vectorForId is not available or returned nil
+		// This can happen in tests or if the vector was deleted
+		if realVector == nil {
+			realVector = data[medoidIdx]
+		}
+
+		// Normalize if needed (same as in Add)
+		realVector = h.normalizeVec(realVector)
+
+		// Use the real medoid vector as the cluster representative
+		results[i].Uncompressed = realVector
+		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(realVector))
 	}
 
 	return results, nil
@@ -194,6 +236,8 @@ type SplitResult struct {
 	Centroid     []byte
 	Uncompressed []float32
 	Posting      Posting
+	MedoidIndex  int    // Index into the original posting of the medoid vector
+	MedoidID     uint64 // ID of the medoid vector
 }
 
 func (h *HFresh) enqueueReassignAfterSplit(ctx context.Context, oldPostingID uint64, newPostingIDs []uint64, newPostings []SplitResult) error {

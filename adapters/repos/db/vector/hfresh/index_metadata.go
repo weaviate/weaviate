@@ -44,6 +44,7 @@ var (
 	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
 	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
+	medoidBucketPrefix         = []byte{sharedBucketVersionV1, 5}
 )
 
 // reassignBucketKey is used to track vectors that need to be reassigned to new postings.

@@ -72,7 +72,7 @@ func (h *HFresh) Add(ctx context.Context, id uint64, vector []float32) error {
 
 	// if there are no postings found, ensure an initial posting is created
 	if targets.Len() == 0 {
-		targets, err = h.ensureInitialPosting(vector, compressed)
+		targets, err = h.ensureInitialPosting(id, vector, compressed)
 		if err != nil {
 			return err
 		}
@@ -134,8 +134,10 @@ func (h *HFresh) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
-// ensureInitialPosting creates a new posting for vector v if the index is empty
-func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSet, error) {
+// ensureInitialPosting creates a new posting for vector v if the index is empty.
+// The vectorID is the ID of the vector being inserted, which becomes the medoid
+// of the initial posting (since it's the only vector in the cluster).
+func (h *HFresh) ensureInitialPosting(vectorID uint64, v []float32, compressed []byte) (*ResultSet, error) {
 	h.initialPostingLock.Lock()
 	defer h.initialPostingLock.Unlock()
 
@@ -151,11 +153,20 @@ func (h *HFresh) ensureInitialPosting(v []float32, compressed []byte) (*ResultSe
 		if err != nil {
 			return nil, err
 		}
+
+		// Store the medoid ID for this posting (the first vector is the medoid)
+		err = h.MedoidStore.Set(h.ctx, postingID, vectorID)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to set medoid for initial posting %d", postingID)
+		}
+
 		// use the vector as the centroid and register it in the SPTAG
+		// For the initial posting, the inserting vector is both the centroid and medoid
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
 			Compressed:   compressed,
 			Deleted:      false,
+			MedoidID:     vectorID,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
