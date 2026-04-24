@@ -2209,39 +2209,33 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	// For multi-shard searches with selection (MMR), shards must return raw
-	// relevance-ordered candidates so the coordinator can apply one global
-	// MMR pass after merging. We also need vectors on the returned objects
-	// for the coordinator-level diversity computation.
+	// For multi-shard MMR: skip per-shard selection, include vectors so the
+	// coordinator can run one global MMR pass after merging all shard results.
 	shardSelection := selection
 	shardAdditionalProps := additionalProps
-	var addedDefaultVector bool
-	var addedNamedVectors []string
+	var stripVector string // tracks vector name we added ("" = default, empty if none)
+	var needStrip bool
 	if selection != nil {
 		shardSelection = nil
 		targetVec := ""
 		if len(targetVectors) > 0 {
 			targetVec = targetVectors[0]
 		}
-		if targetVec == "" {
-			if !shardAdditionalProps.Vector {
-				addedDefaultVector = true
-				shardAdditionalProps.Vector = true
-			}
-		} else {
+		if targetVec == "" && !additionalProps.Vector {
+			needStrip = true
+			shardAdditionalProps.Vector = true
+		} else if targetVec != "" {
 			found := false
-			for _, v := range shardAdditionalProps.Vectors {
+			for _, v := range additionalProps.Vectors {
 				if v == targetVec {
 					found = true
 					break
 				}
 			}
 			if !found {
-				addedNamedVectors = []string{targetVec}
-				vecs := make([]string, len(shardAdditionalProps.Vectors)+1)
-				copy(vecs, shardAdditionalProps.Vectors)
-				vecs[len(shardAdditionalProps.Vectors)] = targetVec
-				shardAdditionalProps.Vectors = vecs
+				needStrip = true
+				stripVector = targetVec
+				shardAdditionalProps.Vectors = append(append([]string{}, additionalProps.Vectors...), targetVec)
 			}
 		}
 	}
@@ -2376,19 +2370,17 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			return nil, nil, err
 		}
 		// Strip vectors that were added solely for MMR computation.
-		if addedDefaultVector {
+		if needStrip {
 			for _, obj := range out {
-				if obj != nil {
+				if obj == nil {
+					continue
+				}
+				if stripVector == "" {
 					obj.Vector = nil
 					obj.Object.Vector = nil
-				}
-			}
-		}
-		for _, v := range addedNamedVectors {
-			for _, obj := range out {
-				if obj != nil {
-					delete(obj.Vectors, v)
-					delete(obj.Object.Vectors, v)
+				} else {
+					delete(obj.Vectors, stripVector)
+					delete(obj.Object.Vectors, stripVector)
 				}
 			}
 		}
@@ -2405,9 +2397,26 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	return out, dists, nil
 }
 
+// distancerForConfig returns the distancer.Provider matching the given vector
+// index configuration. Used by both shard-level and coordinator-level MMR.
+func distancerForConfig(cfg schemaConfig.VectorIndexConfig) distancer.Provider {
+	if cfg != nil {
+		switch cfg.DistanceName() {
+		case vectorIndexCommon.DistanceDot:
+			return distancer.NewDotProductProvider()
+		case vectorIndexCommon.DistanceL2Squared:
+			return distancer.NewL2SquaredProvider()
+		case vectorIndexCommon.DistanceManhattan:
+			return distancer.NewManhattanProvider()
+		case vectorIndexCommon.DistanceHamming:
+			return distancer.NewHammingProvider()
+		}
+	}
+	return distancer.NewCosineDistanceProvider()
+}
+
 // applySelectionOnObjects runs a coordinator-level MMR pass on already-fetched
-// objects. It uses the first target vector for inter-candidate diversity
-// distance computation and the merged query distances for relevance scoring.
+// objects, using vectors present on each object for diversity computation.
 func (i *Index) applySelectionOnObjects(
 	ctx context.Context,
 	selection *searchparams.Selection,
@@ -2424,51 +2433,27 @@ func (i *Index) applySelectionOnObjects(
 		targetVector = targetVectors[0]
 	}
 
-	// Build distancer from the target vector's distance config.
-	cfg := i.GetVectorIndexConfig(targetVector)
-	var distProv distancer.Provider
-	if cfg != nil {
-		switch cfg.DistanceName() {
-		case vectorIndexCommon.DistanceDot:
-			distProv = distancer.NewDotProductProvider()
-		case vectorIndexCommon.DistanceL2Squared:
-			distProv = distancer.NewL2SquaredProvider()
-		case vectorIndexCommon.DistanceManhattan:
-			distProv = distancer.NewManhattanProvider()
-		case vectorIndexCommon.DistanceHamming:
-			distProv = distancer.NewHammingProvider()
-		default:
-			distProv = distancer.NewCosineDistanceProvider()
-		}
-	} else {
-		distProv = distancer.NewCosineDistanceProvider()
-	}
-	distFn := func(a, b []float32) (float32, error) {
-		return distProv.SingleDist(a, b)
-	}
+	distProv := distancerForConfig(i.GetVectorIndexConfig(targetVector))
 
-	// Map synthetic IDs (indices) to object vectors.
+	// Extract vectors from objects into a flat slice for direct index access.
+	vectors := make([][]float32, len(objects))
 	ids := make([]uint64, len(objects))
-	vecMap := make(map[uint64][]float32, len(objects))
 	for idx, obj := range objects {
-		id := uint64(idx)
-		ids[idx] = id
+		ids[idx] = uint64(idx)
 		if obj != nil {
 			if targetVector == "" {
-				vecMap[id] = obj.Vector
+				vectors[idx] = obj.Vector
 			} else {
-				vecMap[id] = obj.Vectors[targetVector]
+				vectors[idx] = obj.Vectors[targetVector]
 			}
 		}
 	}
 
-	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
-		return vecMap[id], nil
-	}
-
-	sel, err := selector.New(selection, distFn, vecForID, len(objects))
+	sel, err := selector.New(selection, distProv.SingleDist, func(_ context.Context, id uint64) ([]float32, error) {
+		return vectors[id], nil
+	}, len(objects))
 	if err != nil {
-		return nil, nil, fmt.Errorf("coordinator mmr selection: %w", err)
+		return nil, nil, fmt.Errorf("coordinator mmr: %w", err)
 	}
 	if sel == nil {
 		return objects, queryDists, nil
@@ -2476,7 +2461,7 @@ func (i *Index) applySelectionOnObjects(
 
 	selectedIDs, selectedDists, err := sel.Select(ctx, ids, queryDists)
 	if err != nil {
-		return nil, nil, fmt.Errorf("coordinator mmr selection: %w", err)
+		return nil, nil, fmt.Errorf("coordinator mmr: %w", err)
 	}
 
 	result := make([]*storobj.Object, len(selectedIDs))

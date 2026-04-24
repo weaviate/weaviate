@@ -2764,6 +2764,22 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "MMR selection with multi-vector target should error",
+			req: &pb.SearchRequest{
+				Collection: multiVecClassWithColBERT,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
+					},
+					TargetVectors: []string{"custom_colbert"},
+					Selection:     &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{}}},
+				},
+			},
+			error: true,
+		},
 	}
 
 	parser := NewParser(false, getClass, getAlias)
