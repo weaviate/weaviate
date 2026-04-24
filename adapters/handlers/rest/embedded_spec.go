@@ -9596,7 +9596,7 @@ func init() {
       }
     },
     "TextAnalyzerConfig": {
-      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
         "asciiFold": {
@@ -9604,7 +9604,7 @@ func init() {
           "type": "boolean"
         },
         "asciiFoldIgnore": {
-          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20148,7 +20148,7 @@ func init() {
       }
     },
     "TextAnalyzerConfig": {
-      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
         "asciiFold": {
@@ -20156,7 +20156,7 @@ func init() {
           "type": "boolean"
         },
         "asciiFoldIgnore": {
-          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
           "type": "array",
           "items": {
             "type": "string"
