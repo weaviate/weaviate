@@ -49,10 +49,12 @@ func Test_Authorization(t *testing.T) {
 	// to the catch-all registered in the test body.
 	tests := []testCase{
 		{
+			// req has an empty Include, so the first authz call is the
+			// per-class filter over the resolved class list.
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
 			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Backups()[0], // "*" until req.Include is resolved
+			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},
 		},
 		{
@@ -65,10 +67,12 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
+			// req has an empty Include, so the first authz call is the
+			// per-class filter over the backup's meta classes.
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req, false},
 			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Backups()[0], // "*" until req.Include is resolved
+			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},
 		},
 		{
