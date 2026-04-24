@@ -126,13 +126,16 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	// Authorize on the requested Include classes (defaults to "*" when empty)
-	// before touching the backend; the resolved class list is re-authorized
-	// below. Copy Include because authorization.Backups uppercases its input
-	// in place.
-	includeCopy := append([]string(nil), req.Include...)
-	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
-		return nil, err
+	explicitInclude := len(req.Include) > 0
+
+	// When the caller explicitly lists classes, authorize strictly against
+	// that list before touching the backend. Copy Include because
+	// authorization.Backups uppercases its input in place.
+	if explicitInclude {
+		includeCopy := append([]string(nil), req.Include...)
+		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
+			return nil, err
+		}
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
@@ -146,8 +149,14 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
-		return nil, err
+	// When Include is empty ("all classes"), reduce the resolved list to
+	// classes the caller is allowed to back up. An explicit list was already
+	// strictly authorized above.
+	if !explicitInclude {
+		classes, err = s.filterBackupableClasses(ctx, pr, authorization.CREATE, classes)
+		if err != nil {
+			return nil, backup.NewErrUnprocessable(err)
+		}
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
@@ -188,13 +197,16 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	// Authorize on the requested Include classes (defaults to "*" when empty)
-	// before touching the backend; the classes recorded in the backup meta are
-	// re-authorized below. Copy Include because authorization.Backups
-	// uppercases its input in place.
-	includeCopy := append([]string(nil), req.Include...)
-	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
-		return nil, err
+	explicitInclude := len(req.Include) > 0
+
+	// When the caller explicitly lists classes, authorize strictly against
+	// that list before touching the backend. Copy Include because
+	// authorization.Backups uppercases its input in place.
+	if explicitInclude {
+		includeCopy := append([]string(nil), req.Include...)
+		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(includeCopy...)...); err != nil {
+			return nil, err
+		}
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
@@ -210,8 +222,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
-		return nil, err
+	// When Include is empty ("all classes in the backup"), reduce the backup's
+	// class list to those the caller is allowed to restore. An explicit list
+	// was already strictly authorized above.
+	if !explicitInclude {
+		allowed, err := s.filterBackupableClasses(ctx, pr, authorization.CREATE, meta.Classes())
+		if err != nil {
+			return nil, backup.NewErrUnprocessable(err)
+		}
+		meta.Include(allowed)
 	}
 
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
@@ -248,6 +267,26 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 	data.Status = &status
 	return data, nil
+}
+
+// filterBackupableClasses returns the subset of classes the caller is allowed
+// to act on with the given verb under the backups domain. It is used on the
+// "all classes" path (empty Include) to narrow the operation to the classes
+// the caller has permission on, rather than 403-ing the whole request.
+// An empty result is treated as an error so the caller does not silently
+// proceed with nothing to back up / restore.
+func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
+	allowed := make([]string, 0, len(classes))
+	for _, c := range classes {
+		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
+			continue
+		}
+		allowed = append(allowed, c)
+	}
+	if len(allowed) == 0 {
+		return nil, errors.New("no classes found that the caller is permitted to access")
+	}
+	return allowed, nil
 }
 
 // authorizeBackupByID reads the backup meta for backupID and authorizes the
