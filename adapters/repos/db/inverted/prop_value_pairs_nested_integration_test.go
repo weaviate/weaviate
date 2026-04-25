@@ -102,7 +102,7 @@ func newNestedTestSearcher(t *testing.T, bucketNames ...string) (*Searcher, *lsm
 	}
 
 	bitmapFactory := roaringset.NewBitmapFactory(
-		roaringset.NewBitmapBufPoolNoop(), func() uint64 { return 1_000_000 })
+		newTrackingPool(t), func() uint64 { return 1_000_000 })
 
 	class := correlationTestClass()
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
@@ -186,6 +186,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -210,6 +212,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -250,6 +254,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -285,6 +291,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.True(t, result.docIDs.IsEmpty())
 	})
 
@@ -319,6 +327,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -352,6 +362,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -388,6 +400,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -476,6 +490,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -549,6 +565,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -610,6 +628,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -673,6 +693,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		pv := makeCorrelatedPvp(class, "cars", makePvp("make", "bmw"), widthPvp)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -771,6 +793,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -806,6 +830,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		}
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -829,6 +855,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.True(t, result.docIDs.IsEmpty())
 	})
 
@@ -937,6 +965,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1019,6 +1049,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1074,6 +1106,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1111,6 +1145,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc3}, result.docIDs.ToArray())
 	})
 
@@ -1203,6 +1239,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1280,6 +1318,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 	// -----------------------------------------------------------------------
@@ -1375,6 +1415,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1444,6 +1486,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1519,6 +1563,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1601,6 +1647,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1644,6 +1692,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
 
@@ -1720,6 +1770,8 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray(),
 			"doc7 must not match: tags in different cars collapse to same masked position "+
 				"but groupRunIdxLoop correctly requires them to be in the same car element")
@@ -1837,6 +1889,8 @@ func TestNestedIsNull(t *testing.T) {
 				pv := makeIsNullPvp(class, "addresses", "", tt.isNull)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
@@ -1874,6 +1928,8 @@ func TestNestedIsNull(t *testing.T) {
 				pv := makeIsNullPvp(class, "addresses", "city", tt.isNull)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
@@ -1911,6 +1967,8 @@ func TestNestedIsNull(t *testing.T) {
 				pv := makeIsNullPvp(class, "meta", "", tt.isNull)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
@@ -1949,6 +2007,8 @@ func TestNestedIsNull(t *testing.T) {
 				pv := makeIsNullPvp(class, "meta", "isbn", tt.isNull)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
@@ -1990,6 +2050,8 @@ func TestNestedIsNull(t *testing.T) {
 				pv := makeIsNullPvp(class, "container", "owner", tt.isNull)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
@@ -2029,6 +2091,8 @@ func TestNestedIsNull(t *testing.T) {
 				pv := makeIsNullPvp(class, "container", "items", tt.isNull)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, tt.wantIsDenyList, result.isDenyList)
 				assert.Equal(t, tt.wantDocIDs, result.docIDs.ToArray())
 			})
@@ -2086,6 +2150,8 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
 
@@ -2107,6 +2173,8 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.True(t, result.docIDs.IsEmpty())
 	})
 
@@ -2130,6 +2198,8 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.False(t, result.isDenyList)
 		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
@@ -2160,6 +2230,8 @@ func TestNestedArrayIndexFilter(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		// doc1 and doc3 both have addresses[1].city set; doc2 has no addresses[1]
 		assert.False(t, result.isDenyList)
 		assert.Equal(t, []uint64{doc1, doc3}, result.docIDs.ToArray())
@@ -2225,6 +2297,8 @@ func TestNestedArrayIndexFilterIntermediate(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
 
@@ -2265,6 +2339,8 @@ func TestNestedArrayIndexFilterIntermediate(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
 
@@ -2305,6 +2381,8 @@ func TestNestedArrayIndexFilterIntermediate(t *testing.T) {
 
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
 }
@@ -2427,7 +2505,7 @@ func newSearcherForClass(t *testing.T, class *models.Class, bucketNames ...strin
 			name, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 	}
 	bitmapFactory := roaringset.NewBitmapFactory(
-		roaringset.NewBitmapBufPoolNoop(), func() uint64 { return 1_000_000 })
+		newTrackingPool(t), func() uint64 { return 1_000_000 })
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
 		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
@@ -3049,6 +3127,8 @@ func TestPlanCasesIntegration(t *testing.T) {
 
 					result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 					require.NoError(t, err)
+					defer result.release()
+					requireBitmapValid(t, result.docIDs)
 					assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 				})
 			}
@@ -3213,6 +3293,8 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, expected, result.docIDs.ToArray())
 			}
 
@@ -3522,6 +3604,8 @@ func TestNestedFilteringIsNull(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.False(t, result.isDenyList)
 				assert.Equal(t, []uint64{doc5, doc7}, result.docIDs.ToArray())
 			})
@@ -3532,6 +3616,8 @@ func TestNestedFilteringIsNull(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.True(t, result.isDenyList)
 				assert.Equal(t, []uint64{doc5, doc7}, result.docIDs.ToArray())
 			})
@@ -3543,6 +3629,8 @@ func TestNestedFilteringIsNull(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.False(t, result.isDenyList)
 				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 			})
@@ -3553,6 +3641,8 @@ func TestNestedFilteringIsNull(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.True(t, result.isDenyList)
 				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 			})
@@ -3570,6 +3660,8 @@ func TestNestedFilteringIsNull(t *testing.T) {
 					require.NoError(t, err)
 					result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 					require.NoError(t, err)
+					defer result.release()
+					requireBitmapValid(t, result.docIDs)
 					assert.False(t, result.isDenyList)
 					// doc5 (root=1) and doc8 (root=2) both have city → both returned
 					assert.Equal(t, []uint64{doc5, doc8}, result.docIDs.ToArray())
@@ -3641,6 +3733,8 @@ func TestNestedFilteringArrayIndex(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 			})
 
@@ -3666,6 +3760,8 @@ func TestNestedFilteringArrayIndex(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.True(t, result.docIDs.IsEmpty())
 			})
 
@@ -3718,6 +3814,8 @@ func TestNestedFilteringArrayIndex(t *testing.T) {
 				require.NoError(t, err)
 				result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 				require.NoError(t, err)
+				defer result.release()
+				requireBitmapValid(t, result.docIDs)
 				assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 			})
 
@@ -3755,6 +3853,8 @@ func TestNestedFilteringArrayIndex(t *testing.T) {
 					require.NoError(t, err)
 					result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 					require.NoError(t, err)
+					defer result.release()
+					requireBitmapValid(t, result.docIDs)
 					// Both doc5 (root=1, addresses[1]) and doc8 (root=2, addresses[1]) match
 					assert.Equal(t, []uint64{doc5, doc8}, result.docIDs.ToArray())
 				})
@@ -3844,6 +3944,8 @@ func TestNestedFilteringArrayIndexLevelsAndCombinations(t *testing.T) {
 		require.NoError(t, err)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, want, result.docIDs.ToArray())
 	}
 
@@ -4097,6 +4199,8 @@ func TestNestedFilteringIsNullAndMultiLevelArrayIndex(t *testing.T) {
 		require.NoError(t, err)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, want, result.docIDs.ToArray())
 	}
 	runDeny := func(t *testing.T, searcher *Searcher, f *filters.Clause, wantDeny bool, want []uint64) {
@@ -4105,6 +4209,8 @@ func TestNestedFilteringIsNullAndMultiLevelArrayIndex(t *testing.T) {
 		require.NoError(t, err)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, wantDeny, result.isDenyList)
 		assert.Equal(t, want, result.docIDs.ToArray())
 	}
@@ -4339,6 +4445,8 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 		require.NoError(t, err)
 		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
 		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, want, result.docIDs.ToArray())
 	}
 
