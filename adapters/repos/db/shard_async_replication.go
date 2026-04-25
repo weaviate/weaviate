@@ -558,6 +558,41 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	return nil
 }
 
+// removePersistedHashtree deletes any persisted hashtree (.ht) files for the
+// shard without deserialising them. Called at shard init when async
+// replication is disabled: the shard will serve writes while async is off,
+// so a leftover .ht from a previous async-enabled shutdown goes stale on the
+// first write — a later runtime enable would otherwise load it as the
+// "cached" hashtree and miss the divergence. Missing directory is success.
+// See disableAsyncReplication for the symmetric rationale.
+func (s *Shard) removePersistedHashtree() error {
+	dir := s.pathHashTree()
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	removedAny := false
+	for _, dirEntry := range dirEntries {
+		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
+			continue
+		}
+		filename := filepath.Join(dir, dirEntry.Name())
+		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		removedAny = true
+	}
+	if removedAny {
+		if err := diskio.Fsync(dir); err != nil {
+			return fmt.Errorf("fsync hashtree directory %q: %w", dir, err)
+		}
+	}
+	return nil
+}
+
 // tryLoadHashtreeFromDisk scans the shard's hashtree directory for a persisted
 // hashtree file, loads the most-recent one, and removes it from disk (along
 // with any older duplicates). Returns nil without error when no file is found
@@ -932,71 +967,51 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 }
 
 // disableAsyncReplication cancels the per-shard async-replication context,
-// nils the hashtree, deregisters the shard from the scheduler, and persists
-// the hashtree to disk if it was fully initialised.
+// nils the hashtree, and deregisters the shard from the scheduler.
 //
-// Unlike mayStopAsyncReplication, this function does NOT call asyncRepWg.Wait().
-// Callers that need a strict happens-before guarantee against in-flight cycle
-// completion should use mayStopAsyncReplication instead, or call Deregister
-// followed by asyncRepWg.Wait() explicitly.
+// It deliberately does NOT persist the hashtree. This is the runtime path
+// (kill-switch / rebuild / target-node-override): the shard stays live and
+// keeps serving writes, so any snapshot would go stale on the next write and
+// the next enableAsyncReplication would load it as the "cached" hashtree and
+// miss the disabled-window divergence — re-enable must always rebuild from a
+// full scan. mayStopAsyncReplication (shutdown/drop/backup) is the only
+// safe producer of a .ht because the shard serves no further writes.
+//
+// Unlike mayStopAsyncReplication, this function does NOT call
+// asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
+// Wait) when a happens-before with in-flight cycles is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
-	var afterRelease func()
-	var needDeregister bool
-
-	err := func() error {
+	stopped := func() bool {
 		s.asyncReplicationRWMux.Lock()
 		defer s.asyncReplicationRWMux.Unlock()
-
 		if s.hashtree == nil {
-			return nil // already stopped, idempotent
+			return false // already stopped, idempotent
 		}
-
 		s.asyncReplicationCancelFunc()
-
-		// Capture before clearing so afterRelease can persist the hashtree
-		// outside the write lock (same pattern as mayStopAsyncReplication).
-		var capturedHT hashtree.AggregatedHashTree
-		if s.hashtreeFullyInitialized {
-			capturedHT = s.hashtree
-		}
-
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
 		s.clearAsyncCheckpointLocked()
-
-		needDeregister = true
-
-		if capturedHT != nil {
-			afterRelease = func() {
-				s.dumpHashTreeWithTimeout(capturedHT)
-			}
-		}
-
-		return nil
+		return true
 	}()
-	if err != nil {
-		return err
+	if !stopped {
+		return nil
 	}
-	if needDeregister {
-		// Remove from the scheduler. The context has already been cancelled so
-		// any in-flight cycle will exit promptly; we do not wait for it here.
-		// Deregister may return context.Canceled if the scheduler is shutting
-		// down concurrently; that is safe to ignore because the rebuild path
-		// does not require a strict happens-before with the scheduler's shutdown.
-		if s.index.asyncReplicationScheduler != nil {
-			if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
-				s.index.logger.WithField("action", "async_replication").Error(err)
-			}
+
+	// Remove from the scheduler. The context has already been cancelled so any
+	// in-flight cycle will exit promptly; we do not wait for it here.
+	// Deregister may return context.Canceled if the scheduler is shutting down
+	// concurrently; that is safe to ignore because the rebuild path does not
+	// require a strict happens-before with the scheduler's shutdown.
+	if s.index.asyncReplicationScheduler != nil {
+		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
+			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
-		// Clear stats outside asyncReplicationRWMux to avoid nesting
-		// asyncReplicationStatsMux inside a write lock.
-		s.asyncReplicationStatsMux.Lock()
-		s.asyncReplicationStatsByTargetNode = nil
-		s.asyncReplicationStatsMux.Unlock()
 	}
-	if afterRelease != nil {
-		afterRelease()
-	}
+	// Clear stats outside asyncReplicationRWMux to avoid nesting
+	// asyncReplicationStatsMux inside a write lock.
+	s.asyncReplicationStatsMux.Lock()
+	s.asyncReplicationStatsByTargetNode = nil
+	s.asyncReplicationStatsMux.Unlock()
 	return nil
 }
 
@@ -1024,9 +1039,13 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 		s.targetNodeOverrides = append(s.targetNodeOverrides, targetNodeOverride)
 	}()
-	// we call update async replication config here to ensure that async replication starts
-	// if it's not already running
-	return s.enableAsyncReplication(ctx, s.index.AsyncReplicationConfig())
+	// Ensure async replication is started. Hold replicationConfigLock across the
+	// apply so a concurrent updateReplicationConfig can't interleave (see
+	// RevertAsyncReplicationOnShard); read the config field directly, as the
+	// AsyncReplicationConfig() getter would reacquire the lock.
+	s.index.replicationConfigLock.RLock()
+	defer s.index.replicationConfigLock.RUnlock()
+	return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
@@ -1064,23 +1083,13 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		// Snapshot enabled + config atomically under a single replicationConfigLock
-		// RLock to close the TOCTOU window: a concurrent updateReplicationConfig
-		// (WLock) could disable async replication between the AsyncReplicationEnabled
-		// check and the AsyncReplicationConfig read, causing us to re-enable a shard
-		// that should be off. asyncReplicationEnabled and Config are lock-free reads;
-		// we release before calling enable/disable, which need asyncReplicationRWMux.
-		//
-		// Known limitation: a TOCTOU window remains between the RUnlock and the
-		// enable/disable call — a concurrent updateReplicationConfig could flip the
-		// state in that gap. The inconsistency is transient; the next
-		// updateReplicationConfig call will correct it.
+		// Restore the shard to the index's configured async-replication state,
+		// holding replicationConfigLock across the apply so a concurrent
+		// updateReplicationConfig can't interleave (see RevertAsyncReplicationOnShard).
 		s.index.replicationConfigLock.RLock()
-		enabled := s.index.asyncReplicationEnabled()
-		cfg := s.index.Config.AsyncReplicationConfig
-		s.index.replicationConfigLock.RUnlock()
-		if enabled {
-			return s.enableAsyncReplication(ctx, cfg)
+		defer s.index.replicationConfigLock.RUnlock()
+		if s.index.asyncReplicationEnabled() {
+			return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 		}
 		return s.disableAsyncReplication(ctx)
 	}
@@ -1094,15 +1103,12 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		defer s.asyncReplicationRWMux.Unlock()
 		s.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
-	// Same atomic snapshot as removeTargetNodeOverride: hold replicationConfigLock
-	// RLock across both reads to prevent updateReplicationConfig from toggling the
-	// state between the enabled check and the config read.
+	// Restore the shard to the index's configured async-replication state; see
+	// removeTargetNodeOverride for the locking rationale.
 	s.index.replicationConfigLock.RLock()
-	enabled := s.index.asyncReplicationEnabled()
-	cfg := s.index.Config.AsyncReplicationConfig
-	s.index.replicationConfigLock.RUnlock()
-	if enabled {
-		return s.enableAsyncReplication(ctx, cfg)
+	defer s.index.replicationConfigLock.RUnlock()
+	if s.index.asyncReplicationEnabled() {
+		return s.enableAsyncReplication(ctx, s.index.Config.AsyncReplicationConfig)
 	}
 	return s.disableAsyncReplication(ctx)
 }

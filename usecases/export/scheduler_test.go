@@ -224,6 +224,34 @@ func TestScheduler_StorageConfigValidation(t *testing.T) {
 	})
 }
 
+// TestScheduler_RejectsWhenAsyncReplicationDisabled verifies that Export is
+// rejected when a class with replication factor > 1 has async replication
+// disabled cluster-wide. Async replication is on by default for RF > 1, so the
+// only way to reach this path is the cluster-wide ASYNC_REPLICATION_DISABLED
+// kill-switch — surfaced here via fakeSelector.asyncDisabled.
+func TestScheduler_RejectsWhenAsyncReplicationDisabled(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	s := &Scheduler{
+		logger:       logger,
+		authorizer:   mocks.NewMockAuthorizer(),
+		exportConfig: testExportConfig(),
+		backends:     &fakeBackendProvider{backend: &fakeBackend{}},
+		client:       &fakeExportClient{},
+		nodeResolver: &fakeNodeResolver{nodes: map[string]string{}},
+		selector: &fakeSelector{
+			classList:     []string{"Article"},
+			asyncDisabled: map[string]bool{"Article": true},
+		},
+		metrics: testMetrics(),
+	}
+
+	_, err := s.Export(context.Background(), nil, "my-export", "s3", nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrExportValidation)
+	assert.Contains(t, err.Error(), "ASYNC_REPLICATION_DISABLED")
+	assert.Contains(t, err.Error(), "Article")
+}
+
 func TestScheduler_ErrorPaths(t *testing.T) {
 	tests := []struct {
 		name         string

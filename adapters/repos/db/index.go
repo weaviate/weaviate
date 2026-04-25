@@ -886,7 +886,6 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
 	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
 	if err != nil {
@@ -895,18 +894,36 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationConfig = config
 
 	// unloaded shards will fetch the latest config when they are loaded
-	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
+}
+
+// applyAsyncReplicationToLoadedShardsLocked (re-)applies the current
+// enable/disable decision to every loaded shard. enable/disableAsyncReplication
+// are idempotent, so this is safe to call again.
+//
+// The caller MUST hold i.replicationConfigLock for writing; holding it across
+// the apply is deadlock-free (enable/disableAsyncReplication never reacquire it).
+// Note that enableAsyncReplication does synchronous hashtree disk I/O, so the
+// write lock is held for the whole per-shard apply: hashbeat cycles for this
+// index (which read the lock via AsyncReplicationEnabled) stall until it ends.
+func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
+	enabled := i.asyncReplicationEnabled()
+	cfg := i.Config.AsyncReplicationConfig
+
+	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		// Stop the per-shard walk if the caller's context (e.g. server
+		// shutdown) was cancelled — the apply below does synchronous disk I/O.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		ctrl, ok := shard.(asyncReplicationController)
 		if !ok {
 			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if i.asyncReplicationEnabled() {
-			// enableAsyncReplication handles the already-running case by updating
-			// the stored config in-place. The scheduler's runEntry detects height
-			// changes and triggers a rebuild via asyncRepNeedsRebuild, so a
-			// stop/start cycle is only needed for height changes (handled there).
-			if err := ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig); err != nil {
+		if enabled {
+			if err := ctrl.enableAsyncReplication(ctx, cfg); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		} else {
@@ -916,10 +933,82 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
+}
 
+// reconcileAsyncReplication re-applies the enable/disable decision to this
+// index's loaded shards. It reacts to a runtime change of the global
+// AsyncReplicationDisabled flag, which would otherwise leave shards loaded
+// while disabled permanently unregistered.
+func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
+	// Exclusive lock (matching updateReplicationConfig) so the apply can't
+	// interleave with a concurrent reconcile or be observed half-applied.
+	i.replicationConfigLock.Lock()
+	defer i.replicationConfigLock.Unlock()
+
+	if i.Config.ReplicationFactor <= 1 {
+		return nil // never runs async replication; nothing to reconcile
+	}
+	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
+}
+
+// ReconcileAsyncReplication re-applies async replication to every loaded shard
+// of every index. The runtime-config hook calls it when the global
+// AsyncReplicationDisabled flag changes, so shards loaded while it was disabled
+// get (un)registered to match instead of staying stale until a reload.
+func (db *DB) ReconcileAsyncReplication(ctx context.Context) error {
+	// Snapshot only the index pointers under indexLock; the dropIndex read lock
+	// is taken per index just-in-time below, not up front. The pointers stay
+	// valid even if a concurrent DeleteIndex removes one from db.indices.
+	var indices []*Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		for _, idx := range db.indices {
+			indices = append(indices, idx)
+		}
+	}()
+
+	// Reconcile outside indexLock so the per-shard apply (which can do hashtree
+	// I/O) does not block index creation/deletion. Each index takes its own
+	// dropIndex.RLock only while it is being reconciled — the established
+	// discipline for using an index outside indexLock (see SnapshotShards) —
+	// so a concurrent DeleteIndex is blocked only on the current index, not on
+	// every index still queued. If a DeleteIndex completed between the snapshot
+	// and acquiring dropIndex.RLock, drop() has set idx.closed, so the closed
+	// check below skips the index.
+	var failed int
+	for processed, idx := range indices {
+		// Stop the walk if the caller's context (e.g. server shutdown) was
+		// cancelled; the per-index apply does synchronous hashtree disk I/O.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("reconcile async replication interrupted after %d of %d indices: %w",
+				processed, len(indices), err)
+		}
+
+		err := func() error {
+			idx.dropIndex.RLock()
+			defer idx.dropIndex.RUnlock()
+			idx.closeLock.RLock()
+			defer idx.closeLock.RUnlock()
+			if idx.closed {
+				return nil // index is shutting down; nothing to reconcile
+			}
+			return idx.reconcileAsyncReplication(ctx)
+		}()
+		if err != nil {
+			failed++
+			db.logger.WithField("action", "reconcile_async_replication").
+				WithField("class", idx.Config.ClassName).Error(err)
+		}
+	}
+	if failed > 0 {
+		// Surface a metric: the only self-healing trigger is another flag toggle
+		// or schema update, so operators need to detect a partial reconcile.
+		if db.asyncReplicationScheduler != nil {
+			db.asyncReplicationScheduler.metrics.addReconcileFailures(failed)
+		}
+		return fmt.Errorf("reconcile async replication failed for %d of %d indices", failed, len(indices))
+	}
 	return nil
 }
 
@@ -961,7 +1050,6 @@ type IndexConfig struct {
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
-	AsyncReplicationEnabled             bool
 	AsyncReplicationConfig              AsyncReplicationConfig
 	AsyncReplicationScheduler           *AsyncReplicationScheduler
 	AvoidMMap                           bool
@@ -1271,7 +1359,22 @@ func (i *Index) AsyncReplicationEnabled() bool {
 }
 
 func (i *Index) asyncReplicationEnabled() bool {
-	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+}
+
+// IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
+// replication is irrelevant (RF ≤ 1) or enabled (RF > 1 and not globally
+// disabled).
+//
+// It is config-level by design — per-shard readiness inspection is unstable
+// for multi-tenant classes (tenant shards constantly transition) and would
+// reject create-then-export during warm-up. Reconciliation keeps this view
+// honest by applying the config to loaded shards.
+func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.ReplicationFactor <= 1 || i.asyncReplicationEnabled()
 }
 
 func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
@@ -1294,15 +1397,17 @@ func (i *Index) InitAsyncReplicationOnShard(ctx context.Context, shardName strin
 	}
 	defer release()
 
-	i.replicationConfigLock.RLock()
-	cfg := i.Config.AsyncReplicationConfig
-	i.replicationConfigLock.RUnlock()
-
 	ctrl, ok := shard.(asyncReplicationController)
 	if !ok {
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
-	return ctrl.enableAsyncReplication(ctx, cfg)
+
+	// Hold replicationConfigLock across the apply so the config read and the
+	// enable cannot be interleaved by a concurrent updateReplicationConfig. See
+	// RevertAsyncReplicationOnShard for why this is deadlock-free.
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+	return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
 }
 
 // RevertAsyncReplicationOnShard reverts a shard to the async replication state
@@ -1323,12 +1428,16 @@ func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName str
 		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
 	}
 
+	// Hold replicationConfigLock across the apply (not just the snapshot) so a
+	// concurrent updateReplicationConfig cannot interleave and let stale state
+	// win. Deadlock-free: updateReplicationConfig already calls
+	// enable/disableAsyncReplication under the write lock, so they never
+	// reacquire replicationConfigLock.
 	i.replicationConfigLock.RLock()
-	cfg := i.Config.AsyncReplicationConfig
-	i.replicationConfigLock.RUnlock()
+	defer i.replicationConfigLock.RUnlock()
 
 	if i.asyncReplicationEnabled() {
-		return ctrl.enableAsyncReplication(ctx, cfg)
+		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
 	}
 	return ctrl.disableAsyncReplication(ctx)
 }
