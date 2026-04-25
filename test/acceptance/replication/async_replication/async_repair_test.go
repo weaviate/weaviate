@@ -95,14 +95,12 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})

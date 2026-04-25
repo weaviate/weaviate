@@ -8948,11 +8948,6 @@ func init() {
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
         },
-        "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",
           "type": "string",
@@ -19496,11 +19491,6 @@ func init() {
           "description": "Configuration parameters for asynchronous replication.",
           "x-omitempty": true,
           "$ref": "#/definitions/ReplicationAsyncConfig"
-        },
-        "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
-          "type": "boolean",
-          "x-omitempty": false
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects.",

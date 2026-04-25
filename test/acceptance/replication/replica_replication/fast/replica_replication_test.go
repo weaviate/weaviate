@@ -92,15 +92,13 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -273,8 +271,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,
@@ -284,8 +281,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,
@@ -469,8 +465,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 // 	t.Run("create schema", func(t *testing.T) {
 // 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 // 			Factor:       2,
-// 			AsyncEnabled: false,
-// 		}
+// 			// 		}
 // 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 // 			Enabled:              true,
 // 			AutoTenantActivation: true,
@@ -480,8 +475,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 // 		helper.CreateClass(t, paragraphClass)
 // 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 // 			Factor:       2,
-// 			AsyncEnabled: false,
-// 		}
+// 			// 		}
 // 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 // 			Enabled:              true,
 // 			AutoTenantActivation: true,

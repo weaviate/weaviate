@@ -34,9 +34,6 @@ type ReplicationConfig struct {
 	// Configuration parameters for asynchronous replication.
 	AsyncConfig *ReplicationAsyncConfig `json:"asyncConfig,omitempty"`
 
-	// Enable asynchronous replication (default: `false`).
-	AsyncEnabled bool `json:"asyncEnabled"`
-
 	// Conflict resolution strategy for deleted objects.
 	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
 	DeletionStrategy string `json:"deletionStrategy,omitempty"`
