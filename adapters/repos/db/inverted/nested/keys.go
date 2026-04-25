@@ -17,7 +17,10 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-const hashSize = 8 // xxHash64 produces 8 bytes
+const (
+	hashSize   = 8            // xxHash64 produces 8 bytes
+	IdxKeySize = hashSize + 2 // hash8 + BE16(index)
+)
 
 // hashKey is the shared primitive: allocate a buffer, write
 // xxhash.Sum64String(input) as 8 big-endian bytes, then append suffix.
@@ -44,6 +47,17 @@ func ValueKey(path string, analyzedValue []byte) []byte {
 // hash8("_idx." + path) + BE16(index).
 func IdxKey(path string, index int) []byte {
 	return hashKey("_idx."+path, binary.BigEndian.AppendUint16(nil, uint16(index)))
+}
+
+// IdxKeyToBuf writes an _idx key into buf and returns the populated slice.
+// buf must be at least IdxKeySize bytes. Use this in loops to avoid
+// per-iteration allocation; declare a [IdxKeySize]byte on the stack and pass
+// a slice of it.
+func IdxKeyToBuf(path string, index int, buf []byte) []byte {
+	buf = buf[:IdxKeySize]
+	binary.BigEndian.PutUint64(buf, xxhash.Sum64String("_idx."+path))
+	binary.BigEndian.PutUint16(buf[hashSize:], uint16(index))
+	return buf
 }
 
 // ExistsKey builds the key for an _exists metadata entry:

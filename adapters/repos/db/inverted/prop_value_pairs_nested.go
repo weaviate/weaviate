@@ -153,8 +153,9 @@ func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) 
 	if metaBucket == nil {
 		return nil, fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
+	var keyBuf [invnested.IdxKeySize]byte
 	for _, ai := range pv.nested.arrayIndices {
-		positionsIdx, release, err := metaBucket.RoaringSetGet(invnested.IdxKey(ai.RelPath, ai.Index))
+		positionsIdx, release, err := metaBucket.RoaringSetGet(invnested.IdxKeyToBuf(ai.RelPath, ai.Index, keyBuf[:]))
 		if err != nil {
 			return nil, fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
 		}
