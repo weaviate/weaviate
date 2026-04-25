@@ -606,7 +606,7 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		{0xdeadbeefcafebabe, 0x0123456789abcdef},
 	}
 
-	discriminant := hashtree.NewBitset(4)
+	discriminant := hashtree.NewBitset(15)
 	discriminant.Set(0)
 	discriminant.Set(2)
 

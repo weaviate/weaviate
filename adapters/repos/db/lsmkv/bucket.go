@@ -423,30 +423,12 @@ func (b *Bucket) resumeCompaction(ctx context.Context) error {
 // objects have been processed.
 // The function f is called for each object, and if it returns an error, the
 // processing is stopped and the error is returned.
-// Note: this function pauses compaction while it is running, to ensure a consistent view of the data.
+// Cursor stability is guaranteed by the consistent-view mechanism (ref-counted segment
+// snapshots); compaction may proceed concurrently and old segments are only dropped
+// once this function returns and the cursor is closed.
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	afterInMemCallback func(), f func(uuidBytes []byte, updateTime int64) error,
 ) error {
-	err := b.pauseCompaction(ctx)
-	if err != nil {
-		afterInMemCallback()
-		return fmt.Errorf("pausing compaction: %w", err)
-	}
-	defer func() {
-		ec := errorcompounder.New()
-
-		if err != nil {
-			ec.AddWrapf(err, "during ApplyToObjectDigests")
-		}
-
-		err = b.resumeCompaction(ctx)
-		if err != nil {
-			ec.AddWrapf(err, "resuming compaction after ApplyToObjectDigests")
-		}
-
-		err = ec.ToError()
-	}()
-
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
@@ -454,7 +436,7 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
-	err = func() error {
+	err := func() error {
 		defer afterInMemCallback()
 
 		inMemCursor := b.CursorInMem()
@@ -499,6 +481,35 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 			if err := f(k, updateTime); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", docID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ApplyToOnDiskObjectDigests iterates over objects stored in on-disk segments
+// only (memtables are not scanned) and calls fn for each object. For keys that
+// appear in multiple segments the latest version is returned (segment group
+// deduplication). Tombstoned entries are skipped.
+//
+// This is the disk-only counterpart of ApplyToObjectDigests, intended for
+// initialising state that should reflect durable on-disk data exclusively.
+func (b *Bucket) ApplyToOnDiskObjectDigests(ctx context.Context, fn func(uuidBytes []byte, updateTime int64) error) error {
+	onDiskCursor := b.CursorOnDisk()
+	defer onDiskCursor.Close()
+
+	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			_, updateTime, err := storobj.DocIDAndTimeFromBinary(v)
+			if err != nil || updateTime < 1 {
+				continue
+			}
+			if err := fn(k, updateTime); err != nil {
+				return err
 			}
 		}
 	}
@@ -563,6 +574,40 @@ func (b *Bucket) GetConsistentView() BucketConsistentView {
 		release:  releaseDiskSegments,
 		Bucket:   b,
 	}
+}
+
+// GetDiskOnlyConsistentView returns a consistent snapshot of the on-disk
+// segments without acquiring flushLock or capturing memtable references.
+// Only maintenanceLock (briefly) and segmentRefCounterLock are taken to
+// ref-count the segments, preventing compaction from removing them while the
+// view is live.
+//
+// The caller must call view.ReleaseView() when all lookups are complete to
+// decrement the segment ref-counts and allow compaction to proceed.
+//
+// Use this together with GetErrDeletedOnDisk for batch operations that must
+// not touch memtables and want to amortise lock acquisition across many keys.
+func (b *Bucket) GetDiskOnlyConsistentView() BucketConsistentView {
+	diskSegments, releaseDiskSegments := b.disk.getConsistentViewOfSegments()
+	return BucketConsistentView{
+		Disk:    diskSegments,
+		release: releaseDiskSegments,
+		Bucket:  b,
+	}
+}
+
+// GetErrDeletedOnDisk looks up key in the on-disk segments of the pre-acquired
+// view, skipping both the active and flushing memtables entirely. The caller
+// must hold the view for the duration of all lookups and release it via
+// view.ReleaseView() when done.
+//
+// Returns lsmkv.ErrDeleted if the key has a tombstone in the segments,
+// lsmkv.NotFound if absent from disk, or nil error with the value if found.
+//
+// Use this for batch lookups where a single consistent view is shared across
+// many keys to amortise lock acquisition cost.
+func (b *Bucket) GetErrDeletedOnDisk(key []byte, view BucketConsistentView) ([]byte, error) {
+	return b.getFromSegmentGroup(key, view.Disk)
 }
 
 // viewMemtables returns the memtables from a view and the count of valid memtables.

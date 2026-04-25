@@ -381,6 +381,29 @@ func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 	return protoToRepairResponses(resp.GetDigests()), nil
 }
 
+func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
+	defer cancel()
+
+	req := &protocol.CompareDigestsRequest{
+		Index:   index,
+		Shard:   shard,
+		Digests: repairResponsesToProto(digests),
+	}
+	resp, err := client.CompareDigests(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
+	}
+	return protoToRepairResponses(resp.GetDigests()), nil
+}
+
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
@@ -448,7 +471,16 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 		return nil, err
 	}
 
-	discData, err := discriminant.Marshal()
+	// Extract only the bits relevant to this level (level-local encoding).
+	// The server expects a discriminant of size LeavesCount(level); sending the
+	// full global bitset (NodesCount(height)) would fail the server-side size check.
+	required := hashtree.InnerNodesCount(level) + hashtree.LeavesCount(level)
+	if discriminant.Size() < required {
+		return nil, fmt.Errorf("discriminant size %d too small for level %d: need at least %d bits",
+			discriminant.Size(), level, required)
+	}
+	levelLocalDisc := discriminant.ExtractSlice(hashtree.InnerNodesCount(level), hashtree.LeavesCount(level))
+	discData, err := levelLocalDisc.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal discriminant: %w", err)
 	}
@@ -507,6 +539,20 @@ func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResp
 		}
 	}
 	return replica.SimpleResponse{Errors: errs}
+}
+
+func repairResponsesToProto(digests []types.RepairResponse) []*protocol.RepairResponse {
+	out := make([]*protocol.RepairResponse, len(digests))
+	for i, d := range digests {
+		out[i] = &protocol.RepairResponse{
+			Id:         d.ID,
+			Version:    d.Version,
+			UpdateTime: d.UpdateTime,
+			Err:        d.Err,
+			Deleted:    d.Deleted,
+		}
+	}
+	return out
 }
 
 func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairResponse {
