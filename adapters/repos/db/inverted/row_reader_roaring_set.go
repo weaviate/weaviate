@@ -56,9 +56,11 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 }
 
 // NewRowReaderRoaringSetWithPrefix creates a RowReaderRoaringSet that restricts
-// cursor-based reads to keys beginning with keyPrefix. value must already
-// include keyPrefix as a leading byte sequence. Used for nested property
-// buckets where the key format is keyPrefix+encodedValue.
+// cursor-based reads to keys beginning with keyPrefix. value is the bare value
+// (or LIKE pattern) — keyPrefix is prepended internally when constructing seek
+// keys, and is stripped from returned keys before they are passed to ReadFn.
+// Used for nested property buckets where the on-disk key format is
+// keyPrefix+encodedValue.
 func NewRowReaderRoaringSetWithPrefix(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, keyPrefix []byte,
 ) *RowReaderRoaringSet {
@@ -79,7 +81,8 @@ func (rr *RowReaderRoaringSet) fullKey() []byte {
 	if len(rr.keyPrefix) == 0 {
 		return rr.value
 	}
-	return append(rr.keyPrefix, rr.value...)
+	n := len(rr.keyPrefix)
+	return append(rr.keyPrefix[:n:n], rr.value...)
 }
 
 // bareKey strips keyPrefix from k, returning just the value portion.
@@ -256,7 +259,8 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 
 	if like.optimizable {
 		// Seek to prefix+like.min so we start at the right position in the bucket.
-		seekMin = append(rr.keyPrefix, like.min...)
+		n := len(rr.keyPrefix)
+		seekMin = append(rr.keyPrefix[:n:n], like.min...)
 		initialK, initialV = c.Seek(seekMin)
 	} else if len(rr.keyPrefix) > 0 {
 		initialK, initialV = c.Seek(rr.keyPrefix)
