@@ -351,3 +351,33 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 		})
 	}
 }
+
+func TestParseConfigFileUnknownFields(t *testing.T) {
+	weaviateConfig := &WeaviateConfig{}
+
+	t.Run("json config with unknown field returns error", func(t *testing.T) {
+		configJSON := `{"bogus_option": true}`
+		_, err := weaviateConfig.parseConfigFile([]byte(configJSON), "config.json")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus_option")
+	})
+
+	t.Run("yaml config with unknown field returns error", func(t *testing.T) {
+		configYAML := "bogus_option: true\n"
+		_, err := weaviateConfig.parseConfigFile([]byte(configYAML), "config.yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus_option")
+	})
+
+	t.Run("json config with valid fields does not error", func(t *testing.T) {
+		configJSON := `{"debug": true}`
+		_, err := weaviateConfig.parseConfigFile([]byte(configJSON), "config.json")
+		require.NoError(t, err)
+	})
+
+	t.Run("yaml config with valid fields does not error", func(t *testing.T) {
+		configYAML := "debug: true\n"
+		_, err := weaviateConfig.parseConfigFile([]byte(configYAML), "config.yaml")
+		require.NoError(t, err)
+	})
+}
