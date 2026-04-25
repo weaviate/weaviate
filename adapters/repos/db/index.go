@@ -859,6 +859,9 @@ func (i *Index) getStopwordProvider() *stopwords.Provider {
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
+	if i.globalreplicationConfig == nil {
+		return false
+	}
 	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
 
@@ -868,7 +871,6 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
 	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
 	if err != nil {
@@ -878,13 +880,6 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	// unloaded shards will fetch the latest config when they are loaded
 	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
-			// if async replication is being enabled, first disable it to reset any previous config
-			if err := shard.SetAsyncReplicationState(ctx, AsyncReplicationConfig{}, false); err != nil {
-				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
-			}
-		}
-
 		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.asyncReplicationEnabled()); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
@@ -935,7 +930,6 @@ type IndexConfig struct {
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
-	AsyncReplicationEnabled             bool
 	AsyncReplicationConfig              AsyncReplicationConfig
 	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
 	AvoidMMap                           bool
@@ -1244,7 +1238,7 @@ func (i *Index) AsyncReplicationEnabled() bool {
 }
 
 func (i *Index) asyncReplicationEnabled() bool {
-	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 }
 
 func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {

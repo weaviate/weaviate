@@ -82,8 +82,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": shardsCount}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -275,8 +274,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 
 	t.Run("create schema (multi-tenant)", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,

@@ -887,11 +887,6 @@
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
         },
-        "asyncEnabled": {
-          "description": "Enable asynchronous replication (default: `false`).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
         "asyncConfig": {
           "description": "Configuration parameters for asynchronous replication.",
           "$ref": "#/definitions/ReplicationAsyncConfig",

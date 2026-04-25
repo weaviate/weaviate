@@ -79,8 +79,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)

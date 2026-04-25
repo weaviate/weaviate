@@ -33,12 +33,10 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("create class with async replication disabled", func(t *testing.T) {
+	t.Run("create class", func(t *testing.T) {
 		c := &models.Class{
-			Class: className,
-			ReplicationConfig: &models.ReplicationConfig{
-				AsyncEnabled: false,
-			},
+			Class:             className,
+			ReplicationConfig: &models.ReplicationConfig{},
 		}
 
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
@@ -101,7 +99,6 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 			require.Nil(t, err)
 
 			class := res.Payload
-			class.ReplicationConfig.AsyncEnabled = true
 			class.ReplicationConfig.AsyncConfig = tc.config
 
 			// update
@@ -118,7 +115,6 @@ func TestUpdateClassAsyncReplicationConfig(t *testing.T) {
 
 			rc := res.Payload.ReplicationConfig
 			require.NotNil(t, rc)
-			require.True(t, rc.AsyncEnabled)
 			require.NotNil(t, rc.AsyncConfig)
 
 			requireAsyncConfigEquals(t, tc.config, rc.AsyncConfig)

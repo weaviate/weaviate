@@ -46,7 +46,6 @@ func Class(c *models.Class) *models.Class {
 		replicationConf = &models.ReplicationConfig{
 			Factor:           c.ReplicationConfig.Factor,
 			DeletionStrategy: c.ReplicationConfig.DeletionStrategy,
-			AsyncEnabled:     c.ReplicationConfig.AsyncEnabled,
 			AsyncConfig:      asyncConfig,
 		}
 	}
