@@ -16,7 +16,6 @@ package inverted
 import (
 	"context"
 	"testing"
-	"unsafe"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -374,22 +373,13 @@ func newTrackingPool(t *testing.T) *roaringset.BitmapBufPoolTracking {
 }
 
 // requireBitmapValid asserts that bm's backing buffer has not been zeroed by
-// the tracking pool's release function. It reads n[indexNumKeys] — the second
-// uint64 in bm.data — which sroar always initialises to 1 (sentinel key=0x00
-// container). A zeroed buffer has 0, indicating premature release.
-//
-// TODO aliszka:nested_filtering replace unsafe read with bm.NumKeys() once
-// that method is exposed by the sroar library.
+// the tracking pool's release function. sroar always initialises the bitmap
+// with one sentinel container (key=0x00), so NumContainers() >= 1 indicates a
+// live buffer; a zeroed buffer reports 0.
 func requireBitmapValid(t *testing.T, bm *sroar.Bitmap) {
 	t.Helper()
 	require.NotNil(t, bm)
-	// TODO aliszka:nested_filtering remove unsafe once sroar exposes NumKeys().
-	// bm.data []uint16 is the first field of sroar.Bitmap. Its backing array
-	// pointer is at offset 0 of the struct. n[indexNumKeys] is at byte offset 8
-	// (second uint64) within that array.
-	dataPtr := *(*unsafe.Pointer)(unsafe.Pointer(bm))
-	numKeys := *(*uint64)(unsafe.Pointer(uintptr(dataPtr) + 8))
-	require.Positive(t, numKeys, "bitmap backing buffer is zeroed — premature release?")
+	require.Positive(t, bm.NumContainers(), "bitmap backing buffer is zeroed — premature release?")
 }
 
 // newLifecycleOps returns a BitmapOps backed by a tracking pool.

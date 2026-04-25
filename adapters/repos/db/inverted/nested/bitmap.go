@@ -112,8 +112,7 @@ func NewBitmapOps(pool roaringset.BitmapBufPool) *BitmapOps {
 // the hint avoids that reallocation.
 func (o *BitmapOps) NewEmpty(minCap int) (result *sroar.Bitmap, release func()) {
 	buf, put := o.pool.Get(minCap)
-	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
-	return sroar.NewBitmapToBuf(buf[:cap(buf)]), put
+	return sroar.NewBitmapToBuf(buf), put
 }
 
 // MaskLeaf zeroes the leaf bits of raw and returns the rootDoc bitmap in a
@@ -121,10 +120,7 @@ func (o *BitmapOps) NewEmpty(minCap int) (result *sroar.Bitmap, release func()) 
 // needed.
 func (o *BitmapOps) MaskLeaf(raw *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
 	buf, put := o.pool.Get(raw.LenInBytes())
-	// TODO aliszka:nested_filtering buf[:cap(buf)] works around a sroar bug:
-	// MaskedToBuf checks len(buf) instead of cap(buf). Fix in sroar so that
-	// pool-provided slices with len=0,cap=n are accepted without reslicing.
-	return raw.MaskedToBuf(zeroLeafBits, buf[:cap(buf)]), put
+	return raw.MaskedToBuf(zeroLeafBits, buf), put
 }
 
 // MaskRootLeaf zeroes both root and leaf bits of positions, returning only
@@ -132,8 +128,7 @@ func (o *BitmapOps) MaskLeaf(raw *sroar.Bitmap) (rootDoc *sroar.Bitmap, release 
 // IDs. positions may be raw or rootDoc.
 func (o *BitmapOps) MaskRootLeaf(positions *sroar.Bitmap) (doc *sroar.Bitmap, release func()) {
 	buf, put := o.pool.Get(positions.LenInBytes())
-	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
-	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf[:cap(buf)]), put
+	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf), put
 }
 
 // AndAll returns the intersection of all raw position bitmaps in a pool
@@ -163,8 +158,7 @@ func (o *BitmapOps) AndAllMaskLeaf(raws []*sroar.Bitmap, maxConcurrency int) (ro
 		return sroar.NewBitmap(), func() {}
 	}
 	buf, put := o.pool.Get(raws[0].LenInBytes())
-	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
-	rootDoc = raws[0].MaskedToBuf(zeroLeafBits, buf[:cap(buf)])
+	rootDoc = raws[0].MaskedToBuf(zeroLeafBits, buf)
 	for _, bm := range raws[1:] {
 		rootDoc.AndMaskedConc(bm, zeroLeafBits, maxConcurrency)
 		if rootDoc.IsEmpty() {
@@ -178,23 +172,16 @@ func (o *BitmapOps) AndAllMaskLeaf(raws []*sroar.Bitmap, maxConcurrency int) (ro
 // of the result, and returns the rootDoc bitmap in a pool buffer. Equivalent
 // to MaskLeaf(sroar.And(rawA, rawB)) but uses a single fused operation.
 //
-// Both inputs must be raw position bitmaps (non-zero leaf bits). When one
-// input is already leaf-masked, use AndMaskLeaf instead to avoid re-masking.
+// Both inputs must be raw position bitmaps (non-zero leaf bits).
 func (o *BitmapOps) MaskLeafAnd(rawA, rawB *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
 	buf, put := o.pool.Get(min(rawA.LenInBytes(), rawB.LenInBytes()))
-	// TODO aliszka:nested_filtering see MaskLeaf — same sroar buf len vs cap issue.
-	return sroar.MaskedAndToBuf(rawA, rawB, zeroLeafBits, buf[:cap(buf)]), put
+	return sroar.MaskedAndToBuf(rawA, rawB, zeroLeafBits, buf), put
 }
 
-// AndMaskLeaf intersects rootDoc with raw after masking raw's leaf bits, and
-// returns the result in a pool buffer. rootDoc must already be leaf-masked
-// (e.g. from AndAllMaskLeaf); only raw's leaf bits are zeroed.
-//
-// Prefer this over AndAllMaskLeaf([rootDoc, raw]) when rootDoc is pre-masked:
-// CloneToBuf is a bulk memcopy while MaskedToBuf iterates containers — the
-// difference matters when rootDoc is large.
-func (o *BitmapOps) AndMaskLeaf(rootDoc, raw *sroar.Bitmap, maxConcurrency int) (result *sroar.Bitmap, release func()) {
-	result, release = o.pool.CloneToBuf(rootDoc)
-	result.AndMaskedConc(raw, zeroLeafBits, maxConcurrency)
-	return result, release
+// IntersectsMaskedLeaf reports whether rootDoc and raw share at least one
+// position after zeroing raw's leaf bits. rootDoc must already be leaf-masked.
+// No allocation is performed — use this for cheap element pre-checks before
+// running the full per-element intersection.
+func (o *BitmapOps) IntersectsMaskedLeaf(rootDoc, raw *sroar.Bitmap) bool {
+	return rootDoc.IntersectsMasked(raw, zeroLeafBits)
 }

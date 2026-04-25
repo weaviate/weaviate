@@ -257,11 +257,9 @@ func (e *planExecutor) runIdxLoop(
 // temporaries) are released before the method returns, including on panic.
 func (e *planExecutor) matchElement(acc *sroar.Bitmap, sorted []*sroar.Bitmap, preFilter, elemBitmap *sroar.Bitmap) bool {
 	// Pre-check: skip element if it cannot possibly satisfy all conditions.
-	// preFilter is already leaf-masked; AndMaskLeaf clones it cheaply and
-	// masks only elemBitmap's leaf bits so (root, docID) pairs are compared.
-	check, releaseCheck := e.bitmapOps.AndMaskLeaf(preFilter, elemBitmap, e.maxConcurrency)
-	defer releaseCheck()
-	if check.IsEmpty() {
+	// preFilter is already leaf-masked; IntersectsMaskedLeaf zeroes elemBitmap's
+	// leaf bits and checks for overlap without allocating — cheap fast-reject.
+	if !e.bitmapOps.IntersectsMaskedLeaf(preFilter, elemBitmap) {
 		return false
 	}
 
