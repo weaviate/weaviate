@@ -381,6 +381,29 @@ func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 	return protoToRepairResponses(resp.GetDigests()), nil
 }
 
+func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, QUERY_TIMEOUT_VALUE*time.Second)
+	defer cancel()
+
+	req := &protocol.CompareDigestsRequest{
+		Index:   index,
+		Shard:   shard,
+		Digests: repairResponsesToProto(digests),
+	}
+	resp, err := client.CompareDigests(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
+	}
+	return protoToRepairResponses(resp.GetDigests()), nil
+}
+
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
@@ -507,6 +530,20 @@ func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResp
 		}
 	}
 	return replica.SimpleResponse{Errors: errs}
+}
+
+func repairResponsesToProto(digests []types.RepairResponse) []*protocol.RepairResponse {
+	out := make([]*protocol.RepairResponse, len(digests))
+	for i, d := range digests {
+		out[i] = &protocol.RepairResponse{
+			Id:         d.ID,
+			Version:    d.Version,
+			UpdateTime: d.UpdateTime,
+			Err:        d.Err,
+			Deleted:    d.Deleted,
+		}
+	}
+	return out
 }
 
 func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairResponse {

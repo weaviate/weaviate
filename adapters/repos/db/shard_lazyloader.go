@@ -684,6 +684,13 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CompareDigests(ctx, sourceDigests)
+}
+
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
