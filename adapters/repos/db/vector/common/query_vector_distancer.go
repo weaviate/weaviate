@@ -24,7 +24,7 @@ func NewQueryVectorDistancer(db *sql.DB) *QueryVectorDistancer {
 }
 
 func (q *QueryVectorDistancer) Distance(ctx context.Context, vectorID uuid.UUID) (float64, error) {
-	query := "SELECT distance FROM vector_distance WHERE vector_id = ?"
+	query := "SELECT distance FROM vector_distance WHERE vector_id = $1"
 	var distance float64
 	err := q.db.QueryRowContext(ctx, query, vectorID).Scan(&distance)
 	if err != nil {
