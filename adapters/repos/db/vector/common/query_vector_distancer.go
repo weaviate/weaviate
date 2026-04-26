@@ -22,6 +22,9 @@ type QueryVectorDistancer struct {
 }
 
 func (q *QueryVectorDistancer) DistanceToNode(nodeID uint64) (float32, error) {
+	if q == nil {
+		return 0, errors.New("query vector distancer is nil")
+	}
 	if q.DistanceFunc == nil {
 		return 0, errors.New("distance function is not set")
 	}
@@ -29,7 +32,7 @@ func (q *QueryVectorDistancer) DistanceToNode(nodeID uint64) (float32, error) {
 }
 
 func (q *QueryVectorDistancer) Close() error {
-	if q.CloseFunc == nil {
+	if q == nil || q.CloseFunc == nil {
 		return nil
 	}
 	return q.CloseFunc()
