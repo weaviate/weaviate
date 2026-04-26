@@ -1,3 +1,4 @@
+// File: adapters/repos/db/vector/common/query_vector_distancer.go
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -17,6 +18,9 @@ type QueryVectorDistancer struct {
 }
 
 func (q *QueryVectorDistancer) DistanceToNode(nodeID uint64) (float32, error) {
+	if q.DistanceFunc == nil {
+		return 0, nil
+	}
 	return q.DistanceFunc(nodeID)
 }
 
