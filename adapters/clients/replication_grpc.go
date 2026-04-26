@@ -448,7 +448,22 @@ func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 		return nil, err
 	}
 
-	discData, err := discriminant.Marshal()
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hash tree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("discriminant must not be nil")
+	}
+	// Extract only the bits relevant to this level (level-local encoding).
+	// The server expects a discriminant of size LeavesCount(level); sending the
+	// full global bitset (NodesCount(height)) would fail the server-side size check.
+	required := hashtree.InnerNodesCount(level) + hashtree.LeavesCount(level)
+	if discriminant.Size() < required {
+		return nil, fmt.Errorf("discriminant size %d too small for level %d: need at least %d bits",
+			discriminant.Size(), level, required)
+	}
+	levelLocalDisc := discriminant.ExtractSlice(hashtree.InnerNodesCount(level), hashtree.LeavesCount(level))
+	discData, err := levelLocalDisc.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal discriminant: %w", err)
 	}

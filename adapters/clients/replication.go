@@ -208,7 +208,22 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.R
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
-	body, err := discriminant.Marshal()
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hash tree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("discriminant must not be nil")
+	}
+	// Extract only the bits relevant to this level (level-local encoding).
+	// This reduces per-call payload from NodesCount(height) bits to
+	// nodesAtLevel(level) = LeavesCount(level) bits.
+	required := hashtree.InnerNodesCount(level) + hashtree.LeavesCount(level)
+	if discriminant.Size() < required {
+		return nil, fmt.Errorf("discriminant size %d too small for level %d: need at least %d bits",
+			discriminant.Size(), level, required)
+	}
+	levelLocalDisc := discriminant.ExtractSlice(hashtree.InnerNodesCount(level), hashtree.LeavesCount(level))
+	body, err := levelLocalDisc.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}

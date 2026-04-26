@@ -14,6 +14,7 @@ package hashtree
 import (
 	"encoding/binary"
 	"fmt"
+	"math/bits"
 )
 
 type Bitset struct {
@@ -129,6 +130,48 @@ func (bset *Bitset) Unmarshal(b []byte) error {
 	}
 
 	return nil
+}
+
+// ExtractSlice returns a new Bitset of size count containing the bits at
+// positions [offset, offset+count) from this bitset. Used to produce a
+// level-local discriminant (size = nodesAtLevel(level)) from the full-tree
+// discriminant (size = NodesCount(height)) before sending it over the wire,
+// reducing per-call payload by a factor of (height+1) across a full traversal.
+// It panics if offset or count is negative, or if offset+count exceeds the bitset size.
+func (bset *Bitset) ExtractSlice(offset, count int) *Bitset {
+	if offset < 0 || count < 0 || offset+count > bset.size {
+		panic(fmt.Sprintf("ExtractSlice out of range [%d, %d) for bitset of size %d", offset, offset+count, bset.size))
+	}
+	result := NewBitset(count)
+	if count == 0 {
+		return result
+	}
+
+	srcWordStart := offset / 64
+	srcBitOff := uint(offset % 64)
+	dstWords := len(result.bits)
+
+	if srcBitOff == 0 {
+		copy(result.bits, bset.bits[srcWordStart:srcWordStart+dstWords])
+	} else {
+		for i := 0; i < dstWords; i++ {
+			result.bits[i] = int64(uint64(bset.bits[srcWordStart+i]) >> srcBitOff)
+			if srcWordStart+i+1 < len(bset.bits) {
+				result.bits[i] |= bset.bits[srcWordStart+i+1] << (64 - srcBitOff)
+			}
+		}
+	}
+
+	// Clear any bits beyond count in the last word.
+	if tail := uint(count % 64); tail != 0 {
+		result.bits[dstWords-1] &= int64((uint64(1) << tail) - 1)
+	}
+
+	for _, w := range result.bits {
+		result.setCount += bits.OnesCount64(uint64(w))
+	}
+
+	return result
 }
 
 func (bset *Bitset) Clone() *Bitset {

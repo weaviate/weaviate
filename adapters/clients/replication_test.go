@@ -606,9 +606,9 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		{0xdeadbeefcafebabe, 0x0123456789abcdef},
 	}
 
-	discriminant := hashtree.NewBitset(4)
-	discriminant.Set(0)
-	discriminant.Set(2)
+	discriminant := hashtree.NewBitset(15)
+	discriminant.Set(7)
+	discriminant.Set(9)
 
 	t.Run("BinaryResponse", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,10 @@ type AggregatedHashTree interface {
 	Sync()
 	Root() Digest
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
+	// LevelLocal works like Level but interprets the discriminant as level-local:
+	// bit i corresponds to the i-th node at the given level (global index
+	// InnerNodesCount(level)+i). discriminant.Size() must equal LeavesCount(level).
+	LevelLocal(level int, discriminant *Bitset, digests []Digest) (n int, err error)
 	Reset()
 	Clone() AggregatedHashTree
 

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -61,6 +62,12 @@ const (
 	defaultPropagationDelay            = 30 * time.Second
 	defaultPropagationConcurrency      = 1
 	defaultPropagationBatchSize        = 100
+
+	// initShieldCPUEveryN is the number of objects processed between
+	// runtime.Gosched() calls during hashtree initialization. Yielding
+	// periodically lets query goroutines make forward progress and prevents the
+	// init scan from monopolising CPU during a full-shard scan.
+	initShieldCPUEveryN = 10_000
 
 	minMaxWorkers = 1
 	maxMaxWorkers = 10
@@ -273,17 +280,22 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			prevProgressLogging = time.Now()
 		}
 
-		s.asyncReplicationRWMux.RLock()
-		defer s.asyncReplicationRWMux.RUnlock()
-
 		obj := &storobj.Object{}
 		obj.Object.LastUpdateTimeUnix = updateTime
+		s.asyncReplicationRWMux.RLock()
 		err := s.mayUpsertObjectHashTree(obj, uuidBytes, objectInsertStatus{})
+		s.asyncReplicationRWMux.RUnlock()
 		if err != nil {
 			return err
 		}
 
 		objCount++
+
+		// Yield to the Go scheduler periodically: on-disk scans can run for
+		// minutes on large shards and starve query goroutines on the same thread.
+		if objCount%initShieldCPUEveryN == 0 {
+			runtime.Gosched()
+		}
 
 		return nil
 	})
@@ -292,9 +304,9 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	}
 
 	s.asyncReplicationRWMux.Lock()
-	defer s.asyncReplicationRWMux.Unlock()
 
 	if s.hashtree == nil {
+		s.asyncReplicationRWMux.Unlock()
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -304,6 +316,7 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	}
 
 	s.hashtreeFullyInitialized = true
+	s.asyncReplicationRWMux.Unlock()
 
 	s.index.logger.
 		WithField("action", "async_replication").
@@ -508,6 +521,23 @@ func (s *Shard) dumpHashTree() error {
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	if level < 0 {
+		return nil, fmt.Errorf("hashtree level must be non-negative: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("hashtree level %d: discriminant must not be nil", level)
+	}
+	// Validate and pre-allocate outside the lock: both are pure functions of
+	// level and discriminant, requiring no shard state. Keeping the critical
+	// section to the hashtreeFullyInitialized check and LevelLocal read reduces
+	// contention on the hot hashbeat path.
+	expectedSize := hashtree.LeavesCount(level)
+	if discriminant.Size() != expectedSize {
+		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (possible height mismatch)",
+			level, discriminant.Size(), expectedSize)
+	}
+	digests = make([]hashtree.Digest, expectedSize)
+
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
@@ -515,10 +545,7 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 
-	// TODO (jeroiraz): reusable pool of digests slices
-	digests = make([]hashtree.Digest, hashtree.LeavesCount(level+1))
-
-	n, err := s.hashtree.Level(level, discriminant, digests)
+	n, err := s.hashtree.LevelLocal(level, discriminant, digests)
 	if err != nil {
 		return nil, err
 	}

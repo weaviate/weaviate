@@ -129,6 +129,63 @@ func TestBigHashTree(t *testing.T) {
 	require.Equal(t, 1, n)
 }
 
+func TestLevelLocal(t *testing.T) {
+	height := 4
+
+	ht, err := NewHashTree(height)
+	require.NoError(t, err)
+
+	leavesCount := LeavesCount(height)
+	for i := 0; i < leavesCount; i++ {
+		err = ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val%d", i)))
+		require.NoError(t, err)
+	}
+
+	digests1 := make([]Digest, leavesCount)
+	digests2 := make([]Digest, leavesCount)
+
+	for level := 0; level <= height; level++ {
+		t.Run(fmt.Sprintf("level%d", level), func(t *testing.T) {
+			// Build a global discriminant with every other node set at this level
+			global := NewBitset(NodesCount(height))
+			offset := InnerNodesCount(level)
+			count := LeavesCount(level) // nodesAtLevel(level)
+			for i := 0; i < count; i += 2 {
+				global.Set(offset + i)
+			}
+
+			// Level() with global discriminant
+			n1, err := ht.Level(level, global, digests1)
+			require.NoError(t, err)
+
+			// LevelLocal() with extracted level-local discriminant
+			local := global.ExtractSlice(offset, count)
+			n2, err := ht.LevelLocal(level, local, digests2)
+			require.NoError(t, err)
+
+			require.Equal(t, n1, n2)
+			require.Equal(t, digests1[:n1], digests2[:n2])
+		})
+	}
+
+	t.Run("SizeMismatch", func(t *testing.T) {
+		wrongSize := NewBitset(99)
+		_, err := ht.LevelLocal(1, wrongSize, digests1)
+		require.ErrorIs(t, err, ErrIllegalArguments)
+	})
+
+	t.Run("NilDiscriminant", func(t *testing.T) {
+		_, err := ht.LevelLocal(1, nil, digests1)
+		require.ErrorIs(t, err, ErrIllegalArguments)
+	})
+
+	t.Run("LevelTooHigh", func(t *testing.T) {
+		local := NewBitset(LeavesCount(height + 1))
+		_, err := ht.LevelLocal(height+1, local, digests1)
+		require.ErrorIs(t, err, ErrIllegalState)
+	})
+}
+
 func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
 	height := 0
 
@@ -437,6 +494,39 @@ func TestHashTreeRandomAggregationOrder(t *testing.T) {
 		}
 
 	}
+}
+
+// TestPayloadSizeReduction quantifies the network-payload benefit of the
+// level-local discriminant encoding introduced by ExtractSlice + LevelLocal.
+// It asserts that across a full height-16 traversal the total bytes sent are
+// reduced by more than a factor of height (≈17× in practice).
+func TestPayloadSizeReduction(t *testing.T) {
+	height := 16
+	fullDisc := NewBitset(NodesCount(height)).SetAll()
+
+	var totalFull, totalLocal int
+	for level := 0; level <= height; level++ {
+		fullBytes, err := fullDisc.Marshal()
+		require.NoError(t, err)
+
+		localDisc := fullDisc.ExtractSlice(InnerNodesCount(level), LeavesCount(level))
+		localBytes, err := localDisc.Marshal()
+		require.NoError(t, err)
+
+		totalFull += len(fullBytes)
+		totalLocal += len(localBytes)
+
+		t.Logf("level=%2d  full=%6d B  local=%5d B  reduction=%.1fx",
+			level, len(fullBytes), len(localBytes),
+			float64(len(fullBytes))/float64(len(localBytes)))
+	}
+
+	reduction := float64(totalFull) / float64(totalLocal)
+	t.Logf("total traversal: %d B → %d B (%.1fx reduction)", totalFull, totalLocal, reduction)
+
+	// Must reduce total payload by more than a factor of height across the traversal.
+	require.Greater(t, reduction, float64(height),
+		"expected >%dx payload reduction for height=%d, got %.1fx", height, height, reduction)
 }
 
 func TestHashTreeConcurrentInsertions(t *testing.T) {
