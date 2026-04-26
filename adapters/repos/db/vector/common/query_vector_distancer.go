@@ -32,7 +32,10 @@ func (q *QueryVectorDistancer) DistanceToNode(nodeID uint64) (float32, error) {
 }
 
 func (q *QueryVectorDistancer) Close() error {
-	if q == nil || q.CloseFunc == nil {
+	if q == nil {
+		return nil
+	}
+	if q.CloseFunc == nil {
 		return nil
 	}
 	return q.CloseFunc()
