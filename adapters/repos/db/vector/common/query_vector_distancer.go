@@ -43,8 +43,5 @@ func (q *QueryVectorDistancer) Close() error {
 
 // IsNil checks if the QueryVectorDistancer is nil or has both function pointers nil.
 func (q *QueryVectorDistancer) IsNil() bool {
-	if q == nil {
-		return true
-	}
-	return q.DistanceFunc == nil && q.CloseFunc == nil
+	return q == nil || (q.DistanceFunc == nil && q.CloseFunc == nil)
 }
