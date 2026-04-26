@@ -1,3 +1,4 @@
+// File: adapters/repos/db/sorter/query_planner.go
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -40,8 +41,8 @@ const (
 )
 
 type QueryResponse struct {
-	Data       interface{}              `json:"data"`
-	Extensions map[string]interface{}   `json:"extensions,omitempty"`
+	Data       interface{}            `json:"data"`
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }
 
 type QueryPlanner struct {
