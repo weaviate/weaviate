@@ -20,7 +20,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sync"
 	"time"
@@ -269,14 +268,10 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		effectiveConfig = config.Effective(*s.index.globalreplicationConfig)
 	}
 
-	// Register flush-time hooks on the objects bucket:
-	//   - objectFlushCallback updates the hashtree with exactly the objects
-	//     that were durably persisted in the flush (before the new segment is
-	//     visible to readers), keeping the hashtree consistent with on-disk data.
-	//   - flushCallback wakes the hashbeater after the segment is added so that
-	//     newly flushed objects are propagated without waiting for the next tick.
+	// Register flush-time hook to wake the hashbeater after the segment is
+	// added so that newly flushed objects are propagated without waiting for
+	// the next tick.
 	if bucket != nil {
-		bucket.SetObjectFlushCallback(s.updateHashtreeOnFlush)
 		bucket.SetFlushCallback(s.notifyHashbeat)
 	}
 
@@ -341,6 +336,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	}
 
 	s.hashtreeFullyInitialized = false
+	s.minimalHashtreeInitializationCh = make(chan struct{})
 
 	// asyncRepWg tracks this goroutine so that disableAsyncReplication's
 	// asyncRepWg.Wait() correctly waits for it before returning, preventing
@@ -401,6 +397,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 			s.hashtree.Reset()
+			s.minimalHashtreeInitializationCh = make(chan struct{})
 			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
@@ -507,13 +504,17 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// Scan only on-disk segments: the hashtree now reflects durable (flushed)
-	// data exclusively. In-memory objects will be added when their memtables are
-	// flushed via updateHashtreeOnFlush.
+	releaseInitialization := func() {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		close(s.minimalHashtreeInitializationCh)
+	}
+
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToOnDiskObjectDigests(ctx, func(uuidBytes []byte, updateTime int64) error {
+	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -528,19 +529,13 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		obj := &storobj.Object{}
 		obj.Object.LastUpdateTimeUnix = updateTime
 		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
 		err := s.mayUpsertObjectHashTree(obj, uuidBytes, objectInsertStatus{})
-		s.asyncReplicationRWMux.RUnlock()
 		if err != nil {
 			return err
 		}
 
 		objCount++
-
-		// Yield to the Go scheduler periodically: on-disk scans can run for
-		// minutes on large shards and starve query goroutines on the same thread.
-		if config.initShieldCPUEveryN > 0 && objCount%config.initShieldCPUEveryN == 0 {
-			runtime.Gosched()
-		}
 
 		return nil
 	})
@@ -591,92 +586,22 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	return nil
 }
 
-// updateHashtreeOnFlush is called by the lsmkv objects bucket inside
-// FlushAndSwitch, after the flushing memtable has been durably written to disk
-// but before the new segment is added to the segment group.
-//
-// For each entry in the flushed memtable it computes the XOR delta needed to
-// keep the hashtree consistent with on-disk data:
-//   - XOR out the previous on-disk digest (if the key existed on disk before).
-//   - XOR in the new digest (unless the entry is a tombstone / deletion).
-//
-// Deltas are collected without holding any lock (lookupOnDisk is safe for
-// concurrent reads) and then applied atomically under the write lock to
-// minimise the time writes are stalled.
-func (s *Shard) updateHashtreeOnFlush(
-	forEachFlushedObject func(fn func(key []byte, value []byte, tombstone bool)),
-	lookupOnDisk func(key []byte) ([]byte, bool),
-) {
-	// digest[:16] holds the UUID bytes; digest[16:] holds the update timestamp.
-	// The leaf index is NOT pre-computed here because the hashtree height can
-	// change between this pre-computation and the write-lock acquisition below
-	// (e.g. a concurrent rebuild triggered by a runtime DynamicValue height
-	// override). Computing the leaf inside the lock — using s.hashtree.Height() —
-	// guarantees consistency with the live tree.
-	type leafDelta struct {
-		digest [16 + 8]byte
+func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
+	if s.hashtree == nil || s.hashtreeFullyInitialized {
+		return nil
 	}
 
-	// Each flushed object can produce up to 2 deltas (XOR out old value, XOR in
-	// new). The flush size is not known upfront (it arrives via callback), so
-	// pre-allocate with a small constant to absorb the first few reallocations.
-	deltas := make([]leafDelta, 0, 64)
-
-	forEachFlushedObject(func(key []byte, value []byte, tombstone bool) {
-		if len(key) != 16 {
-			return
-		}
-
-		// XOR out old on-disk value (if any).
-		if oldValue, found := lookupOnDisk(key); found {
-			_, oldUpdateTime, err := storobj.DocIDAndTimeFromBinary(oldValue)
-			if err == nil && oldUpdateTime > 0 {
-				var d [16 + 8]byte
-				copy(d[:16], key)
-				binary.BigEndian.PutUint64(d[16:], uint64(oldUpdateTime))
-				deltas = append(deltas, leafDelta{d})
-			}
-		}
-
-		// XOR in new value unless this entry is a deletion tombstone.
-		if !tombstone {
-			_, newUpdateTime, err := storobj.DocIDAndTimeFromBinary(value)
-			if err == nil && newUpdateTime > 0 {
-				var d [16 + 8]byte
-				copy(d[:16], key)
-				binary.BigEndian.PutUint64(d[16:], uint64(newUpdateTime))
-				deltas = append(deltas, leafDelta{d})
-			}
-		}
-	})
-
-	if len(deltas) == 0 {
-		return
-	}
-
-	s.asyncReplicationRWMux.Lock()
-	defer s.asyncReplicationRWMux.Unlock()
-
-	if s.hashtree == nil {
-		return
-	}
-
-	height := s.hashtree.Height()
-	for _, delta := range deltas {
-		leaf := hashtreeLeafForHeight(delta.digest[:16], height)
-		s.hashtree.AggregateLeafWith(leaf, delta.digest[:])
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.minimalHashtreeInitializationCh:
+		return nil
 	}
 }
 
 func (s *Shard) mayStopAsyncReplication() {
-	// Clear flush callbacks before taking the write lock to avoid a lock-order
-	// inversion: FlushAndSwitch holds objectFlushCallbackMu while invoking the
-	// registered callback, and that callback (updateHashtreeOnFlush) acquires
-	// asyncReplicationRWMux.Lock(). Calling SetObjectFlushCallback inside
-	// asyncReplicationRWMux.Lock() therefore creates a cycle.
-	// Clearing nil callbacks is idempotent, so this is safe to do unconditionally.
+	// Clear flush callback before taking the write lock.
 	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
-		bucket.SetObjectFlushCallback(nil)
 		bucket.SetFlushCallback(nil)
 	}
 
@@ -777,10 +702,8 @@ func (s *Shard) enableAsyncReplication(_ context.Context, config AsyncReplicatio
 }
 
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
-	// Clear flush callbacks before taking the write lock — same lock-order
-	// safety rationale as in mayStopAsyncReplication.
+	// Clear flush callback before taking the write lock.
 	if bucket := s.store.Bucket(helpers.ObjectsBucketLSM); bucket != nil {
-		bucket.SetObjectFlushCallback(nil)
 		bucket.SetFlushCallback(nil)
 	}
 
