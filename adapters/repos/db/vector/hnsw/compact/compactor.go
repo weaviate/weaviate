@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // Action represents the type of compaction action to perform.
@@ -68,6 +69,11 @@ type CompactorConfig struct {
 	// FS is the filesystem interface to use for file operations.
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
+
+	// AllocChecker is an optional memory pressure checker. When set,
+	// convertToSorted will skip files whose in-memory representation
+	// would exceed available memory, avoiding OOM during heavy import.
+	AllocChecker memwatch.AllocChecker
 }
 
 // DefaultCompactorConfig returns the default configuration.
@@ -221,7 +227,21 @@ func (c *Compactor) convertToSorted(state *DirectoryState) error {
 }
 
 // convertFileToSorted converts a single file (raw or condensed) to sorted format.
+// When an AllocChecker is configured, the conversion is skipped if the system
+// is under memory pressure — the file will be retried on the next cycle.
 func (c *Compactor) convertFileToSorted(f FileInfo) error {
+	if c.config.AllocChecker != nil {
+		if err := c.config.AllocChecker.CheckAlloc(f.Size); err != nil {
+			c.logger.WithFields(logrus.Fields{
+				"action": "hnsw_compactor_convert",
+				"file":   filepath.Base(f.Path),
+				"size":   f.Size,
+			}).WithError(err).
+				Warn("skipping conversion to sorted due to memory pressure")
+			return nil
+		}
+	}
+
 	c.logger.WithFields(logrus.Fields{
 		"action": "hnsw_compactor_convert",
 		"file":   filepath.Base(f.Path),
