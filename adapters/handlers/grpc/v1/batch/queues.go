@@ -12,6 +12,8 @@
 package batch
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -99,7 +101,7 @@ func NewProcessingQueue() processingQueue {
 
 func NewReportingQueues() *reportingQueues {
 	return &reportingQueues{
-		queues: make(map[string]reportingQueue),
+		queues: make(map[string]reportingQueue, 256),
 		closed: make(map[string]struct{}),
 	}
 }
@@ -137,18 +139,18 @@ func (r *reportingQueues) delete(streamId string) {
 	delete(r.closed, streamId)
 }
 
-func (r *reportingQueues) send(streamId string, successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error, stats *workerStats) bool {
+func (r *reportingQueues) send(streamCtx context.Context, streamId string, successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error, stats *workerStats) error {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 	queue, ok := r.queues[streamId]
 	if !ok {
-		return false
+		return fmt.Errorf("reporting queue not found for stream ID: %s", streamId)
 	}
 	select {
 	case queue <- &report{Successes: successes, Errors: errors, Stats: stats}:
-		return true
-	case <-time.After(1 * time.Second):
-		return false
+		return nil
+	case <-streamCtx.Done():
+		return streamCtx.Err()
 	}
 }
 
