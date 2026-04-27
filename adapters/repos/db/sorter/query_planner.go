@@ -67,38 +67,3 @@ func NewQueryPlanner(index *Index, classSearcher ClassSearcher,
 		secondaryLookup: secondaryLookup,
 	}
 }
-
-func (qp *QueryPlanner) Build(query *Query) (*QueryResponse, error) {
-	startTime := time.Now()
-
-	// execute the actual search
-	results, err := qp.classSearcher.Search(context.Background(), query.Filters, query.SearchVector, query.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("class searcher: %w", err)
-	}
-
-	// convert results to response format
-	data := convertResultsToResponse(results)
-
-	// build extensions
-	extensions := make(map[string]interface{})
-
-	// include query vector if requested
-	if query.IncludeQueryVector {
-		extensions["query_vector"] = query.SearchVector
-	}
-
-	// include other metadata
-	extensions["response_time_ms"] = time.Since(startTime).Milliseconds()
-
-	return &QueryResponse{
-		Data:       data,
-		Extensions: extensions,
-	}, nil
-}
-
-func convertResultsToResponse(results []*Result) interface{} {
-	// convert results to the expected response format
-	// this is a simplified placeholder
-	return results
-}
