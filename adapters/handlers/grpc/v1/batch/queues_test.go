@@ -95,6 +95,42 @@ func TestReportingQueueSendBlocksUntilDelivery(t *testing.T) {
 	}
 }
 
+func TestReportingQueueCloseUnblocksBlockedSend(t *testing.T) {
+	streamId := "test-stream-close-unblocks-send"
+	q := NewReportingQueues()
+	q.Make(streamId)
+
+	successes := []*pb.BatchStreamReply_Results_Success{
+		{Detail: &pb.BatchStreamReply_Results_Success_Uuid{Uuid: "uuid-1"}},
+	}
+
+	sendCh := make(chan error, 1)
+	go func() {
+		sendCh <- q.send(t.Context(), streamId, successes, nil, &workerStats{processingTime: time.Second})
+	}()
+
+	time.Sleep(10 * time.Millisecond) // let the send goroutine park in the select
+
+	closeCh := make(chan struct{})
+	go func() {
+		q.close(streamId)
+		close(closeCh)
+	}()
+
+	select {
+	case <-closeCh:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("close did not complete promptly with a blocked send")
+	}
+
+	select {
+	case err := <-sendCh:
+		require.ErrorIs(t, err, errReportingQueueClosed)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("send did not return after close")
+	}
+}
+
 func TestReportingQueueSendCancelsOnStreamCtx(t *testing.T) {
 	streamId := "test-stream-cancels-on-streamctx"
 	q := NewReportingQueues()
