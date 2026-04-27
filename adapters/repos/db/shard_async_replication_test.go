@@ -65,35 +65,18 @@ func testObjWithTime(class string, id strfmt.UUID, updateTime int64) *storobj.Ob
 	}
 }
 
-// equalTimestampReplicationClient is a test double that echoes every digest
-// back with its UpdateTime unchanged, simulating an equal-timestamp conflict
-// where the remote holds the same version as the source.
-type equalTimestampReplicationClient struct {
+// fixedDigestsClient is a test double whose DigestObjectsInRange always
+// returns a pre-configured slice of digests, letting tests control what the
+// "remote" shard appears to hold.
+type fixedDigestsClient struct {
 	FakeReplicationClient
+	digests []routerTypes.RepairResponse
 }
 
-func (c *equalTimestampReplicationClient) CompareDigests(
-	_ context.Context, _, _, _ string, digests []routerTypes.RepairResponse,
+func (c *fixedDigestsClient) DigestObjectsInRange(
+	_ context.Context, _, _, _ string, _, _ strfmt.UUID, _ int,
 ) ([]routerTypes.RepairResponse, error) {
-	echo := make([]routerTypes.RepairResponse, len(digests))
-	copy(echo, digests)
-	return echo, nil
-}
-
-// allStaleReplicationClient is a test double that reports every digest it
-// receives as missing on the remote side (UpdateTime == 0).
-type allStaleReplicationClient struct {
-	FakeReplicationClient
-}
-
-func (c *allStaleReplicationClient) CompareDigests(
-	_ context.Context, _, _, _ string, digests []routerTypes.RepairResponse,
-) ([]routerTypes.RepairResponse, error) {
-	stale := make([]routerTypes.RepairResponse, len(digests))
-	for i, d := range digests {
-		stale[i] = routerTypes.RepairResponse{ID: d.ID, UpdateTime: 0}
-	}
-	return stale, nil
+	return c.digests, nil
 }
 
 // withReplicationClient returns an indexOpt that replaces the index's
@@ -141,27 +124,6 @@ func fullRangeConfig(batchSize int) AsyncReplicationConfig {
 	}
 }
 
-// ─── Shard.CompareDigests ────────────────────────────────────────────────────
-
-// withDeletionStrategy returns an indexOpt that sets the deletion strategy on
-// the index config, allowing CompareDigests tombstone handling to be tested
-// without a full cluster setup.
-func withDeletionStrategy(strategy string) func(*Index) {
-	return func(idx *Index) {
-		idx.Config.DeletionStrategy = strategy
-	}
-}
-
-// flushShard forces all pending memtable data to disk so that CompareDigests
-// (which uses GetErrDeletedOnDisk and is therefore disk-only) can observe the
-// objects and tombstones written by PutObject / DeleteObject.
-func flushShard(t *testing.T, ctx context.Context, shard ShardLike) {
-	t.Helper()
-	s, ok := shard.(*Shard)
-	require.True(t, ok, "flushShard: expected *Shard, got %T", shard)
-	require.NoError(t, s.store.FlushMemtables(ctx))
-}
-
 // concreteShard unwraps the *Shard from a ShardLike returned by testShard.
 // testShard passes EnableLazyLoadShards=true which causes initShard to create
 // a real *Shard directly (not a LazyLoadShard wrapper).
@@ -172,256 +134,14 @@ func concreteShard(t *testing.T, sl ShardLike) *Shard {
 	return s
 }
 
-// TestShardCompareDigests validates the server-side CompareDigests logic:
-// missing objects are returned with UpdateTime==0, stale objects with the local
-// UpdateTime, and up-to-date objects are not returned at all.
-func TestShardCompareDigests(t *testing.T) {
-	ctx := context.Background()
-	const class = "CompareDigestsTest"
-
-	// localTime is the timestamp stored on the shard for the known objects.
-	const localTime int64 = 1_000_000
-
-	t.Run("MissingObject", func(t *testing.T) {
-		shard, _ := testShard(t, ctx, class)
-		// Shard is empty — every source digest is missing.
-		source := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: localTime + 1},
-		}
-		result, err := shard.CompareDigests(ctx, source)
-		require.NoError(t, err)
-		require.Len(t, result, 1)
-		assert.Equal(t, string(uuidLow), result[0].ID)
-		assert.Equal(t, int64(0), result[0].UpdateTime, "missing object must have UpdateTime==0")
-	})
-
-	t.Run("StaleLocalObject", func(t *testing.T) {
-		shard, _ := testShard(t, ctx, class)
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		flushShard(t, ctx, shard)
-
-		// Source claims a newer version → local is stale.
-		source := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: localTime + 1},
-		}
-		result, err := shard.CompareDigests(ctx, source)
-		require.NoError(t, err)
-		require.Len(t, result, 1)
-		assert.Equal(t, string(uuidLow), result[0].ID)
-		assert.Equal(t, localTime, result[0].UpdateTime,
-			"stale object must carry local UpdateTime so caller can use it as remoteStaleUpdateTime")
-	})
-
-	t.Run("SourceStrictlyOlder", func(t *testing.T) {
-		shard, _ := testShard(t, ctx, class)
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		flushShard(t, ctx, shard)
-
-		// Source has a strictly older version → local is ahead, not returned.
-		source := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: localTime - 1},
-		}
-		result, err := shard.CompareDigests(ctx, source)
-		require.NoError(t, err)
-		assert.Empty(t, result, "object where local is strictly newer must not be returned")
-	})
-
-	t.Run("EqualTimestamp", func(t *testing.T) {
-		shard, _ := testShard(t, ctx, class)
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		flushShard(t, ctx, shard)
-
-		// Source and target have the same UpdateTime: both nodes hold the object
-		// at the same logical time, so no propagation is needed. Returning
-		// equal-timestamp objects would cause re-propagation of recently-delivered
-		// objects and exhaust the propagation limit.
-		source := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: localTime},
-		}
-		result, err := shard.CompareDigests(ctx, source)
-		require.NoError(t, err)
-		assert.Empty(t, result, "equal-timestamp object must not be returned (both nodes already in sync)")
-	})
-
-	// ObjectInMemtableRecognizedAsPresent verifies the fix for the bug where
-	// async replication re-propagated the same objects every hashbeat cycle:
-	//
-	// When the source propagates objects to the target, those objects land in
-	// the target's memtable before being flushed to disk.  If CompareDigests
-	// used disk-only lookups, the target would report them as missing on the
-	// next hashbeat cycle (before flush), causing the source to re-propagate
-	// the same objects and exhaust the propagationLimit — preventing genuinely
-	// stale objects in later UUID ranges from ever being reached.
-	//
-	// CompareDigests must consult the full bucket (memtable + disk) so that
-	// recently-propagated objects are correctly identified as already present.
-	// Tombstoned tests verify that CompareDigests applies the configured
-	// deletion conflict strategy on the target side for tombstoned objects.
-	//
-	// deletionTs is the timestamp used for all DeleteObject calls below.
-	// sourceNewerTs  > deletionTs  → source live object is newer than the tombstone.
-	// sourceSameTs  == deletionTs  → equal timestamp; deletion should win.
-	// sourceOlderTs  < deletionTs  → deletion is newer than the source object.
-	const (
-		deletionTs    int64 = 2_000_000
-		sourceNewerTs int64 = 3_000_000
-		sourceSameTs  int64 = deletionTs
-		sourceOlderTs int64 = 1_000
-	)
-
-	t.Run("Tombstoned/NoAutomatedResolution", func(t *testing.T) {
-		// Strategy=NoAutomatedResolution: tombstone must be suppressed regardless
-		// of timestamps so the source neither propagates nor deletes.
-		shard, _ := testShard(t, ctx, class,
-			withDeletionStrategy(models.ReplicationConfigDeletionStrategyNoAutomatedResolution))
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		require.NoError(t, shard.DeleteObject(ctx, uuidLow, time.UnixMilli(deletionTs)))
-		flushShard(t, ctx, shard)
-
-		for _, sourceTs := range []int64{sourceOlderTs, sourceSameTs, sourceNewerTs} {
-			result, err := shard.CompareDigests(ctx, []routerTypes.RepairResponse{
-				{ID: string(uuidLow), UpdateTime: sourceTs},
-			})
-			require.NoError(t, err)
-			assert.Empty(t, result, "NoAutomatedResolution: tombstone must not be reported (sourceTs=%d)", sourceTs)
-		}
-	})
-
-	t.Run("Tombstoned/DeleteOnConflict", func(t *testing.T) {
-		// Strategy=DeleteOnConflict: deletion always wins, instruct source to
-		// delete regardless of timestamps.
-		shard, _ := testShard(t, ctx, class,
-			withDeletionStrategy(models.ReplicationConfigDeletionStrategyDeleteOnConflict))
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		require.NoError(t, shard.DeleteObject(ctx, uuidLow, time.UnixMilli(deletionTs)))
-		flushShard(t, ctx, shard)
-
-		for _, sourceTs := range []int64{sourceOlderTs, sourceSameTs, sourceNewerTs} {
-			result, err := shard.CompareDigests(ctx, []routerTypes.RepairResponse{
-				{ID: string(uuidLow), UpdateTime: sourceTs},
-			})
-			require.NoError(t, err)
-			require.Len(t, result, 1, "DeleteOnConflict: tombstone must always be reported (sourceTs=%d)", sourceTs)
-			assert.True(t, result[0].Deleted, "DeleteOnConflict: result must have Deleted=true")
-			assert.Equal(t, deletionTs, result[0].UpdateTime, "DeleteOnConflict: UpdateTime must be the deletion timestamp")
-		}
-	})
-
-	t.Run("Tombstoned/TimeBasedResolution_SourceNewer", func(t *testing.T) {
-		// Strategy=TimeBasedResolution, source strictly newer than tombstone:
-		// return as a normal stale entry (no Deleted flag) so source propagates
-		// the live object to restore it on this shard.
-		shard, _ := testShard(t, ctx, class,
-			withDeletionStrategy(models.ReplicationConfigDeletionStrategyTimeBasedResolution))
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		require.NoError(t, shard.DeleteObject(ctx, uuidLow, time.UnixMilli(deletionTs)))
-		flushShard(t, ctx, shard)
-
-		result, err := shard.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: sourceNewerTs},
-		})
-		require.NoError(t, err)
-		require.Len(t, result, 1, "TimeBased/SourceNewer: stale entry must be returned so source propagates")
-		assert.False(t, result[0].Deleted, "TimeBased/SourceNewer: Deleted must be false — source should propagate")
-		assert.Equal(t, deletionTs, result[0].UpdateTime, "TimeBased/SourceNewer: UpdateTime must be the deletion timestamp")
-	})
-
-	t.Run("Tombstoned/TimeBasedResolution_DeletionNewer", func(t *testing.T) {
-		// Strategy=TimeBasedResolution, deletion is newer: instruct source to delete.
-		shard, _ := testShard(t, ctx, class,
-			withDeletionStrategy(models.ReplicationConfigDeletionStrategyTimeBasedResolution))
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		require.NoError(t, shard.DeleteObject(ctx, uuidLow, time.UnixMilli(deletionTs)))
-		flushShard(t, ctx, shard)
-
-		result, err := shard.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: sourceOlderTs},
-		})
-		require.NoError(t, err)
-		require.Len(t, result, 1, "TimeBased/DeletionNewer: tombstone must be reported so source deletes")
-		assert.True(t, result[0].Deleted, "TimeBased/DeletionNewer: Deleted must be true")
-		assert.Equal(t, deletionTs, result[0].UpdateTime)
-	})
-
-	t.Run("Tombstoned/TimeBasedResolution_EqualTimestamps", func(t *testing.T) {
-		// Strategy=TimeBasedResolution, timestamps are equal: deletion wins
-		// (condition is strictly greater-than, so equal falls to the delete path).
-		shard, _ := testShard(t, ctx, class,
-			withDeletionStrategy(models.ReplicationConfigDeletionStrategyTimeBasedResolution))
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		require.NoError(t, shard.DeleteObject(ctx, uuidLow, time.UnixMilli(deletionTs)))
-		flushShard(t, ctx, shard)
-
-		result, err := shard.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: sourceSameTs},
-		})
-		require.NoError(t, err)
-		require.Len(t, result, 1, "TimeBased/EqualTimestamps: deletion wins on tie")
-		assert.True(t, result[0].Deleted, "TimeBased/EqualTimestamps: Deleted must be true")
-	})
-
-	t.Run("Tombstoned/TimeBasedResolution_UnknownDeletionTime", func(t *testing.T) {
-		// Strategy=TimeBasedResolution with an unknown deletion timestamp (zero):
-		// cannot determine winner, so conservatively instruct source to delete.
-		shard, _ := testShard(t, ctx, class,
-			withDeletionStrategy(models.ReplicationConfigDeletionStrategyTimeBasedResolution))
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime)))
-		// DeleteObject with zero time stores a tombstone without a timestamp.
-		require.NoError(t, shard.DeleteObject(ctx, uuidLow, time.Time{}))
-		flushShard(t, ctx, shard)
-
-		result, err := shard.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: sourceNewerTs},
-		})
-		require.NoError(t, err)
-		require.Len(t, result, 1, "TimeBased/UnknownDeletionTime: must conservatively instruct deletion")
-		assert.True(t, result[0].Deleted)
-		assert.Equal(t, int64(0), result[0].UpdateTime, "UpdateTime must be zero when deletion timestamp is unknown")
-	})
-
-	t.Run("MixedBatch", func(t *testing.T) {
-		shard, _ := testShard(t, ctx, class)
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidLow, localTime))) // stale
-		require.NoError(t, shard.PutObject(ctx, testObjWithTime(class, uuidMid, localTime))) // up-to-date
-		// uuidHigh is not inserted → missing
-		flushShard(t, ctx, shard)
-
-		source := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: localTime + 1}, // source newer → stale local
-			{ID: string(uuidMid), UpdateTime: localTime - 1}, // source older → up-to-date local
-			{ID: string(uuidHigh), UpdateTime: localTime},    // not on shard → missing
-		}
-		result, err := shard.CompareDigests(ctx, source)
-		require.NoError(t, err)
-		require.Len(t, result, 2, "only stale and missing objects should be returned")
-
-		byID := make(map[string]routerTypes.RepairResponse, len(result))
-		for _, r := range result {
-			byID[r.ID] = r
-		}
-		stale, ok := byID[string(uuidLow)]
-		require.True(t, ok, "stale object must be present")
-		assert.Equal(t, localTime, stale.UpdateTime)
-
-		missing, ok := byID[string(uuidHigh)]
-		require.True(t, ok, "missing object must be present")
-		assert.Equal(t, int64(0), missing.UpdateTime)
-
-		_, ok = byID[string(uuidMid)]
-		assert.False(t, ok, "up-to-date object must not be present")
-	})
-
-	t.Run("EmptyInput", func(t *testing.T) {
-		shard, _ := testShard(t, ctx, class)
-		result, err := shard.CompareDigests(ctx, nil)
-		require.NoError(t, err)
-		assert.Nil(t, result)
-
-		result, err = shard.CompareDigests(ctx, []routerTypes.RepairResponse{})
-		require.NoError(t, err)
-		assert.Nil(t, result)
-	})
+// flushShard forces all pending memtable data to disk.
+func flushShard(t *testing.T, ctx context.Context, shard ShardLike) {
+	t.Helper()
+	s, ok := shard.(*Shard)
+	require.True(t, ok, "flushShard: expected *Shard, got %T", shard)
+	require.NoError(t, s.store.FlushMemtables(ctx))
 }
+
 
 // ─── objectsToPropagateWithinRange ───────────────────────────────────────────
 
@@ -474,16 +194,20 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local, "memtable objects must not be returned by disk-only scan")
-		assert.Equal(t, 0, remote, "CompareDigests must not be called when no on-disk objects found")
+		assert.Equal(t, 0, remote, "remote must not be queried when no on-disk objects found")
 		assert.Empty(t, objs)
 		_ = idx
 	})
 
-	// SourceBehindRemote verifies the no-op path: source objects are all
-	// up-to-date on the remote (CompareDigests returns nothing stale), so no
-	// objects are queued for propagation even though they were scanned and compared.
+	// SourceBehindRemote verifies the no-op path: remote already has the same
+	// objects with equal or newer timestamps, so nothing should be propagated.
 	t.Run("SourceBehindRemote", func(t *testing.T) {
-		sl, idx := testShard(t, ctx, class)
+		// Pre-configure the remote to return the same digests as local.
+		remoteDigests := []routerTypes.RepairResponse{
+			{ID: string(uuidLow), UpdateTime: tsFarPast},
+			{ID: string(uuidHigh), UpdateTime: tsFarPast},
+		}
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{digests: remoteDigests}))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
 
@@ -496,26 +220,23 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local)
-		assert.Equal(t, 2, remote, "both objects must have been sent to remote for comparison")
+		assert.Equal(t, 2, remote, "remote must return the same number of digests")
 		assert.Empty(t, objs, "remote is up-to-date → nothing to propagate")
 		_ = idx
 	})
 
 	// LimitEnforcement verifies that the propagation limit caps the number of
-	// objects queued, not the number scanned. Uses allStaleReplicationClient so
-	// every compared digest is returned as stale (UpdateTime==0, missing).
+	// objects queued. The default FakeReplicationClient returns empty digests for
+	// DigestObjectsInRange (remote has nothing), so every local object appears
+	// missing and is queued for propagation.
 	t.Run("LimitEnforcement", func(t *testing.T) {
 		const limit = 1
-		sl, idx := testShard(t, ctx, class)
-		// Insert two eligible objects; both will be reported as stale by the client.
+		// Default FakeReplicationClient.DigestObjectsInRange returns nil → remote empty.
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &FakeReplicationClient{}))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
 
-		sl2, idx2 := testShard(t, ctx, class, withReplicationClient(t, &allStaleReplicationClient{}))
-		require.NoError(t, sl2.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
-		require.NoError(t, sl2.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
-
-		s := concreteShard(t, sl2)
+		s := concreteShard(t, sl)
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
@@ -525,45 +246,6 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(objs), limit,
 			"number of queued propagations must not exceed the limit")
-		_ = sl
-		_ = idx
-		_ = idx2
-	})
-
-	// EqualTimestampTiebreaker verifies that when source and target have the same
-	// UpdateTime for an object (a conflict), the node with the lexicographically
-	// lower name propagates and the other does not.
-	//
-	// The test shard's replicator reports local node name "node1".
-	// "node0" < "node1" < "node2" lexicographically.
-	t.Run("EqualTimestampTiebreaker", func(t *testing.T) {
-		// equalTimestampClient reports every digest as having the same UpdateTime
-		// as the source sent, simulating an equal-timestamp conflict on the remote.
-		equalTimestampClient := &equalTimestampReplicationClient{}
-
-		sl, idx := testShard(t, ctx, class, withReplicationClient(t, equalTimestampClient))
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
-		s := concreteShard(t, sl)
-		require.NoError(t, s.store.FlushMemtables(ctx))
-		cfg := fullRangeConfig(100)
-
-		t.Run("LocalWins_LowerName", func(t *testing.T) {
-			// local="node1", target="node2": "node1" < "node2" → local wins → propagate.
-			_, _, objs, err := s.objectsToPropagateWithinRange(
-				ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
-			)
-			require.NoError(t, err)
-			assert.Len(t, objs, 1, "local node wins tiebreak → must propagate")
-		})
-
-		t.Run("LocalLoses_HigherName", func(t *testing.T) {
-			// local="node1", target="node0": "node1" > "node0" → local loses → skip.
-			_, _, objs, err := s.objectsToPropagateWithinRange(
-				ctx, cfg, "http://fake", "node0", 0, 1, 100, nil,
-			)
-			require.NoError(t, err)
-			assert.Empty(t, objs, "local node loses tiebreak → must not propagate")
-		})
 		_ = idx
 	})
 }

@@ -201,15 +201,6 @@ func (s *ReplicationService) DigestObjectsInRange(ctx context.Context, req *pb.D
 	return &pb.DigestObjectsInRangeResponse{Digests: repairResponsesToProto(results)}, nil
 }
 
-func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
-	digests := repairResponsesFromProto(req.GetDigests())
-	results, err := s.server.CompareDigests(ctx, req.GetIndex(), req.GetShard(), digests)
-	if err != nil {
-		return nil, replicationErrorToGRPC(err)
-	}
-	return &pb.CompareDigestsResponse{Digests: repairResponsesToProto(results)}, nil
-}
-
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
 	vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
 	if err != nil {

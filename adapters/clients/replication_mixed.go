@@ -193,11 +193,3 @@ func (s *switchReplicationClient) CountObjects(ctx context.Context, host string,
 	return s.restClient.CountObjects(ctx, host, index, shard)
 }
 
-func (s *switchReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
-	if s.useGRPC() {
-		return s.grpcClient.CompareDigests(ctx, host, index, shard, digests)
-	}
-	return s.restClient.CompareDigests(ctx, host, index, shard, digests)
-}

@@ -1010,18 +1010,7 @@ func (s *Shard) dumpHashTreeOf(ht hashtree.AggregatedHashTree) (err error) {
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	// Compute the expected digest slice size and validate the discriminant size
-	// before acquiring the lock: both are pure functions of level and discriminant,
-	// neither requires shard state. Pre-allocating the slice outside the lock
-	// keeps the critical section to only the hashtreeFullyInitialized check and
-	// the LevelLocal read — important since this is called on every hashbeat
-	// iteration per tree level and LevelLocal can traverse a tall tree.
-	expectedSize := hashtree.LeavesCount(level)
-	if discriminant.Size() != expectedSize {
-		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (possible height mismatch)",
-			level, discriminant.Size(), expectedSize)
-	}
-	digests = make([]hashtree.Digest, expectedSize)
+	digests = make([]hashtree.Digest, hashtree.LeavesCount(level))
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
@@ -1030,7 +1019,7 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 
-	n, err := s.hashtree.LevelLocal(level, discriminant, digests)
+	n, err := s.hashtree.Level(level, discriminant, digests)
 	if err != nil {
 		return nil, err
 	}
@@ -1202,8 +1191,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 
 	for _, stat := range stats {
 		// Use localObjectsPropagationCount (objects actually sent to target via
-		// Overwrite) rather than objectsDiffCount (which also
-		// counts remoteDeleted local-only deletions). This keeps the fast-poll
+		// Overwrite) rather than objectsDiffCount. This keeps the fast-poll
 		// cadence consistent with the Case A skip condition in HadWork.
 		if stat.localObjectsPropagationCount > 0 {
 			propagated = true
@@ -1243,9 +1231,9 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			localRootByTarget[stat.targetNodeName] = stat.localHashtreeRoot
 			remoteRootByTarget[stat.targetNodeName] = stat.remoteHashtreeRoot
 			// Record whether we sent objects to this target during this cycle.
-			// Local-only deletions (remoteDeleted verdicts) are excluded because they
-			// do not change the remote hashtree, so frequencyWhilePropagating should
-			// not be triggered when no objects were actually propagated to the target.
+			// Only count objects actually propagated to the target here; objects that
+			// were not propagated do not change the remote hashtree, so
+			// frequencyWhilePropagating should not be triggered for them.
 			propagatedToTarget[stat.targetNodeName] = stat.localObjectsPropagationCount > 0
 			// Clear cooldown for targets that responded successfully this cycle.
 			delete(lastErrorByTarget, stat.targetNodeName)
@@ -1345,7 +1333,7 @@ type hashBeatHostStats struct {
 	objectsNotResolved           int
 	// localHashtreeRoot and remoteHashtreeRoot record the level-0 digests
 	// compared in this cycle. handleHashbeatWakeup stores them so that hashBeat
-	// can skip the expensive CompareDigests + propagation pass when neither side
+	// can skip the propagation pass when neither side
 	// has flushed its memtable since the previous propagation cycle.
 	localHashtreeRoot  hashtree.Digest
 	remoteHashtreeRoot hashtree.Digest
@@ -1451,11 +1439,6 @@ func (s *Shard) hashBeat(
 	localObjectDigestsCount := 0
 	remoteObjectDigestsCount := 0
 	objectsDiffCount := 0
-	// localDeletedCount tracks objects deleted locally due to remoteDeleted
-	// verdicts from CompareDigests. It is added to len(localObjectsToPropagate)
-	// when computing the remaining propagation capacity so that tombstone
-	// conflict resolutions are bounded by the same limit as live propagations.
-	localDeletedCount := 0
 
 	localObjectsToPropagate := make([]strfmt.UUID, 0, config.propagationLimit)
 	localUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
@@ -1464,7 +1447,7 @@ func (s *Shard) hashBeat(
 	objectDigestsDiffCtx, cancel := context.WithTimeout(ctx, config.prePropagationTimeout)
 	defer cancel()
 
-	for len(localObjectsToPropagate)+localDeletedCount < config.propagationLimit {
+	for len(localObjectsToPropagate) < config.propagationLimit {
 		initialLeaf, finalLeaf, err := rangeReader.Next()
 		if err != nil {
 			if errors.Is(err, hashtree.ErrNoMoreRanges) {
@@ -1480,7 +1463,7 @@ func (s *Shard) hashBeat(
 			shardDiffReader.TargetNodeName,
 			initialLeaf,
 			finalLeaf,
-			config.propagationLimit-len(localObjectsToPropagate)-localDeletedCount,
+			config.propagationLimit-len(localObjectsToPropagate),
 			targetNodeOverridesSnapshot,
 		)
 		if err != nil {
@@ -1498,23 +1481,6 @@ func (s *Shard) hashBeat(
 		objectsDiffCount += len(objsToPropagateWithinRange)
 
 		for _, obj := range objsToPropagateWithinRange {
-			if obj.remoteDeleted {
-				// Target has already applied the deletion strategy and instructed
-				// deletion; apply it locally without re-checking the strategy.
-				//
-				// Use time.Time{} (Go zero) when the deletion timestamp is unknown
-				// (remoteStaleUpdateTime==0) so shard_write_delete.go calls
-				// bucket.Delete (no timestamp) rather than bucket.DeleteWith(epoch).
-				var deletionTime time.Time
-				if obj.remoteStaleUpdateTime != 0 {
-					deletionTime = time.UnixMilli(obj.remoteStaleUpdateTime)
-				}
-				if err := s.DeleteObject(ctx, obj.uuid, deletionTime); err != nil {
-					return nil, []string{shardDiffReader.TargetNodeName}, fmt.Errorf("deleting locally conflicted object: %w", err)
-				}
-				localDeletedCount++
-				continue
-			}
 			localObjectsToPropagate = append(localObjectsToPropagate, obj.uuid)
 			localUpdateTimeByUUID[obj.uuid] = obj.lastUpdateTime
 			remoteStaleUpdateTimeByUUID[obj.uuid] = obj.remoteStaleUpdateTime
@@ -1524,7 +1490,6 @@ func (s *Shard) hashBeat(
 	objectDigestsDiffTook := time.Since(objectDigestsDiffStart)
 	s.metrics.ObserveAsyncReplicationObjectDigestsDiffDuration(objectDigestsDiffTook)
 	s.metrics.AddAsyncReplicationObjectsDiffCount(objectsDiffCount)
-	s.metrics.AddAsyncReplicationLocalDeletionsCount(localDeletedCount)
 
 	objectsPropagationStart := time.Now()
 
@@ -1618,11 +1583,6 @@ type objectToPropagate struct {
 	uuid                  strfmt.UUID
 	lastUpdateTime        int64
 	remoteStaleUpdateTime int64
-	// remoteDeleted is true when CompareDigests on the target reported that the
-	// target has tombstoned this object and the configured deletion strategy
-	// instructs the source to delete. When set, the object must NOT be
-	// propagated; instead the source deletes its own local copy.
-	remoteDeleted bool
 }
 
 // objectsToPropagateWithinRange determines which local objects in the given
@@ -1631,12 +1591,9 @@ type objectToPropagate struct {
 // For each local batch it:
 //  1. Fetches local digests via DigestObjectsInRange.
 //  2. Filters out objects that are too recent (per maxUpdateTime).
-//  3. Sends the remaining digests to the target via a single CompareDigests
-//     round-trip. The target returns only those UUIDs that need action:
-//     missing/stale entries (source must propagate) and tombstoned entries
-//     where the deletion strategy instructs the source to delete locally.
-//     This collapses the former O(N_local_batches × N_remote_batches) nested
-//     HTTP scan to O(N_local_batches) round-trips.
+//  3. Fetches remote digests for the same UUID range via DigestObjectsInRange
+//     on the target, then compares locally: objects missing or stale on the
+//     target are queued for propagation.
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
@@ -1660,17 +1617,12 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	// whose UpdateTime sits close to the boundary.
 	maxUpdateTime := s.getHashBeatMaxUpdateTime(targetNodeName, targetNodeOverrides)
 
-	// localNodeName is used as a tiebreaker for equal-timestamp conflicts: the
-	// node with the lexicographically lower name wins and propagates its version.
-	localNodeName := s.index.replicator.LocalNodeName()
-
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
 
-	// filteredDigests and localDigestsByUUID are declared outside the loop and
-	// reset on each iteration to avoid per-batch heap allocations on this hot path.
+	// filteredDigests is declared outside the loop and reset on each iteration
+	// to avoid per-batch heap allocations on this hot path.
 	filteredDigests := make([]types.RepairResponse, 0, config.diffBatchSize)
-	localDigestsByUUID := make(map[uuid.UUID]types.RepairResponse, config.diffBatchSize)
 
 	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
@@ -1699,16 +1651,12 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 		}
 
 		// Filter out objects that are too recent to propagate.
-		// localDigestsByUUID uses uuid.UUID ([16]byte) keys to avoid per-entry
-		// string allocations on this hot path.
 		filteredDigests = filteredDigests[:0]
-		clear(localDigestsByUUID)
 		for _, d := range allLocalDigests {
 			if d.UpdateTime > maxUpdateTime {
 				continue
 			}
-			key, err := uuid.Parse(d.ID)
-			if err != nil {
+			if _, err := uuid.Parse(d.ID); err != nil {
 				// A local digest with an unparseable UUID indicates data corruption;
 				// log and skip rather than silently diverging the two collections.
 				s.index.logger.WithField("uuid", d.ID).
@@ -1716,10 +1664,7 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 				continue
 			}
 			filteredDigests = append(filteredDigests, d)
-			localDigestsByUUID[key] = d
 		}
-		// Count only the objects eligible for comparison (after recency filtering),
-		// so the stat reflects actual CompareDigests traffic, not objects scanned.
 		localObjectsCount += len(filteredDigests)
 
 		if len(filteredDigests) == 0 {
@@ -1738,63 +1683,44 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			continue
 		}
 
-		// Single round-trip: target responds with only the UUIDs that need
-		// propagation (missing or stale on target), eliminating the inner loop.
-		staleDigests, err := s.index.replicator.CompareDigests(ctx, s.name, targetNodeAddress, filteredDigests)
+		// Fetch remote digests for the same UUID range covered by this local batch,
+		// then compare locally to find missing or stale objects.
+		firstUUID := strfmt.UUID(allLocalDigests[0].ID)
+		lastUUID := strfmt.UUID(allLocalDigests[len(allLocalDigests)-1].ID)
+		remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx, s.name, targetNodeAddress, firstUUID, lastUUID, currBatchSize)
 		if err != nil {
-			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("comparing digests with remote: %w", err)
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching remote object digests: %w", err)
 		}
 
-		// remoteObjectsCount tracks digests sent to the remote for comparison,
-		// i.e. the volume of the CompareDigests request. Objects queued for
-		// propagation (stale/missing on remote after tiebreak) are a subset of
-		// this and are captured separately via objectsDiffCount
-		// at the call site.
-		remoteObjectsCount += len(filteredDigests)
+		remoteByID := make(map[uuid.UUID]types.RepairResponse, len(remoteDigests))
+		for _, rd := range remoteDigests {
+			key, err := uuid.Parse(rd.ID)
+			if err != nil {
+				s.index.logger.WithField("uuid", rd.ID).
+					Error("async replication: skipping remote digest with invalid UUID")
+				continue
+			}
+			remoteByID[key] = rd
+		}
+
+		remoteObjectsCount += len(remoteDigests)
 
 		propagated := 0
-		for _, stale := range staleDigests {
-			key, err := uuid.Parse(stale.ID)
-			if err != nil {
-				// An invalid UUID in a remote stale digest indicates a protocol or
-				// remote bug; log it so the issue is visible rather than silently
-				// skipping objects that may need propagation.
-				s.index.logger.WithField("uuid", stale.ID).
-					Error("async replication: skipping stale digest from remote with invalid UUID")
+		for _, d := range filteredDigests {
+			key, _ := uuid.Parse(d.ID) // already validated above
+			remoteDigest, found := remoteByID[key]
+			if found && remoteDigest.UpdateTime >= d.UpdateTime {
+				// Remote is up to date or newer; nothing to propagate.
 				continue
 			}
-			localDigest, ok := localDigestsByUUID[key]
-			if !ok {
-				continue
-			}
-
-			// Target has already applied the deletion strategy and instructed this
-			// source node to delete the object locally (Deleted=true) or to propagate
-			// the live object (Deleted=false, normal stale path below).
-			if stale.Deleted {
-				objectsToPropagate = append(objectsToPropagate, objectToPropagate{
-					uuid:                  strfmt.UUID(stale.ID),
-					lastUpdateTime:        localDigest.UpdateTime,
-					remoteStaleUpdateTime: stale.UpdateTime,
-					remoteDeleted:         true,
-				})
-				propagated++
-				continue
-			}
-
-			// Equal-timestamp guard: CompareDigests does not return objects where
-			// source and target hold the same UpdateTime (they are not stale).
-			// This check is a defensive guard in case a caller path produces a
-			// stale entry with a matching timestamp; it prevents the source from
-			// re-propagating an object it just successfully delivered.
-			if stale.UpdateTime != 0 && stale.UpdateTime == localDigest.UpdateTime &&
-				localNodeName >= targetNodeName {
-				continue
+			var remoteStaleUpdateTime int64
+			if found {
+				remoteStaleUpdateTime = remoteDigest.UpdateTime
 			}
 			objectsToPropagate = append(objectsToPropagate, objectToPropagate{
-				uuid:                  strfmt.UUID(stale.ID),
-				lastUpdateTime:        localDigest.UpdateTime,
-				remoteStaleUpdateTime: stale.UpdateTime, // 0 means missing from target
+				uuid:                  strfmt.UUID(d.ID),
+				lastUpdateTime:        d.UpdateTime,
+				remoteStaleUpdateTime: remoteStaleUpdateTime,
 			})
 			propagated++
 		}

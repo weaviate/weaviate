@@ -20,7 +20,6 @@ service ReplicationService {
   rpc FetchObjects (FetchObjectsRequest) returns (FetchObjectsResponse);
   rpc DigestObjects (DigestObjectsRequest) returns (DigestObjectsResponse);
   rpc DigestObjectsInRange (DigestObjectsInRangeRequest) returns (DigestObjectsInRangeResponse);
-  rpc CompareDigests (CompareDigestsRequest) returns (CompareDigestsResponse);
   rpc OverwriteObjects (OverwriteObjectsRequest) returns (OverwriteObjectsResponse);
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
@@ -203,17 +202,6 @@ message DigestObjectsInRangeRequest {
 }
 
 message DigestObjectsInRangeResponse {
-  repeated RepairResponse digests = 1;
-}
-
-// CompareDigests sends source digests to the target and returns those that need repair.
-message CompareDigestsRequest {
-  string index = 1;
-  string shard = 2;
-  repeated RepairResponse digests = 3;
-}
-
-message CompareDigestsResponse {
   repeated RepairResponse digests = 1;
 }
 

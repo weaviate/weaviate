@@ -50,7 +50,7 @@ var (
 	// remote node's hashtree root has not changed since the last propagation
 	// cycle, meaning the remote has not yet flushed the objects that were sent
 	// to it. The caller should keep the fast-poll cadence active and skip the
-	// full CompareDigests + propagation pass until the remote root changes.
+	// full propagation pass until the remote root changes.
 	ErrHashtreeRootUnchanged = errors.New("hashtree root unchanged since last propagation cycle")
 )
 
@@ -590,24 +590,6 @@ func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	shardName string, host string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) (ds []types.RepairResponse, err error) {
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
-}
-
-// CompareDigests sends the source's local digests to the target node and
-// returns a subset requiring source-side action. The target returns an entry
-// for an object only when:
-//   - the object is absent on the target (missing), or
-//   - the source has a strictly newer UpdateTime than the target (target is stale), or
-//   - the target holds a tombstone for the object (Deleted=true), with the
-//     deletion verdict determined by the collection's DeletionStrategy.
-//
-// Equal-timestamp objects are never returned: because the hashtree digest is
-// hash(uuid, updateTime), two nodes holding the same UpdateTime for an object
-// produce identical digests and are invisible to the hashtree diff. There is
-// therefore no equal-timestamp conflict path in this protocol.
-func (f *Finder) CompareDigests(ctx context.Context,
-	shardName string, host string, digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
-	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
 }
 
 // Overwrite specified object with most recent contents
