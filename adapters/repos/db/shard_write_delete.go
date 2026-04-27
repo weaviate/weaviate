@@ -154,7 +154,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	previousProps, previousNilProps, _, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, previousNestedProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
@@ -173,6 +173,10 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
+	}
+
+	if err = s.deleteNestedInvertedIndicesLSM(previousNestedProps, docID); err != nil {
+		return fmt.Errorf("delete nested inverted indices: %w", err)
 	}
 
 	if s.index.Config.TrackVectorDimensions {

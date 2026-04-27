@@ -21,10 +21,14 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -716,7 +720,10 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			require.NoError(t, db.PutObject(ctx, &obj, nil, nil, nil, nil, 0))
 		}
 
+		deletedDocID := getDocID(t, db, nestedClass, id123)
 		require.NoError(t, db.DeleteObject(ctx, nestedClass, id123, time.Now(), nil, "", 0))
+
+		assertNoGhostEntries(t, db, nestedClass, "nestedObject", deletedDocID)
 
 		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
 			t.Helper()
@@ -756,7 +763,10 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			require.NoError(t, db.PutObject(ctx, &obj, nil, nil, nil, nil, 0))
 		}
 
+		deletedDocID := getDocID(t, db, nestedClass, id998)
 		require.NoError(t, db.DeleteObject(ctx, nestedClass, id998, time.Now(), nil, "", 0))
+
+		assertNoGhostEntries(t, db, nestedClass, "nestedArray", deletedDocID)
 
 		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
 			t.Helper()
@@ -839,6 +849,97 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 
 		// Update id300: replace with [doc124Data, doc125Data] (doc999 equivalent).
 		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id300, Properties: map[string]any{"nestedArray": []any{doc124Data, doc125Data}}}, nil, nil, nil, nil, 0))
+
+		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+			t.Helper()
+			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+			require.NoError(t, err)
+			ids := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				ids[i] = r.ID
+			}
+			return ids
+		}
+
+		for _, tc := range filterCases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.ElementsMatch(t, tc.matchesArrayUpd, search(t, tc.filter("nestedArray")))
+			})
+		}
+	})
+
+	// Update test with vector change (object type): using a different vector forces
+	// docIDChanged=true, which fully abandons the old docID. assertNoGhostEntries
+	// then verifies the old docID is completely absent from all nested buckets —
+	// the same strong check used for deletes. Without vector change the docID is
+	// preserved and the same docID legitimately appears in new keys, so this
+	// check cannot be used.
+	t.Run("update doc123→doc125 object type with vector", func(t *testing.T) {
+		class := &models.Class{
+			Class:             nestedClass,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "nestedObject", DataType: schema.DataTypeObject.PropString(), NestedProperties: fullNestedProps},
+			},
+		}
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+
+		vecA := []float32{1, 0, 0}
+		vecB := []float32{0, 1, 0}
+
+		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id201, Properties: map[string]any{"nestedObject": doc123Data}}, vecA, nil, nil, nil, 0))
+		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id200, Properties: map[string]any{"nestedObject": doc124Data}}, vecA, nil, nil, nil, 0))
+
+		oldDocID := getDocID(t, db, nestedClass, id201)
+
+		// Different vector forces docIDChanged=true — old docID is fully abandoned.
+		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id201, Properties: map[string]any{"nestedObject": doc125Data}}, vecB, nil, nil, nil, 0))
+
+		assertNoGhostEntries(t, db, nestedClass, "nestedObject", oldDocID)
+
+		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
+			t.Helper()
+			res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: f})
+			require.NoError(t, err)
+			ids := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				ids[i] = r.ID
+			}
+			return ids
+		}
+
+		for _, tc := range filterCases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.ElementsMatch(t, tc.matchesObjectUpd, search(t, tc.filter("nestedObject")))
+			})
+		}
+	})
+
+	// Update test with vector change (array type): same rationale as the object
+	// type variant above — vector change forces docIDChanged=true.
+	t.Run("update doc998→doc999 array type with vector", func(t *testing.T) {
+		class := &models.Class{
+			Class:             nestedClass,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "nestedArray", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: fullNestedProps},
+			},
+		}
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+
+		vecA := []float32{1, 0, 0}
+		vecB := []float32{0, 1, 0}
+
+		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id300, Properties: map[string]any{"nestedArray": []any{doc123Data}}}, vecA, nil, nil, nil, 0))
+
+		oldDocID := getDocID(t, db, nestedClass, id300)
+
+		// Different vector forces docIDChanged=true — old docID is fully abandoned.
+		require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: id300, Properties: map[string]any{"nestedArray": []any{doc124Data, doc125Data}}}, vecB, nil, nil, nil, 0))
+
+		assertNoGhostEntries(t, db, nestedClass, "nestedArray", oldDocID)
 
 		search := func(t *testing.T, f *filters.LocalFilter) []strfmt.UUID {
 			t.Helper()
@@ -1022,4 +1123,59 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			})
 		}
 	})
+}
+
+// getDocID returns the internal docID for an object identified by its UUID.
+func getDocID(t *testing.T, db *DB, className string, id strfmt.UUID) uint64 {
+	t.Helper()
+	index := db.indices[indexID(schema.ClassName(className))]
+	require.NotNil(t, index, "index %q not found", className)
+	var docID uint64
+	err := index.IterateShards(context.Background(), func(_ *Index, shard ShardLike) error {
+		obj, err := shard.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{})
+		if err != nil || obj == nil {
+			return err
+		}
+		docID = obj.DocID
+		return nil
+	})
+	require.NoError(t, err)
+	return docID
+}
+
+// assertNoGhostEntries scans all entries in both the filterable and meta nested
+// buckets for propName and asserts that deletedDocID does not appear in any
+// position. This verifies that delete properly cleaned up all nested index entries.
+func assertNoGhostEntries(t *testing.T, db *DB, className, propName string, deletedDocID uint64) {
+	t.Helper()
+	index := db.indices[indexID(schema.ClassName(className))]
+	require.NotNil(t, index, "index %q not found", className)
+
+	bucketNames := []string{
+		helpers.BucketNestedFromPropNameLSM(propName),
+		helpers.BucketNestedMetaFromPropNameLSM(propName),
+	}
+
+	err := index.IterateShards(context.Background(), func(_ *Index, shard ShardLike) error {
+		for _, bucketName := range bucketNames {
+			bucket := shard.Store().Bucket(bucketName)
+			if bucket == nil {
+				continue
+			}
+			func() {
+				c := bucket.CursorRoaringSet()
+				defer c.Close()
+				for k, bm := c.First(); k != nil; k, bm = c.Next() {
+					for _, pos := range bm.ToArray() {
+						if invnested.DecodeDocID(pos) == deletedDocID {
+							t.Errorf("ghost entry in bucket %q: position %d references deleted docID %d",
+								bucketName, pos, deletedDocID)
+						}
+					}
+				}
+			}()
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
