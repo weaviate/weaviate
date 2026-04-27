@@ -47,6 +47,8 @@ func TestRoaringSetCursorConsistentView(t *testing.T) {
 		disk:     diskSegments,
 		strategy: StrategyRoaringSet,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	// Open the cursor that should see key1..key3 only and stay stable
 	cur := b.CursorRoaringSet()

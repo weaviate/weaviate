@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -239,10 +240,17 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 				deletemeFiles := extractFiles(t, bucket.dir, ".deleteme")
 				require.Len(t, deletemeFiles, 2*expectedDeleteMePerSegment)
 
-				// drop segments awaiting
-				dropped, err := bucket.disk.dropSegmentsAwaiting()
-				require.NoError(t, err)
-				require.Equal(t, 2, dropped)
+				// due to references to segments in cached consistent view being released
+				// asynchronously (invalidation of cached view happens synchronously on compaction, but
+				// actual references release is done in goroutine), dropSegmentsAwaiting should
+				// eventually remove segments after all references are released.
+				// (cached consistent view is created on assertDataExists calls using Bucket::Get/GetBySecondary)
+				require.EventuallyWithT(t, func(ct *assert.CollectT) {
+					// drop segments awaiting
+					dropped, err := bucket.disk.dropSegmentsAwaiting()
+					require.NoError(ct, err)
+					require.Equal(ct, 2, dropped)
+				}, time.Second, 50*time.Millisecond)
 
 				// deleteme files do not exist
 				deletemeFiles = extractFiles(t, bucket.dir, ".deleteme")
@@ -250,6 +258,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 
 				assertDataExists(t, bucket, segments)
 			}
+
 			require.Equal(t, expectedCompactions, compactions)
 		})
 	})

@@ -64,6 +64,8 @@ func TestReplaceCursorConsistentView(t *testing.T) {
 		disk:     diskSegments,
 		strategy: StrategyReplace,
 	}
+	b.consistentViewCache = NewConsistentViewCacheNoop(b.GetConsistentView)
+	b.disk.postSegmentsChange = b.consistentViewCache.Invalidate
 
 	cursor := b.Cursor()
 	diskCursor := b.CursorOnDisk()
