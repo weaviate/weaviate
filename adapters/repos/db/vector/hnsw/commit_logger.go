@@ -104,7 +104,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 
 	l.currentFile = fd
 	l.currentFileName = fileName
-	l.currentWriter = bufio.NewWriter(fd)
+	l.currentWriter = bufio.NewWriterSize(fd, 32*1024)
 	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	// Create compactor for maintenance
@@ -524,7 +524,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 
 	l.currentFile = fd
 	l.currentFileName = filePath
-	l.currentWriter = bufio.NewWriter(fd)
+	l.currentWriter = bufio.NewWriterSize(fd, 32*1024)
 	l.walWriter = compact.NewWALWriter(l.currentWriter)
 
 	return true, nil
