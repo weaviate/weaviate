@@ -32,7 +32,7 @@ func (q *QueryVectorDistancer) Distance(ctx context.Context, vectorID uuid.UUID)
 	}
 
 	query := "SELECT distance FROM vector_distance WHERE vector_id = $1"
-	var distance float64
+	var distance sql.NullFloat64
 	err := q.db.QueryRowContext(ctx, query, vectorID).Scan(&distance)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -40,5 +40,8 @@ func (q *QueryVectorDistancer) Distance(ctx context.Context, vectorID uuid.UUID)
 		}
 		return 0, fmt.Errorf("failed to query vector distance for ID %s: %w", vectorID, err)
 	}
-	return distance, nil
+	if !distance.Valid {
+		return 0, fmt.Errorf("vector with ID %s has null distance", vectorID)
+	}
+	return distance.Float64, nil
 }
