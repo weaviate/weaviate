@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -1174,6 +1175,281 @@ func assertNoGhostEntries(t *testing.T, db *DB, className, propName string, dele
 					}
 				}
 			}()
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+// allDatatypesNestedProps returns a schema with one leaf property of every
+// supported scalar and scalar-array type, suitable for all-datatype tests.
+func allDatatypesNestedProps(vTrue *bool) []*models.NestedProperty {
+	return []*models.NestedProperty{
+		{Name: "text", DataType: schema.DataTypeText.PropString(), Tokenization: "word", IndexFilterable: vTrue},
+		{Name: "integer", DataType: schema.DataTypeInt.PropString(), IndexFilterable: vTrue},
+		{Name: "number", DataType: schema.DataTypeNumber.PropString(), IndexFilterable: vTrue},
+		{Name: "boolean", DataType: schema.DataTypeBoolean.PropString(), IndexFilterable: vTrue},
+		{Name: "date", DataType: schema.DataTypeDate.PropString(), IndexFilterable: vTrue},
+		{Name: "uuid", DataType: schema.DataTypeUUID.PropString(), IndexFilterable: vTrue},
+		{Name: "texts", DataType: schema.DataTypeTextArray.PropString(), Tokenization: "word", IndexFilterable: vTrue},
+		{Name: "integers", DataType: schema.DataTypeIntArray.PropString(), IndexFilterable: vTrue},
+		{Name: "numbers", DataType: schema.DataTypeNumberArray.PropString(), IndexFilterable: vTrue},
+		{Name: "booleans", DataType: schema.DataTypeBooleanArray.PropString(), IndexFilterable: vTrue},
+		{Name: "dates", DataType: schema.DataTypeDateArray.PropString(), IndexFilterable: vTrue},
+		{Name: "uuids", DataType: schema.DataTypeUUIDArray.PropString(), IndexFilterable: vTrue},
+	}
+}
+
+// allDatatypesAPIValues returns nested property values as they arrive from the
+// JSON/API path: arrays as []any with JSON-typed elements (no enrichSchemaTypes
+// applied), scalars as Go primitives. Date and UUID values are strings; numeric
+// values are float64 (JSON number).
+func allDatatypesAPIValues() map[string]any {
+	return map[string]any{
+		"text":    "hello world",
+		"integer": float64(42),
+		"number":  float64(3.14),
+		"boolean": true,
+		"date":    "2024-01-15T00:00:00Z",
+		"uuid":    "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		// arrays as []any — the form produced by json.Unmarshal before enrichSchemaTypes
+		"texts":    []any{"foo", "bar"},
+		"integers": []any{float64(1), float64(2)},
+		"numbers":  []any{float64(1.1), float64(2.2)},
+		"booleans": []any{true, false},
+		"dates":    []any{"2024-01-15T00:00:00Z", "2024-06-01T00:00:00Z"},
+		"uuids":    []any{"6ba7b810-9dad-11d1-80b4-00c04fd430c8", "550e8400-e29b-41d4-a716-446655440000"},
+	}
+}
+
+// TestNestedFilteringAllDatatypesAPIPath verifies that AnalyzeObject correctly
+// analyzes all supported scalar and scalar-array datatypes when values arrive
+// in JSON/API form — arrays as []any with JSON-native element types, scalars as
+// Go primitives — without any DB round-trip. The object is analyzed in-memory
+// before being stored, exercising the write-side analysis path. Both
+// DataTypeObject and DataTypeObjectArray are tested.
+func TestNestedFilteringAllDatatypesAPIPath(t *testing.T) {
+	const nestedClass = "AllTypes"
+	const objID = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:             "obj",
+				DataType:         schema.DataTypeObject.PropString(),
+				NestedProperties: allDatatypesNestedProps(&vTrue),
+			},
+			{
+				Name:             "objArray",
+				DataType:         schema.DataTypeObjectArray.PropString(),
+				NestedProperties: allDatatypesNestedProps(&vTrue),
+			},
+		},
+	}
+
+	// Create DB only for schema access — the object is NOT written to the DB.
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	obj := storobj.FromObject(&models.Object{
+		Class: nestedClass, ID: objID,
+		Properties: map[string]any{
+			"obj":      allDatatypesAPIValues(),
+			"objArray": []any{allDatatypesAPIValues()},
+		},
+	}, nil, nil, nil)
+
+	allPaths := []string{
+		"text", "integer", "number", "boolean", "date", "uuid",
+		"texts", "integers", "numbers", "booleans", "dates", "uuids",
+	}
+
+	index := db.indices[indexID(schema.ClassName(nestedClass))]
+	require.NotNil(t, index)
+	err := index.IterateShards(ctx, func(_ *Index, shard ShardLike) error {
+		// Analyze the in-memory object — values are in JSON/API form ([]any,
+		// float64, string, bool) with no binary round-trip applied.
+		_, _, nestedProps, err := shard.AnalyzeObject(obj)
+		require.NoError(t, err)
+		require.Len(t, nestedProps, 2, "expected NestedProperty for both 'obj' and 'objArray'")
+
+		for _, np := range nestedProps {
+			assert.True(t, np.HasFilterableIndex)
+			paths := make(map[string]int)
+			for _, v := range np.Values {
+				paths[v.Path]++
+			}
+			for _, p := range allPaths {
+				assert.Positive(t, paths[p], "prop %q: expected Values entries for path %q", np.Name, p)
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+// TestNestedFilteringAllDatatypesFilter verifies that all supported scalar and
+// scalar-array datatypes produce correctly searchable index entries. Writes an
+// object with API-typed values and runs a filter query for each type, asserting
+// the object is returned. Both DataTypeObject and DataTypeObjectArray are tested.
+func TestNestedFilteringAllDatatypesFilter(t *testing.T) {
+	const nestedClass = "AllTypes"
+	const objID = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:             "obj",
+				DataType:         schema.DataTypeObject.PropString(),
+				NestedProperties: allDatatypesNestedProps(&vTrue),
+			},
+			{
+				Name:             "objArray",
+				DataType:         schema.DataTypeObjectArray.PropString(),
+				NestedProperties: allDatatypesNestedProps(&vTrue),
+			},
+		},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		Class: nestedClass, ID: objID,
+		Properties: map[string]any{
+			"obj":      allDatatypesAPIValues(),
+			"objArray": []any{allDatatypesAPIValues()},
+		},
+	}, nil, nil, nil, nil, 0))
+
+	mustParseDate := func(s string) time.Time {
+		t.Helper()
+		parsed, err := time.Parse(time.RFC3339, s)
+		require.NoError(t, err)
+		return parsed
+	}
+	type filterCase struct {
+		name    string
+		subPath string
+		op      filters.Operator
+		vt      schema.DataType
+		val     any
+	}
+	cases := []filterCase{
+		{"text scalar", "text", filters.OperatorEqual, schema.DataTypeText, "hello"},
+		{"integer scalar", "integer", filters.OperatorEqual, schema.DataTypeInt, 42},
+		{"number scalar", "number", filters.OperatorEqual, schema.DataTypeNumber, float64(3.14)},
+		{"boolean scalar", "boolean", filters.OperatorEqual, schema.DataTypeBoolean, true},
+		{"date scalar", "date", filters.OperatorEqual, schema.DataTypeDate, mustParseDate("2024-01-15T00:00:00Z")},
+		{"uuid scalar", "uuid", filters.OperatorEqual, schema.DataTypeText, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"},
+		{"text array", "texts", filters.OperatorEqual, schema.DataTypeText, "foo"},
+		{"integer array", "integers", filters.OperatorEqual, schema.DataTypeInt, 1},
+		{"number array", "numbers", filters.OperatorEqual, schema.DataTypeNumber, float64(1.1)},
+		{"boolean array", "booleans", filters.OperatorEqual, schema.DataTypeBoolean, true},
+		{"date array", "dates", filters.OperatorEqual, schema.DataTypeDate, mustParseDate("2024-01-15T00:00:00Z")},
+		{"uuid array", "uuids", filters.OperatorEqual, schema.DataTypeText, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"},
+	}
+	searchFn := func(f *filters.LocalFilter) []strfmt.UUID {
+		t.Helper()
+		res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 10}, Filters: f})
+		require.NoError(t, err)
+		ids := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			ids[i] = r.ID
+		}
+		return ids
+	}
+	for _, propName := range []string{"obj", "objArray"} {
+		propName := propName
+		t.Run(propName, func(t *testing.T) {
+			for _, tc := range cases {
+				tc := tc
+				t.Run(tc.name, func(t *testing.T) {
+					f := &filters.LocalFilter{Root: &filters.Clause{
+						Operator: tc.op,
+						Value:    &filters.Value{Type: tc.vt, Value: tc.val},
+						On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(propName + "." + tc.subPath)},
+					}}
+					assert.ElementsMatch(t, []strfmt.UUID{objID}, searchFn(f))
+				})
+			}
+		})
+	}
+}
+
+// TestNestedFilteringAllDatatypesDBReadBack verifies that after a binary
+// round-trip (write → storobj.FromBinary → enrichSchemaTypes), AnalyzeObject
+// correctly re-analyzes all supported scalar and scalar-array types for both
+// DataTypeObject and DataTypeObjectArray. enrichSchemaTypes converts []any
+// arrays to typed slices ([]string, []float64, []bool), exercising the
+// defensive typed-slice cases in walkScalarArray.
+func TestNestedFilteringAllDatatypesDBReadBack(t *testing.T) {
+	const nestedClass = "AllTypes"
+	const objID = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:             "obj",
+				DataType:         schema.DataTypeObject.PropString(),
+				NestedProperties: allDatatypesNestedProps(&vTrue),
+			},
+			{
+				Name:             "objArray",
+				DataType:         schema.DataTypeObjectArray.PropString(),
+				NestedProperties: allDatatypesNestedProps(&vTrue),
+			},
+		},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		Class: nestedClass, ID: objID,
+		Properties: map[string]any{
+			"obj":      allDatatypesAPIValues(),
+			"objArray": []any{allDatatypesAPIValues()},
+		},
+	}, nil, nil, nil, nil, 0))
+
+	// Read back the object — properties go through storobj.FromBinary →
+	// json.Unmarshal → enrichSchemaTypes, converting []any arrays to typed
+	// slices: []string for text/date/uuid, []float64 for int/number, []bool.
+	allPaths := []string{
+		"text", "integer", "number", "boolean", "date", "uuid",
+		"texts", "integers", "numbers", "booleans", "dates", "uuids",
+	}
+
+	index := db.indices[indexID(schema.ClassName(nestedClass))]
+	require.NotNil(t, index)
+	err := index.IterateShards(ctx, func(_ *Index, shard ShardLike) error {
+		obj, err := shard.ObjectByID(ctx, objID, search.SelectProperties{}, additional.Properties{})
+		require.NoError(t, err)
+		require.NotNil(t, obj)
+
+		_, _, nestedProps, err := shard.AnalyzeObject(obj)
+		require.NoError(t, err)
+		require.Len(t, nestedProps, 2, "expected NestedProperty for both 'obj' and 'objArray'")
+
+		for _, np := range nestedProps {
+			assert.True(t, np.HasFilterableIndex)
+			paths := make(map[string]int)
+			for _, v := range np.Values {
+				paths[v.Path]++
+			}
+			for _, p := range allPaths {
+				assert.Positive(t, paths[p], "prop %q: expected Values entries for path %q after binary round-trip", np.Name, p)
+			}
 		}
 		return nil
 	})

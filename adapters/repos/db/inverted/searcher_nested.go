@@ -167,6 +167,8 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propNa
 		encodedValue, err = s.extractBoolValue(filter.Value.Value)
 	case schema.DataTypeDate:
 		encodedValue, err = s.extractDateValue(filter.Value.Value)
+	case schema.DataTypeUUID:
+		encodedValue, err = s.extractUUIDValue(filter.Value.Value)
 	default:
 		return nil, fmt.Errorf("nested path %q: unsupported leaf type %q", fullPath, dt)
 	}

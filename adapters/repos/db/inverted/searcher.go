@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -588,22 +587,14 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	valueType schema.DataType, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	var byteValue []byte
-
-	switch valueType {
-	case schema.DataTypeText:
-		asStr, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
-		}
-		parsed, err := uuid.Parse(asStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse uuid string: %w", err)
-		}
-		byteValue = parsed[:]
-	default:
+	if valueType != schema.DataTypeText {
 		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter "+
 			"on must be specified as a string (e.g. valueText:<uuid>)", prop.Name)
+	}
+
+	byteValue, err := s.extractUUIDValue(value)
+	if err != nil {
+		return nil, err
 	}
 
 	hasFilterableIndex := HasFilterableIndex(prop)
