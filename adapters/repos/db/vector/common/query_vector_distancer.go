@@ -29,9 +29,9 @@ func (q *QueryVectorDistancer) Distance(ctx context.Context, vectorID uuid.UUID)
 	err := q.db.QueryRowContext(ctx, query, vectorID).Scan(&distance)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return 0, fmt.Errorf("vector not found: %w", err)
+			return 0, fmt.Errorf("vector with ID %s not found: %w", vectorID, sql.ErrNoRows)
 		}
-		return 0, fmt.Errorf("failed to query vector distance: %w", err)
+		return 0, fmt.Errorf("failed to query vector distance for ID %s: %w", vectorID, err)
 	}
 	return distance, nil
 }
