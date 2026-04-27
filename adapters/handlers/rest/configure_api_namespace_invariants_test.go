@@ -32,6 +32,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 		maxReplicationFac            int
 		classNames                   []string
 		nsCount                      int
+		userNames                    []string
 		wantErr                      bool
 		errSubstr                    string
 	}{
@@ -127,11 +128,67 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			wantErr:    true,
 			errSubstr:  "namespace-qualified collection",
 		},
+		{
+			name:       "disabled, qualified DB user (defense in depth)",
+			enabled:    false,
+			classNames: nil,
+			nsCount:    0,
+			userNames:  []string{qualified("tenant1", "alice")},
+			wantErr:    true,
+			errSubstr:  "DB user name",
+		},
+		{
+			name:       "disabled, clean DB user",
+			enabled:    false,
+			classNames: nil,
+			nsCount:    0,
+			userNames:  []string{"alice"},
+		},
+		{
+			name:                         "enabled, qualified DB user",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			classNames:                   []string{qualified("t1", "Movie")},
+			nsCount:                      1,
+			userNames:                    []string{qualified("t1", "alice")},
+		},
+		{
+			name:                         "enabled, unqualified DB user",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			classNames:                   []string{qualified("t1", "Movie")},
+			nsCount:                      1,
+			userNames:                    []string{"alice"},
+			wantErr:                      true,
+			errSubstr:                    "non-namespaced DB user",
+		},
+		{
+			name:                         "enabled, mixed DB users — unqualified branch wins",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			classNames:                   []string{qualified("t1", "Movie")},
+			nsCount:                      1,
+			userNames:                    []string{qualified("t1", "alice"), "bob"},
+			wantErr:                      true,
+			errSubstr:                    "non-namespaced DB user",
+		},
+		{
+			name:       "disabled, qualified class+user — class branch wins",
+			enabled:    false,
+			classNames: []string{qualified("t1", "Movie")},
+			nsCount:    0,
+			userNames:  []string{qualified("t1", "alice")},
+			wantErr:    true,
+			errSubstr:  "namespace-qualified collection",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount, tt.userNames)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)
