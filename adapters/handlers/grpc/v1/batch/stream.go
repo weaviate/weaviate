@@ -97,7 +97,6 @@ func NewStreamHandler(
 		// this ensures that vectors can be stored in-memory before being processed downstream
 		allocChecker:  memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
 		schemaManager: schemaManager,
-		streamMux:     sync.Mutex{},
 	}
 	return h
 }
@@ -188,9 +187,11 @@ func (h *StreamHandler) drainReportingQueue(queue reportingQueue, batchResults *
 	for report := range queue {
 		h.handleWorkerResults(report, batchResults, stream, logger)
 	}
-	if err := batchResults.send(h, stream); err != nil {
-		logger.Errorf("failed to send final results message while draining reporting queue: %s", err)
-		return
+	if res := batchResults.build(); res != nil {
+		if err := h.send(stream, res); err != nil {
+			logger.Errorf("failed to send final results message while draining reporting queue: %s", err)
+			return
+		}
 	}
 	batchResults.reset()
 }
@@ -199,7 +200,7 @@ func (h *StreamHandler) handleRecvErr(recvErr error, stream pb.Weaviate_BatchStr
 	var oomErr *oom
 	if errors.As(recvErr, &oomErr) {
 		logger.Warnf("receive error due to memory pressure: %v", recvErr)
-		if err := stream.Send(newBatchOutOfMemoryMessage(oomErr.uuids, oomErr.beacons)); err != nil {
+		if err := h.send(stream, newBatchOutOfMemoryMessage(oomErr.uuids, oomErr.beacons)); err != nil {
 			logger.Errorf("failed to send out of memory message: %s", err)
 		}
 		// return nil to close the stream gracefully after sending the out of memory message
@@ -229,7 +230,7 @@ func (h *StreamHandler) handleServerShuttingDown(stream pb.Weaviate_BatchStreamS
 	logger.Debug("server is shutting down, will stop accepting new requests soon")
 	// If shutting down context has been set by shutdown.Drain then send the shutdown triggered message to the client
 	// so that it can backoff accordingly
-	if innerErr := stream.Send(newBatchShuttingDownMessage()); innerErr != nil {
+	if innerErr := h.send(stream, newBatchShuttingDownMessage()); innerErr != nil {
 		logger.Errorf("failed to send shutdown triggered message: %s", innerErr)
 		return innerErr
 	}
@@ -255,9 +256,11 @@ func (h *StreamHandler) handleWorkerResults(report *report, batchResults *batchR
 		h.metrics.OnStreamError(len(report.Errors))
 	}
 	batchResults.add(report.Successes, report.Errors)
-	if innerErr := batchResults.send(h, stream); innerErr != nil {
-		logger.Errorf("failed to send results message: %s", innerErr)
-		return
+	if res := batchResults.build(); res != nil {
+		if innerErr := h.send(stream, res); innerErr != nil {
+			logger.Errorf("failed to send results message: %s", innerErr)
+			return
+		}
 	}
 	batchResults.reset()
 }
@@ -324,8 +327,10 @@ func (h *StreamHandler) sender(ctx context.Context, streamId string, stream pb.W
 			}
 		case report, open := <-reportingQueue:
 			if !open {
-				if err := batchResults.send(h, stream); err != nil {
-					log.Errorf("failed to send final results message after reporting queue closed: %s", err)
+				if res := batchResults.build(); res != nil {
+					if err := h.send(stream, res); err != nil {
+						log.Errorf("failed to send final results message after reporting queue closed: %s", err)
+					}
 				}
 				log.Debug("reportingQueue is closed, closing stream")
 				recvErr := <-recvErrCh
@@ -613,14 +618,11 @@ func (r *batchResults) reset() {
 	r.errors = r.errors[:0]
 }
 
-func (r *batchResults) send(handler *StreamHandler, stream pb.Weaviate_BatchStreamServer) error {
+func (r *batchResults) build() *pb.BatchStreamReply {
 	if len(r.successes) == 0 && len(r.errors) == 0 {
 		return nil
 	}
-	if err := handler.send(stream, newBatchResultsMessage(r.successes, r.errors)); err != nil {
-		return err
-	}
-	return nil
+	return newBatchResultsMessage(r.successes, r.errors)
 }
 
 func (h *StreamHandler) workerStats(streamId string) *stats {
