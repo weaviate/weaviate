@@ -20,10 +20,17 @@ type QueryVectorDistancer struct {
 }
 
 func NewQueryVectorDistancer(db *sql.DB) *QueryVectorDistancer {
+	if db == nil {
+		panic("nil db")
+	}
 	return &QueryVectorDistancer{db: db}
 }
 
 func (q *QueryVectorDistancer) Distance(ctx context.Context, vectorID uuid.UUID) (float64, error) {
+	if ctx == nil {
+		return 0, fmt.Errorf("nil context")
+	}
+
 	query := "SELECT distance FROM vector_distance WHERE vector_id = $1"
 	var distance float64
 	err := q.db.QueryRowContext(ctx, query, vectorID).Scan(&distance)
