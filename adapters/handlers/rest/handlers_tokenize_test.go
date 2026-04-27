@@ -34,10 +34,27 @@ func TestHandleGenericTokenize(t *testing.T) {
 		wantQuery   []string
 	}{
 		{
-			name: "word tokenization without stopwords",
+			// Word tokenization defaults to the "en" stopword preset when
+			// no analyzerConfig is supplied, matching the property-level
+			// endpoint (which inherits the collection's default, also "en").
+			name: "word tokenization defaults to en stopwords",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("The quick brown fox"),
 				Tokenization: strPtr("word"),
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "brown", "fox"},
+			wantQuery:   []string{"quick", "brown", "fox"},
+		},
+		{
+			// Callers can opt out of the default by passing "none".
+			name: "word tokenization with explicit stopwordPreset none disables default",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("The quick brown fox"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "none",
+				},
 			},
 			wantOK:      true,
 			wantIndexed: []string{"the", "quick", "brown", "fox"},
@@ -132,15 +149,17 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"quick", "brown", "fox"},
 		},
 		{
-			name: "stopword custom additions only via request-level preset",
+			// Define a custom preset with a plain word list (collection shape)
+			// and reference it via analyzerConfig.stopwordPreset.
+			name: "custom stopword preset resolved by analyzerConfig",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello world test"),
 				Tokenization: strPtr("word"),
 				AnalyzerConfig: &models.TextAnalyzerConfig{
 					StopwordPreset: "custom",
 				},
-				StopwordPresets: map[string]models.StopwordConfig{
-					"custom": {Additions: []string{"test"}},
+				StopwordPresets: map[string][]string{
+					"custom": {"test"},
 				},
 			},
 			wantOK:      true,
@@ -148,15 +167,15 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantQuery:   []string{"hello", "world"},
 		},
 		{
-			name: "stopword preset with removals via request-level preset",
+			// "en minus the" via the stopwords fallback field: the caller sets
+			// preset=en with a removal rather than composing a named preset.
+			name: "stopwords fallback composes removals on top of en",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("the quick"),
 				Tokenization: strPtr("word"),
-				AnalyzerConfig: &models.TextAnalyzerConfig{
-					StopwordPreset: "en-no-the",
-				},
-				StopwordPresets: map[string]models.StopwordConfig{
-					"en-no-the": {Preset: "en", Removals: []string{"the"}},
+				Stopwords: &models.StopwordConfig{
+					Preset:   "en",
+					Removals: []string{"the"},
 				},
 			},
 			wantOK:      true,
@@ -189,7 +208,9 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name: "nil configs is backward compatible",
+			// Word tokenization with no config still gets the default "en"
+			// preset, even when no tokens happen to be English stopwords.
+			name: "nil configs defaults to en",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("hello world"),
 				Tokenization: strPtr("word"),
@@ -223,24 +244,228 @@ func TestHandleGenericTokenize(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name: "request-level preset fully overrides built-in of same name",
+			// A user-defined preset with the same name as a built-in ("en")
+			// fully replaces the built-in, matching collection-level
+			// override semantics.
+			name: "user-defined preset replaces built-in of same name",
 			body: &models.TokenizeRequest{
 				Text:         strPtr("the quick hello world"),
 				Tokenization: strPtr("word"),
 				AnalyzerConfig: &models.TextAnalyzerConfig{
 					StopwordPreset: "en",
 				},
-				StopwordPresets: map[string]models.StopwordConfig{
-					// No explicit Preset → defaults to "none". The
-					// user-defined "en" replaces the built-in entirely:
-					// only "hello" is filtered, "the" stays in the query
+				StopwordPresets: map[string][]string{
+					// Only "hello" is an "en" stopword; "the" passes through
 					// because the built-in en list is no longer applied.
-					"en": {Additions: []string{"hello"}},
+					"en": {"hello"},
 				},
 			},
 			wantOK:      true,
 			wantIndexed: []string{"the", "quick", "hello", "world"},
 			wantQuery:   []string{"the", "quick", "world"},
+		},
+		{
+			// Top-level stopwords is used as the fallback when
+			// analyzerConfig.stopwordPreset is not set, matching the
+			// property endpoint's inheritance from collection config.
+			name: "stopwords used as fallback",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick brown fox"),
+				Tokenization: strPtr("word"),
+				Stopwords: &models.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"quick"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "brown", "fox"},
+			wantQuery:   []string{"brown", "fox"},
+		},
+		{
+			// analyzerConfig.stopwordPreset can reference a user-defined
+			// preset declared in top-level stopwordPresets (plain word list,
+			// collection-shape).
+			name: "stopwordPresets resolved by analyzerConfig preset",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("le chat et la souris"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "fr",
+				},
+				StopwordPresets: map[string][]string{
+					"fr": {"le", "la", "et"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"le", "chat", "et", "la", "souris"},
+			wantQuery:   []string{"chat", "souris"},
+		},
+		{
+			// analyzerConfig.stopwordPreset overrides the stopwords
+			// fallback, same as a property-level preset override at the
+			// collection level.
+			name: "analyzerConfig preset overrides stopwords fallback",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "none",
+				},
+				Stopwords: &models.StopwordConfig{Preset: "en"},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick"},
+			wantQuery:   []string{"the", "quick"},
+		},
+		{
+			// Unknown preset referenced by analyzerConfig is rejected.
+			name: "unknown preset against stopwordPresets is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				AnalyzerConfig: &models.TextAnalyzerConfig{
+					StopwordPreset: "missing",
+				},
+				StopwordPresets: map[string][]string{
+					"other": {"hello"},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			// A user override for "en" is respected even when the caller did
+			// not explicitly reference it via analyzerConfig. This matches
+			// collection-level semantics where a user-defined "en" replaces
+			// the built-in entirely.
+			name: "user override for built-in en applies to default",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello world"),
+				Tokenization: strPtr("word"),
+				StopwordPresets: map[string][]string{
+					// Replaces the built-in "en" entirely — only "hello" is
+					// now an "en" stopword; "the" passes through.
+					"en": {"hello"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "hello", "world"},
+			wantQuery:   []string{"the", "quick", "world"},
+		},
+		{
+			// stopwords with an empty Preset must be defaulted to "en",
+			// matching collection-level validation
+			// (adapters/repos/db/inverted/config.go: validateStopwordConfig).
+			// Without that defaulting, NewDetectorFromConfig would build an
+			// empty detector and no stopwords would be filtered.
+			name: "stopwords empty preset defaults to en",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick"),
+				Tokenization: strPtr("word"),
+				Stopwords:    &models.StopwordConfig{},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick"},
+			wantQuery:   []string{"quick"},
+		},
+		{
+			// Default "en" + additions: caller omits preset, passes only
+			// additions. Validation defaults preset to "en" and the
+			// detector is built from en + additions.
+			name: "stopwords additions without preset default to en plus additions",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello world"),
+				Tokenization: strPtr("word"),
+				Stopwords:    &models.StopwordConfig{Additions: []string{"hello"}},
+			},
+			wantOK: true,
+			// "the" filtered by default en, "hello" filtered by caller's addition.
+			wantIndexed: []string{"the", "quick", "hello", "world"},
+			wantQuery:   []string{"quick", "world"},
+		},
+		{
+			// Default "en" - removals: caller omits preset, passes only
+			// removals. "the" is removed from the en list so it passes
+			// through the query.
+			name: "stopwords removals without preset default to en minus removals",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick is fast"),
+				Tokenization: strPtr("word"),
+				Stopwords:    &models.StopwordConfig{Removals: []string{"the"}},
+			},
+			wantOK: true,
+			// "is" is still an en stopword, "the" was removed.
+			wantIndexed: []string{"the", "quick", "is", "fast"},
+			wantQuery:   []string{"the", "quick", "fast"},
+		},
+		{
+			// Passing both stopwords and stopwordPresets is rejected:
+			// the two input shapes are mutually exclusive to keep the
+			// mental model simple. Callers must pick one.
+			name: "both stopwords and stopwordPresets is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				Stopwords:    &models.StopwordConfig{Preset: "en"},
+				StopwordPresets: map[string][]string{
+					"custom": {"hello"},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			// Default "en" + additions + removals applied together.
+			name: "stopwords additions and removals without preset compose on en",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("the quick hello"),
+				Tokenization: strPtr("word"),
+				Stopwords: &models.StopwordConfig{
+					Additions: []string{"hello"},
+					Removals:  []string{"the"},
+				},
+			},
+			wantOK:      true,
+			wantIndexed: []string{"the", "quick", "hello"},
+			wantQuery:   []string{"the", "quick"},
+		},
+		{
+			// Unknown preset name in stopwords must be rejected the same
+			// way collection creation would reject it.
+			name: "stopwords unknown preset is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				Stopwords:    &models.StopwordConfig{Preset: "nonexistent"},
+			},
+			wantOK: false,
+		},
+		{
+			// An empty word list for a user-defined preset is rejected by
+			// collection-level validateStopwordPresets, and the tokenize
+			// endpoint must reject it the same way.
+			name: "stopwordPresets empty list is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				StopwordPresets: map[string][]string{
+					"custom": {},
+				},
+			},
+			wantOK: false,
+		},
+		{
+			// Same as collection-level: the same word cannot appear in both
+			// additions and removals of stopwords.
+			name: "stopwords conflicting addition and removal is rejected",
+			body: &models.TokenizeRequest{
+				Text:         strPtr("hello"),
+				Tokenization: strPtr("word"),
+				Stopwords: &models.StopwordConfig{
+					Preset:    "en",
+					Additions: []string{"foo"},
+					Removals:  []string{"foo"},
+				},
+			},
+			wantOK: false,
 		},
 	}
 
@@ -252,7 +477,6 @@ func TestHandleGenericTokenize(t *testing.T) {
 			if tt.wantOK {
 				okResp, ok := resp.(*tokenizeops.TokenizeOK)
 				require.True(t, ok, "expected TokenizeOK response")
-				assert.Equal(t, *tt.body.Tokenization, okResp.Payload.Tokenization)
 				assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
 				assert.Equal(t, tt.wantQuery, okResp.Payload.Query)
 			} else {
@@ -449,7 +673,6 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
-			assert.Equal(t, *tt.body.Tokenization, okResp.Payload.Tokenization)
 			assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
 		})
 	}
@@ -506,7 +729,6 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
-			assert.Equal(t, *tt.body.Tokenization, okResp.Payload.Tokenization)
 			assert.Equal(t, tt.wantIndexed, okResp.Payload.Indexed)
 		})
 	}

@@ -59,6 +59,24 @@ const (
 	responseQueueFull    = "too many buffered requests"
 )
 
+// zstdDecoderPool pools *zstd.Decoder instances to avoid the allocation cost
+// of zstd.NewReader on every compressed request. New returns nil only when
+// zstd.NewReader fails during construction; the call site detects this and
+// falls back to newZstdDecoder() to surface the error explicitly.
+var zstdDecoderPool = sync.Pool{
+	New: func() any {
+		dec, err := zstd.NewReader(nil)
+		if err != nil {
+			return nil
+		}
+		return dec
+	},
+}
+
+func newZstdDecoder() (*zstd.Decoder, error) {
+	return zstd.NewReader(nil)
+}
+
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)(\/[0-9]{1,64})?`)
@@ -625,11 +643,27 @@ func readRequestBodyWithOptionalCompression(
 		return nil, fmt.Errorf("compression algorithm unsupported: %s", compressionHeader)
 	}
 
-	zstdr, err := zstd.NewReader(body)
-	if err != nil {
-		return nil, fmt.Errorf("create zstd reader: %w", err)
+	zstdr, ok := zstdDecoderPool.Get().(*zstd.Decoder)
+	if !ok || zstdr == nil {
+		// pool.New failed; call directly to surface the underlying error
+		var err error
+		zstdr, err = newZstdDecoder()
+		if err != nil {
+			return nil, fmt.Errorf("create zstd decoder: %w", err)
+		}
 	}
-	defer zstdr.Close()
+	if err := zstdr.Reset(body); err != nil {
+		zstdr.Close()
+		return nil, fmt.Errorf("reset zstd decoder: %w", err)
+	}
+	defer func() {
+		if err := zstdr.Reset(nil); err == nil {
+			zstdDecoderPool.Put(zstdr)
+		} else {
+			// decoder is closed/broken; close it before discarding
+			zstdr.Close()
+		}
+	}()
 
 	b, err := io.ReadAll(zstdr)
 	if err != nil {

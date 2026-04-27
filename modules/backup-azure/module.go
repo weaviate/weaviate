@@ -46,9 +46,10 @@ type clientConfig struct {
 }
 
 type Module struct {
-	logger logrus.FieldLogger
-	*azureClient
-	dataPath string
+	logger       logrus.FieldLogger
+	*azureClient              // backup client
+	exportClient *azureClient // export-only client: no default container or path; the scheduler supplies both
+	dataPath     string
 }
 
 func New() *Module {
@@ -90,6 +91,16 @@ func (m *Module) Init(ctx context.Context,
 		return errors.Wrap(err, "init Azure client")
 	}
 	m.azureClient = client
+
+	exportConfig := &clientConfig{
+		Container:  "", // export scheduler provides bucket via EXPORT_DEFAULT_BUCKET
+		BackupPath: "", // export scheduler provides path via EXPORT_DEFAULT_PATH
+	}
+	exportClient, err := newClient(ctx, exportConfig, m.dataPath, m.logger)
+	if err != nil {
+		return errors.Wrap(err, "init Azure export client")
+	}
+	m.exportClient = exportClient
 	return nil
 }
 
@@ -102,9 +113,24 @@ func (m *Module) MetaInfo() (map[string]interface{}, error) {
 	return metaInfo, nil
 }
 
+// ExportBackend returns the export-specific backend. It has no default
+// container or path; the export scheduler supplies both via
+// EXPORT_DEFAULT_BUCKET and EXPORT_DEFAULT_PATH.
+func (m *Module) ExportBackend() modulecapabilities.BackupBackend {
+	return &exportAzureBackend{m.exportClient}
+}
+
+type exportAzureBackend struct {
+	*azureClient
+}
+
+func (e *exportAzureBackend) IsExternal() bool { return true }
+func (e *exportAzureBackend) Name() string     { return Name }
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.BackupBackend(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.ExportBackendProvider(New())
 )

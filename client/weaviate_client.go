@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/mcp"
 	"github.com/weaviate/weaviate/client/meta"
+	"github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/operations"
@@ -93,6 +94,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Mcp = mcp.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
+	cli.Namespaces = namespaces.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
 	cli.Objects = objects.New(transport, formats)
 	cli.Operations = operations.New(transport, formats)
@@ -165,6 +167,8 @@ type Weaviate struct {
 
 	Meta meta.ClientService
 
+	Namespaces namespaces.ClientService
+
 	Nodes nodes.ClientService
 
 	Objects objects.ClientService
@@ -197,6 +201,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Graphql.SetTransport(transport)
 	c.Mcp.SetTransport(transport)
 	c.Meta.SetTransport(transport)
+	c.Namespaces.SetTransport(transport)
 	c.Nodes.SetTransport(transport)
 	c.Objects.SetTransport(transport)
 	c.Operations.SetTransport(transport)

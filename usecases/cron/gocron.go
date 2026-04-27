@@ -104,6 +104,9 @@ func newCronsObjectsTTL(serverShutdownCtx context.Context,
 func (c *cronsObjectsTTL) Init(cr *gocron.Cron, clusterService *cluster.Service,
 	coordinator *objectttl.Coordinator,
 ) error {
+	if coordinator == nil {
+		return fmt.Errorf("objects ttl coordinator is nil")
+	}
 	errors.GoWrapper(func() {
 		jobName := "trigger_objects_ttl_deletion"
 		jobLogger := c.logger.WithField("job", jobName)
@@ -175,14 +178,14 @@ func (c *cronsObjectsTTL) createJob(ctx context.Context, jobLogger logrus.FieldL
 		var err error
 		started := time.Now()
 
-		jobLogger.Info("trigger ttl deletion started")
+		jobLogger.Debug("trigger ttl deletion started")
 		defer func() {
 			jobLogger := jobLogger.WithField("took", time.Since(started))
 			if err != nil {
 				jobLogger.WithError(err).Error("trigger ttl deletion failed")
 				return
 			}
-			jobLogger.Info("trigger ttl deletion finished")
+			jobLogger.Debug("trigger ttl deletion finished")
 		}()
 
 		err = coordinator.Start(ctx, false, started, started)

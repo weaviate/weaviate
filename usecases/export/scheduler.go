@@ -934,19 +934,16 @@ func requiresBucket(backend string) bool {
 	}
 }
 
-// validateStorageConfig returns the configured bucket and path after verifying
-// that the operator has made both explicit. It is shared by Export, Status and
-// Cancel because all three need to address the same storage location: using
-// implicit defaults would silently point them at the wrong prefix and surface
-// as confusing "not found" errors for Status/Cancel.
+// validateStorageConfig returns the configured bucket and path. It is shared
+// by Export, Status and Cancel because all three need to address the same
+// storage location. The bucket is required for bucket-backed backends.
+// The path defaults to empty if not configured; each backend module provides
+// a dedicated export client that does not fall back to the backup path.
 func (s *Scheduler) validateStorageConfig(backend string) (bucket, path string, err error) {
 	bucket = s.exportConfig.DefaultBucket.Get()
 	path = s.exportConfig.DefaultPath.Get()
 	if bucket == "" && requiresBucket(backend) {
 		return "", "", fmt.Errorf("%w: EXPORT_DEFAULT_BUCKET is required for backend %q", ErrExportValidation, backend)
-	}
-	if !s.exportConfig.IsDefaultPathSet.Load() {
-		return "", "", fmt.Errorf("%w: EXPORT_DEFAULT_PATH must be explicitly set (an empty value is allowed for no prefix)", ErrExportValidation)
 	}
 	return bucket, path, nil
 }

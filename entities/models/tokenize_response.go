@@ -19,135 +19,29 @@ package models
 import (
 	"context"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
-// TokenizeResponse Response from the tokenize endpoint.
+// TokenizeResponse Response from the tokenize endpoints. Returns `indexed` text and text used at `query` time
 //
 // swagger:model TokenizeResponse
 type TokenizeResponse struct {
-
-	// The text analyzer configuration that was used, if any.
-	AnalyzerConfig *TextAnalyzerConfig `json:"analyzerConfig,omitempty"`
 
 	// The tokens as they would be stored in the inverted index.
 	Indexed []string `json:"indexed"`
 
 	// The tokens as they would be used for query matching (e.g., after stopword removal).
 	Query []string `json:"query"`
-
-	// The stopword configuration that was used, if any.
-	StopwordConfig *StopwordConfig `json:"stopwordConfig,omitempty"`
-
-	// The tokenization method that was applied.
-	Tokenization string `json:"tokenization,omitempty"`
 }
 
 // Validate validates this tokenize response
 func (m *TokenizeResponse) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateAnalyzerConfig(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateStopwordConfig(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 
-func (m *TokenizeResponse) validateAnalyzerConfig(formats strfmt.Registry) error {
-	if swag.IsZero(m.AnalyzerConfig) { // not required
-		return nil
-	}
-
-	if m.AnalyzerConfig != nil {
-		if err := m.AnalyzerConfig.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("analyzerConfig")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("analyzerConfig")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *TokenizeResponse) validateStopwordConfig(formats strfmt.Registry) error {
-	if swag.IsZero(m.StopwordConfig) { // not required
-		return nil
-	}
-
-	if m.StopwordConfig != nil {
-		if err := m.StopwordConfig.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("stopwordConfig")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("stopwordConfig")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// ContextValidate validate this tokenize response based on the context it is used
+// ContextValidate validates this tokenize response based on context it is used
 func (m *TokenizeResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidateAnalyzerConfig(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.contextValidateStopwordConfig(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *TokenizeResponse) contextValidateAnalyzerConfig(ctx context.Context, formats strfmt.Registry) error {
-
-	if m.AnalyzerConfig != nil {
-		if err := m.AnalyzerConfig.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("analyzerConfig")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("analyzerConfig")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *TokenizeResponse) contextValidateStopwordConfig(ctx context.Context, formats strfmt.Registry) error {
-
-	if m.StopwordConfig != nil {
-		if err := m.StopwordConfig.ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("stopwordConfig")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("stopwordConfig")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 

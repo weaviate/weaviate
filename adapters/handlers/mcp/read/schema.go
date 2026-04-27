@@ -47,6 +47,9 @@ func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig) []ser
 		mcp.WithDescription(internal.GetDescription(configs, getConfigName,
 			"Retrieves collection configuration(s). If collection_name is provided, returns only that collection's config. Otherwise returns all collections.")),
 		mcp.WithInputSchema[GetCollectionConfigArgs](),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&getConfigTool, getConfigName, configs)
 
@@ -56,6 +59,9 @@ func Tools(reader *WeaviateReader, configs map[string]internal.ToolConfig) []ser
 		mcp.WithDescription(internal.GetDescription(configs, tenantsName,
 			"Lists the tenants of a collection in the database.")),
 		mcp.WithInputSchema[GetTenantsArgs](),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&tenantsTool, tenantsName, configs)
 

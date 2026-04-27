@@ -95,7 +95,10 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
-	replicaClient := clients.NewReplicationClient(&http.Client{})
+	replicaClient, err := clients.NewReplicationClient(&http.Client{})
+	if err != nil {
+		t.Fatalf("failed to create replication client: %v", err)
+	}
 
 	// Create schema manager first so the mock can reference it
 	n.schemaManager = &fakeSchemaManager{

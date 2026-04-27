@@ -85,9 +85,8 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
+	assert.True(t, tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
-	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
-	assert.True(t, srv.store.IsLeader())
 	schemaReader := srv.SchemaReader()
 	assert.Equal(t, schemaReader.Len(), 0)
 
@@ -386,8 +385,8 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
+	assert.True(t, tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
-	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
 }
@@ -506,7 +505,6 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	require.NoError(t, r.store.Notify(m.cfg.NodeID, addr))
 	require.True(t, tryNTimesWithWait(40, 200*time.Millisecond, r.store.IsLeader))
-	require.True(t, r.store.IsLeader())
 
 	defer m.indexer.AssertExpectations(t)
 

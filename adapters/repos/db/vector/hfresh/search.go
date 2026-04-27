@@ -29,19 +29,20 @@ const (
 )
 
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	vector = h.normalizeVec(vector)
+
 	if allowList != nil && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(ctx, vector, k, allowList)
 	}
 
 	rescoreLimit := int(h.rescoreLimit)
-	vector = h.normalizeVec(vector)
 	if h.quantizer == nil {
 		if atomic.LoadUint32(&h.dims) == 0 {
 			return nil, nil, nil
 		}
 		return nil, nil, errors.New("quantizer not initialized")
 	}
-	queryVector := NewAnonymousVector(h.quantizer.CompressedBytes(h.quantizer.Encode(vector)))
+	queryDistancer := h.quantizer.NewDistancer(vector)
 
 	var selectedCentroids []uint64
 	var postings []Posting
@@ -94,6 +95,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	visited := h.visitedPool.Borrow()
 	defer h.visitedPool.Return(visited)
 
+	var decompressBuf []uint64
+
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
@@ -124,7 +127,8 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 				continue
 			}
 
-			dist, err := v.Distance(h.distancer, queryVector)
+			decompressBuf = h.quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
+			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
@@ -148,6 +152,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if err != nil {
 			return nil, nil, err
 		}
+		vec = h.normalizeVec(vec)
 		dist, err := h.distancer.distancer.SingleDist(vector, vec)
 		if err != nil {
 			return nil, nil, err

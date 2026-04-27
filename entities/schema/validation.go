@@ -51,6 +51,18 @@ const (
 	// Target vector names must be GraphQL compliant names no longer then 230 characters
 	TargetVectorNameMaxLength = 230
 	TargetVectorNameRegex     = `[_A-Za-z][_0-9A-Za-z]{0,229}`
+
+	// NamespaceSeparator is the reserved character used to qualify class names
+	// with their owning namespace ("<namespace>:<ClassName>"). Plain class names
+	// must NOT contain this character — the ClassNameRegexCore character class
+	// [_0-9A-Za-z] excludes it, so any name passing ValidateClassName cannot
+	// contain one.
+	//
+	// The namespace startup invariant and the name resolver both depend on
+	// this contract. If ClassNameRegexCore is ever loosened to allow ":",
+	// audit all consumers of NamespaceSeparator and update them atomically.
+	// TestValidateClassName_RejectsNamespaceSeparator locks the contract.
+	NamespaceSeparator = ":"
 )
 
 // ValidateClassName validates that this string is a valid class name (format wise)

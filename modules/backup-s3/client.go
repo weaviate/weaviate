@@ -210,13 +210,16 @@ func (s *s3Client) makeObjectName(overridePath string, parts ...string) string {
 
 // bucketAndPath resolves the effective bucket and object path,
 // applying overrides when set (e.g. for export to a different S3 location).
-func (s *s3Client) bucketAndPath(backupID, key, overrideBucket, overridePath string) (bucket, objectName string) {
+func (s *s3Client) bucketAndPath(backupID, key, overrideBucket, overridePath string) (bucket, objectName string, err error) {
 	bucket = s.config.Bucket
 	if overrideBucket != "" {
 		bucket = overrideBucket
 	}
+	if bucket == "" {
+		return "", "", fmt.Errorf("bucket must not be empty")
+	}
 	objectName = s.makeObjectName(overridePath, backupID, key)
-	return bucket, objectName
+	return bucket, objectName, nil
 }
 
 func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string {
@@ -284,7 +287,10 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	if err != nil {
 		return nil, errors.Wrap(err, "get object: failed to get client")
 	}
-	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	bucket, remotePath, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object %s", remotePath))
@@ -324,7 +330,10 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 		return errors.Wrap(err, "put object: failed to get client")
 	}
 
-	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	bucket, remotePath, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return err
+	}
 	opt := minio.PutObjectOptions{
 		ContentType:    "application/octet-stream",
 		PartSize:       MINIO_MIN_PART_SIZE,
@@ -358,7 +367,10 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
-	bucket, objectName := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	bucket, objectName, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return err
+	}
 	opt := minio.RemoveObjectOptions{}
 	if err := client.RemoveObject(ctx, bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")
@@ -373,7 +385,10 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	if err != nil {
 		return errors.Wrap(err, "write to file: cannot get client")
 	}
-	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	bucket, remotePath, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return err
+	}
 
 	err = client.FGetObject(ctx, bucket, remotePath, destPath, minio.GetObjectOptions{})
 	if err != nil {
@@ -400,7 +415,10 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	if err != nil {
 		return -1, errors.Wrap(err, "write: cannot get client")
 	}
-	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	bucket, remotePath, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return -1, err
+	}
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
@@ -426,7 +444,10 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	if err != nil {
 		return -1, errors.Wrap(err, "read: cannot get client")
 	}
-	bucket, remotePath := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	bucket, remotePath, err := s.bucketAndPath(backupID, key, overrideBucket, overridePath)
+	if err != nil {
+		return -1, err
+	}
 
 	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {

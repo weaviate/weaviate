@@ -724,3 +724,70 @@ func TestPutOverwriteObjectsCompression(t *testing.T) {
 		})
 	}
 }
+
+func TestPutOverwriteObjectsCorruptedZstdBody(t *testing.T) {
+	t.Parallel()
+
+	_, url := newOverwriteServer(t)
+
+	// Send a body that has the zstd compression header but is not valid zstd data.
+	// This exercises the error path in readRequestBodyWithOptionalCompression where
+	// io.ReadAll fails on an invalid stream, and ensures the decoder is properly
+	// closed/returned before the error is returned.
+	body := []byte("this is not valid zstd data")
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("X-Request-Compression", "zstd")
+	req.Header.Set("X-Request-Encoding", "binary")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestPutOverwriteObjectsZstdConcurrent(t *testing.T) {
+	t.Parallel()
+
+	_, url := newOverwriteServer(t)
+
+	body := vobjectPayload(t)
+	enc, err := zstd.NewWriter(nil)
+	require.NoError(t, err)
+	compressed := enc.EncodeAll(body, make([]byte, 0, len(body)))
+	enc.Close()
+
+	const goroutines = 50
+	errs := make(chan error, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(compressed))
+			if err != nil {
+				errs <- fmt.Errorf("create request: %w", err)
+				return
+			}
+			req.Header.Set("X-Request-Compression", "zstd")
+			req.Header.Set("X-Request-Encoding", "binary")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				errs <- fmt.Errorf("do request: %w", err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				errs <- fmt.Errorf("unexpected status: got %d want %d", resp.StatusCode, http.StatusOK)
+				return
+			}
+			errs <- nil
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}

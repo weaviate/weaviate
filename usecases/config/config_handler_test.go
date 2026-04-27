@@ -292,3 +292,62 @@ func TestConfigValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigValidation_Namespaces covers the cross-field requirement that
+// NAMESPACES_ENABLED=true mandates DISABLE_GRAPHQL=true. The check fires
+// before Persistence.Validate (which would otherwise also fail on an empty
+// DataPath), so we assert on the error message to distinguish the namespace
+// error from downstream validation noise.
+func TestConfigValidation_Namespaces(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		disableGraphQL    bool
+		wantNamespacesErr bool
+	}{
+		{
+			name:              "namespaces disabled, graphql enabled — no namespace error",
+			namespacesEnabled: false,
+			disableGraphQL:    false,
+			wantNamespacesErr: false,
+		},
+		{
+			name:              "namespaces disabled, graphql disabled — no namespace error",
+			namespacesEnabled: false,
+			disableGraphQL:    true,
+			wantNamespacesErr: false,
+		},
+		{
+			name:              "namespaces enabled without DISABLE_GRAPHQL — error",
+			namespacesEnabled: true,
+			disableGraphQL:    false,
+			wantNamespacesErr: true,
+		},
+		{
+			name:              "namespaces enabled with DISABLE_GRAPHQL — no namespace error",
+			namespacesEnabled: true,
+			disableGraphQL:    true,
+			wantNamespacesErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{
+				Authentication: Authentication{AnonymousAccess: AnonymousAccess{Enabled: true}},
+				DisableGraphQL: tc.disableGraphQL,
+				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
+			}
+			err := c.Validate()
+			if tc.wantNamespacesErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
+			} else if err != nil {
+				// Validate may still fail on unrelated fields (e.g. Persistence).
+				// What matters here is that it does NOT fail on the namespaces
+				// cross-field check.
+				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
+			}
+		})
+	}
+}

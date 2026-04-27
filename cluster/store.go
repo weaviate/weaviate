@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/namespaces"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -234,6 +235,9 @@ type Store struct {
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	dynUserManager *dynusers.Manager
 
+	// namespaceManager is responsible for applying/querying changes committed by RAFT to the namespace control-plane state
+	namespaceManager *namespaces.Manager
+
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
 
@@ -329,6 +333,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		namespaceManager:   namespaces.NewManager(cfg.Logger),
 		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
@@ -577,6 +582,9 @@ func (st *Store) Ready() bool {
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
+	if st.dbLoaded.Load() {
+		return nil
+	}
 	t := time.NewTicker(period)
 	defer t.Stop()
 	for {
