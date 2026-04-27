@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -393,5 +394,5 @@ func joinPath(prefix, name string) string {
 	if prefix == "" {
 		return name
 	}
-	return JoinRelPath([]string{prefix, name})
+	return filnested.JoinPath([]string{prefix, name})
 }

@@ -18,6 +18,27 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// pathSep is the separator character for nested property paths.
+// All path construction and parsing goes through SplitPath/JoinPath so
+// this is the single place to change if the separator ever changes.
+const pathSep = "."
+
+// SplitPath splits a dot-notation nested path into its property name segments.
+// The inverse of JoinPath.
+//
+//	SplitPath("cars.tires.width") → ["cars", "tires", "width"]
+func SplitPath(path string) []string {
+	return strings.Split(path, pathSep)
+}
+
+// JoinPath joins property name segments into a dot-notation nested path.
+// The inverse of SplitPath.
+//
+//	JoinPath(["cars", "tires", "width"]) → "cars.tires.width"
+func JoinPath(segs []string) string {
+	return strings.Join(segs, pathSep)
+}
+
 // PathSegment represents one component of a parsed nested filter path.
 // Name is the clean property name without any [N] suffix.
 type PathSegment struct {
@@ -26,11 +47,12 @@ type PathSegment struct {
 	Index    int
 }
 
-// SplitPath splits a dot-notation nested filter path into PathSegments, each
-// with the clean property name and any [N] index extracted.
-// "addresses[1].city" → [{Name:"addresses", HasIndex:true, Index:1}, {Name:"city"}]
-func SplitPath(path string) []PathSegment {
-	raw := strings.Split(path, ".")
+// ParseSegments splits a dot-notation nested filter path into PathSegments,
+// each with the clean property name and any [N] index extracted.
+//
+//	ParseSegments("addresses[1].city") → [{Name:"addresses", HasIndex:true, Index:1}, {Name:"city"}]
+func ParseSegments(path string) []PathSegment {
+	raw := SplitPath(path)
 	segs := make([]PathSegment, len(raw))
 	for i, s := range raw {
 		clean, idx, hasIdx := parseSegmentIndex(s)
@@ -54,29 +76,29 @@ type ArrayIndex struct {
 //   - cleanRelSegs: the same path as a pre-split slice for direct use with schema walking
 //   - arrayIndices: one entry per [N] occurrence with its relative path and 0-based index
 func ParseIndexedPath(path string) (cleanRelPath string, cleanRelSegs []string, arrayIndices []ArrayIndex) {
-	pathSegs := SplitPath(path)
+	pathSegs := ParseSegments(path)
 	cleanNames := make([]string, len(pathSegs))
 	for i, seg := range pathSegs {
 		cleanNames[i] = seg.Name
 		if seg.HasIndex {
 			var relPath string
 			if i > 0 {
-				relPath = strings.Join(cleanNames[1:i+1], ".")
+				relPath = JoinPath(cleanNames[1 : i+1])
 			}
 			arrayIndices = append(arrayIndices, ArrayIndex{RelPath: relPath, Index: seg.Index})
 		}
 	}
 	if len(cleanNames) > 1 {
 		cleanRelSegs = cleanNames[1:]
-		cleanRelPath = strings.Join(cleanRelSegs, ".")
+		cleanRelPath = JoinPath(cleanRelSegs)
 	}
 	return cleanRelPath, cleanRelSegs, arrayIndices
 }
 
-// RootPropName returns the top-level property name from a nested filter
-// path, stripping any [N] index. "addresses[1].city" → "addresses".
+// RootPropName returns the root property name from a nested filter path,
+// stripping any [N] index. "addresses[1].city" → "addresses".
 func RootPropName(path string) string {
-	first := strings.SplitN(path, ".", 2)[0]
+	first := SplitPath(path)[0]
 	clean, _, _ := parseSegmentIndex(first)
 	return clean
 }

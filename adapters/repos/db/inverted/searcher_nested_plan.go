@@ -14,7 +14,6 @@ package inverted
 import (
 	"fmt"
 
-	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -96,7 +95,7 @@ func (b *executionPlanBuilder) groupPaths(paths []string, counts conditionCounts
 	byFirst := map[string]*rawGroup{}
 
 	for _, p := range paths {
-		segs := invnested.SplitRelPath(p)
+		segs := filnested.SplitPath(p)
 		first := segs[0]
 		if !seen[first] {
 			seen[first] = true
@@ -142,7 +141,7 @@ func (b *executionPlanBuilder) commonObjectArrayLCA(segs [][]string, paths []str
 	if lcaLen == 0 {
 		return ""
 	}
-	return b.lastIntermediateObjectArray(invnested.JoinRelPath(segs[0][:lcaLen]))
+	return b.lastIntermediateObjectArray(filnested.JoinPath(segs[0][:lcaLen]))
 }
 
 // determineGroupOp picks the combining operation for a group:
@@ -199,7 +198,7 @@ func (b *executionPlanBuilder) determineGroupOp(paths []string, lcaPath string, 
 //	"garages.cars.tags" (garages=object[], cars=object[], tags=text[]) → "garages.cars"
 //	"make"              (text, no intermediate array)                  → ""
 func (b *executionPlanBuilder) lastIntermediateObjectArray(path string) string {
-	segs := invnested.SplitRelPath(path)
+	segs := filnested.SplitPath(path)
 	props := b.props
 	last := ""
 	for i, seg := range segs {
@@ -209,7 +208,7 @@ func (b *executionPlanBuilder) lastIntermediateObjectArray(path string) string {
 		}
 		dt := schema.DataType(np.DataType[0])
 		if dt == schema.DataTypeObjectArray {
-			last = invnested.JoinRelPath(segs[:i+1])
+			last = filnested.JoinPath(segs[:i+1])
 		}
 		if !schema.IsNested(dt) {
 			return last
