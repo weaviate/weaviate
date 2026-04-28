@@ -55,12 +55,10 @@ jobs:
       # not from the PR, so an attacker cannot tamper with it.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # Fetches the PR diff via the GitHub API and pipes it to the linter.
-      # No checkout of PR code occurs — only the diff text is processed.
-      - name: Fetch PR diff and scan for hidden characters
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh pr diff "${{ github.event.pull_request.number }}" \
-            --repo "${{ github.repository }}" \
-            | ./tools/linter_hidden_unicode.sh --stdin
+      # Delegates to the reusable composite at .github/actions/security-lint.
+      # The composite fetches the PR diff via the GitHub API (no PR code is
+      # ever checked out) and pipes it to linter_hidden_unicode.sh.
+      - uses: ./.github/actions/security-lint
+        with:
+          pr-number: ${{ github.event.pull_request.number }}
+          github-token: ${{ github.token }}
