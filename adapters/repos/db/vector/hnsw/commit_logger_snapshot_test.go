@@ -1790,3 +1790,47 @@ func TestMigrateCompactV2Snapshot(t *testing.T) {
 		require.NoError(t, cl.migrateCompactV2Snapshot())
 	})
 }
+
+func TestSnapshotFileName(t *testing.T) {
+	cl := &hnswCommitLogger{
+		rootPath: "/data",
+		id:       "main",
+	}
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "condensed file",
+			input: "/data/main.hnsw.commitlog.d/1500.condensed",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+		{
+			name:  "raw timestamp file",
+			input: "/data/main.hnsw.commitlog.d/1500",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+		{
+			// Compact v2 leftover: produced range-format .sorted files in
+			// the commit log dir. Without the fix the result was
+			// "1000_1500.sorted.snapshot", which cleanupSnapshots could
+			// not parse — this is the bug from issue #197.
+			name:  "compactv2 sorted range file",
+			input: "/data/main.hnsw.commitlog.d/1000_1500.sorted",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+		{
+			name:  "compactv2 sorted single timestamp",
+			input: "/data/main.hnsw.commitlog.d/1500.sorted",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, cl.snapshotFileName(tt.input))
+		})
+	}
+}
