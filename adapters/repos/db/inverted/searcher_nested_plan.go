@@ -12,8 +12,6 @@
 package inverted
 
 import (
-	"fmt"
-
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -51,9 +49,19 @@ type conditionGroup struct {
 	paths   []string // relPaths whose condition bitmaps participate in this group
 }
 
-// executionPlan is a flat list of condition groups. The executor combines all
-// group results with AndAllMaskLeaf and strips position bits with MaskRootLeaf.
-type executionPlan []conditionGroup
+// executionPlan describes how the executor should combine condition bitmaps.
+// The plan builder is the single authority that decides the strategy; the
+// executor's job is only to carry it out.
+type executionPlan struct {
+	// groups is the ordered list of condition groups for the normal (positive
+	// conditions present) execution path.
+	groups []conditionGroup
+	// useRootAnchor is set when all conditions are IsNull=true and there are no
+	// positive conditions. The executor must use the root-level _exists bitmap
+	// as the element universe and subtract the IsNull=true excludes from it at
+	// raw (leaf) level to preserve same-element semantics.
+	useRootAnchor bool
+}
 
 // executionPlanBuilder groups relPaths by their common ObjectArray LCA and
 // assigns each group the appropriate combining operation.
@@ -71,13 +79,14 @@ func newExecutionPlanBuilder(props []*models.NestedProperty) *executionPlanBuild
 
 // build is the entry point. counts maps each relPath to [tokens, independents]
 // so the builder can determine which paths produce leaf-masked results.
-// Returns an error if paths is empty.
+// When paths is empty (all conditions are IsNull=true), the plan has
+// useRootAnchor=true and no groups — the executor uses the root _exists bitmap.
 func (b *executionPlanBuilder) build(paths []string, counts conditionCounts) (executionPlan, error) {
 	switch len(paths) {
 	case 0:
-		return nil, fmt.Errorf("buildExecutionPlan: no paths provided")
+		return executionPlan{useRootAnchor: true}, nil
 	case 1:
-		return executionPlan{b.singlePathGroup(paths[0], counts)}, nil
+		return executionPlan{groups: []conditionGroup{b.singlePathGroup(paths[0], counts)}}, nil
 	default:
 		return b.groupPaths(paths, counts), nil
 	}
@@ -106,14 +115,14 @@ func (b *executionPlanBuilder) groupPaths(paths []string, counts conditionCounts
 		byFirst[first].paths = append(byFirst[first].paths, p)
 	}
 
-	plan := make(executionPlan, 0, len(order))
+	groups := make([]conditionGroup, 0, len(order))
 	for _, first := range order {
 		g := byFirst[first]
 		lcaPath := b.commonObjectArrayLCA(g.segs, g.paths)
 		op := b.determineGroupOp(g.paths, lcaPath, counts)
-		plan = append(plan, conditionGroup{op: op, lcaPath: lcaPath, paths: g.paths})
+		groups = append(groups, conditionGroup{op: op, lcaPath: lcaPath, paths: g.paths})
 	}
-	return plan
+	return executionPlan{groups: groups}
 }
 
 // singlePathGroup builds a conditionGroup for a single relPath.

@@ -127,10 +127,13 @@ func TestConditionCountsIsMasked(t *testing.T) {
 }
 
 func TestBuildExecutionPlanNoPaths(t *testing.T) {
+	// Empty paths means all conditions are IsNull=true — plan builder sets
+	// useRootAnchor instead of returning an error.
 	props := correlationTestProps()
-	_, err := newExecutionPlanBuilder(props).build(nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no paths")
+	plan, err := newExecutionPlanBuilder(props).build(nil, nil)
+	require.NoError(t, err)
+	assert.True(t, plan.useRootAnchor)
+	assert.Empty(t, plan.groups)
 }
 
 func TestBuildExecutionPlan(t *testing.T) {
@@ -571,9 +574,9 @@ func TestBuildExecutionPlan(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			plan, err := newExecutionPlanBuilder(props).build(tt.paths, tt.counts)
 			require.NoError(t, err)
-			require.Len(t, plan, len(tt.wantGroups), "number of groups")
+			require.Len(t, plan.groups, len(tt.wantGroups), "number of groups")
 			for i, want := range tt.wantGroups {
-				got := plan[i]
+				got := plan.groups[i]
 				assert.Equal(t, want.op, got.op, "group %d op", i)
 				assert.Equal(t, want.lcaPath, got.lcaPath, "group %d lcaPath", i)
 				assert.Equal(t, want.paths, got.paths, "group %d paths", i)

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
@@ -166,6 +167,34 @@ func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) 
 	return positions, nil
 }
 
+// fetchNestedExistsPositions reads the raw position bitmap for a nested property's
+// _exists entry from the meta bucket. Unlike fetchNestedIsNull it does NOT apply
+// MaskRootLeaf — the caller receives element-level positions suitable for use in
+// the correlated resolver (either as an include or an exclude/AndNot bitmap).
+// If the filter carries arr[N] constraints (e.g. "cars[1].make IS NULL"),
+// restrictByNestedIdx is applied so that only the specified element's positions
+// are returned.
+func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap, func(), error) {
+	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
+	if metaBucket == nil {
+		return nil, nil, fmt.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
+	}
+	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	if err != nil {
+		return nil, nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
+	}
+	if len(pv.nested.arrayIndices) == 0 {
+		return positions, release, nil
+	}
+	// Restrict to the specific array element(s) indicated by arr[N] constraints.
+	dbm := &docBitmap{docIDs: positions, release: release}
+	restricted, err := pv.restrictByNestedIdx(s, dbm)
+	if err != nil {
+		return nil, nil, err
+	}
+	return restricted.docIDs, restricted.release, nil
+}
+
 // positionBitmaps groups pre-fetched raw position bitmaps for a single nested path,
 // split by origin so the executor can apply the correct combining strategy:
 //   - tokens: from childrenFromTokenization compound ANDs (multi-token text);
@@ -248,7 +277,37 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 		}
 	}()
 
+	// excludePositions collects raw position bitmaps for IsNull=true conditions.
+	// They are passed to the plan executor which applies AndNot after leaf-masking
+	// the main result, removing elements where the property IS present.
+	var excludePositions []*sroar.Bitmap
+
 	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
+		if leaf.operator == filters.OperatorIsNull {
+			// IsNull conditions are resolved via the _exists metadata entry, not the
+			// filterable value bucket. Both cases read the same bitmap of positions
+			// where the property IS present.
+			positions, release, err := leaf.fetchNestedExistsPositions(s)
+			if err != nil {
+				return err
+			}
+			releases = append(releases, release)
+			isDenyList := len(leaf.value) > 0 && leaf.value[0] == 0x01
+			if isDenyList {
+				// IsNull=true (property absent): exclude elements where property IS present.
+				excludePositions = append(excludePositions, positions)
+			} else {
+				// IsNull=false (property exists): include as regular independent condition.
+				path := leaf.nested.relPath
+				if _, exists := positionsByPath[path]; !exists {
+					positionsByPath[path] = &positionBitmaps{}
+					paths = append(paths, path)
+				}
+				positionsByPath[path].independent = append(positionsByPath[path].independent, positions)
+			}
+			return nil
+		}
+
 		dbm, err := leaf.fetchNestedPositions(ctx, s, 0)
 		if err != nil {
 			return err
@@ -284,8 +343,8 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 		}
 	}
 
-	// Find the root property's schema so the plan builder can locate intermediate
-	// object[] arrays and determine same-element semantics for each group.
+	// Find the root property schema and meta bucket — always needed for plan
+	// building and potential rootAnchor fetch.
 	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", pv.prop, err)
@@ -296,25 +355,88 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 		return nil, fmt.Errorf("nested correlated AND: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 
-	// Compute per-path condition counts (tokens, independents) for the plan builder.
 	counts := make(conditionCounts, len(positionsByPath))
 	for path, positions := range positionsByPath {
 		counts[path] = [2]int{len(positions.tokens), len(positions.independent)}
 	}
 
+	// The plan builder is the single authority on execution strategy. When all
+	// conditions are IsNull=true (paths is empty), it sets useRootAnchor=true so
+	// the executor knows to use the root _exists bitmap as the element universe.
 	plan, err := newExecutionPlanBuilder(rootProp.NestedProperties).build(paths, counts)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
 	}
 
+	// Fetch rootAnchor only when the plan requires it — i.e. when the plan
+	// builder decided all conditions are IsNull=true.
+	var rootAnchor *sroar.Bitmap
+	if plan.useRootAnchor {
+		anchor, anchorRelease, err := pv.fetchRootAnchor(s, metaBucket, children)
+		if err != nil {
+			return nil, fmt.Errorf("nested correlated AND: fetch root anchor for %q: %w", pv.prop, err)
+		}
+		releases = append(releases, anchorRelease)
+		rootAnchor = anchor
+	}
+
 	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
 	// consider deriving it from the request context or shard-level config.
-	docIDs, release, err := newPlanExecutor(plan, positionsByPath, metaBucket, s.nestedBitmapOps, concurrency.SROAR_MERGE).execute(ctx)
+	docIDs, release, err := newPlanExecutor(plan, positionsByPath, metaBucket, s.nestedBitmapOps, concurrency.SROAR_MERGE, rootAnchor, excludePositions...).execute(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}
 
 	return &docBitmap{docIDs: docIDs, release: release}, nil
+}
+
+// fetchRootAnchor returns the bitmap of element positions used as the starting
+// universe when all conditions in a correlated group are IsNull=true (no positive
+// anchor). It reads _exists."" from the meta bucket and, if any child carries
+// arr[N] constraints, restricts it to only the specified element positions via
+// restrictByNestedIdx — so that "garages[1].make IS NULL" starts from garage[1]
+// positions only, not all garages.
+func (pv *propValuePair) fetchRootAnchor(s *Searcher, metaBucket *lsmkv.Bucket, children []*propValuePair) (*sroar.Bitmap, func(), error) {
+	rootPositions, rootRelease, err := metaBucket.RoaringSetGet(invnested.ExistsKey(""))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Find arr[N] constraints from any leaf child (all children in the group share the same key).
+	var arrayIndices []filnested.ArrayIndex
+	for _, child := range children {
+		if child.nested.isNested && len(child.nested.arrayIndices) > 0 {
+			arrayIndices = child.nested.arrayIndices
+			break
+		}
+		for _, gc := range child.children {
+			if len(gc.nested.arrayIndices) > 0 {
+				arrayIndices = gc.nested.arrayIndices
+				break
+			}
+		}
+		if len(arrayIndices) > 0 {
+			break
+		}
+	}
+
+	if len(arrayIndices) == 0 {
+		return rootPositions, rootRelease, nil
+	}
+
+	// Apply arr[N] restriction using a temporary propValuePair that carries only
+	// the array indices — restrictByNestedIdx reads _idx.{relPath}[N] entries.
+	tempPvp := &propValuePair{
+		prop:   pv.prop,
+		nested: nestedInfo{arrayIndices: arrayIndices},
+		Class:  pv.Class,
+	}
+	dbm := &docBitmap{docIDs: rootPositions, release: rootRelease}
+	restricted, err := tempPvp.restrictByNestedIdx(s, dbm)
+	if err != nil {
+		return nil, nil, err
+	}
+	return restricted.docIDs, restricted.release, nil
 }
 
 // groupChildrenByArrayIndicesKey partitions the children of a correlated AND

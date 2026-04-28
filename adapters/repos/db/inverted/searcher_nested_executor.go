@@ -30,6 +30,15 @@ type planExecutor struct {
 	metaBucket      *lsmkv.Bucket
 	bitmapOps       *invnested.BitmapOps
 	maxConcurrency  int
+	// rootAnchor is set when all conditions are IsNull=true (no positive
+	// anchor). It holds the raw _exists."" positions that enumerate all array
+	// elements and serves as the starting universe before excludes are applied.
+	rootAnchor *sroar.Bitmap
+	// excludePositions holds raw position bitmaps for IsNull=true conditions.
+	// When rootAnchor is set they are subtracted at raw (leaf) level.
+	// When positive conditions exist they are leaf-masked and subtracted from
+	// the leaf-masked result of AndAllMaskLeaf.
+	excludePositions []*sroar.Bitmap
 }
 
 func newPlanExecutor(
@@ -38,13 +47,17 @@ func newPlanExecutor(
 	metaBucket *lsmkv.Bucket,
 	bitmapOps *invnested.BitmapOps,
 	maxConcurrency int,
+	rootAnchor *sroar.Bitmap,
+	excludePositions ...*sroar.Bitmap,
 ) *planExecutor {
 	return &planExecutor{
-		plan:            plan,
-		positionsByPath: positionsByPath,
-		metaBucket:      metaBucket,
-		bitmapOps:       bitmapOps,
-		maxConcurrency:  maxConcurrency,
+		plan:             plan,
+		positionsByPath:  positionsByPath,
+		metaBucket:       metaBucket,
+		bitmapOps:        bitmapOps,
+		maxConcurrency:   maxConcurrency,
+		rootAnchor:       rootAnchor,
+		excludePositions: excludePositions,
 	}
 }
 
@@ -69,8 +82,8 @@ func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, func(), erro
 	// finalBitmaps collects one entry per groupAndAll/groupRunIdxLoop result, and
 	// the raw bitmaps from each groupAndAllMaskLeaf group directly — avoiding the
 	// intermediate AndAllMaskLeaf allocation for those groups.
-	finalBitmaps := make([]*sroar.Bitmap, 0, len(e.plan))
-	for _, g := range e.plan {
+	finalBitmaps := make([]*sroar.Bitmap, 0, len(e.plan.groups))
+	for _, g := range e.plan.groups {
 		raw, rawReleases, err := e.collectRaw(g.paths)
 		if err != nil {
 			return nil, nil, err
@@ -106,10 +119,35 @@ func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, func(), erro
 			return nil, nil, fmt.Errorf("execute: unhandled group op %d", g.op)
 		}
 	}
-	masked, maskedRelease := e.bitmapOps.AndAllMaskLeaf(finalBitmaps, e.maxConcurrency)
+	masked, maskedRelease, err := e.computeMasked(finalBitmaps)
+	if err != nil {
+		return nil, nil, err
+	}
 	intermediateReleases = append(intermediateReleases, maskedRelease)
+
 	final, finalRelease := e.bitmapOps.MaskRootLeaf(masked)
 	return final, finalRelease, nil
+}
+
+// computeMasked applies useRootAnchor / AndAllMaskLeaf / excludes and returns
+// the root+docID bitmap (leaf bits zeroed). Called by both execute and executeMasked.
+func (e *planExecutor) computeMasked(finalBitmaps []*sroar.Bitmap) (*sroar.Bitmap, func(), error) {
+	if e.plan.useRootAnchor {
+		anchor := e.rootAnchor.Clone()
+		for _, excl := range e.excludePositions {
+			anchor.AndNotConc(excl, e.maxConcurrency)
+		}
+		masked, maskedRelease := e.bitmapOps.MaskLeaf(anchor)
+		return masked, maskedRelease, nil
+	}
+
+	masked, maskedRelease := e.bitmapOps.AndAllMaskLeaf(finalBitmaps, e.maxConcurrency)
+	for _, excl := range e.excludePositions {
+		maskedExcl, relExcl := e.bitmapOps.MaskLeaf(excl)
+		masked.AndNotConc(maskedExcl, e.maxConcurrency)
+		relExcl()
+	}
+	return masked, maskedRelease, nil
 }
 
 // collectRaw returns individual raw position bitmaps for all conditions across
