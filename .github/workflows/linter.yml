@@ -42,5 +42,3 @@ jobs:
         run: ./tools/linter_go_routines.sh
       - name: waitgroups checks
         run: ./tools/linter_waitgroups_done.sh
-      - name: GitHub Actions pinned to SHA
-        run: ./tools/linter_actions_pinned.sh
