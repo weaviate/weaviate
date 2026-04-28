@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/usage"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -82,12 +83,12 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 		require.NoError(t, c5.Schema().TenantsUpdater().WithClassName(includeCollections[i]).WithTenants(models.Tenant{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 	}
 
-	// usageReports := make([]usage.CollectionUsage, len(includeCollections))
-	// for i := range includeCollections {
-	// 	report, err := usage.GetDebugUsageForCollection(includeCollections[i])
-	// 	require.NoError(t, err)
-	// 	usageReports[i] = *report
-	// }
+	usageReports := make([]usage.CollectionUsage, len(includeCollections))
+	for i := range includeCollections {
+		report, err := usage.GetDebugUsageForCollection(includeCollections[i])
+		require.NoError(t, err)
+		usageReports[i] = *report
+	}
 
 	backupID := fmt.Sprintf("concurrent-delete-%016x", rand.Uint64())
 
@@ -108,7 +109,6 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 	// 1) coordinator - this is done during the Create() call above
 	// 2) file listing - this is not yet "delete-safe", so we need to wait to ensure that we are not in this phase anymore
 	// 3) actual file copying - this is "delete-safe", so we can delete classes while this is ongoing
-	// TODO(dyma): see if we can replace the sleep with AwaitStatus(StatusTransferring)
 	time.Sleep(500 * time.Millisecond)
 
 	for _, collectionName := range includeCollections {
@@ -158,11 +158,11 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 	}
 
 	// Verify usage stats to ensure no data loss and all data is correctly restored
-	// for i := range includeCollections {
-	// 	report, err := usage.GetDebugUsageForCollection(includeCollections[i])
-	// 	require.NoError(t, err)
-	// 	require.NoError(t, usage.CollectionUsageDifference(*report, usageReports[i]))
-	// }
+	for i := range includeCollections {
+		report, err := usage.GetDebugUsageForCollection(includeCollections[i])
+		require.NoError(t, err)
+		require.NoError(t, usage.CollectionUsageDifference(*report, usageReports[i]))
+	}
 
 	// v6 ---------------------------------------------------------------------
 
