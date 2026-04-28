@@ -2145,8 +2145,6 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 // 4. The other node with level = 3 is not found because candidateLevel != l
 // 5. But isOnlyNode considers the other node valid (connections.Layers() > 0)
 // 6. This causes the panic "findNewEntrypoint called on an empty hnsw graph"
-//
-// See: https://github.com/weaviate/weaviate/issues/XXXX
 func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	ctx := context.Background()
 
