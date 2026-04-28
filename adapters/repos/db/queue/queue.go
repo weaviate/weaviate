@@ -478,17 +478,24 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 	return q.scheduler.Wait(ctx, q.id)
 }
 
-// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
-// It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
+// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare
+// for backup. It also enables maintenance mode, which prevents processed chunk
+// files from being deleted until the backup is complete.
+//
+// The queue remains paused after this call. The caller is responsible for
+// ensuring that the upload completes before the shard is dropped or the queue
+// is otherwise resumed. Resuming the queue here would allow the writer to
+// modify chunk files while they are being uploaded, causing checksum mismatches
+// (e.g. S3 BadDigest errors).
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	err := q.Pause(ctx)
 	if err != nil {
 		return err
 	}
-	defer q.Resume()
 
 	err = q.Flush()
 	if err != nil {
+		q.Resume()
 		return err
 	}
 
