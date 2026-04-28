@@ -428,8 +428,23 @@ func (l *hnswCommitLogger) calcCommitlogsSize(commitLogPaths ...string) int64 {
 }
 
 func (l *hnswCommitLogger) snapshotFileName(commitLogFileName string) string {
-	path := strings.TrimSuffix(commitLogFileName, ".condensed") + ".snapshot"
-	return strings.Replace(path, ".hnsw.commitlog.d", snapshotDirSuffix, 1)
+	dir := strings.Replace(filepath.Dir(commitLogFileName), ".hnsw.commitlog.d", snapshotDirSuffix, 1)
+	base := filepath.Base(commitLogFileName)
+
+	// Strip known commit log suffixes so the snapshot name is built from
+	// the bare timestamp(s). ".sorted" is produced by compact v2.
+	for _, suffix := range []string{".condensed", ".sorted"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+
+	// Compact v2 produces range-format files (e.g. "1000_1500"). Use the
+	// end timestamp so the resulting snapshot filename is a single integer
+	// that cleanupSnapshots and the rest of the snapshot machinery can parse.
+	if _, end, ok := strings.Cut(base, "_"); ok {
+		base = end
+	}
+
+	return filepath.Join(dir, base+".snapshot")
 }
 
 // read the directory and find the latest snapshot file

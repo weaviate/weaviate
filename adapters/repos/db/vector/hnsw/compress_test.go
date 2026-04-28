@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -100,6 +102,65 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	uc.PQ = cfg
 	err := index.compress(uc)
 	assert.NotNil(t, err)
+}
+
+func Test_CompressedEntrypointRecoveryOnRestart(t *testing.T) {
+	dimensions := 20
+	vectorsSize := 10
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, 1, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	dummyStore := testinghelpers.NewDummyStoreFromFolder(tempDir, t)
+
+	uc := userConfig(dimensions/10, 5, 32, 64, 32, vectorsSize)
+	cfg := indexConfig("recovery_test", tempDir, logger, vectors, dist)
+
+	// Phase 1: build index and compress.
+	index, err := New(cfg, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+
+	require.NoError(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(vectorsSize), func(id uint64) error {
+		return index.Add(ctx, uint64(id), vectors[id])
+	}))
+	require.NoError(t, index.compress(uc))
+
+	// Record the entrypoint and search results before shutdown.
+	entrypoint := index.entryPointID
+	control, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, index.Flush())
+	require.NoError(t, index.Shutdown(ctx))
+	dummyStore.FlushMemtables(ctx)
+
+	// Delete the entrypoint's compressed vector from the bucket to simulate
+	// an interrupted compression preload.
+	bucket := dummyStore.Bucket(helpers.GetCompressedBucketName("recovery_test"))
+	require.NotNil(t, bucket)
+	idBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(idBytes, entrypoint)
+	require.NoError(t, bucket.Delete(idBytes))
+	dummyStore.FlushMemtables(ctx)
+
+	// Phase 2: restart — the entrypoint's compressed vector is missing.
+	restartCfg := indexConfig("recovery_test", tempDir, logger, vectors, dist)
+	restartCfg.WaitForCachePrefill = true
+
+	index, err = New(restartCfg, uc, cyclemanager.NewCallbackGroupNoop(), dummyStore)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+
+	index.PostStartup(ctx)
+
+	require.True(t, index.compressed.Load(), "index should be compressed")
+
+	// Search should succeed — the entrypoint's compressed vector is recovered
+	// on first access via the vectorForID fallback.
+	results, _, err := index.SearchByVector(ctx, queries[0], vectorsSize, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, control, results, "search results should match after entrypoint recovery")
 }
 
 func Test_CompressAndInsertDoNotRace(t *testing.T) {
