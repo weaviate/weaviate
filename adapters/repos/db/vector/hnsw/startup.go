@@ -161,6 +161,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
+						h.vectorForID,
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -174,6 +175,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
+						h.multiVectorForNodeID,
 					)
 				}
 				if err != nil {
@@ -195,6 +197,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
+					h.vectorForID,
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -208,6 +211,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
+					h.multiVectorForNodeID,
 				)
 			}
 			if err != nil {
@@ -282,6 +286,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				h.allocChecker,
 				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	} else {
@@ -301,6 +306,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				h.allocChecker,
 				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.multiVectorForNodeID,
 			)
 		})
 	}
@@ -328,6 +334,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				h.allocChecker,
 				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	} else {
@@ -347,6 +354,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				h.allocChecker,
 				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.multiVectorForNodeID,
 			)
 		})
 	}
@@ -431,6 +439,23 @@ func (h *hnsw) populateKeys() {
 			}
 		}
 	}
+}
+
+// multiVectorForNodeID resolves a nodeID to its raw float32 vector by looking
+// up the (docID, relativeID) mapping from the compressor's cache, then fetching
+// from the object store. Used as the recovery callback for compressed multi-vector
+// indexes instead of h.vectorForID, which points to the dropped float32 cache.
+func (h *hnsw) multiVectorForNodeID(ctx context.Context, nodeID uint64) ([]float32, error) {
+	docID, relativeID := h.compressor.GetKeys(nodeID)
+	vecs, err := h.MultiVectorForIDThunk(ctx, docID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "multi-vector recovery for nodeID %d (docID %d)", nodeID, docID)
+	}
+	if int(relativeID) >= len(vecs) {
+		return nil, errors.Errorf("multi-vector recovery: relativeID %d out of bounds for docID %d (nodeID %d, got %d vecs)",
+			relativeID, docID, nodeID, len(vecs))
+	}
+	return vecs[relativeID], nil
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {

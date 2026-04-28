@@ -13,6 +13,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Paths excluded from Orca SAST scans (auto-generated code + mocks).
+  # Centralized here so both SAST steps stay in sync.
+  ORCA_SAST_EXCLUDE_PATHS: "grpc/generated/*,adapters/handlers/rest/operations/*,adapters/handlers/rest/embedded_spec.go,client/*,entities/models/*,**/mock_*.go"
+
 jobs:
   Multi-Arch-Docker-Build:
     name: docker build (multi-arch)
@@ -85,6 +90,7 @@ jobs:
           project_key: ${{ env.PROJECT_KEY }}
           fetch-depth: 0
           path: "."
+          exclude_paths: ${{ env.ORCA_SAST_EXCLUDE_PATHS }}
 
       - name: Check security scan results
         run: |
@@ -226,6 +232,7 @@ jobs:
           project_key: ${{ env.PROJECT_KEY }}
           fetch-depth: 0
           path: "."
+          exclude_paths: ${{ env.ORCA_SAST_EXCLUDE_PATHS }}
 
       - name: Check security scan results
         run: |
