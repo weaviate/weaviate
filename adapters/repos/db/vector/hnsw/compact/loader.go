@@ -125,9 +125,15 @@ func (l *Loader) Load() (*LoadResult, error) {
 	// 4. Filter out overlapped files
 	walFiles = l.filterOverlappedFiles(walFiles, state.Overlaps)
 
-	// 5. Sort by timestamp (oldest first)
-	sort.Slice(walFiles, func(i, j int) bool {
-		return walFiles[i].StartTS < walFiles[j].StartTS
+	// 5. Sort by timestamp (oldest first), with Path as tiebreaker for
+	// files created in the same second. Deterministic order is critical
+	// because ReplaceLinksAtLevel overwrites neighbor lists — different
+	// replay order produces a different graph.
+	sort.SliceStable(walFiles, func(i, j int) bool {
+		if walFiles[i].StartTS != walFiles[j].StartTS {
+			return walFiles[i].StartTS < walFiles[j].StartTS
+		}
+		return walFiles[i].Path < walFiles[j].Path
 	})
 
 	// 6. Load snapshot if exists (starting point)

@@ -132,16 +132,25 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 		allFiles = append(allFiles, info)
 	}
 
-	// Sort all files by StartTS to identify the live file
-	sort.Slice(allFiles, func(i, j int) bool {
-		return allFiles[i].StartTS < allFiles[j].StartTS
+	// Sort all files by StartTS to identify the live file.
+	// Use SliceStable with Path as secondary key so that files with the same
+	// second-precision timestamp are always ordered deterministically,
+	// regardless of filesystem readdir order.
+	sort.SliceStable(allFiles, func(i, j int) bool {
+		if allFiles[i].StartTS != allFiles[j].StartTS {
+			return allFiles[i].StartTS < allFiles[j].StartTS
+		}
+		return allFiles[i].Path < allFiles[j].Path
 	})
 
-	// Find the live file: highest timestamp raw file
+	// Find the live file: highest timestamp raw file.
+	// When two raw files share the same timestamp, the stable sort + Path
+	// tiebreaker above guarantees the last one in the slice is the one with
+	// the lexicographically highest path — use >= so we always pick that one.
 	var highestRawTS int64 = -1
 	highestRawIdx := -1
 	for i, f := range allFiles {
-		if f.Type == FileTypeRaw && f.StartTS > highestRawTS {
+		if f.Type == FileTypeRaw && f.StartTS >= highestRawTS {
 			highestRawTS = f.StartTS
 			highestRawIdx = i
 		}
@@ -170,9 +179,12 @@ func (d *FileDiscovery) Scan() (*DirectoryState, error) {
 		}
 	}
 
-	// Sort sorted files by StartTS (oldest first)
-	sort.Slice(state.SortedFiles, func(i, j int) bool {
-		return state.SortedFiles[i].StartTS < state.SortedFiles[j].StartTS
+	// Sort sorted files by StartTS (oldest first), with Path as tiebreaker.
+	sort.SliceStable(state.SortedFiles, func(i, j int) bool {
+		if state.SortedFiles[i].StartTS != state.SortedFiles[j].StartTS {
+			return state.SortedFiles[i].StartTS < state.SortedFiles[j].StartTS
+		}
+		return state.SortedFiles[i].Path < state.SortedFiles[j].Path
 	})
 
 	// Detect overlaps
