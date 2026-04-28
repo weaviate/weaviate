@@ -79,7 +79,7 @@ func TestCompactorSnapshotNameCollision(t *testing.T) {
 	// snapshot (which is padded to a 4 MB block).
 	config := DefaultCompactorConfig(dir)
 	config.SnapshotThreshold = 1e-12
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	action, err := compactor.RunCycle()
 	require.NoError(t, err)

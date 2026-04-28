@@ -54,7 +54,7 @@ func TestCompactor_RecoveryAfterRemoveFailure(t *testing.T) {
 		BufferSize:        DefaultBufferSize,
 		FS:                fs,
 	}
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	// First run - snapshot succeeds but remove of source files fails
 	// This is OK because the snapshot is written atomically
@@ -74,7 +74,7 @@ func TestCompactor_RecoveryAfterRemoveFailure(t *testing.T) {
 
 	// On next compactor cycle with working FS, overlaps will be detected and resolved
 	config.FS = common.NewOSFS()
-	compactor2 := NewCompactor(config, logger)
+	compactor2 := NewCompactor(config, logger, nil)
 
 	// Run cleanup cycle
 	_, err = compactor2.RunCycle()
@@ -120,7 +120,7 @@ func TestCompactor_RecoveryAfterRenameFailure(t *testing.T) {
 		BufferSize:        DefaultBufferSize,
 		FS:                fs,
 	}
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	// First run should fail on rename
 	_, err := compactor.RunCycle()
@@ -132,7 +132,7 @@ func TestCompactor_RecoveryAfterRenameFailure(t *testing.T) {
 
 	// Second run with working FS should succeed
 	config.FS = common.NewOSFS()
-	compactor2 := NewCompactor(config, logger)
+	compactor2 := NewCompactor(config, logger, nil)
 
 	action, err := compactor2.RunCycle()
 	require.NoError(t, err, "second run should succeed")
@@ -162,7 +162,7 @@ func TestCompactor_OrphanedTempFilesCleanedUp(t *testing.T) {
 	require.Len(t, state.SortedFiles, 1, "should have 1 sorted file before compaction")
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	// Run cycle - should cleanup orphaned temp file first
 	// With only 1 sorted file, action will be ActionNone or ActionCreateSnapshot

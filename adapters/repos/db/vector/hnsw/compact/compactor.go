@@ -69,11 +69,6 @@ type CompactorConfig struct {
 	// FS is the filesystem interface to use for file operations.
 	// If nil, defaults to common.NewOSFS().
 	FS common.FS
-
-	// AllocChecker is an optional memory pressure checker. When set,
-	// convertToSorted will skip files whose in-memory representation
-	// would exceed available memory, avoiding OOM during heavy import.
-	AllocChecker memwatch.AllocChecker
 }
 
 // DefaultCompactorConfig returns the default configuration.
@@ -104,13 +99,16 @@ func DefaultCompactorConfig(dir string) CompactorConfig {
 // calling RunCycle periodically. Each cycle is idempotent and crash-safe
 // via [SafeFileWriter].
 type Compactor struct {
-	config CompactorConfig
-	logger logrus.FieldLogger
-	fs     common.FS
+	config       CompactorConfig
+	logger       logrus.FieldLogger
+	fs           common.FS
+	allocChecker memwatch.AllocChecker
 }
 
-// NewCompactor creates a new Compactor.
-func NewCompactor(config CompactorConfig, logger logrus.FieldLogger) *Compactor {
+// NewCompactor creates a new Compactor. The optional allocChecker, when
+// non-nil, gates file conversions on available memory to avoid OOM during
+// heavy import.
+func NewCompactor(config CompactorConfig, logger logrus.FieldLogger, allocChecker memwatch.AllocChecker) *Compactor {
 	// Apply defaults for zero values
 	if config.MaxFilesPerMerge <= 0 {
 		config.MaxFilesPerMerge = 5
@@ -126,9 +124,10 @@ func NewCompactor(config CompactorConfig, logger logrus.FieldLogger) *Compactor 
 	}
 
 	return &Compactor{
-		config: config,
-		logger: logger,
-		fs:     config.FS,
+		config:       config,
+		logger:       logger,
+		fs:           config.FS,
+		allocChecker: allocChecker,
 	}
 }
 
@@ -230,8 +229,8 @@ func (c *Compactor) convertToSorted(state *DirectoryState) error {
 // When an AllocChecker is configured, the conversion is skipped if the system
 // is under memory pressure — the file will be retried on the next cycle.
 func (c *Compactor) convertFileToSorted(f FileInfo) error {
-	if c.config.AllocChecker != nil {
-		if err := c.config.AllocChecker.CheckAlloc(f.Size); err != nil {
+	if c.allocChecker != nil {
+		if err := c.allocChecker.CheckAlloc(f.Size); err != nil {
 			c.logger.WithFields(logrus.Fields{
 				"action": "hnsw_compactor_convert",
 				"file":   filepath.Base(f.Path),

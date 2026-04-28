@@ -112,8 +112,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	// Create compactor for maintenance
 	compactorCfg := compact.DefaultCompactorConfig(dir)
 	compactorCfg.FS = l.fs
-	compactorCfg.AllocChecker = l.allocChecker
-	l.compactor = compact.NewCompactor(compactorCfg, logger)
+	l.compactor = compact.NewCompactor(compactorCfg, logger, l.allocChecker)
 
 	return l, nil
 }
