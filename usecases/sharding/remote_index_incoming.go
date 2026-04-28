@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -108,6 +109,15 @@ type RemoteIndexIncomingRepo interface {
 	IncomingAddAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
 	IncomingRemoveAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+
+	// IncomingStartChangeCapture activates a new change-capture log on the shard.
+	IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error
+	// IncomingGetChangeLog opens a tailer over the shard's active change-capture log.
+	IncomingGetChangeLog(ctx context.Context, shardName, opID string) (*changelog.Tailer, error)
+	// IncomingFinalizeChangeLog freezes the log and returns the final LSN.
+	IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error)
+	// IncomingStopChangeCapture deactivates and removes the log.
+	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error
 }
 
 type RemoteIndexIncoming struct {

@@ -182,6 +182,16 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(opID string) (*changelog.ChangeLog, error)
+	// FinalizeChangeLog freezes the log and returns its final LSN.
+	FinalizeChangeLog(opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log, removing its file.
+	StopChangeCapture(opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(opID string) (*changelog.ChangeLog, bool)
+
 	Metrics() *Metrics
 
 	// A thread-safe counter that goes up any time there is activity on this

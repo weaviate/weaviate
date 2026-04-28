@@ -36,9 +36,7 @@ type Tailer struct {
 // If fromLSN is ahead of the log's current LSN, Next blocks until the log
 // grows past fromLSN (returning the entry at fromLSN+1 first), or until the
 // log is finalized. If fromLSN is at or beyond the finalLSN of an
-// already-finalized log, Next returns io.EOF on the first call — this is
-// the correct behaviour for Phase 4 resume-from-LSN flows where the target
-// has already observed everything the source has.
+// already-finalized log, Next returns io.EOF on the first call.
 func (l *ChangeLog) NewTailer(fromLSN uint64) (*Tailer, error) {
 	f, err := os.Open(l.path)
 	if err != nil {

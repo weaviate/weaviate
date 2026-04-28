@@ -225,16 +225,15 @@ to `GetFile`, under the same basic-auth interceptor:
   └──────────┬───────────┘           └──────────┬───────────┘
              │                                  │
              │ StartChangeCapture(shard, opID)  │
-             │─────────────────────────────────▶│  activate Set entry,
-             │◀─────────────────────────────────│  return snapshotLSN
+             │─────────────────────────────────▶│  activate Set entry
+             │◀─────────────────────────────────│  (ack)
              │                                  │
              │ CopyReplicaFiles (existing)      │
              │─────────────────────────────────▶│
              │◀═════════════════════════════════│  file chunks (GetFile stream)
              │                                  │
-             │ GetChangeLog(shard, opID,        │
-             │              fromLSN=snapshotLSN)│
-             │─────────────────────────────────▶│  open tailer
+             │ GetChangeLog(shard, opID)        │
+             │─────────────────────────────────▶│  open tailer (from beginning)
              │◀═════════════════════════════════│  stream of ChangeLogStreamEntry
              │ (target decodes, batches,        │  (server-streaming, bounded
              │  calls OverwriteObjectsFrom-     │  backlog)

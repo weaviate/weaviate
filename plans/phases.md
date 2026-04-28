@@ -144,13 +144,14 @@ This preserves "Phase 2 leaves production unchanged" even after Phase 5 activate
 **New files:**
 
 - `cluster/replication/copier/copier_changelog.go`:
-  - Client wrappers `StartChangeCapture`, `TailChangeLog`, `ReplayUntilCaughtUp(threshold)`, `ReplayUntilLSN(targetLSN)`, `FinalizeChangeLog`, `StopChangeCapture`.
-  - Replay wrappers consume `ChangeLogStreamEntry`s, decode via `changelog` pkg, batch, and call `Index.OverwriteObjectsFromChangeLog` (Phase 3).
+  - 4 client primitives: `StartChangeCapture`, `TailAndApply`, `FinalizeChangeLog`, `StopChangeCapture`. No `ReplayUntilCaughtUp`, no `ReplayUntilLSN`, no threshold.
+  - `TailAndApply` opens the `GetChangeLog` stream, decodes each `ChangeLogStreamEntry`, batches (batch size 128), and flushes via `Index.OverwriteObjectsFromChangeLog` (Phase 3). It blocks until the server stream hits `io.EOF` (Finalize was applied and the tailer drained through `finalLSN`), ctx is cancelled, or a fatal error occurs. Phase 5 composes the primitives by running `TailAndApply` in a goroutine concurrently with RAFT-add + `FinalizeChangeLog`; the drain goroutine returns cleanly on `io.EOF`.
 
 **Tests:**
 
-- In-process gRPC test (two Shards in one test, real gRPC dial): start on source, append via direct `Shard.AppendChangeLogPut` calls, tail from target, finalize, stop. Assert target applied all entries and local state converges.
-- Server-stream cancellation mid-tail cleans up.
+- Handler-level unit tests (`adapters/handlers/rest/clusterapi/grpc/file_replication_service_test.go`) with a minimal fake `RemoteIncomingRepo` covering happy path + unknown-index + IndexForIncomingSharding errors for each of the 4 new RPCs.
+- Copier-level unit tests (`cluster/replication/copier/copier_changelog_test.go`) driving the drain-and-apply loop through a fake `changeLogReceiver`: happy path spanning multiple batches, deletes interleaved with PUTs, Recv-error abort, apply-error abort, empty stream.
+- Bufconn E2E (`cluster/replication/copier/copier_changelog_bufconn_test.go`): real `FileReplicationService` + real `*changelog.ChangeLog` + real gRPC client wired via bufconn + `drainChangeLogStream` with a test-side apply. Covers the full tail → apply → finalize loop plus a cancel-mid-tail leak guard. A DB-backed E2E is deferred to Phase 5's `TestReplicaMovementTenantParallelWrites`, which exercises the whole stack through a real 3-node test cluster.
 
 **Merge gate:**
 - `make grpc` regenerates cleanly; `git diff generated/` has no hand edits.
@@ -167,8 +168,8 @@ This preserves "Phase 2 leaves production unchanged" even after Phase 5 activate
 
 - `cluster/replication/consumer.go`:
   - `processHydratingOp`: call `replicaCopier.StartChangeCapture(...)` before `CopyReplicaFiles`. Rest unchanged.
-  - `processFinalizingOp` (lines 628-666): tail → replay until caught up → add replica via RAFT (COPY) → finalize → drain to finalLSN → COPY stops log, MOVE keeps log and returns DEHYDRATING.
-  - `processDehydratingOp` (lines 697-736): tail from `lastAppliedLSN` → delete replica via RAFT → finalize → drain → stop → sync → READY.
+  - `processFinalizingOp` (lines 628-666): start a `TailAndApply` drain goroutine → add replica via RAFT (COPY) → `FinalizeChangeLog` → wait for drain goroutine to return cleanly on `io.EOF` → COPY stops log, MOVE returns DEHYDRATING.
+  - `processDehydratingOp` (lines 697-736): activate a fresh dehydrate-window log → start a `TailAndApply` drain goroutine → delete replica via RAFT → `FinalizeChangeLog` → wait for drain goroutine → stop → sync → READY.
   - Remove `startAsyncReplication` / `waitForAsyncReplication` calls from these three functions. Helpers stay (used by non-movement async replication callers).
   - Remove `asyncReplicationUpperTimeBoundUnixMillis` and `asyncReplicationMinimumWait` fetches from these three functions.
   - **Cleanup on error paths (required):** every error return out of `processHydratingOp`, `processFinalizingOp`, and `processDehydratingOp` that happens after `StartChangeCapture` succeeded must call `replicaCopier.StopChangeCapture(...)` before returning — a `defer` at the top of each handler is the cleanest pattern. This is the primary mechanism that keeps the source's `changelog/` directory from accumulating orphan `.log` files on a long-lived HOT shard. Phase 2 adds a safety-net sweep inside `ActivateChangeLog`, and `NewShard`'s restart-time sweep remains, but the consumer-side `defer` is what handles the expected case where a movement errors out mid-flight. See plan.md §"Orphan cleanup".
@@ -194,7 +195,6 @@ No feature flag — the decision is made. Each phase in isolation is revertable:
 
 ## Points to flag during review
 
-- `closeEnoughThreshold = 100 entries` in Phase 5 is a guess; profile and adjust.
 - The quiesce latch introduced in Phase 2 must survive Phase 5 consumer review without deadlocking against `backupLock`, `asyncReplicationRWMux`, `docIdLock`. Lock-ordering notes belong in the Phase 2 PR description.
 - Batch writes produce one LSN per object, not one per batch — consistent with the tee location inside `putObjectLSM`.
 - Phase 4 could be further split into "gRPC server handlers" vs "copier client wrappers" if PR size becomes unwieldy during implementation. Not pre-committing to the extra split now.

@@ -77,6 +77,15 @@ func (s *Shard) StopChangeCapture(opID string) error {
 	return log.Deactivate()
 }
 
+func (s *Shard) GetChangeLog(opID string) (*changelog.ChangeLog, bool) {
+	set := s.changeLogs.Load()
+	if set == nil {
+		return nil, false
+	}
+	log := set.Get(opID)
+	return log, log != nil
+}
+
 // AppendChangeLogPut tees every committed PUT into every active log. It MUST
 // NOT fail the user write: exhausted-retry errors deactivate the log so the
 // target's tailer observes ErrLogDeactivated and aborts the movement.

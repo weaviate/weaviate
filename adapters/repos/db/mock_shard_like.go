@@ -19,6 +19,8 @@ import (
 
 	backup "github.com/weaviate/weaviate/entities/backup"
 
+	changelog "github.com/weaviate/weaviate/cluster/replication/changelog"
+
 	config "github.com/weaviate/weaviate/entities/schema/config"
 
 	context "context"
@@ -81,6 +83,64 @@ type MockShardLike_Expecter struct {
 
 func (_m *MockShardLike) EXPECT() *MockShardLike_Expecter {
 	return &MockShardLike_Expecter{mock: &_m.Mock}
+}
+
+// ActivateChangeLog provides a mock function with given fields: opID
+func (_m *MockShardLike) ActivateChangeLog(opID string) (*changelog.ChangeLog, error) {
+	ret := _m.Called(opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ActivateChangeLog")
+	}
+
+	var r0 *changelog.ChangeLog
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (*changelog.ChangeLog, error)); ok {
+		return rf(opID)
+	}
+	if rf, ok := ret.Get(0).(func(string) *changelog.ChangeLog); ok {
+		r0 = rf(opID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*changelog.ChangeLog)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_ActivateChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ActivateChangeLog'
+type MockShardLike_ActivateChangeLog_Call struct {
+	*mock.Call
+}
+
+// ActivateChangeLog is a helper method to define mock.On call
+//   - opID string
+func (_e *MockShardLike_Expecter) ActivateChangeLog(opID interface{}) *MockShardLike_ActivateChangeLog_Call {
+	return &MockShardLike_ActivateChangeLog_Call{Call: _e.mock.On("ActivateChangeLog", opID)}
+}
+
+func (_c *MockShardLike_ActivateChangeLog_Call) Run(run func(opID string)) *MockShardLike_ActivateChangeLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_ActivateChangeLog_Call) Return(_a0 *changelog.ChangeLog, _a1 error) *MockShardLike_ActivateChangeLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_ActivateChangeLog_Call) RunAndReturn(run func(string) (*changelog.ChangeLog, error)) *MockShardLike_ActivateChangeLog_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // Activity provides a mock function with no fields
@@ -829,6 +889,62 @@ func (_c *MockShardLike_FillQueue_Call) RunAndReturn(run func(string, uint64) er
 	return _c
 }
 
+// FinalizeChangeLog provides a mock function with given fields: opID
+func (_m *MockShardLike) FinalizeChangeLog(opID string) (uint64, error) {
+	ret := _m.Called(opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FinalizeChangeLog")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (uint64, error)); ok {
+		return rf(opID)
+	}
+	if rf, ok := ret.Get(0).(func(string) uint64); ok {
+		r0 = rf(opID)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_FinalizeChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FinalizeChangeLog'
+type MockShardLike_FinalizeChangeLog_Call struct {
+	*mock.Call
+}
+
+// FinalizeChangeLog is a helper method to define mock.On call
+//   - opID string
+func (_e *MockShardLike_Expecter) FinalizeChangeLog(opID interface{}) *MockShardLike_FinalizeChangeLog_Call {
+	return &MockShardLike_FinalizeChangeLog_Call{Call: _e.mock.On("FinalizeChangeLog", opID)}
+}
+
+func (_c *MockShardLike_FinalizeChangeLog_Call) Run(run func(opID string)) *MockShardLike_FinalizeChangeLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_FinalizeChangeLog_Call) Return(_a0 uint64, _a1 error) *MockShardLike_FinalizeChangeLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_FinalizeChangeLog_Call) RunAndReturn(run func(string) (uint64, error)) *MockShardLike_FinalizeChangeLog_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FindUUIDs provides a mock function with given fields: ctx, _a1
 func (_m *MockShardLike) FindUUIDs(ctx context.Context, _a1 *filters.LocalFilter) ([]strfmt.UUID, error) {
 	ret := _m.Called(ctx, _a1)
@@ -976,6 +1092,64 @@ func (_c *MockShardLike_ForEachVectorQueue_Call) Return(_a0 error) *MockShardLik
 }
 
 func (_c *MockShardLike_ForEachVectorQueue_Call) RunAndReturn(run func(func(string, *VectorIndexQueue) error) error) *MockShardLike_ForEachVectorQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetChangeLog provides a mock function with given fields: opID
+func (_m *MockShardLike) GetChangeLog(opID string) (*changelog.ChangeLog, bool) {
+	ret := _m.Called(opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetChangeLog")
+	}
+
+	var r0 *changelog.ChangeLog
+	var r1 bool
+	if rf, ok := ret.Get(0).(func(string) (*changelog.ChangeLog, bool)); ok {
+		return rf(opID)
+	}
+	if rf, ok := ret.Get(0).(func(string) *changelog.ChangeLog); ok {
+		r0 = rf(opID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*changelog.ChangeLog)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) bool); ok {
+		r1 = rf(opID)
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_GetChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetChangeLog'
+type MockShardLike_GetChangeLog_Call struct {
+	*mock.Call
+}
+
+// GetChangeLog is a helper method to define mock.On call
+//   - opID string
+func (_e *MockShardLike_Expecter) GetChangeLog(opID interface{}) *MockShardLike_GetChangeLog_Call {
+	return &MockShardLike_GetChangeLog_Call{Call: _e.mock.On("GetChangeLog", opID)}
+}
+
+func (_c *MockShardLike_GetChangeLog_Call) Run(run func(opID string)) *MockShardLike_GetChangeLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_GetChangeLog_Call) Return(_a0 *changelog.ChangeLog, _a1 bool) *MockShardLike_GetChangeLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_GetChangeLog_Call) RunAndReturn(run func(string) (*changelog.ChangeLog, bool)) *MockShardLike_GetChangeLog_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2787,6 +2961,52 @@ func (_c *MockShardLike_Shutdown_Call) Return(_a0 error) *MockShardLike_Shutdown
 }
 
 func (_c *MockShardLike_Shutdown_Call) RunAndReturn(run func(context.Context) error) *MockShardLike_Shutdown_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopChangeCapture provides a mock function with given fields: opID
+func (_m *MockShardLike) StopChangeCapture(opID string) error {
+	ret := _m.Called(opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopChangeCapture")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string) error); ok {
+		r0 = rf(opID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_StopChangeCapture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopChangeCapture'
+type MockShardLike_StopChangeCapture_Call struct {
+	*mock.Call
+}
+
+// StopChangeCapture is a helper method to define mock.On call
+//   - opID string
+func (_e *MockShardLike_Expecter) StopChangeCapture(opID interface{}) *MockShardLike_StopChangeCapture_Call {
+	return &MockShardLike_StopChangeCapture_Call{Call: _e.mock.On("StopChangeCapture", opID)}
+}
+
+func (_c *MockShardLike_StopChangeCapture_Call) Run(run func(opID string)) *MockShardLike_StopChangeCapture_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_StopChangeCapture_Call) Return(_a0 error) *MockShardLike_StopChangeCapture_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_StopChangeCapture_Call) RunAndReturn(run func(string) error) *MockShardLike_StopChangeCapture_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -321,6 +322,34 @@ func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.
 		return nil
 	}
 	return l.shard.getAsyncReplicationStats(ctx)
+}
+
+func (l *LazyLoadShard) ActivateChangeLog(opID string) (*changelog.ChangeLog, error) {
+	if err := l.Load(context.Background()); err != nil {
+		return nil, err
+	}
+	return l.shard.ActivateChangeLog(opID)
+}
+
+func (l *LazyLoadShard) FinalizeChangeLog(opID string) (uint64, error) {
+	if err := l.Load(context.Background()); err != nil {
+		return 0, err
+	}
+	return l.shard.FinalizeChangeLog(opID)
+}
+
+func (l *LazyLoadShard) StopChangeCapture(opID string) error {
+	if err := l.Load(context.Background()); err != nil {
+		return err
+	}
+	return l.shard.StopChangeCapture(opID)
+}
+
+func (l *LazyLoadShard) GetChangeLog(opID string) (*changelog.ChangeLog, bool) {
+	if err := l.Load(context.Background()); err != nil {
+		return nil, false
+	}
+	return l.shard.GetChangeLog(opID)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {

@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -491,6 +492,70 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	}
 
 	return shard.GetFile(ctx, relativeFilePath)
+}
+
+func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("incoming start change capture: get shard %q: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return fmt.Errorf("incoming start change capture: shard %q not found", shardName)
+	}
+	if _, err := shard.ActivateChangeLog(opID); err != nil {
+		return fmt.Errorf("incoming start change capture: activate op %q: %w", opID, err)
+	}
+	return nil
+}
+
+// IncomingGetChangeLog returns a tailer over the shard's active log. Caller
+// owns Close; the tailer has its own file handle and outlives the shard pin.
+func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string) (*changelog.Tailer, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("incoming get change log: get shard %q: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return nil, fmt.Errorf("incoming get change log: shard %q not found", shardName)
+	}
+	log, ok := shard.GetChangeLog(opID)
+	if !ok {
+		return nil, fmt.Errorf("incoming get change log: no active log for op %q on shard %q", opID, shardName)
+	}
+	return log.NewTailer(0)
+}
+
+func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return 0, fmt.Errorf("incoming finalize change log: get shard %q: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return 0, fmt.Errorf("incoming finalize change log: shard %q not found", shardName)
+	}
+	finalLSN, err := shard.FinalizeChangeLog(opID)
+	if err != nil {
+		return 0, fmt.Errorf("incoming finalize change log: op %q: %w", opID, err)
+	}
+	return finalLSN, nil
+}
+
+func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("incoming stop change capture: get shard %q: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return fmt.Errorf("incoming stop change capture: shard %q not found", shardName)
+	}
+	if err := shard.StopChangeCapture(opID); err != nil {
+		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
+	}
+	return nil
 }
 
 // IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.
