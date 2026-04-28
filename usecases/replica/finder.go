@@ -416,7 +416,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		})
 	}
 
-	localHostAddr, _ := f.nodeResolver.NodeHostname(localNodeName)
+	localHostAddr, ok := f.nodeResolver.NodeHostname(localNodeName)
+	if !ok {
+		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
+	}
 
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]

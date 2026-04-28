@@ -75,11 +75,11 @@ func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
 			retryer: newRetryer(),
 		},
 	}
-	// zstdEncoderPool reuses *zstd.Encoder instances across goroutines.
-	// A pool is required because zstd.Encoder is not safe for concurrent use:
-	// each caller acquires an exclusive encoder via Get, runs EncodeAll, then
-	// returns it with Put. New returns nil on failure; call sites guard with
-	// an ok+nil check and fall back to creating a fresh encoder.
+	// zstdEncoderPool amortizes *zstd.Encoder creation cost across calls.
+	// EncodeAll is safe for concurrent use on a single encoder, but allocating
+	// a fresh encoder on every RPC has measurable overhead; the pool reuses
+	// instances instead. New returns nil on failure; call sites guard with an
+	// ok+nil check and fall back to creating a fresh encoder.
 	c.zstdEncoderPool = sync.Pool{
 		New: func() any {
 			e, err := zstd.NewWriter(nil)
@@ -149,6 +149,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	req.Header.Set("X-Accept-Response-Encoding", "binary")
 
+	// No per-RPC retry: the async replication scheduler retries the full cycle
+	// on the next tick. Adding retries here would extend the per-shard context
+	// deadline without reducing overall repair latency.
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
