@@ -39,9 +39,13 @@ func (c *Copier) StartChangeCapture(ctx context.Context, srcNodeId, indexName, s
 }
 
 // TailAndApply streams the source log and replays each entry on the local
-// shard. Returns on io.EOF (log finalized and drained), ctx cancel, or fatal
-// recv/apply error. lastAppliedLSN reflects progress on error.
-func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardName, opID string) (lastAppliedLSN uint64, err error) {
+// shard. untilLSN is the inclusive upper bound on emitted LSNs; the stream
+// closes when lastApplied reaches untilLSN or the source seals the log,
+// whichever fires first. Pass a Snapshot LSN to drain a phase boundary
+// (the log keeps accepting writes), or finalLSN after FinalizeChangeLog to
+// drain the sealed tail. untilLSN=0 is a no-op for a quiet shard. Returns
+// on io.EOF, ctx cancel, or fatal recv/apply error.
+func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardName, opID string, untilLSN uint64) (lastAppliedLSN uint64, err error) {
 	client, err := c.dialSource(ctx, srcNodeId)
 	if err != nil {
 		return 0, err
@@ -51,6 +55,7 @@ func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardNa
 		IndexName: indexName,
 		ShardName: shardName,
 		OpId:      opID,
+		UntilLsn:  untilLSN,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("open change-log stream on %s: %w", srcNodeId, err)
@@ -65,6 +70,25 @@ func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardNa
 		return index.OverwriteObjectsFromChangeLog(ctx, shardName, batch)
 	}
 	return changelogdrain.Drain(ctx, stream, apply)
+}
+
+// SnapshotChangeLogLSN returns the source's current change-log LSN under a
+// brief shard quiesce. The log stays writable; pair with a capped
+// TailAndApply to drain a phase boundary without sealing.
+func (c *Copier) SnapshotChangeLogLSN(ctx context.Context, srcNodeId, indexName, shardName, opID string) (uint64, error) {
+	client, err := c.dialSource(ctx, srcNodeId)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := client.SnapshotChangeLogLSN(ctx, &protocol.SnapshotChangeLogLSNRequest{
+		IndexName: indexName,
+		ShardName: shardName,
+		OpId:      opID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("snapshot change-log LSN on %s: %w", srcNodeId, err)
+	}
+	return resp.Lsn, nil
 }
 
 // FinalizeChangeLog freezes the source log and returns its final LSN. The

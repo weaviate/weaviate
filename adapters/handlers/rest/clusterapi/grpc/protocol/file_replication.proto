@@ -24,6 +24,8 @@ service FileReplicationService {
 
   rpc GetChangeLog (GetChangeLogRequest) returns (stream ChangeLogStreamEntry);
 
+  rpc SnapshotChangeLogLSN (SnapshotChangeLogLSNRequest) returns (SnapshotChangeLogLSNResponse);
+
   rpc FinalizeChangeLog (FinalizeChangeLogRequest) returns (FinalizeChangeLogResponse);
 
   rpc StopChangeCapture (StopChangeCaptureRequest) returns (StopChangeCaptureResponse);
@@ -104,6 +106,26 @@ message GetChangeLogRequest {
   string index_name = 1;
   string shard_name = 2;
   string op_id = 3;
+  // Inclusive upper bound on emitted LSNs. The stream closes cleanly with
+  // io.EOF after lsn >= until_lsn (or when the log is finalized, whichever
+  // fires first), without sealing the log. until_lsn=0 emits no entries —
+  // a quiet shard's Snapshot returns 0 and the cap'd drain must not hang.
+  uint64 until_lsn = 4;
+}
+
+message SnapshotChangeLogLSNRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+}
+
+message SnapshotChangeLogLSNResponse {
+  string index_name = 1;
+  string shard_name = 2;
+  string op_id = 3;
+  // Captured under the shard's quiesce latch — a true upper bound on writes
+  // already past the bucket-write boundary. The log remains writable.
+  uint64 lsn = 4;
 }
 
 message ChangeLogStreamEntry {

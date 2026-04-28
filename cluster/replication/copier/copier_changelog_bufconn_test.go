@@ -13,6 +13,7 @@ package copier_test
 
 import (
 	"context"
+	"math"
 	"net"
 	"path/filepath"
 	"testing"
@@ -49,8 +50,12 @@ func (f *bufconnFakeIndex) IncomingStartChangeCapture(_ context.Context, _, _ st
 	return nil
 }
 
-func (f *bufconnFakeIndex) IncomingGetChangeLog(_ context.Context, _, _ string) (*changelog.Tailer, error) {
-	return f.log.NewTailer(0)
+func (f *bufconnFakeIndex) IncomingGetChangeLog(_ context.Context, _, _ string, untilLSN uint64) (*changelog.Tailer, error) {
+	return f.log.NewTailerWithCap(0, untilLSN)
+}
+
+func (f *bufconnFakeIndex) IncomingSnapshotChangeLogLSN(_ context.Context, _, _ string) (uint64, error) {
+	return f.log.LSN(), nil
 }
 
 func (f *bufconnFakeIndex) IncomingFinalizeChangeLog(_ context.Context, _, _ string) (uint64, error) {
@@ -79,11 +84,12 @@ type bufconnFixture struct {
 	applied []db.ChangeLogReplayEntry
 }
 
-func (fx *bufconnFixture) tailAndApply(ctx context.Context, opID string) (uint64, error) {
+func (fx *bufconnFixture) tailAndApply(ctx context.Context, opID string, untilLSN uint64) (uint64, error) {
 	stream, err := fx.pbConn.GetChangeLog(ctx, &protocol.GetChangeLogRequest{
 		IndexName: "ClassOne",
 		ShardName: "shard1",
 		OpId:      opID,
+		UntilLsn:  untilLSN,
 	})
 	if err != nil {
 		return 0, err
@@ -148,12 +154,18 @@ func newBufconnFixture(t *testing.T) *bufconnFixture {
 	return fx
 }
 
-func TestChangeCapture_EndToEnd(t *testing.T) {
+// End-to-end exercise of the single-log movement shape over the wire:
+// snapshot → cap'd drain → more writes → Finalize → un-cap'd drain. Catches
+// regressions where the cap'd drain blocks for Finalize, where
+// SnapshotChangeLogLSN seals the log, or where the second tailer fails to
+// resume past the cap.
+func TestChangeCapture_SingleLogMovementFlow(t *testing.T) {
 	fx := newBufconnFixture(t)
 
-	// Span a batch boundary to exercise mid-stream + EOF flushes.
-	const total = changelogdrain.BatchSize + 37
-	for i := 1; i <= total; i++ {
+	// Span a batch boundary so the cap'd drain exercises both mid-stream and
+	// EOF flushes inside changelogdrain.
+	const phase1 = changelogdrain.BatchSize + 7
+	for i := 1; i <= phase1; i++ {
 		var u [16]byte
 		u[0] = byte(i)
 		u[1] = byte(i >> 8)
@@ -161,38 +173,111 @@ func TestChangeCapture_EndToEnd(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	err := fx.copier.StartChangeCapture(context.Background(), "source", "ClassOne", "shard1", "op1")
+	require.NoError(t, fx.copier.StartChangeCapture(context.Background(),
+		"source", "ClassOne", "shard1", "op1"))
+
+	snap, err := fx.copier.SnapshotChangeLogLSN(context.Background(),
+		"source", "ClassOne", "shard1", "op1")
 	require.NoError(t, err)
+	require.Equal(t, uint64(phase1), snap)
 
-	drainDone := make(chan drainResult, 1)
-	go func() {
-		lastLSN, err := fx.tailAndApply(context.Background(), "op1")
-		drainDone <- drainResult{lastLSN: lastLSN, err: err}
-	}()
-
-	// Let the drain goroutine reach its blocked Recv before Finalize — turns
-	// the assertion below into a real wait-then-resume, not a race.
-	time.Sleep(20 * time.Millisecond)
-
-	finalLSN, err := fx.copier.FinalizeChangeLog(context.Background(), "source", "ClassOne", "shard1", "op1")
+	lastApplied, err := fx.tailAndApply(context.Background(), "op1", snap)
 	require.NoError(t, err)
-	require.Equal(t, uint64(total), finalLSN)
+	require.Equal(t, snap, lastApplied)
+	require.Equal(t, phase1, len(fx.applied))
 
-	select {
-	case res := <-drainDone:
-		require.NoError(t, res.err)
-		require.Equal(t, finalLSN, res.lastLSN)
-	case <-time.After(5 * time.Second):
-		t.Fatal("TailAndApply did not return after Finalize; possible stream leak")
+	// Post-snapshot writes must keep landing in the still-writable log.
+	const phase2 = 30
+	for i := phase1 + 1; i <= phase1+phase2; i++ {
+		var u [16]byte
+		u[0] = byte(i)
+		u[1] = byte(i >> 8)
+		_, err := fx.log.AppendPut(u, int64(1_000_000+i), []byte("payload"))
+		require.NoError(t, err)
 	}
 
-	require.Equal(t, total, len(fx.applied))
-	for i, entry := range fx.applied {
+	finalLSN, err := fx.copier.FinalizeChangeLog(context.Background(),
+		"source", "ClassOne", "shard1", "op1")
+	require.NoError(t, err)
+	require.Equal(t, uint64(phase1+phase2), finalLSN)
+
+	// Drain through finalLSN. The tailer opens a fresh stream from LSN 0, so
+	// phase-1 entries are re-applied; LWW handles this in production.
+	lastApplied, err = fx.tailAndApply(context.Background(), "op1", finalLSN)
+	require.NoError(t, err)
+	require.Equal(t, finalLSN, lastApplied)
+
+	require.Equal(t, phase1+int(finalLSN), len(fx.applied))
+	for i, entry := range fx.applied[:phase1] {
 		require.Equal(t, int64(1_000_000+int64(i+1)), entry.LastUpdateTimeUnixMilli,
-			"entry %d out of LSN order", i)
+			"phase1[%d] out of LSN order", i)
+	}
+	for i, entry := range fx.applied[phase1:] {
+		require.Equal(t, int64(1_000_000+int64(i+1)), entry.LastUpdateTimeUnixMilli,
+			"phase2 stream out of order at %d", i)
 	}
 
-	require.NoError(t, fx.copier.StopChangeCapture(context.Background(), "source", "ClassOne", "shard1", "op1"))
+	require.NoError(t, fx.copier.StopChangeCapture(context.Background(),
+		"source", "ClassOne", "shard1", "op1"))
+}
+
+// A cap'd drain on a wide-open log must EOF at the cap rather than block
+// waiting for Finalize.
+func TestChangeCapture_CappedDrainStopsAtCap(t *testing.T) {
+	fx := newBufconnFixture(t)
+
+	const total = 5
+	for i := 1; i <= total; i++ {
+		var u [16]byte
+		u[0] = byte(i)
+		_, err := fx.log.AppendPut(u, int64(i), []byte("x"))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, fx.copier.StartChangeCapture(context.Background(),
+		"source", "ClassOne", "shard1", "op1"))
+
+	const cap = 3
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	lastApplied, err := fx.tailAndApply(ctx, "op1", cap)
+	require.NoError(t, err)
+	require.Equal(t, uint64(cap), lastApplied)
+	require.Equal(t, cap, len(fx.applied))
+
+	// Cap must not have sealed: another append after the drain still works.
+	var u [16]byte
+	u[0] = byte(total + 1)
+	_, err = fx.log.AppendPut(u, int64(total+1), []byte("after-cap"))
+	require.NoError(t, err)
+
+	require.NoError(t, fx.copier.StopChangeCapture(context.Background(),
+		"source", "ClassOne", "shard1", "op1"))
+}
+
+// On a quiet shard (no writes between StartChangeCapture and the FINALIZING
+// boundary) Snapshot returns 0, and the consumer's cap'd drain must complete
+// rather than hang. Regression guard for the untilLSN=0 semantics.
+func TestChangeCapture_QuietShardSnapshotZeroCompletes(t *testing.T) {
+	fx := newBufconnFixture(t)
+
+	require.NoError(t, fx.copier.StartChangeCapture(context.Background(),
+		"source", "ClassOne", "shard1", "op1"))
+
+	snap, err := fx.copier.SnapshotChangeLogLSN(context.Background(),
+		"source", "ClassOne", "shard1", "op1")
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), snap)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	lastApplied, err := fx.tailAndApply(ctx, "op1", snap)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), lastApplied)
+	require.Empty(t, fx.applied)
+
+	require.NoError(t, fx.copier.StopChangeCapture(context.Background(),
+		"source", "ClassOne", "shard1", "op1"))
 }
 
 // TestChangeCapture_CancelMidTail guards against a handler leaking the tailer
@@ -213,7 +298,9 @@ func TestChangeCapture_CancelMidTail(t *testing.T) {
 
 	drainDone := make(chan drainResult, 1)
 	go func() {
-		lastLSN, err := fx.tailAndApply(ctx, "op1")
+		// Effectively-unbounded cap so the tailer drains the 3 entries and
+		// then blocks on the next Recv, ready for cancel to unblock it.
+		lastLSN, err := fx.tailAndApply(ctx, "op1", math.MaxUint64)
 		drainDone <- drainResult{lastLSN: lastLSN, err: err}
 	}()
 

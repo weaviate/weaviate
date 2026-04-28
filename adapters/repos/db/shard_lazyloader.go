@@ -331,6 +331,13 @@ func (l *LazyLoadShard) ActivateChangeLog(opID string) (*changelog.ChangeLog, er
 	return l.shard.ActivateChangeLog(opID)
 }
 
+func (l *LazyLoadShard) SnapshotChangeLogLSN(opID string) (uint64, error) {
+	if err := l.Load(context.Background()); err != nil {
+		return 0, err
+	}
+	return l.shard.SnapshotChangeLogLSN(opID)
+}
+
 func (l *LazyLoadShard) FinalizeChangeLog(opID string) (uint64, error) {
 	if err := l.Load(context.Background()); err != nil {
 		return 0, err

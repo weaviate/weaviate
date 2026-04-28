@@ -2965,6 +2965,62 @@ func (_c *MockShardLike_Shutdown_Call) RunAndReturn(run func(context.Context) er
 	return _c
 }
 
+// SnapshotChangeLogLSN provides a mock function with given fields: opID
+func (_m *MockShardLike) SnapshotChangeLogLSN(opID string) (uint64, error) {
+	ret := _m.Called(opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SnapshotChangeLogLSN")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (uint64, error)); ok {
+		return rf(opID)
+	}
+	if rf, ok := ret.Get(0).(func(string) uint64); ok {
+		r0 = rf(opID)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_SnapshotChangeLogLSN_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SnapshotChangeLogLSN'
+type MockShardLike_SnapshotChangeLogLSN_Call struct {
+	*mock.Call
+}
+
+// SnapshotChangeLogLSN is a helper method to define mock.On call
+//   - opID string
+func (_e *MockShardLike_Expecter) SnapshotChangeLogLSN(opID interface{}) *MockShardLike_SnapshotChangeLogLSN_Call {
+	return &MockShardLike_SnapshotChangeLogLSN_Call{Call: _e.mock.On("SnapshotChangeLogLSN", opID)}
+}
+
+func (_c *MockShardLike_SnapshotChangeLogLSN_Call) Run(run func(opID string)) *MockShardLike_SnapshotChangeLogLSN_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_SnapshotChangeLogLSN_Call) Return(_a0 uint64, _a1 error) *MockShardLike_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_SnapshotChangeLogLSN_Call) RunAndReturn(run func(string) (uint64, error)) *MockShardLike_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // StopChangeCapture provides a mock function with given fields: opID
 func (_m *MockShardLike) StopChangeCapture(opID string) error {
 	ret := _m.Called(opID)

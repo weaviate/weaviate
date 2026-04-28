@@ -68,6 +68,19 @@ func (s *Shard) FinalizeChangeLog(opID string) (uint64, error) {
 	return log.Finalize()
 }
 
+// SnapshotChangeLogLSN returns the highest LSN under the same brief quiesce
+// as FinalizeChangeLog, but does not seal — the log keeps accepting writes.
+// Pairs with a capped tailer to drain a phase boundary mid-movement.
+func (s *Shard) SnapshotChangeLogLSN(opID string) (uint64, error) {
+	log := s.changeLogs.Load().Get(opID)
+	if log == nil {
+		return 0, errNoSuchChangeLog
+	}
+	s.quiesceMux.Lock()
+	defer s.quiesceMux.Unlock()
+	return log.LSN(), nil
+}
+
 func (s *Shard) StopChangeCapture(opID string) error {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {

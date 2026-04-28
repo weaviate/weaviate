@@ -45,7 +45,10 @@ type ReplicaCopier interface {
 	StartChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error
 
 	// TailAndApply see cluster/replication/copier.Copier.TailAndApply
-	TailAndApply(ctx context.Context, srcNodeId, indexName, shardName, opID string) (lastAppliedLSN uint64, err error)
+	TailAndApply(ctx context.Context, srcNodeId, indexName, shardName, opID string, untilLSN uint64) (lastAppliedLSN uint64, err error)
+
+	// SnapshotChangeLogLSN see cluster/replication/copier.Copier.SnapshotChangeLogLSN
+	SnapshotChangeLogLSN(ctx context.Context, srcNodeId, indexName, shardName, opID string) (uint64, error)
 
 	// FinalizeChangeLog see cluster/replication/copier.Copier.FinalizeChangeLog
 	FinalizeChangeLog(ctx context.Context, srcNodeId, indexName, shardName, opID string) (uint64, error)

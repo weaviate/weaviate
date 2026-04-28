@@ -511,7 +511,8 @@ func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID 
 
 // IncomingGetChangeLog returns a tailer over the shard's active log. Caller
 // owns Close; the tailer has its own file handle and outlives the shard pin.
-func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string) (*changelog.Tailer, error) {
+// untilLSN is the inclusive upper bound on emitted LSNs.
+func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("incoming get change log: get shard %q: %w", shardName, err)
@@ -524,7 +525,25 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 	if !ok {
 		return nil, fmt.Errorf("incoming get change log: no active log for op %q on shard %q", opID, shardName)
 	}
-	return log.NewTailer(0)
+	return log.NewTailerWithCap(0, untilLSN)
+}
+
+// IncomingSnapshotChangeLogLSN returns the current LSN under the same
+// quiesce as Finalize, but without sealing the log.
+func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return 0, fmt.Errorf("incoming snapshot change-log LSN: get shard %q: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return 0, fmt.Errorf("incoming snapshot change-log LSN: shard %q not found", shardName)
+	}
+	lsn, err := shard.SnapshotChangeLogLSN(opID)
+	if err != nil {
+		return 0, fmt.Errorf("incoming snapshot change-log LSN: op %q: %w", opID, err)
+	}
+	return lsn, nil
 }
 
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {

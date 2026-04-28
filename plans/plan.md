@@ -144,9 +144,10 @@ Source-side RPCs (all added to `FileReplicationService`):
 |---|---|---|
 | `StartChangeCapture(index, shard, op_id)` | Source receives it from the target-side consumer before file listing. Under `backupLock.Lock(shard)`: opportunistically sweep the shard's `changelog/` directory of any `.log` files whose op-id is not currently registered (covers orphans left by prior failed movements on a long-lived HOT shard — see "Orphan cleanup" below), flush memtable, create log file + counter (snapshotLSN = 0), register it in `shard.changeLogs`. Returns `{op_id, snapshot_lsn}`. |
 | `ListFiles` | Unchanged — `FlushMemtables` is idempotent. Log already active. |
-| `GetChangeLog(index, shard, op_id) → stream ChangeLogStreamEntry` | Target tails from the beginning. Server blocks on `cond.Wait` when no new entries; on each Append the producer wakes the streamer. Closes when finalized AND `lastSentLSN >= finalLSN`. |
-| `FinalizeChangeLog(index, shard, op_id) → {final_lsn}` | Acquires a **per-shard write-quiesce latch** (new), takes `cl.mu`, sets `cl.finalized = true`, snapshots `final_lsn = cl.lsn`, broadcasts. Writes attempting to append after finalize return `ErrLogFinalized`; the quiesce latch returns `storagestate.ErrStatusReadOnly`-style error to clients, who retry against the cluster (which by now has the target in the replica set via RAFT). Expected duration: milliseconds. |
-| `StopChangeCapture(index, shard, op_id)` | Close fd, remove file, deregister from `shard.changeLogs`, release the quiesce latch. |
+| `GetChangeLog(index, shard, op_id, until_lsn) → stream ChangeLogStreamEntry` | Target tails from the beginning. Server blocks on `cond.Wait` when no new entries; on each Append the producer wakes the streamer. `until_lsn` is the inclusive upper bound on emitted LSNs — the stream closes with `io.EOF` when `lastSentLSN >= until_lsn` (cap-driven) or when finalized and drained through `finalLSN` (Finalize-driven), whichever fires first. `until_lsn=0` emits no entries (essential for the quiet-shard case where `SnapshotChangeLogLSN` returns 0). |
+| `SnapshotChangeLogLSN(index, shard, op_id) → {lsn}` | Acquires the per-shard write-quiesce latch briefly (same as Finalize), reads `cl.lsn` under `cl.mu`, releases. Returns the highest LSN currently assigned. The log remains writable; subsequent writes get LSNs > the returned value. The consumer pairs this with `GetChangeLog(... until_lsn=N)` to get a synchronous "drain up to here" semantic without sealing. Expected duration: milliseconds. |
+| `FinalizeChangeLog(index, shard, op_id) → {final_lsn}` | Acquires the per-shard write-quiesce latch, takes `cl.mu`, sets `cl.finalized = true`, snapshots `final_lsn = cl.lsn`, broadcasts. Writes attempting to append after finalize return `ErrLogFinalized`. Idempotent: a second call on an already-finalized log returns the same `final_lsn` and no error. Expected duration: milliseconds. |
+| `StopChangeCapture(index, shard, op_id)` | Close fd, remove file, deregister from `shard.changeLogs`. No-op for an unknown opID. |
 
 Activation is *driven by the target-side consumer in `processHydratingOp`* immediately before `CopyReplicaFiles`. Concretely: the consumer calls a new copier method `StartChangeCapture` which wraps the RPC to the source. Then `CopyReplicaFiles` proceeds unchanged; the file snapshot is captured with the log already active, so `snapshotLSN = 0` and every post-listing write lands in the log.
 
@@ -217,91 +218,86 @@ No `RepairResponse` return — disk errors bubble up and abort the movement. Unl
 
 ## State machine integration
 
-### `processHydratingOp` (new prefix)
+A single op-id (`op.Op.ID`) names the change-capture log for the entire movement lifecycle. The log is sealed only by the final `FinalizeChangeLog` call (in FINALIZING for COPY, in DEHYDRATING for MOVE). Phase boundaries that need a synchronous drain converge via `SnapshotChangeLogLSN` + `TailAndApply(... untilLSN: N)` against a still-writable log. This avoids the FINALIZING→DEHYDRATING write-loss window that a one-shot Finalize would otherwise introduce; see plans/architecture.md §5 for the lifecycle picture.
 
-Before `CopyReplicaFiles`: call `replicaCopier.StartChangeCapture(ctx, srcNode, collection, shard, opID)`. Then proceed unchanged. `snapshotLSN` is implicit (0) and tracked by the tailer.
+### `processHydratingOp`
 
-### `processFinalizingOp` — full replacement of lines 628–666
+Before `CopyReplicaFiles`: call `replicaCopier.StartChangeCapture(ctx, srcNode, collection, shard, opID)`. Then proceed unchanged. On any error after a successful Start, defer `StopChangeCapture` so a HYDRATING retry begins from a clean slate (the log file would otherwise collide via `O_CREATE|O_EXCL`).
 
-The consumer uses the 4-primitive copier API (`StartChangeCapture`, `TailAndApply`, `FinalizeChangeLog`, `StopChangeCapture`). There is no threshold-based catch-up primitive; the stream terminates deterministically on server-side `io.EOF` (which the server emits once the tailer has drained through finalLSN).
+### `processFinalizingOp`
+
+The consumer uses the 5-primitive copier API: `StartChangeCapture`, `SnapshotChangeLogLSN`, `TailAndApply` (with optional `untilLSN`), `FinalizeChangeLog`, `StopChangeCapture`. The cap'd-drain step in FINALIZING converges synchronously without sealing the log; for COPY it is followed by a Finalize-driven drain so the log can be cleanly stopped.
 
 ```go
-// Start a drain goroutine. TailAndApply blocks until io.EOF (log finalized
-// and drained through finalLSN), ctx is cancelled, or a fatal error occurs.
-drainCtx, cancelDrain := context.WithCancel(ctx)
-drainDone := make(chan error, 1)
-enterrors.GoWrapper(func() {
-    _, err := c.replicaCopier.TailAndApply(drainCtx, src, coll, shard, op.Op.ID)
-    drainDone <- err
-}, c.logger)
+opID := string(op.Op.ID)
 
-// Commit target to sharding state via RAFT. After this, incoming writes
-// double-write to the target (log + normal 2PC path). The LWW check on the
-// replay side keeps older log entries from overwriting newer local state.
+// Snapshot the FINALIZING phase boundary. The log stays writable; later
+// writes get LSNs > snap.
 if !replicaExists {
-    if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, ...); err != nil { cancelDrain; <-drainDone; return "", err }
+    if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, ...); err != nil { return "", err }
 }
+snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
+if err != nil { return "", err }
 
-// Freeze the log. Once this returns, no new entries will be appended and the
-// server-side tailer will hit io.EOF as soon as it drains through finalLSN.
-if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, op.Op.ID); err != nil {
-    cancelDrain; <-drainDone; return "", err
-}
-
-// Wait for the drain goroutine to observe io.EOF.
-if err := <-drainDone; err != nil { return "", err }
+// Synchronous cap'd drain — converges when target has applied every entry
+// up to snap. Does not seal the log.
+if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, snap); err != nil { return "", err }
 
 switch op.Op.TransferType {
 case api.COPY:
-    if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, op.Op.ID); err != nil { ... }
+    // Seal and drain to io.EOF. Catches any writes that arrived between
+    // SnapshotLSN and Finalize.
+    if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil { return "", err }
+    if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, 0); err != nil { return "", err }
+    if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil { /* warn-only */ }
     if err := c.sync(ctx, op); err != nil { return "", err }
     return api.READY, nil
 case api.MOVE:
-    // Do NOT stop the log here. DEHYDRATING will activate a fresh op and
-    // finalize/drain again after DeleteReplicaFromShard has propagated.
+    // Do NOT seal — the log must keep capturing writes during the
+    // FINALIZING→DEHYDRATING transition (RAFT-propagation window). The same
+    // log carries through into DEHYDRATING with the same op-id.
     return api.DEHYDRATING, nil
 }
 ```
 
-During the window between RAFT-add and drain-complete, the target may receive the same logical write on both channels (the log replay and the normal 2PC path). The strict-`>` LWW check on the replay side prevents older log entries from clobbering newer local state established via normal replication. Beyond that, writes during the window are subject to whatever semantics Weaviate's existing leaderless-2PC path provides for concurrent writes — this PR does not change those semantics.
+During the window between RAFT-add and drain-complete, the target may receive the same logical write via both the log replay and the normal 2PC path. The strict-`>` LWW check on the replay side prevents older log entries from clobbering newer local state established via 2PC.
 
-### `processDehydratingOp` — full replacement of lines 697–736
+### `processDehydratingOp`
 
-Same drain-goroutine-plus-Finalize pattern as FINALIZING, with a fresh op activated at the start of DEHYDRATING:
+Same single log; different convergence point. RAFT-delete the source, then seal and drain to `io.EOF`.
 
 ```go
-// Activate a fresh log window for the DEHYDRATING phase. The source is still
-// in the sharding state and can still receive writes during RAFT propagation.
-if err := c.replicaCopier.StartChangeCapture(ctx, src, coll, shard, op.Op.ID+"-dehydrate"); err != nil { ... }
+opID := string(op.Op.ID)
 
-drainCtx, cancelDrain := context.WithCancel(ctx)
-drainDone := make(chan error, 1)
-enterrors.GoWrapper(func() {
-    _, err := c.replicaCopier.TailAndApply(drainCtx, src, coll, shard, op.Op.ID+"-dehydrate")
-    drainDone <- err
-}, c.logger)
+// Remove source from the sharding state.
+if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, ...); err != nil { return "", err }
 
-// Remove source from sharding state. After RAFT propagates, source stops
-// receiving writes.
-if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, ...); err != nil { cancelDrain; <-drainDone; return "", err }
+// Seal the still-active log. Stale-FSM coordinator writes that landed
+// between FINALIZING-end and now were captured by the live log; this Finalize
+// closes that window.
+if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil { return "", err }
 
-// Finalize the log. Once io.EOF arrives on the drain goroutine we know we
-// have applied every entry the source ever committed into this log.
-if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, op.Op.ID+"-dehydrate"); err != nil { cancelDrain; <-drainDone; return "", err }
+// Drain to io.EOF.
+if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, 0); err != nil { return "", err }
 
-if err := <-drainDone; err != nil { return "", err }
-
-if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, op.Op.ID+"-dehydrate"); err != nil { ... }
+if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil { /* warn-only */ }
 if err := c.sync(ctx, op); err != nil { return "", err }
 return api.READY, nil
 ```
 
-Note the COPY-vs-MOVE asymmetry: FINALIZING-COPY finalizes before the dual-write window because target is already write-visible via RAFT; FINALIZING-MOVE defers DEHYDRATING teardown so a fresh log can catch in-flight writes that arrive during RAFT propagation.
+### Cleanup-on-error policy
+
+Vary by handler:
+
+- HYDRATING errors call `StopChangeCapture` (lose pending entries; next retry starts fresh — fine because the file copy will be redone too).
+- FINALIZING and DEHYDRATING errors do NOT call Stop. The source log must persist so the next attempt can re-tail; LWW on the target makes re-application of already-applied entries safe. The drain returns are synchronous in this single-log design, so there is no drain goroutine to wait on.
 
 ### What is removed
 
-- `startAsyncReplication` and `waitForAsyncReplication` calls inside `processFinalizingOp` and `processDehydratingOp`. The helper functions remain (they are used by the non-movement async replication path via other call sites in the shard package).
-- `asyncReplicationUpperTimeBoundUnixMillis` and the `asyncReplicationMinimumWait` fetch in those two functions.
+- `startAsyncReplication`, `waitForAsyncReplication`, `stopAsyncReplication`, and `handleAsyncReplErr` helpers in `consumer.go` are deleted (no non-movement callers exist).
+- `asyncReplicationUpperTimeBoundUnixMillis` and the `asyncReplicationMinimumWait` fetches go away with them.
+- The `asyncReplicationMinimumWait *runtime.DynamicValue[time.Duration]` field is removed from `CopyOpConsumer`, and the matching parameter from `NewCopyOpConsumer` (touches 12 call sites: `cluster/service.go`, plus 11 in `consumer_test.go` and `producer_consumer_test.go`).
+- The lower-level `replicaCopier` async-replication methods (`InitAsyncReplicationLocally`, `AddAsyncReplicationTargetNode`, etc.) stay — they are still used by the non-movement async-replication path.
 
 ## Concrete files
 
@@ -310,7 +306,7 @@ Note the COPY-vs-MOVE asymmetry: FINALIZING-COPY finalizes before the dual-write
 - `cluster/replication/changelog/log.go` — `ChangeLog` struct, `Set`, `Activate`, `AppendPut`, `AppendDelete`, `Finalize`, `Deactivate`, `Tail`, `offsetIndex`.
 - `cluster/replication/changelog/entry.go` — `Entry`, `Encode`, `DecodeFrame`, CRC helpers. Uses `usecases/byteops`.
 - `cluster/replication/changelog/log_test.go` — encode/decode roundtrip, CRC mismatch, torn frame at tail, concurrent append monotonicity, finalize-then-append-errors, tailer cond wake-up.
-- `cluster/replication/copier/copier_changelog.go` — 4 client primitives: `StartChangeCapture`, `TailAndApply`, `FinalizeChangeLog`, `StopChangeCapture`. `TailAndApply` blocks until the server stream hits `io.EOF`, ctx is cancelled, or a fatal error occurs. No `ReplayUntilCaughtUp`, no `ReplayUntilLSN`, no threshold. Delegates decoding to the `changelog` package; delegates replay to `Index.OverwriteObjectsFromChangeLog`.
+- `cluster/replication/copier/copier_changelog.go` — 5 client primitives: `StartChangeCapture`, `TailAndApply(ctx, ..., untilLSN uint64)`, `SnapshotChangeLogLSN`, `FinalizeChangeLog`, `StopChangeCapture`. `TailAndApply` blocks until the server stream hits `io.EOF` (Finalize-driven when `untilLSN=0`, cap-driven when `untilLSN>0`), ctx is cancelled, or a fatal error occurs. Delegates decoding/batching to `cluster/replication/copier/internal/changelogdrain`; delegates replay to `Index.OverwriteObjectsFromChangeLog`.
 
 ### Modified
 
@@ -321,11 +317,17 @@ Note the COPY-vs-MOVE asymmetry: FINALIZING-COPY finalizes before the dual-write
 - `adapters/repos/db/shard_read.go` — tee inside `batchDeleteObject` after bucket delete.
 - `adapters/repos/db/replication.go`:
   - Add `OverwriteObjectsFromChangeLog`.
-  - Add `IncomingStartChangeCapture`, `IncomingGetChangeLog` (server-stream adapter), `IncomingFinalizeChangeLog`, `IncomingStopChangeCapture`.
-- `cluster/replication/consumer.go` — rewrite `processHydratingOp`, `processFinalizingOp`, `processDehydratingOp` per the flows above. `startAsyncReplication` / `waitForAsyncReplication` / `stopAsyncReplication` are no longer called from these three functions.
-- `adapters/handlers/rest/clusterapi/grpc/protocol/file_replication.proto` — add RPCs (`StartChangeCapture`, `GetChangeLog`, `FinalizeChangeLog`, `StopChangeCapture`) and messages (`StartChangeCaptureRequest/Response`, `GetChangeLogRequest`, `ChangeLogStreamEntry`, `FinalizeChangeLogRequest/Response`, `StopChangeCaptureRequest/Response`).
-- `adapters/handlers/rest/clusterapi/grpc/file_replication_service.go` — add handlers. `GetChangeLog` follows the `GetFile` streaming pattern (line 130 onward).
+  - Add `IncomingStartChangeCapture`, `IncomingGetChangeLog(ctx, shardName, opID, untilLSN)` (server-stream adapter, plumbing the `until_lsn` cap), `IncomingSnapshotChangeLogLSN`, `IncomingFinalizeChangeLog`, `IncomingStopChangeCapture`.
+- `usecases/sharding/remote_index_incoming.go` — extend `RemoteIndexIncomingRepo` interface with `IncomingSnapshotChangeLogLSN` and the `untilLSN` parameter on `IncomingGetChangeLog`.
+- `cluster/replication/changelog/tailer.go` — add `untilLSN` field on `Tailer`; new constructor `(*ChangeLog).NewTailerWithCap(fromLSN, untilLSN uint64)`; `Tailer.Next` returns `io.EOF` once `lastLSN >= untilLSN` (cap-driven), independent of finalize-driven EOF.
+- `adapters/repos/db/shard_changelog.go` — add `Shard.SnapshotChangeLogLSN`. Mirrors `FinalizeChangeLog`'s upper-bound guarantee but does not seal.
+- `adapters/repos/db/shard.go` and `shard_lazyloader.go` — extend `ShardLike` interface to include `SnapshotChangeLogLSN`.
+- `cluster/replication/consumer.go` — rewrite `processHydratingOp`, `processFinalizingOp`, `processDehydratingOp` per the single-log flows above. Delete `startAsyncReplication` / `waitForAsyncReplication` / `stopAsyncReplication` / `handleAsyncReplErr` and the `asyncReplicationMinimumWait` field+parameter (no non-movement callers).
+- `cluster/service.go` and the consumer's test files — drop the `asyncReplicationMinimumWait` argument from the 12 `NewCopyOpConsumer` call sites.
+- `adapters/handlers/rest/clusterapi/grpc/protocol/file_replication.proto` — add RPCs (`StartChangeCapture`, `GetChangeLog` with new `until_lsn uint64`, `SnapshotChangeLogLSN`, `FinalizeChangeLog`, `StopChangeCapture`) and messages.
+- `adapters/handlers/rest/clusterapi/grpc/file_replication_service.go` — add 5 handlers; `GetChangeLog` plumbs `req.UntilLsn` to `IncomingGetChangeLog`.
 - `adapters/handlers/rest/clusterapi/grpc/generated/protocol/*.pb.go` — regenerated via `make grpc` (do not hand-edit).
+- `cluster/replication/types/replica_copier.go` — extend `ReplicaCopier` interface with `SnapshotChangeLogLSN` and the `untilLSN` parameter on `TailAndApply`. Mocks regenerated via `make mocks`.
 - `test/acceptance/replication/replica_replication/fast/replica_replication_test.go` — uncomment `TestReplicaMovementTenantParallelWrites` (line 443), remove the `REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT=10s` env (no longer meaningful for movement catchup).
 
 ## Code primitives to reuse (do not re-implement)

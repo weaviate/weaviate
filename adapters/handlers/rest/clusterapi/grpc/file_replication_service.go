@@ -198,7 +198,7 @@ func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, str
 		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
 	}
 
-	tailer, err := index.IncomingGetChangeLog(stream.Context(), req.ShardName, req.OpId)
+	tailer, err := index.IncomingGetChangeLog(stream.Context(), req.ShardName, req.OpId, req.UntilLsn)
 	if err != nil {
 		return status.Errorf(codes.Internal, "open change-log tailer for index %q, shard %q, op %q: %v",
 			req.IndexName, req.ShardName, req.OpId, err)
@@ -224,6 +224,26 @@ func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, str
 			return err
 		}
 	}
+}
+
+func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req *pb.SnapshotChangeLogLSNRequest) (*pb.SnapshotChangeLogLSNResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	lsn, err := index.IncomingSnapshotChangeLogLSN(ctx, req.ShardName, req.OpId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "snapshot change-log LSN for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.SnapshotChangeLogLSNResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+		Lsn:       lsn,
+	}, nil
 }
 
 func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *pb.FinalizeChangeLogRequest) (*pb.FinalizeChangeLogResponse, error) {

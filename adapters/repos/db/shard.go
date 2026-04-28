@@ -185,6 +185,8 @@ type ShardLike interface {
 	// ActivateChangeLog registers a change-capture log under opID and returns
 	// it for in-process callers.
 	ActivateChangeLog(opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(opID string) (uint64, error)
 	// FinalizeChangeLog freezes the log and returns its final LSN.
 	FinalizeChangeLog(opID string) (uint64, error)
 	// StopChangeCapture unregisters and deactivates the log, removing its file.

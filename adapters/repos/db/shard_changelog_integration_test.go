@@ -340,3 +340,74 @@ func TestShard_ChangeLog_ActivateSweepsOrphans(t *testing.T) {
 	require.NoError(t, shard.StopChangeCapture("op-live"))
 	require.NoError(t, shard.StopChangeCapture("op-new"))
 }
+
+// SnapshotChangeLogLSN must reflect every committed append AND keep the log
+// writable past the snapshot — the single-log movement design relies on
+// "drain up to N" without sealing.
+func TestShard_SnapshotChangeLogLSN_ReflectsAppendsAndStaysWritable(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+
+	_, err := shard.ActivateChangeLog("op-snapshot")
+	require.NoError(t, err)
+
+	const before = 4
+	for i := range before {
+		require.NoError(t, shard.PutObject(ctx,
+			changelogTestObject(uuid.NewString(), "x", int64(1_000+i))))
+	}
+
+	snap, err := shard.SnapshotChangeLogLSN("op-snapshot")
+	require.NoError(t, err)
+	require.Equal(t, uint64(before), snap, "snapshot must reflect all committed appends")
+
+	// Log is still writable: subsequent appends get LSNs > snap.
+	require.NoError(t, shard.PutObject(ctx,
+		changelogTestObject(uuid.NewString(), "after-snap", 9_999)))
+	finalLSN, err := shard.FinalizeChangeLog("op-snapshot")
+	require.NoError(t, err)
+	require.Equal(t, uint64(before+1), finalLSN, "writes after snapshot must keep advancing the LSN")
+
+	require.NoError(t, shard.StopChangeCapture("op-snapshot"))
+}
+
+// Unknown op-id must error rather than return zero — otherwise a typo from
+// the gRPC layer would surface as a successful "snapshot" of LSN 0.
+func TestShard_SnapshotChangeLogLSN_NoSuchLog(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+
+	_, err := shard.SnapshotChangeLogLSN("op-never-activated")
+	require.Error(t, err)
+	require.ErrorIs(t, err, errNoSuchChangeLog)
+}
+
+// Snapshot post-Finalize must be a pure read of finalLSN — retries on the
+// consumer side may legitimately observe a finalized log.
+func TestShard_SnapshotChangeLogLSN_AfterFinalize(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+
+	_, err := shard.ActivateChangeLog("op-after-final")
+	require.NoError(t, err)
+
+	const k = 3
+	for i := range k {
+		require.NoError(t, shard.PutObject(ctx,
+			changelogTestObject(uuid.NewString(), "x", int64(i+1))))
+	}
+	finalLSN, err := shard.FinalizeChangeLog("op-after-final")
+	require.NoError(t, err)
+	require.Equal(t, uint64(k), finalLSN)
+
+	snap, err := shard.SnapshotChangeLogLSN("op-after-final")
+	require.NoError(t, err)
+	require.Equal(t, finalLSN, snap)
+
+	// And again, to confirm it is purely a read.
+	snap2, err := shard.SnapshotChangeLogLSN("op-after-final")
+	require.NoError(t, err)
+	require.Equal(t, finalLSN, snap2)
+
+	require.NoError(t, shard.StopChangeCapture("op-after-final"))
+}

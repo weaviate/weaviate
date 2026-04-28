@@ -191,6 +191,167 @@ func TestChangeLog_Finalize_TailerDrainsAndEOFs(t *testing.T) {
 	require.Equal(t, finalLSN, again)
 }
 
+// Capped tailer must EOF at the cap without sealing — the drain-up-to-N
+// pattern depends on the producer staying writable past the cap.
+func TestChangeLog_TailerUntilLSN_StopsAtCap(t *testing.T) {
+	const cap = 5
+	const total = cap + 5
+	cl := newLog(t)
+
+	for i := range total {
+		_, err := cl.AppendPut(uuidForSeq(uint64(i+1)), int64(i), []byte("x"))
+		require.NoError(t, err)
+	}
+
+	tailer, err := cl.NewTailerWithCap(0, cap)
+	require.NoError(t, err)
+	defer tailer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := uint64(1); i <= cap; i++ {
+		e, err := tailer.Next(ctx)
+		require.NoError(t, err)
+		require.Equal(t, i, e.LSN)
+	}
+	_, err = tailer.Next(ctx)
+	require.ErrorIs(t, err, io.EOF)
+
+	// Log is still writable — cap does not seal.
+	_, err = cl.AppendPut(uuidForSeq(uint64(total+1)), 0, []byte("after-cap"))
+	require.NoError(t, err)
+}
+
+func TestChangeLog_TailerUntilLSN_BlocksUntilLSNReached(t *testing.T) {
+	const cap = 3
+	cl := newLog(t)
+	logger, _ := logrustest.NewNullLogger()
+
+	tailer, err := cl.NewTailerWithCap(0, cap)
+	require.NoError(t, err)
+	defer tailer.Close()
+
+	type result struct {
+		entries []*changelog.Entry
+		err     error
+	}
+	resCh := make(chan result, 1)
+	enterrors.GoWrapper(func() {
+		var got []*changelog.Entry
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for {
+			e, err := tailer.Next(ctx)
+			if err != nil {
+				resCh <- result{got, err}
+				return
+			}
+			got = append(got, e)
+		}
+	}, logger)
+
+	// Tailer should be blocked.
+	time.Sleep(20 * time.Millisecond)
+	for i := uint64(1); i <= cap; i++ {
+		_, err := cl.AppendPut(uuidForSeq(i), int64(i), []byte("x"))
+		require.NoError(t, err)
+	}
+
+	select {
+	case res := <-resCh:
+		require.ErrorIs(t, res.err, io.EOF)
+		require.Len(t, res.entries, int(cap))
+		for i, e := range res.entries {
+			require.Equal(t, uint64(i+1), e.LSN)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("capped tailer did not EOF after producer reached cap")
+	}
+}
+
+// If the cap is unreachable (finalLSN < cap), the tailer must hit the
+// finalize EOF rather than spin forever.
+func TestChangeLog_TailerUntilLSN_RespectsFinalizeFirst(t *testing.T) {
+	const cap = 100
+	const total = 5
+	cl := newLog(t)
+
+	for i := range total {
+		_, err := cl.AppendPut(uuidForSeq(uint64(i+1)), int64(i), []byte("x"))
+		require.NoError(t, err)
+	}
+	finalLSN, err := cl.Finalize()
+	require.NoError(t, err)
+	require.Equal(t, uint64(total), finalLSN)
+
+	tailer, err := cl.NewTailerWithCap(0, cap)
+	require.NoError(t, err)
+	defer tailer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for i := uint64(1); i <= total; i++ {
+		e, err := tailer.Next(ctx)
+		require.NoError(t, err)
+		require.Equal(t, i, e.LSN)
+	}
+	_, err = tailer.Next(ctx)
+	require.ErrorIs(t, err, io.EOF)
+}
+
+// untilLSN=0 must EOF immediately — Phase 5 calls TailAndApply with the
+// snapshot LSN as the cap, and a quiet shard returns snap=0. If 0 instead
+// meant "no cap" the cap'd drain would block forever.
+func TestChangeLog_TailerUntilLSN_ZeroEOFsImmediately(t *testing.T) {
+	cl := newLog(t)
+
+	tailer, err := cl.NewTailerWithCap(0, 0)
+	require.NoError(t, err)
+	defer tailer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err = tailer.Next(ctx)
+	require.ErrorIs(t, err, io.EOF)
+}
+
+// NewTailer must remain effectively unbounded — pre-cap callers (and tests
+// that drain until Finalize) rely on the tailer not EOFing at LSN 0.
+func TestChangeLog_NewTailer_UnboundedUntilFinalize(t *testing.T) {
+	const total = 3
+	cl := newLog(t)
+
+	tailer, err := cl.NewTailer(0)
+	require.NoError(t, err)
+	defer tailer.Close()
+
+	for i := range total {
+		_, err := cl.AppendPut(uuidForSeq(uint64(i+1)), int64(i), []byte("x"))
+		require.NoError(t, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for i := uint64(1); i <= total; i++ {
+		e, err := tailer.Next(ctx)
+		require.NoError(t, err)
+		require.Equal(t, i, e.LSN)
+	}
+
+	// Drained but not finalized — Next must block, not EOF.
+	blockCtx, blockCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer blockCancel()
+	_, err = tailer.Next(blockCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	_, err = cl.Finalize()
+	require.NoError(t, err)
+	_, err = tailer.Next(ctx)
+	require.ErrorIs(t, err, io.EOF)
+}
+
 // TestChangeLog_TailerCancellation covers the two non-EOF escape hatches a
 // blocked tailer needs to honor: ctx cancellation and Deactivate.
 func TestChangeLog_TailerCancellation(t *testing.T) {

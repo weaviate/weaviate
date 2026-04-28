@@ -216,8 +216,9 @@ has every write because the source reports the final LSN explicitly.
 
 ## 6. Cross-node wire protocol
 
-Phase 4 adds four RPCs to the existing `FileReplicationService` gRPC surface, next
-to `GetFile`, under the same basic-auth interceptor:
+Phase 4 adds five RPCs to the existing `FileReplicationService` gRPC surface, next
+to `GetFile`, under the same basic-auth interceptor. A single op-id names the
+log for the entire movement; the source seals it only at the very end.
 
 ```
   ┌──────────────────────┐           ┌──────────────────────┐
@@ -232,23 +233,45 @@ to `GetFile`, under the same basic-auth interceptor:
              │─────────────────────────────────▶│
              │◀═════════════════════════════════│  file chunks (GetFile stream)
              │                                  │
-             │ GetChangeLog(shard, opID)        │
-             │─────────────────────────────────▶│  open tailer (from beginning)
-             │◀═════════════════════════════════│  stream of ChangeLogStreamEntry
-             │ (target decodes, batches,        │  (server-streaming, bounded
-             │  calls OverwriteObjectsFrom-     │  backlog)
-             │  ChangeLog)                      │
+             │ ── FINALIZING phase boundary ──  │
+             │ SnapshotChangeLogLSN(shard, opID)│
+             │─────────────────────────────────▶│  brief write-quiesce (~ms),
+             │◀─────────────────────────────────│  return current cl.lsn → N
+             │                                  │
+             │ GetChangeLog(shard, opID,        │
+             │   until_lsn=N)                   │  open tailer with cap=N
+             │─────────────────────────────────▶│  stream entries 1..N,
+             │◀═════════════════════════════════│  emit io.EOF at cap
+             │ (target applies via              │  (log STAYS WRITABLE —
+             │  OverwriteObjectsFromChangeLog)  │   new entries get LSN > N)
+             │                                  │
+             │ ── DEHYDRATING (MOVE only) ──    │
+             │ DeleteReplicaFromShard via RAFT  │
+             │ ──────► (RAFT propagation) ──────│
              │                                  │
              │ FinalizeChangeLog(shard, opID)   │
-             │─────────────────────────────────▶│  brief write-quiesce (~ms),
-             │◀─────────────────────────────────│  return finalLSN
+             │─────────────────────────────────▶│  brief write-quiesce,
+             │◀─────────────────────────────────│  seal log, return finalLSN
              │                                  │
-             │ (drain until local LSN == final) │
+             │ GetChangeLog(shard, opID,        │
+             │   until_lsn=0)                   │  resume tailer to drain tail
+             │─────────────────────────────────▶│  stream entries N+1..finalLSN,
+             │◀═════════════════════════════════│  emit io.EOF at finalLSN
              │                                  │
              │ StopChangeCapture(shard, opID)   │
              │─────────────────────────────────▶│  remove from Set, close file
              │◀─────────────────────────────────│
 ```
+
+For COPY, the FINALIZING phase boundary is followed immediately by `FinalizeChangeLog`
++ uncapped drain in the same handler (no DEHYDRATING). The single-log shape is
+preserved either way.
+
+`SnapshotChangeLogLSN` is the consumer's "drain up to here without sealing"
+primitive: the cap'd `GetChangeLog` stream EOFs cleanly at N while the log stays
+writable, so writes that arrive during RAFT-propagation between FINALIZING and
+DEHYDRATING keep landing in the same log and get caught by the second
+(Finalize-driven) drain.
 
 The streaming `GetChangeLog` follows the existing `GetFile` server-streaming pattern.
 Any new goroutine in the handler uses `enterrors.GoWrapper` (enforced by

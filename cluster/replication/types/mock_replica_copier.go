@@ -445,6 +445,66 @@ func (_c *MockReplicaCopier_RevertAsyncReplicationLocally_Call) RunAndReturn(run
 	return _c
 }
 
+// SnapshotChangeLogLSN provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
+func (_m *MockReplicaCopier) SnapshotChangeLogLSN(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) (uint64, error) {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SnapshotChangeLogLSN")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (uint64, error)); ok {
+		return rf(ctx, srcNodeId, indexName, shardName, opID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) uint64); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
+		r1 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicaCopier_SnapshotChangeLogLSN_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SnapshotChangeLogLSN'
+type MockReplicaCopier_SnapshotChangeLogLSN_Call struct {
+	*mock.Call
+}
+
+// SnapshotChangeLogLSN is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - shardName string
+//   - opID string
+func (_e *MockReplicaCopier_Expecter) SnapshotChangeLogLSN(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	return &MockReplicaCopier_SnapshotChangeLogLSN_Call{Call: _e.mock.On("SnapshotChangeLogLSN", ctx, srcNodeId, indexName, shardName, opID)}
+}
+
+func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string)) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) Return(_a0 uint64, _a1 error) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicaCopier_SnapshotChangeLogLSN_Call) RunAndReturn(run func(context.Context, string, string, string, string) (uint64, error)) *MockReplicaCopier_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // StartChangeCapture provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
 func (_m *MockReplicaCopier) StartChangeCapture(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) error {
 	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
@@ -545,9 +605,9 @@ func (_c *MockReplicaCopier_StopChangeCapture_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// TailAndApply provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
-func (_m *MockReplicaCopier) TailAndApply(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) (uint64, error) {
-	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)
+// TailAndApply provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID, untilLSN
+func (_m *MockReplicaCopier) TailAndApply(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, untilLSN uint64) (uint64, error) {
+	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TailAndApply")
@@ -555,17 +615,17 @@ func (_m *MockReplicaCopier) TailAndApply(ctx context.Context, srcNodeId string,
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (uint64, error)); ok {
-		return rf(ctx, srcNodeId, indexName, shardName, opID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, uint64) (uint64, error)); ok {
+		return rf(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) uint64); ok {
-		r0 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, uint64) uint64); ok {
+		r0 = rf(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
-		r1 = rf(ctx, srcNodeId, indexName, shardName, opID)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, uint64) error); ok {
+		r1 = rf(ctx, srcNodeId, indexName, shardName, opID, untilLSN)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -584,13 +644,14 @@ type MockReplicaCopier_TailAndApply_Call struct {
 //   - indexName string
 //   - shardName string
 //   - opID string
-func (_e *MockReplicaCopier_Expecter) TailAndApply(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}) *MockReplicaCopier_TailAndApply_Call {
-	return &MockReplicaCopier_TailAndApply_Call{Call: _e.mock.On("TailAndApply", ctx, srcNodeId, indexName, shardName, opID)}
+//   - untilLSN uint64
+func (_e *MockReplicaCopier_Expecter) TailAndApply(ctx interface{}, srcNodeId interface{}, indexName interface{}, shardName interface{}, opID interface{}, untilLSN interface{}) *MockReplicaCopier_TailAndApply_Call {
+	return &MockReplicaCopier_TailAndApply_Call{Call: _e.mock.On("TailAndApply", ctx, srcNodeId, indexName, shardName, opID, untilLSN)}
 }
 
-func (_c *MockReplicaCopier_TailAndApply_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string)) *MockReplicaCopier_TailAndApply_Call {
+func (_c *MockReplicaCopier_TailAndApply_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, untilLSN uint64)) *MockReplicaCopier_TailAndApply_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(uint64))
 	})
 	return _c
 }
@@ -600,7 +661,7 @@ func (_c *MockReplicaCopier_TailAndApply_Call) Return(lastAppliedLSN uint64, err
 	return _c
 }
 
-func (_c *MockReplicaCopier_TailAndApply_Call) RunAndReturn(run func(context.Context, string, string, string, string) (uint64, error)) *MockReplicaCopier_TailAndApply_Call {
+func (_c *MockReplicaCopier_TailAndApply_Call) RunAndReturn(run func(context.Context, string, string, string, string, uint64) (uint64, error)) *MockReplicaCopier_TailAndApply_Call {
 	_c.Call.Return(run)
 	return _c
 }

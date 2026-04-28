@@ -19,15 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileReplicationService_PauseFileActivity_FullMethodName  = "/clusterapi.FileReplicationService/PauseFileActivity"
-	FileReplicationService_ResumeFileActivity_FullMethodName = "/clusterapi.FileReplicationService/ResumeFileActivity"
-	FileReplicationService_ListFiles_FullMethodName          = "/clusterapi.FileReplicationService/ListFiles"
-	FileReplicationService_GetFileMetadata_FullMethodName    = "/clusterapi.FileReplicationService/GetFileMetadata"
-	FileReplicationService_GetFile_FullMethodName            = "/clusterapi.FileReplicationService/GetFile"
-	FileReplicationService_StartChangeCapture_FullMethodName = "/clusterapi.FileReplicationService/StartChangeCapture"
-	FileReplicationService_GetChangeLog_FullMethodName       = "/clusterapi.FileReplicationService/GetChangeLog"
-	FileReplicationService_FinalizeChangeLog_FullMethodName  = "/clusterapi.FileReplicationService/FinalizeChangeLog"
-	FileReplicationService_StopChangeCapture_FullMethodName  = "/clusterapi.FileReplicationService/StopChangeCapture"
+	FileReplicationService_PauseFileActivity_FullMethodName    = "/clusterapi.FileReplicationService/PauseFileActivity"
+	FileReplicationService_ResumeFileActivity_FullMethodName   = "/clusterapi.FileReplicationService/ResumeFileActivity"
+	FileReplicationService_ListFiles_FullMethodName            = "/clusterapi.FileReplicationService/ListFiles"
+	FileReplicationService_GetFileMetadata_FullMethodName      = "/clusterapi.FileReplicationService/GetFileMetadata"
+	FileReplicationService_GetFile_FullMethodName              = "/clusterapi.FileReplicationService/GetFile"
+	FileReplicationService_StartChangeCapture_FullMethodName   = "/clusterapi.FileReplicationService/StartChangeCapture"
+	FileReplicationService_GetChangeLog_FullMethodName         = "/clusterapi.FileReplicationService/GetChangeLog"
+	FileReplicationService_SnapshotChangeLogLSN_FullMethodName = "/clusterapi.FileReplicationService/SnapshotChangeLogLSN"
+	FileReplicationService_FinalizeChangeLog_FullMethodName    = "/clusterapi.FileReplicationService/FinalizeChangeLog"
+	FileReplicationService_StopChangeCapture_FullMethodName    = "/clusterapi.FileReplicationService/StopChangeCapture"
 )
 
 // FileReplicationServiceClient is the client API for FileReplicationService service.
@@ -41,6 +42,7 @@ type FileReplicationServiceClient interface {
 	GetFile(ctx context.Context, in *GetFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error)
 	StartChangeCapture(ctx context.Context, in *StartChangeCaptureRequest, opts ...grpc.CallOption) (*StartChangeCaptureResponse, error)
 	GetChangeLog(ctx context.Context, in *GetChangeLogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ChangeLogStreamEntry], error)
+	SnapshotChangeLogLSN(ctx context.Context, in *SnapshotChangeLogLSNRequest, opts ...grpc.CallOption) (*SnapshotChangeLogLSNResponse, error)
 	FinalizeChangeLog(ctx context.Context, in *FinalizeChangeLogRequest, opts ...grpc.CallOption) (*FinalizeChangeLogResponse, error)
 	StopChangeCapture(ctx context.Context, in *StopChangeCaptureRequest, opts ...grpc.CallOption) (*StopChangeCaptureResponse, error)
 }
@@ -141,6 +143,16 @@ func (c *fileReplicationServiceClient) GetChangeLog(ctx context.Context, in *Get
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type FileReplicationService_GetChangeLogClient = grpc.ServerStreamingClient[ChangeLogStreamEntry]
 
+func (c *fileReplicationServiceClient) SnapshotChangeLogLSN(ctx context.Context, in *SnapshotChangeLogLSNRequest, opts ...grpc.CallOption) (*SnapshotChangeLogLSNResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SnapshotChangeLogLSNResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_SnapshotChangeLogLSN_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *fileReplicationServiceClient) FinalizeChangeLog(ctx context.Context, in *FinalizeChangeLogRequest, opts ...grpc.CallOption) (*FinalizeChangeLogResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(FinalizeChangeLogResponse)
@@ -172,6 +184,7 @@ type FileReplicationServiceServer interface {
 	GetFile(*GetFileRequest, grpc.ServerStreamingServer[FileChunk]) error
 	StartChangeCapture(context.Context, *StartChangeCaptureRequest) (*StartChangeCaptureResponse, error)
 	GetChangeLog(*GetChangeLogRequest, grpc.ServerStreamingServer[ChangeLogStreamEntry]) error
+	SnapshotChangeLogLSN(context.Context, *SnapshotChangeLogLSNRequest) (*SnapshotChangeLogLSNResponse, error)
 	FinalizeChangeLog(context.Context, *FinalizeChangeLogRequest) (*FinalizeChangeLogResponse, error)
 	StopChangeCapture(context.Context, *StopChangeCaptureRequest) (*StopChangeCaptureResponse, error)
 }
@@ -203,6 +216,9 @@ func (UnimplementedFileReplicationServiceServer) StartChangeCapture(context.Cont
 }
 func (UnimplementedFileReplicationServiceServer) GetChangeLog(*GetChangeLogRequest, grpc.ServerStreamingServer[ChangeLogStreamEntry]) error {
 	return status.Error(codes.Unimplemented, "method GetChangeLog not implemented")
+}
+func (UnimplementedFileReplicationServiceServer) SnapshotChangeLogLSN(context.Context, *SnapshotChangeLogLSNRequest) (*SnapshotChangeLogLSNResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SnapshotChangeLogLSN not implemented")
 }
 func (UnimplementedFileReplicationServiceServer) FinalizeChangeLog(context.Context, *FinalizeChangeLogRequest) (*FinalizeChangeLogResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FinalizeChangeLog not implemented")
@@ -342,6 +358,24 @@ func _FileReplicationService_GetChangeLog_Handler(srv interface{}, stream grpc.S
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type FileReplicationService_GetChangeLogServer = grpc.ServerStreamingServer[ChangeLogStreamEntry]
 
+func _FileReplicationService_SnapshotChangeLogLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SnapshotChangeLogLSNRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileReplicationServiceServer).SnapshotChangeLogLSN(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileReplicationService_SnapshotChangeLogLSN_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileReplicationServiceServer).SnapshotChangeLogLSN(ctx, req.(*SnapshotChangeLogLSNRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FileReplicationService_FinalizeChangeLog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FinalizeChangeLogRequest)
 	if err := dec(in); err != nil {
@@ -404,6 +438,10 @@ var FileReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StartChangeCapture",
 			Handler:    _FileReplicationService_StartChangeCapture_Handler,
+		},
+		{
+			MethodName: "SnapshotChangeLogLSN",
+			Handler:    _FileReplicationService_SnapshotChangeLogLSN_Handler,
 		},
 		{
 			MethodName: "FinalizeChangeLog",
