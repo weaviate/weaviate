@@ -9,25 +9,31 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package wvhost resolves the Weaviate host/port for acceptance tests.
-//
-// Defaults match the legacy hardcoded values (localhost:8080 / localhost:50051)
-// so existing CI flows are unchanged. The parity stack overrides them via
-// WV_HTTP_PORT and WV_GRPC_PORT.
+// Package wvhost resolves the Weaviate REST and gRPC endpoints for acceptance
+// tests. Defaults are localhost:8080 / localhost:50051; WV_TEST_HOST,
+// WV_TEST_REST_PORT, and WV_TEST_GRPC_PORT override host and port independently.
 package wvhost
 
 import "os"
 
 func REST() string {
-	if p := os.Getenv("WV_HTTP_PORT"); p != "" {
-		return "localhost:" + p
-	}
-	return "localhost:8080"
+	return host() + ":" + port("WV_TEST_REST_PORT", "8080")
 }
 
 func GRPC() string {
-	if p := os.Getenv("WV_GRPC_PORT"); p != "" {
-		return "localhost:" + p
+	return host() + ":" + port("WV_TEST_GRPC_PORT", "50051")
+}
+
+func host() string {
+	if h := os.Getenv("WV_TEST_HOST"); h != "" {
+		return h
 	}
-	return "localhost:50051"
+	return "localhost"
+}
+
+func port(env, def string) string {
+	if p := os.Getenv(env); p != "" {
+		return p
+	}
+	return def
 }
