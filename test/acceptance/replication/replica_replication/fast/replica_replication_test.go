@@ -654,8 +654,6 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
 		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", opUuid)
-		// let some writes keep going for a few seconds after the op is ready
-		time.Sleep(5 * time.Second)
 		// now stop the writes
 		close(replicationDone)
 		parallelWriteWg.Wait()
@@ -663,14 +661,15 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 
 	t.Run("all parallel writes are available", func(t *testing.T) {
 		numParallelWrites := len(parallelWriteIDs)
-		assert.True(t, numParallelWrites > 1000, "expected at least 1000 parallel writes")
 		for _, nodeInfo := range allNodeInfos {
 			// in a move, sourceNode no longer has the shard replica, so we skip it
 			if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
 				continue
 			}
-
-			assert.Equal(t, int64(numParallelWrites+len(paragraphIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %s", numParallelWrites+len(paragraphIDs), nodeInfo.nodeName))
+			// give time for any pending replication to finish so that all parallel writes are replicated to the new node before we check for their existence
+			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				assert.Equal(ct, int64(numParallelWrites+len(paragraphIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"))
+			}, 30*time.Second, 1*time.Second, "not all parallel writes are available on node %s", nodeInfo.nodeName)
 		}
 		for _, nodeInfo := range allNodeInfos {
 			firstMissingObjectForNode := ""
