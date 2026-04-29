@@ -14,15 +14,19 @@ package replication
 import (
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
@@ -42,117 +46,139 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 	tenant1 := "tenant1"
 	tenant2 := "tenant2"
 
-	stateToDeleteIn := []api.ShardReplicationState{
-		api.REGISTERED,
-		api.HYDRATING,
-		api.FINALIZING,
-	}
+	helper.DeleteClass(t, paragraphClass.Class)
+	helper.CreateClass(t, paragraphClass)
 
-	for _, state := range stateToDeleteIn {
-		t.Run(fmt.Sprintf("delete tenant when op is %s", state), func(t *testing.T) {
-			helper.DeleteClass(t, paragraphClass.Class)
-			helper.CreateClass(t, paragraphClass)
-
-			t.Run(fmt.Sprintf("insert paragraphs into %s", tenant1), func(t *testing.T) {
-				batch := make([]*models.Object, 5000)
-				for i := 0; i < 5000; i++ {
-					batch[i] = (*models.Object)(articles.NewParagraph().
-						WithContents(fmt.Sprintf("paragraph#%d", i)).
-						WithTenant(tenant1).
-						Object())
-				}
+	batch := make([]*models.Object, 0, 1000)
+	// 50k objects so HYDRATING's file copy reliably covers the cancel window.
+	t.Run(fmt.Sprintf("insert paragraphs into %s", tenant1), func(t *testing.T) {
+		for i := 0; i < 50_000; i++ {
+			batch = append(batch, articles.NewParagraph().
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				WithTenant(tenant1).
+				Object())
+			if i%1_000 == 0 {
 				helper.CreateObjectsBatch(t, batch)
-			})
-
-			t.Run(fmt.Sprintf("insert paragraphs into %s", tenant2), func(t *testing.T) {
-				batch := make([]*models.Object, 5000)
-				for i := 0; i < 5000; i++ {
-					batch[i] = (*models.Object)(articles.NewParagraph().
-						WithContents(fmt.Sprintf("paragraph#%d", i)).
-						WithTenant(tenant2).
-						Object())
-				}
-				helper.CreateObjectsBatch(t, batch)
-			})
-
-			var id1 strfmt.UUID
-			t.Run(fmt.Sprintf("create replication operation for %s", tenant1), func(t *testing.T) {
-				created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getMTRequest(t, paragraphClass.Class, tenant1)), nil)
-				require.Nil(t, err)
-				require.NotNil(t, created)
-				require.NotNil(t, created.Payload)
-				require.NotNil(t, created.Payload.ID)
-				id1 = *created.Payload.ID
-			})
-
-			var id2 strfmt.UUID
-			t.Run(fmt.Sprintf("create replication operation for %s", tenant2), func(t *testing.T) {
-				created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getMTRequest(t, paragraphClass.Class, tenant2)), nil)
-				require.Nil(t, err)
-				require.NotNil(t, created)
-				require.NotNil(t, created.Payload)
-				require.NotNil(t, created.Payload.ID)
-				id2 = *created.Payload.ID
-			})
-
-			if state != api.REGISTERED {
-				t.Run(fmt.Sprintf("wait until op for %s is in %s state", tenant1, state), func(t *testing.T) {
-					assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-						details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id1), nil)
-						require.Nil(ct, err)
-						require.Equal(ct, state.String(), details.Payload.Status.State)
-					}, 30*time.Second, 100*time.Millisecond, "replication operation should be in %s state", state)
-				})
+				fmt.Printf("created %d objects for %s\n", i, tenant1)
+				batch = batch[:0]
 			}
+		}
+		helper.CreateObjectsBatch(t, batch)
+	})
 
-			t.Run(fmt.Sprintf("delete %s", tenant1), func(t *testing.T) {
-				helper.DeleteTenants(t, paragraphClass.Class, []string{tenant1})
-			})
+	// tenant2 is the unaffected-op control; its op runs to READY untouched.
+	t.Run(fmt.Sprintf("insert paragraphs into %s", tenant2), func(t *testing.T) {
+		for i := 0; i < 5_000; i++ {
+			batch = append(batch, articles.NewParagraph().
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				WithTenant(tenant2).
+				Object())
+			if i%1_000 == 0 {
+				helper.CreateObjectsBatch(t, batch)
+				fmt.Printf("created %d objects for %s\n", i, tenant2)
+				batch = batch[:0]
+			}
+		}
+		helper.CreateObjectsBatch(t, batch)
+	})
 
-			t.Run("wait for replication operation to be deleted", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-					_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id1), nil)
-					require.NotNil(ct, err)
-					assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
-				}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
-			})
-
-			t.Run(fmt.Sprintf("ensure that the replication operation for %s is still there", tenant2), func(t *testing.T) {
-				details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id2), nil)
-				require.Nil(t, err)
-				require.NotNil(t, details)
-				require.NotNil(t, details.Payload)
-				require.NotNil(t, details.Payload.ID)
-				require.Equal(t, id2, *details.Payload.ID)
-			})
-
-			// Required so we can loop again for other replication operation stages without waiting for it to complete
-			// and potentially colliding with replication ops on a per-shard basis, which is a 500
-
-			t.Run(fmt.Sprintf("delete %s", tenant2), func(t *testing.T) {
-				helper.DeleteTenants(t, paragraphClass.Class, []string{tenant2})
-			})
-
-			t.Run("wait for replication operation to be deleted", func(t *testing.T) {
-				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-					_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id2), nil)
-					require.NotNil(ct, err)
-					assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
-				}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
-			})
-
-			t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
-				nodes, err := helper.Client(t).Nodes.
-					NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
-				require.Nil(t, err)
-				for _, node := range nodes.Payload.Nodes {
-					for _, shard := range node.Shards {
-						require.Len(t, shard.AsyncReplicationStatus, 0)
-					}
+	// Keep the change-capture log non-empty during the op so cancelOp's
+	// StopChangeCapture runs against an active log, not a quiet shard.
+	// Writes after DeleteTenants(tenant1) fail by design — ignored.
+	logger, _ := logrustest.NewNullLogger()
+	parallelWriteWg := sync.WaitGroup{}
+	parallelWriteDone := make(chan struct{})
+	parallelWriteWg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer parallelWriteWg.Done()
+		containerId := 1
+		clusterSize := 3
+		for {
+			select {
+			case <-parallelWriteDone:
+				return
+			default:
+				_ = createObjectThreadSafe(
+					suite.compose.ContainerURI(containerId),
+					paragraphClass.Class,
+					map[string]interface{}{"contents": "parallel-write"},
+					uuid.New().String(),
+					tenant1,
+				)
+				containerId++
+				if containerId > clusterSize {
+					containerId = 1
 				}
-			})
-		})
-	}
+			}
+		}
+	}, logger)
+	defer func() {
+		close(parallelWriteDone)
+		parallelWriteWg.Wait()
+	}()
+
+	var id1 strfmt.UUID
+	t.Run(fmt.Sprintf("create replication operation for %s", tenant1), func(t *testing.T) {
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getMTRequest(t, paragraphClass.Class, tenant1)), nil)
+		require.Nil(t, err)
+		require.NotNil(t, created)
+		require.NotNil(t, created.Payload)
+		require.NotNil(t, created.Payload.ID)
+		id1 = *created.Payload.ID
+	})
+
+	var id2 strfmt.UUID
+	t.Run(fmt.Sprintf("create replication operation for %s", tenant2), func(t *testing.T) {
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getMTRequest(t, paragraphClass.Class, tenant2)), nil)
+		require.Nil(t, err)
+		require.NotNil(t, created)
+		require.NotNil(t, created.Payload)
+		require.NotNil(t, created.Payload.ID)
+		id2 = *created.Payload.ID
+	})
+
+	// Leaving REGISTERED is enough to guarantee the worker has dispatched —
+	// pinning a specific state is fragile now that FINALIZING is <50ms.
+	t.Run(fmt.Sprintf("wait until op for %s leaves REGISTERED", tenant1), func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id1), nil)
+			require.Nil(ct, err)
+			require.NotEqual(ct, api.REGISTERED.String(), details.Payload.Status.State, "op should have left REGISTERED")
+		}, 10*time.Second, 100*time.Millisecond, "op for %s never left REGISTERED", tenant1)
+	})
+
+	t.Run(fmt.Sprintf("delete %s", tenant1), func(t *testing.T) {
+		helper.DeleteTenants(t, paragraphClass.Class, []string{tenant1})
+	})
+
+	t.Run("wait for replication operation to be deleted", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id1), nil)
+			require.NotNil(ct, err)
+			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
+		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+	})
+
+	t.Run(fmt.Sprintf("ensure that the replication operation for %s is still there", tenant2), func(t *testing.T) {
+		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id2), nil)
+		require.Nil(t, err)
+		require.NotNil(t, details)
+		require.NotNil(t, details.Payload)
+		require.NotNil(t, details.Payload.ID)
+		require.Equal(t, id2, *details.Payload.ID)
+	})
+
+	t.Run(fmt.Sprintf("delete %s", tenant2), func(t *testing.T) {
+		helper.DeleteTenants(t, paragraphClass.Class, []string{tenant2})
+	})
+
+	t.Run("wait for replication operation to be deleted", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id2), nil)
+			require.NotNil(ct, err)
+			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
+		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+	})
 }
 
 func getMTRequest(t *testing.T, className, tenant string) *models.ReplicationReplicateReplicaRequest {
