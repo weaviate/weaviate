@@ -719,10 +719,10 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 				continue
 			}
 
-			// Count = live-set size. Pre-existing paragraphs are folded into
-			// liveIDs/deletedIDs so there is no separate paragraphIDs term.
-			assert.Equal(t, int64(len(liveIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"),
-				fmt.Sprintf("expected %d objects on node %s", len(liveIDs), nodeInfo.nodeName))
+			// give time for any pending replication to finish so that all parallel writes are replicated to the new node before we check for their existence
+			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				assert.Equal(ct, int64(len(liveIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"))
+			}, 30*time.Second, 1*time.Second, "not all parallel writes are available on node %s", nodeInfo.nodeName)
 
 			// Existence + content equality. Mismatch means a stale PUT won
 			// over a newer one — the LWW-by-timestamp guarantee is broken.
