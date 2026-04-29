@@ -142,11 +142,27 @@ func (l *Loader) Load() (*LoadResult, error) {
 		}
 		snapshotEndTS = state.Snapshot.EndTS
 
+		// Bumped to INFO and enriched with node_count + entrypoint_changed for
+		// the issues#200 investigation. We want to be able to grep CI logs and
+		// see, for every snapshot loaded, what shape it had on disk. A snapshot
+		// with node_count=0 is the panic-producing shape; if the producer-side
+		// fix worked it should never appear here.
+		nodeCount := 0
+		entrypointChanged := false
+		hasCompression := false
+		if result != nil {
+			nodeCount = len(result.Nodes())
+			entrypointChanged = result.EntrypointChanged()
+			hasCompression = result.HasCompression()
+		}
 		l.config.Logger.WithFields(logrus.Fields{
-			"action":   "hnsw_loader",
-			"snapshot": state.Snapshot.Path,
-			"end_ts":   snapshotEndTS,
-		}).Debug("loaded snapshot")
+			"action":             "hnsw_loader_snapshot",
+			"snapshot":           state.Snapshot.Path,
+			"end_ts":             snapshotEndTS,
+			"node_count":         nodeCount,
+			"entrypoint_changed": entrypointChanged,
+			"has_compression":    hasCompression,
+		}).Info("loaded snapshot")
 	}
 
 	// 7. Filter WAL files that are already covered by snapshot
@@ -182,6 +198,36 @@ func (l *Loader) Load() (*LoadResult, error) {
 	// directory would result in no state being returned.
 	if result != nil && result.IsEmpty() {
 		return nil, nil
+	}
+
+	// Diagnostic: a result that is "non-empty" by IsEmpty()'s definition but has
+	// zero nodes is incoherent — IsEmpty() returns false because EntrypointChanged
+	// or compression data is set, but downstream callers expect at least one node.
+	// Loading such a result causes h.nodes to be a zero-length slice, which panics
+	// on the next search via isEmptyUnlocked. See issue weaviate/0-weaviate-issues#200.
+	if result != nil && len(result.Nodes()) == 0 {
+		fields := logrus.Fields{
+			"action":             "hnsw_loader_zero_node_result",
+			"snapshot_path":      "",
+			"snapshot_end_ts":    int64(0),
+			"entrypoint_changed": result.EntrypointChanged(),
+			"entrypoint_id":      result.Entrypoint(),
+			"has_compression":    result.HasCompression(),
+			"has_muvera":         result.HasMuvera(),
+			"tombstone_count":    len(result.Tombstones()),
+			"wal_files_loaded":   len(walFiles),
+		}
+		if state.Snapshot != nil {
+			fields["snapshot_path"] = state.Snapshot.Path
+			fields["snapshot_end_ts"] = state.Snapshot.EndTS
+		}
+		walPaths := make([]string, 0, len(walFiles))
+		for _, f := range walFiles {
+			walPaths = append(walPaths, f.Path)
+		}
+		fields["wal_paths"] = walPaths
+		l.config.Logger.WithFields(fields).
+			Warn("hnsw loader produced a non-empty result with zero nodes; downstream search will panic")
 	}
 
 	return &LoadResult{
