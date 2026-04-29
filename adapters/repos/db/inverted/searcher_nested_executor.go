@@ -61,21 +61,29 @@ func newPlanExecutor(
 	}
 }
 
-// execute runs every condition group and strips position bits to return plain docIDs.
+// execute runs every condition group and returns the result.
+//
+// When plan.returnMasked is false (the default): strips position bits to return
+// plain docIDs. When plan.returnMasked is true: returns root+docID positions
+// (leaf bits zeroed) so the caller can AND multiple groups before a single
+// MaskRootLeaf call.
 //
 // groupAndAllMaskLeaf raw bitmaps are folded directly into the final AndAllMaskLeaf
 // call — no intermediate bitmap is produced for those groups. groupAndAll results
 // (full-position bitmaps from AndAll) and groupRunIdxLoop results (already
 // leaf-masked) are each added as single entries and leaf-masked in the final step.
 func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, func(), error) {
-	// intermediateReleases collects pool-buffer releases for all bitmaps
-	// created within execute — token-combined bitmaps from collectRaw and
-	// groupAndAll results. They are all released after MaskRootLeaf produces
-	// the final result, at which point the executor no longer reads them.
+	// intermediateReleases collects pool-buffer releases for all bitmaps created
+	// within execute. On the normal (non-masked) path they are released by the
+	// defer below. On the returnMasked path they are bundled into the returned
+	// release function (caller owns them) and succeeded=true prevents the defer.
 	var intermediateReleases []func()
+	succeeded := false
 	defer func() {
-		for _, rel := range intermediateReleases {
-			rel()
+		if !succeeded {
+			for _, rel := range intermediateReleases {
+				rel()
+			}
 		}
 	}()
 
@@ -119,12 +127,28 @@ func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, func(), erro
 			return nil, nil, fmt.Errorf("execute: unhandled group op %d", g.op)
 		}
 	}
+
 	masked, maskedRelease, err := e.computeMasked(finalBitmaps)
 	if err != nil {
 		return nil, nil, err
 	}
-	intermediateReleases = append(intermediateReleases, maskedRelease)
 
+	if e.plan.returnMasked {
+		// Return root+docID positions; caller applies MaskRootLeaf after
+		// AND-ing multiple groups. Bundle all releases for the caller.
+		succeeded = true
+		allReleases := append(intermediateReleases, maskedRelease)
+		return masked, func() {
+			for _, rel := range allReleases {
+				rel()
+			}
+		}, nil
+	}
+
+	// Normal path: strip root bits → plain docIDs.
+	// succeeded stays false so the defer releases intermediates (including
+	// maskedRelease) after MaskRootLeaf has produced the final result.
+	intermediateReleases = append(intermediateReleases, maskedRelease)
 	final, finalRelease := e.bitmapOps.MaskRootLeaf(masked)
 	return final, finalRelease, nil
 }

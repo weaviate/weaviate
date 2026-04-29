@@ -61,6 +61,11 @@ type executionPlan struct {
 	// as the element universe and subtract the IsNull=true excludes from it at
 	// raw (leaf) level to preserve same-element semantics.
 	useRootAnchor bool
+	// returnMasked instructs execute to return root+docID positions (leaf bits
+	// zeroed) instead of plain docIDs. Used by the multi-group correlated
+	// resolver to AND across groups at root+docID level before stripping root
+	// bits once at the end via a single MaskRootLeaf call.
+	returnMasked bool
 }
 
 // executionPlanBuilder groups relPaths by their common ObjectArray LCA and
