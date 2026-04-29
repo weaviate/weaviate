@@ -267,7 +267,7 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue.DiskQueue,
 		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue.DiskQueue,
+		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
 		err := queue.PrepareForBackup(ctx)
@@ -283,7 +283,7 @@ func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue.DiskQueue,
 		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue.DiskQueue,
+		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
 		queue.DisableMaintenanceMode()
@@ -317,7 +317,7 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 	for _, queue := range []*queue.DiskQueue{
 		h.taskQueue.analyzeQueue.DiskQueue,
 		h.taskQueue.splitQueue,
-		h.taskQueue.reassignQueue.DiskQueue,
+		h.taskQueue.reassignQueue,
 		h.taskQueue.mergeQueue,
 	} {
 		f, err := queue.ForceSwitch(ctx, basePath)

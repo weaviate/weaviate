@@ -46,7 +46,7 @@ type TaskQueue struct {
 	// queue for split operations
 	splitQueue *queue.DiskQueue
 	// queue for reassign operations
-	reassignQueue *reassignQueue
+	reassignQueue *queue.DiskQueue
 	// queue for merge operations, as these need to be run sequentially
 	mergeQueue *queue.DiskQueue
 
@@ -117,7 +117,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	}
 
 	// create queue for reassign operations
-	rq, err := queue.NewDiskQueue(
+	tq.reassignQueue, err = queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_reassign_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
@@ -131,7 +131,6 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh reassign queue")
 	}
-	tq.reassignQueue = &reassignQueue{DiskQueue: rq, splitQueue: tq.splitQueue}
 	err = tq.reassignQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
@@ -357,25 +356,10 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-// reassignQueue wraps the underlying disk queue used for reassign operations.
-type reassignQueue struct {
-	*queue.DiskQueue
-	splitQueue *queue.DiskQueue
-}
-
-func (r *reassignQueue) DequeueBatch() (*queue.Batch, error) {
-	// hold off reassigns while there are pending splits,
-	// to prioritize splits and reduce the chance of cascade
-	if r.splitQueue.Size() > 0 {
-		return nil, nil
-	}
-	return r.DiskQueue.DequeueBatch()
-}
-
 // analyzeQueue wraps the underlying disk queue used for analyze operations.
 type analyzeQueue struct {
 	*queue.DiskQueue
-	reassignQueue *reassignQueue
+	reassignQueue *queue.DiskQueue
 }
 
 func (a *analyzeQueue) DequeueBatch() (*queue.Batch, error) {

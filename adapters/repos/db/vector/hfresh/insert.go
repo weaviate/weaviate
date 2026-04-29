@@ -212,8 +212,8 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	if !reassigned {
 		// If the posting is way too big, we need to split it immediately.
-		if count > h.maxPostingSize*5 {
-			err = h.doSplit(ctx, centroidID, true)
+		if count > h.maxPostingSize {
+			err = h.taskQueue.EnqueueSplit(centroidID)
 			if err != nil {
 				return false, err
 			}
