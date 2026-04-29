@@ -40,13 +40,22 @@ const (
 	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
 )
 
+// reassignQueue wraps the underlying disk queue used for reassign operations.
+type reassignQueue struct {
+	*queue.DiskQueue
+}
+
+func (r *reassignQueue) DequeueBatch() (*queue.Batch, error) {
+	return r.DiskQueue.DequeueBatch()
+}
+
 type TaskQueue struct {
 	// queue for analyze operations
 	analyzeQueue *queue.DiskQueue
 	// queue for split operations
 	splitQueue *queue.DiskQueue
 	// queue for reassign operations
-	reassignQueue *queue.DiskQueue
+	reassignQueue *reassignQueue
 	// queue for merge operations, as these need to be run sequentially
 	mergeQueue *queue.DiskQueue
 
@@ -117,7 +126,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	}
 
 	// create queue for reassign operations
-	tq.reassignQueue, err = queue.NewDiskQueue(
+	rq, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_reassign_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
@@ -131,6 +140,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh reassign queue")
 	}
+	tq.reassignQueue = &reassignQueue{DiskQueue: rq}
 	err = tq.reassignQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
