@@ -816,13 +816,11 @@ type ChangeLogReplayEntry struct {
 	Payload []byte
 }
 
-// OverwriteObjectsFromChangeLog applies change-log entries to the local shard
-// with pure last-write-wins by LastUpdateTimeUnixMilli. Unlike OverwriteObjects
-// it does NOT emit StaleUpdateTime conflicts and does NOT consult
-// DeletionStrategy — a strictly-newer local silently wins.
-//
-// Entries MUST be supplied in LSN order; each is applied in-place with one
-// call to Shard (no deferred PUT batching).
+// OverwriteObjectsFromChangeLog replays entries under pure LWW by
+// LastUpdateTimeUnixMilli — no StaleUpdateTime conflicts and no
+// DeletionStrategy, unlike OverwriteObjects. Entries MUST be in LSN order;
+// contiguous PUTs coalesce into one PutObjectBatch, and a DELETE flushes the
+// buffer first so PUT-then-DELETE for the same UUID never reorders.
 func (idx *Index) OverwriteObjectsFromChangeLog(
 	ctx context.Context, shard string, updates []ChangeLogReplayEntry,
 ) error {
@@ -837,6 +835,30 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 	defer release()
 	if s == nil {
 		return fmt.Errorf("shard %q not found locally", shard)
+	}
+
+	type pendingPut struct {
+		decoded *storobj.Object
+		ts      int64
+	}
+	pending := map[strfmt.UUID]pendingPut{}
+
+	flushPending := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		objs := make([]*storobj.Object, 0, len(pending))
+		for _, p := range pending {
+			objs = append(objs, p.decoded)
+		}
+		errs := s.PutObjectBatch(ctx, objs)
+		for _, e := range errs {
+			if e != nil {
+				return fmt.Errorf("replay put batch: %w", e)
+			}
+		}
+		clear(pending)
+		return nil
 	}
 
 	for i := range updates {
@@ -856,7 +878,6 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
 			}
 		case errors.Is(err, lsmkv.NotFound):
-			// currUpdateTime stays 0; incoming always wins.
 		default:
 			return fmt.Errorf("read local digest for %s: %w", u.ID, err)
 		}
@@ -866,6 +887,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		}
 
 		if u.IsDelete {
+			if err := flushPending(); err != nil {
+				return err
+			}
 			if err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli)); err != nil {
 				return fmt.Errorf("replay delete for %s: %w", u.ID, err)
 			}
@@ -874,17 +898,24 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 
 		decoded, err := storobj.FromBinary(u.Payload)
 		if err != nil {
+			// Flush first so entries before the failure are durable on retry.
+			if flushErr := flushPending(); flushErr != nil {
+				return flushErr
+			}
 			return fmt.Errorf("replay decode payload for %s: %w", u.ID, err)
 		}
-		errs := s.PutObjectBatch(ctx, []*storobj.Object{decoded})
-		for _, e := range errs {
-			if e != nil {
-				return fmt.Errorf("replay put for %s: %w", u.ID, e)
-			}
+		// Dedupe by max LastUpdateTimeUnixMilli rather than relying on
+		// PutObjectBatch's own dedupe — findDuplicatesInBatchObjects keeps the
+		// LAST occurrence by index, not the highest timestamp, so a
+		// clock-skewed source whose LSN order disagrees with timestamp order
+		// would otherwise let an older PUT win over a newer one.
+		if existing, ok := pending[u.ID]; ok && existing.ts >= u.LastUpdateTimeUnixMilli {
+			continue
 		}
+		pending[u.ID] = pendingPut{decoded: decoded, ts: u.LastUpdateTimeUnixMilli}
 	}
 
-	return nil
+	return flushPending()
 }
 
 func (i *Index) DigestObjects(ctx context.Context,

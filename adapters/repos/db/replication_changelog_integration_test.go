@@ -15,10 +15,12 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -302,6 +304,144 @@ func TestOverwriteObjectsFromChangeLog_InOrderPutThenDelete(t *testing.T) {
 	found, err := repo.Object(context.Background(), class.Class, id, nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 	assert.Nil(t, found, "end state after [PUT@10, DELETE@15] must be deleted")
+}
+
+// TestOverwriteObjectsFromChangeLog_BatchesContiguousPuts is the correctness
+// firewall for the batched PUT path; the perf signal lives in the acceptance
+// test wall-clock.
+func TestOverwriteObjectsFromChangeLog_BatchesContiguousPuts(t *testing.T) {
+	repo, idx, shard, class := setupReplayShard(t)
+
+	now := time.Now()
+	const N = 50
+	objs := make([]*models.Object, N)
+	entries := make([]ChangeLogReplayEntry, N)
+	for i := 0; i < N; i++ {
+		id := strfmt.UUID(uuid.NewString())
+		objs[i] = &models.Object{
+			ID:                 id,
+			Class:              class.Class,
+			CreationTimeUnix:   now.UnixMilli(),
+			LastUpdateTimeUnix: now.UnixMilli(),
+			Properties:         map[string]interface{}{"stringProp": fmt.Sprintf("contig-%d", i)},
+			Vector:             []float32{float32(i), float32(i + 1), float32(i + 2)},
+		}
+		entries[i] = ChangeLogReplayEntry{
+			ID:                      id,
+			LastUpdateTimeUnixMilli: now.UnixMilli(),
+			IsDelete:                false,
+			Payload:                 mustMarshalPayload(t, objs[i], objs[i].Vector),
+		}
+	}
+
+	require.Nil(t, idx.OverwriteObjectsFromChangeLog(context.Background(), shard, entries))
+
+	for i := 0; i < N; i++ {
+		found, err := repo.Object(context.Background(), class.Class, objs[i].ID, nil, additional.Properties{}, nil, "")
+		require.Nilf(t, err, "object %d", i)
+		require.NotNilf(t, found, "object %d must exist after batched replay", i)
+	}
+}
+
+// TestOverwriteObjectsFromChangeLog_PutsThenDeleteThenPutsRoundTrip guards
+// flush-on-DELETE: a buffered same-UUID PUT must land before the DELETE, and
+// a post-DELETE PUT must still flush at end-of-input.
+func TestOverwriteObjectsFromChangeLog_PutsThenDeleteThenPutsRoundTrip(t *testing.T) {
+	repo, idx, shard, class := setupReplayShard(t)
+
+	t10 := int64(10)
+	t15 := int64(15)
+	idA := strfmt.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	idB := strfmt.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	idC := strfmt.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+
+	mk := func(id strfmt.UUID, ts int64, prop string) (*models.Object, ChangeLogReplayEntry) {
+		obj := &models.Object{
+			ID:                 id,
+			Class:              class.Class,
+			CreationTimeUnix:   ts,
+			LastUpdateTimeUnix: ts,
+			Properties:         map[string]interface{}{"stringProp": prop},
+			Vector:             []float32{1, 2, 3},
+		}
+		return obj, ChangeLogReplayEntry{
+			ID:                      id,
+			LastUpdateTimeUnixMilli: ts,
+			IsDelete:                false,
+			Payload:                 mustMarshalPayload(t, obj, obj.Vector),
+		}
+	}
+
+	_, putA := mk(idA, t10, "A")
+	_, putB := mk(idB, t10, "B")
+	delA := ChangeLogReplayEntry{ID: idA, LastUpdateTimeUnixMilli: t15, IsDelete: true}
+	_, putC := mk(idC, t10, "C")
+
+	batch := []ChangeLogReplayEntry{putA, putB, delA, putC}
+	require.Nil(t, idx.OverwriteObjectsFromChangeLog(context.Background(), shard, batch))
+
+	foundA, err := repo.Object(context.Background(), class.Class, idA, nil, additional.Properties{}, nil, "")
+	require.Nil(t, err)
+	assert.Nil(t, foundA, "A must be deleted (PUT@10 flushed before DELETE@15)")
+
+	foundB, err := repo.Object(context.Background(), class.Class, idB, nil, additional.Properties{}, nil, "")
+	require.Nil(t, err)
+	require.NotNil(t, foundB, "B must survive the DELETE-flush of A")
+
+	foundC, err := repo.Object(context.Background(), class.Class, idC, nil, additional.Properties{}, nil, "")
+	require.Nil(t, err)
+	require.NotNil(t, foundC, "C must land in the post-DELETE batch")
+}
+
+// TestOverwriteObjectsFromChangeLog_NonMonotonicTimestampSameUUIDKeepsMax
+// guards the buffer's max-time dedupe — without it, clock-skewed clients could
+// resurrect an older PUT over a newer one in the same drain chunk.
+func TestOverwriteObjectsFromChangeLog_NonMonotonicTimestampSameUUIDKeepsMax(t *testing.T) {
+	repo, idx, shard, class := setupReplayShard(t)
+
+	id := strfmt.UUID("981c09f9-67f3-4e6e-a988-c53eaefbd58e")
+	t10 := int64(10)
+	t8 := int64(8)
+
+	objHigh := &models.Object{
+		ID:                 id,
+		Class:              class.Class,
+		CreationTimeUnix:   t10,
+		LastUpdateTimeUnix: t10,
+		Properties:         map[string]interface{}{"stringProp": "winner-t10"},
+		Vector:             []float32{1, 2, 3},
+	}
+	objLow := &models.Object{
+		ID:                 id,
+		Class:              class.Class,
+		CreationTimeUnix:   t8,
+		LastUpdateTimeUnix: t8,
+		Properties:         map[string]interface{}{"stringProp": "loser-t8"},
+		Vector:             []float32{4, 5, 6},
+	}
+
+	batch := []ChangeLogReplayEntry{
+		{
+			ID:                      id,
+			LastUpdateTimeUnixMilli: t10,
+			IsDelete:                false,
+			Payload:                 mustMarshalPayload(t, objHigh, objHigh.Vector),
+		},
+		{
+			ID:                      id,
+			LastUpdateTimeUnixMilli: t8,
+			IsDelete:                false,
+			Payload:                 mustMarshalPayload(t, objLow, objLow.Vector),
+		},
+	}
+
+	require.Nil(t, idx.OverwriteObjectsFromChangeLog(context.Background(), shard, batch))
+
+	found, err := repo.Object(context.Background(), class.Class, id, nil, additional.Properties{}, nil, "")
+	require.Nil(t, err)
+	require.NotNil(t, found)
+	assert.EqualValues(t, t10, found.Object().LastUpdateTimeUnix, "max-time entry must win within-buffer dedupe")
+	assert.EqualValues(t, "winner-t10", found.Object().Properties.(map[string]interface{})["stringProp"])
 }
 
 // TestOverwriteObjectsFromChangeLog_DecodeErrorAborts guards the
