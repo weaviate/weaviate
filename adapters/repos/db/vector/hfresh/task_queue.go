@@ -40,15 +40,6 @@ const (
 	mergeTaskQueueChunkSize    = 16 * 1024 // 16KB
 )
 
-// reassignQueue wraps the underlying disk queue used for reassign operations.
-type reassignQueue struct {
-	*queue.DiskQueue
-}
-
-func (r *reassignQueue) DequeueBatch() (*queue.Batch, error) {
-	return r.DiskQueue.DequeueBatch()
-}
-
 type TaskQueue struct {
 	// queue for analyze operations
 	analyzeQueue *queue.DiskQueue
@@ -140,7 +131,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh reassign queue")
 	}
-	tq.reassignQueue = &reassignQueue{DiskQueue: rq}
+	tq.reassignQueue = &reassignQueue{DiskQueue: rq, splitQueue: tq.splitQueue}
 	err = tq.reassignQueue.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
@@ -362,6 +353,16 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 	}
 
 	return nil, errors.Errorf("unknown operation: %d", op)
+}
+
+// reassignQueue wraps the underlying disk queue used for reassign operations.
+type reassignQueue struct {
+	*queue.DiskQueue
+	splitQueue *queue.DiskQueue
+}
+
+func (r *reassignQueue) DequeueBatch() (*queue.Batch, error) {
+	return r.DiskQueue.DequeueBatch()
 }
 
 type AnalyzeTask struct {
