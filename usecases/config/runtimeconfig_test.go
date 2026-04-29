@@ -90,41 +90,36 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 			readLogLevel             runtime.DynamicValue[string]
 			writeLogLevel            runtime.DynamicValue[string]
 			revectorizeCheckDisabled runtime.DynamicValue[bool]
-			minFinWait               runtime.DynamicValue[time.Duration]
 			raftDrainSleep           runtime.DynamicValue[time.Duration]
 			raftTimeoutsMultiplier   runtime.DynamicValue[int]
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount:  &colCount,
-			AutoschemaEnabled:               &autoSchema,
-			AsyncReplicationDisabled:        &asyncRep,
-			TenantActivityReadLogLevel:      &readLogLevel,
-			TenantActivityWriteLogLevel:     &writeLogLevel,
-			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
-			ReplicaMovementMinimumAsyncWait: &minFinWait,
-			RaftDrainSleep:                  &raftDrainSleep,
-			RaftTimoutsMultiplier:           &raftTimeoutsMultiplier,
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+			AsyncReplicationDisabled:       &asyncRep,
+			TenantActivityReadLogLevel:     &readLogLevel,
+			TenantActivityWriteLogLevel:    &writeLogLevel,
+			RevectorizeCheckDisabled:       &revectorizeCheckDisabled,
+			RaftDrainSleep:                 &raftDrainSleep,
+			RaftTimoutsMultiplier:          &raftTimeoutsMultiplier,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13
-replica_movement_minimum_async_wait: 10s`)
+maximum_allowed_collections_count: 13`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
 		// before update (zero values)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
-		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
-		assert.Equal(t, 10*time.Second, minFinWait.Get())
 	})
 
 	t.Run("Add and remove workflow", func(t *testing.T) {
@@ -288,23 +283,20 @@ maximum_allowed_collections_count: 10`)
 			readLogLevel             runtime.DynamicValue[string]
 			writeLogLevel            runtime.DynamicValue[string]
 			revectorizeCheckDisabled runtime.DynamicValue[bool]
-			minFinWait               runtime.DynamicValue[time.Duration]
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount:  &colCount,
-			AutoschemaEnabled:               &autoSchema,
-			AsyncReplicationDisabled:        &asyncRep,
-			TenantActivityReadLogLevel:      &readLogLevel,
-			TenantActivityWriteLogLevel:     &writeLogLevel,
-			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
-			ReplicaMovementMinimumAsyncWait: &minFinWait,
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+			AsyncReplicationDisabled:       &asyncRep,
+			TenantActivityReadLogLevel:     &readLogLevel,
+			TenantActivityWriteLogLevel:    &writeLogLevel,
+			RevectorizeCheckDisabled:       &revectorizeCheckDisabled,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13
-replica_movement_minimum_async_wait: 10s`)
+maximum_allowed_collections_count: 13`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -312,7 +304,6 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
-		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
@@ -320,7 +311,6 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
-		assert.Equal(t, 10*time.Second, minFinWait.Get())
 
 		// removing `maximum_allowed_collection_count` from config
 		buf = []byte(`autoschema_enabled: false`)

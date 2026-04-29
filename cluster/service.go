@@ -86,7 +86,6 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		cfg.ReplicationEngineMaxWorkers,
-		cfg.ReplicaMovementMinimumAsyncWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
 		raft.SchemaReader(),
 	)

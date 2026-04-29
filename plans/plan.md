@@ -226,29 +226,34 @@ Before `CopyReplicaFiles`: call `replicaCopier.StartChangeCapture(ctx, srcNode, 
 
 ### `processFinalizingOp`
 
-The consumer uses the 5-primitive copier API: `StartChangeCapture`, `SnapshotChangeLogLSN`, `TailAndApply` (with optional `untilLSN`), `FinalizeChangeLog`, `StopChangeCapture`. The cap'd-drain step in FINALIZING converges synchronously without sealing the log; for COPY it is followed by a Finalize-driven drain so the log can be cleanly stopped.
+The consumer uses the 5-primitive copier API: `StartChangeCapture`, `SnapshotChangeLogLSN`, `TailAndApply` (with `untilLSN`), `FinalizeChangeLog`, `StopChangeCapture`. The cap'd-drain step in FINALIZING converges synchronously without sealing the log; for COPY it is followed by a Finalize-driven drain so the log can be cleanly stopped.
+
+The order is **Snapshot → cap'd drain → RAFT-add** (and for COPY: → Finalize → uncapped drain → Stop). This closes the read-staleness window: the target catches up to `snap` before joining the sharding state, so a `consistency=ONE` coordinator read routed to the target after RAFT-add never sees a state older than the FINALIZING phase boundary.
 
 ```go
-opID := string(op.Op.ID)
+opID := strconv.FormatUint(op.Op.ID, 10)
 
-// Snapshot the FINALIZING phase boundary. The log stays writable; later
-// writes get LSNs > snap.
-if !replicaExists {
-    if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, ...); err != nil { return "", err }
-}
+// Snapshot the FINALIZING phase boundary. Briefly quiesces source writes;
+// log stays writable so subsequent writes get LSNs > snap.
 snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
 if err != nil { return "", err }
 
 // Synchronous cap'd drain — converges when target has applied every entry
-// up to snap. Does not seal the log.
+// up to snap. Does not seal the log. snap=0 (quiet shard) returns immediately.
 if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, snap); err != nil { return "", err }
+
+// RAFT-add target only after it is caught up to snap.
+if !replicaExists {
+    if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, ...); err != nil { return "", err }
+}
 
 switch op.Op.TransferType {
 case api.COPY:
-    // Seal and drain to io.EOF. Catches any writes that arrived between
-    // SnapshotLSN and Finalize.
-    if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil { return "", err }
-    if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, 0); err != nil { return "", err }
+    // Seal and drain to finalLSN. Catches writes that arrived between
+    // SnapshotLSN and Finalize (including the RAFT-propagation dual-write window).
+    finalLSN, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID)
+    if err != nil { return "", err }
+    if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, finalLSN); err != nil { return "", err }
     if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil { /* warn-only */ }
     if err := c.sync(ctx, op); err != nil { return "", err }
     return api.READY, nil
@@ -260,14 +265,14 @@ case api.MOVE:
 }
 ```
 
-During the window between RAFT-add and drain-complete, the target may receive the same logical write via both the log replay and the normal 2PC path. The strict-`>` LWW check on the replay side prevents older log entries from clobbering newer local state established via 2PC.
+During the window between RAFT-add and drain-complete (COPY) or DEHYDRATING-Finalize (MOVE), the target may receive the same logical write via both the log replay and the normal 2PC path. The strict-`>` LWW check on the replay side prevents older log entries from clobbering newer local state established via 2PC. Note `untilLSN: 0` is **not** a wildcard — it returns `io.EOF` immediately and emits no entries (`cluster/replication/changelog/tailer.go:78`); the post-Finalize drain must pass the actual `finalLSN` returned by `FinalizeChangeLog`.
 
 ### `processDehydratingOp`
 
-Same single log; different convergence point. RAFT-delete the source, then seal and drain to `io.EOF`.
+Same single log; different convergence point. RAFT-delete the source, then seal and drain to `finalLSN`.
 
 ```go
-opID := string(op.Op.ID)
+opID := strconv.FormatUint(op.Op.ID, 10)
 
 // Remove source from the sharding state.
 if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, ...); err != nil { return "", err }
@@ -275,10 +280,11 @@ if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, ...); err != nil { retur
 // Seal the still-active log. Stale-FSM coordinator writes that landed
 // between FINALIZING-end and now were captured by the live log; this Finalize
 // closes that window.
-if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil { return "", err }
+finalLSN, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID)
+if err != nil { return "", err }
 
-// Drain to io.EOF.
-if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, 0); err != nil { return "", err }
+// Drain to finalLSN.
+if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, finalLSN); err != nil { return "", err }
 
 if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil { /* warn-only */ }
 if err := c.sync(ctx, op); err != nil { return "", err }

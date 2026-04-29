@@ -44,7 +44,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -178,10 +177,6 @@ type Config struct {
 	DistributedTasks config.DistributedTasksConfig
 
 	ReplicaMovementEnabled bool
-
-	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
-	// async replication can complete.
-	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.

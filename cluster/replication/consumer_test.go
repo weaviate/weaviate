@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
@@ -98,27 +97,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.EXPECT().
 			LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil)
-		mockReplicaCopier.EXPECT().
-			InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
-			Return(nil)
-		mockReplicaCopier.EXPECT().
-			AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
-			Return(models.AsyncReplicationStatus{
-				ObjectsPropagated:       0,
-				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-			}, nil)
-		mockReplicaCopier.EXPECT().
-			AsyncReplicationStatus(mock.Anything, "node2", "node1", "TestCollection", "shard1").
-			Return(models.AsyncReplicationStatus{
-				ObjectsPropagated:       0,
-				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-			}, nil)
-		mockReplicaCopier.EXPECT().
-			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicaCopier.EXPECT().
-			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-		mockReplicaCopier.EXPECT().
-			RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
+		expectChangeCaptureMocks(mockReplicaCopier)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -168,7 +147,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 			schemaReader,
 		)
@@ -253,6 +231,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockFSMUpdater.EXPECT().
 			ReplicationRegisterError(mock.Anything, uint64(opId), mock.Anything).
 			Return(nil)
+		expectChangeCaptureMocks(mockReplicaCopier)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -301,7 +280,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 			schemaReader,
 		)
@@ -398,21 +376,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			mockFSMUpdater.EXPECT().
 				ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 				Return(uint64(i), nil)
-			mockReplicaCopier.EXPECT().
-				AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				Return(models.AsyncReplicationStatus{
-					ObjectsPropagated:       0,
-					StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-				}, nil)
-			mockReplicaCopier.EXPECT().
-				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-				Return(nil)
-			mockReplicaCopier.EXPECT().
-				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			mockReplicaCopier.EXPECT().
-				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-			mockReplicaCopier.EXPECT().
-				RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			expectChangeCaptureMocks(mockReplicaCopier)
 			mockFSMUpdater.EXPECT().
 				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 		}
@@ -465,7 +429,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 			schemaReader,
 		)
@@ -595,7 +558,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 			schemaReader,
 		)
@@ -712,27 +674,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything, uint64(opID)).
 					Return(uint64(i), nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
-					Return(models.AsyncReplicationStatus{
-						ObjectsPropagated:       0,
-						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-					}, nil)
-				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, "node2", "node1", "TestCollection", mock.Anything).
-					Return(models.AsyncReplicationStatus{
-						ObjectsPropagated:       0,
-						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-					}, nil)
-				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				mockReplicaCopier.EXPECT().
-					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-				mockReplicaCopier.EXPECT().
-					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-					Return(nil)
-				mockReplicaCopier.EXPECT().
-					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				expectChangeCaptureMocks(mockReplicaCopier)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 				completionWg.Add(1)
@@ -785,7 +727,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
-			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 			schemaReader,
 		)
@@ -861,12 +802,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, nil)
-	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-		Return(nil)
+	expectChangeCaptureMocks(mockReplicaCopier)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -909,7 +845,6 @@ func TestConsumerOpCancellation(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -997,12 +932,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, nil)
-	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-		Return(nil)
+	expectChangeCaptureMocks(mockReplicaCopier)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -1045,7 +975,6 @@ func TestConsumerOpDeletion(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1171,7 +1100,6 @@ func TestConsumerOpDuplication(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1205,21 +1133,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(models.AsyncReplicationStatus{
-			ObjectsPropagated:       0,
-			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-		}, nil)
-	mockReplicaCopier.EXPECT().
-		AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
-		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
+	expectChangeCaptureMocks(mockReplicaCopier)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
@@ -1317,7 +1231,6 @@ func TestConsumerOpSkip(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		3,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1351,21 +1264,7 @@ func TestConsumerOpSkip(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
-	mockReplicaCopier.EXPECT().
-		AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(models.AsyncReplicationStatus{
-			ObjectsPropagated:       0,
-			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-		}, nil)
-	mockReplicaCopier.EXPECT().
-		AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
-	mockReplicaCopier.EXPECT().
-		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
-		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
+	expectChangeCaptureMocks(mockReplicaCopier)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
@@ -1445,7 +1344,6 @@ func TestConsumerShutdown(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*30,
 		5,
-		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 		schemaReader,
 	)
@@ -1474,6 +1372,7 @@ func TestConsumerShutdown(t *testing.T) {
 			}
 		}).
 		Times(5)
+	expectChangeCaptureMocks(mockReplicaCopier)
 
 	// Add five long running ops to the consumer
 	for i := 0; i < 5; i++ {
@@ -1509,4 +1408,15 @@ func TestConsumerShutdown(t *testing.T) {
 
 	mockFSMUpdater.AssertExpectations(t)
 	mockReplicaCopier.AssertExpectations(t)
+}
+
+// expectChangeCaptureMocks registers permissive (Maybe) expectations for
+// every change-capture primitive the consumer might call. Tests that don't
+// reach FINALIZING (cancellation, deletion) still pass.
+func expectChangeCaptureMocks(m *types.MockReplicaCopier) {
+	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 }

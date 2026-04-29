@@ -179,6 +179,8 @@ granularity matches the source bucket granularity.
 
 No timing windows. No hashtree diffs.
 
+**Phase 5 ordering**: the FINALIZING handler runs `Snapshot → cap'd drain → RAFT-add` (and for COPY: → Finalize → uncapped drain → Stop). The cap'd drain converges to `snap` *before* the target joins the sharding state, so a `consistency=ONE` coordinator read routed to the target after RAFT-add never observes state older than the FINALIZING phase boundary.
+
 ---
 
 ## 5. Lifecycle: MOVE path (adds DEHYDRATING)
@@ -245,6 +247,9 @@ log for the entire movement; the source seals it only at the very end.
              │ (target applies via              │  (log STAYS WRITABLE —
              │  OverwriteObjectsFromChangeLog)  │   new entries get LSN > N)
              │                                  │
+             │ ReplicationAddReplicaToShard ──► │  (RAFT-add only after
+             │   (only after cap'd drain)       │   target is caught up)
+             │                                  │
              │ ── DEHYDRATING (MOVE only) ──    │
              │ DeleteReplicaFromShard via RAFT  │
              │ ──────► (RAFT propagation) ──────│
@@ -254,7 +259,7 @@ log for the entire movement; the source seals it only at the very end.
              │◀─────────────────────────────────│  seal log, return finalLSN
              │                                  │
              │ GetChangeLog(shard, opID,        │
-             │   until_lsn=0)                   │  resume tailer to drain tail
+             │   until_lsn=finalLSN)            │  resume tailer to drain tail
              │─────────────────────────────────▶│  stream entries N+1..finalLSN,
              │◀═════════════════════════════════│  emit io.EOF at finalLSN
              │                                  │
@@ -263,15 +268,15 @@ log for the entire movement; the source seals it only at the very end.
              │◀─────────────────────────────────│
 ```
 
-For COPY, the FINALIZING phase boundary is followed immediately by `FinalizeChangeLog`
-+ uncapped drain in the same handler (no DEHYDRATING). The single-log shape is
-preserved either way.
+For COPY, the FINALIZING phase boundary is followed immediately by RAFT-add → `FinalizeChangeLog` → uncapped drain in the same handler (no DEHYDRATING). The single-log shape is preserved either way.
 
 `SnapshotChangeLogLSN` is the consumer's "drain up to here without sealing"
 primitive: the cap'd `GetChangeLog` stream EOFs cleanly at N while the log stays
 writable, so writes that arrive during RAFT-propagation between FINALIZING and
 DEHYDRATING keep landing in the same log and get caught by the second
-(Finalize-driven) drain.
+(Finalize-driven) drain. **`until_lsn=0` is the quiet-shard guard, not a
+wildcard** — it emits no entries and EOFs immediately. The post-Finalize drain
+must pass the `finalLSN` returned by `FinalizeChangeLog`.
 
 The streaming `GetChangeLog` follows the existing `GetFile` server-streaming pattern.
 Any new goroutine in the handler uses `enterrors.GoWrapper` (enforced by

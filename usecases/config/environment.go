@@ -50,7 +50,6 @@ const (
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
 	DefaultReplicationEngineMaxWorkers        = 10
-	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
@@ -994,18 +993,6 @@ func FromEnv(config *Config) error {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT as time.Duration: %w", err)
-		}
-		if duration < 0 {
-			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
-		}
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(duration)
-	} else {
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
-	}
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
