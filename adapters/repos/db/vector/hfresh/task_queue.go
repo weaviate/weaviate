@@ -362,6 +362,11 @@ type reassignQueue struct {
 }
 
 func (r *reassignQueue) DequeueBatch() (*queue.Batch, error) {
+	// hold off reassigns while there are pending splits,
+	// to prioritize splits and reduce the chance of cascade
+	if r.splitQueue.Size() > 0 {
+		return nil, nil
+	}
 	return r.DiskQueue.DequeueBatch()
 }
 
