@@ -49,27 +49,35 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
 
+	batch := make([]*models.Object, 0, 1000)
 	// 50k objects so HYDRATING's file copy reliably covers the cancel window.
 	t.Run(fmt.Sprintf("insert paragraphs into %s", tenant1), func(t *testing.T) {
-		const tenant1ObjectCount = 50_000
-		batch := make([]*models.Object, tenant1ObjectCount)
-		for i := 0; i < tenant1ObjectCount; i++ {
-			batch[i] = (*models.Object)(articles.NewParagraph().
+		for i := 0; i < 50_000; i++ {
+			batch = append(batch, articles.NewParagraph().
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				WithTenant(tenant1).
 				Object())
+			if i%1_000 == 0 {
+				helper.CreateObjectsBatch(t, batch)
+				fmt.Printf("created %d objects for %s\n", i, tenant1)
+				batch = batch[:0]
+			}
 		}
 		helper.CreateObjectsBatch(t, batch)
 	})
 
 	// tenant2 is the unaffected-op control; its op runs to READY untouched.
 	t.Run(fmt.Sprintf("insert paragraphs into %s", tenant2), func(t *testing.T) {
-		batch := make([]*models.Object, 5_000)
 		for i := 0; i < 5_000; i++ {
-			batch[i] = (*models.Object)(articles.NewParagraph().
+			batch = append(batch, articles.NewParagraph().
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				WithTenant(tenant2).
 				Object())
+			if i%1_000 == 0 {
+				helper.CreateObjectsBatch(t, batch)
+				fmt.Printf("created %d objects for %s\n", i, tenant2)
+				batch = batch[:0]
+			}
 		}
 		helper.CreateObjectsBatch(t, batch)
 	})
