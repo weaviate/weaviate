@@ -42,7 +42,7 @@ const (
 
 type TaskQueue struct {
 	// queue for analyze operations
-	analyzeQueue *queue.DiskQueue
+	analyzeQueue *analyzeQueue
 	// queue for split operations
 	splitQueue *queue.DiskQueue
 	// queue for reassign operations
@@ -77,7 +77,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	}
 
 	// create queue for analyze operations
-	tq.analyzeQueue, err = queue.NewDiskQueue(
+	aq, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_analyze_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
@@ -91,7 +91,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh analyze queue")
 	}
-	err = tq.analyzeQueue.Init()
+	err = aq.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh analyze queue")
 	}
@@ -136,6 +136,8 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
 	}
+
+	tq.analyzeQueue = &analyzeQueue{DiskQueue: aq, reassignQueue: tq.reassignQueue}
 
 	// create queue for merge operations
 	tq.mergeQueue, err = queue.NewDiskQueue(
@@ -368,6 +370,21 @@ func (r *reassignQueue) DequeueBatch() (*queue.Batch, error) {
 		return nil, nil
 	}
 	return r.DiskQueue.DequeueBatch()
+}
+
+// analyzeQueue wraps the underlying disk queue used for analyze operations.
+type analyzeQueue struct {
+	*queue.DiskQueue
+	reassignQueue *reassignQueue
+}
+
+func (a *analyzeQueue) DequeueBatch() (*queue.Batch, error) {
+	// hold off analyzes while there are pending reassigns,
+	// to prioritize reassigns and reduce the chance of cascade
+	if a.reassignQueue.Size() > 0 {
+		return nil, nil
+	}
+	return a.DiskQueue.DequeueBatch()
 }
 
 type AnalyzeTask struct {

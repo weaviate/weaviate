@@ -265,7 +265,7 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 	}
 
 	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
+		h.taskQueue.analyzeQueue.DiskQueue,
 		h.taskQueue.splitQueue,
 		h.taskQueue.reassignQueue.DiskQueue,
 		h.taskQueue.mergeQueue,
@@ -281,7 +281,7 @@ func (h *HFresh) PrepareForBackup(ctx context.Context) error {
 
 func (h *HFresh) ResumeAfterBackup(ctx context.Context) error {
 	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
+		h.taskQueue.analyzeQueue.DiskQueue,
 		h.taskQueue.splitQueue,
 		h.taskQueue.reassignQueue.DiskQueue,
 		h.taskQueue.mergeQueue,
@@ -315,7 +315,7 @@ func (h *HFresh) ListQueues(ctx context.Context, basePath string) ([]string, err
 	var files []string
 
 	for _, queue := range []*queue.DiskQueue{
-		h.taskQueue.analyzeQueue,
+		h.taskQueue.analyzeQueue.DiskQueue,
 		h.taskQueue.splitQueue,
 		h.taskQueue.reassignQueue.DiskQueue,
 		h.taskQueue.mergeQueue,
