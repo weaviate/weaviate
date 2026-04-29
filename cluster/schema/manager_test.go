@@ -473,3 +473,116 @@ type MockShardReader struct {
 func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
 }
+
+// fakeReplicationFSM stands in for the real FSM here because importing
+// cluster/replication would cycle through cluster/schema. Unused interface
+// methods panic so an unexpected call surfaces immediately.
+type fakeReplicationFSM struct {
+	setUnCancellableCalls    []uint64
+	setUnCancellableReturnFn func(id uint64) error
+}
+
+func (f *fakeReplicationFSM) SetUnCancellable(id uint64) error {
+	f.setUnCancellableCalls = append(f.setUnCancellableCalls, id)
+	if f.setUnCancellableReturnFn != nil {
+		return f.setUnCancellableReturnFn(id)
+	}
+	return nil
+}
+
+func (f *fakeReplicationFSM) HasOngoingReplication(string, string, string) bool {
+	panic("unexpected HasOngoingReplication call")
+}
+
+func (f *fakeReplicationFSM) DeleteReplicationsByCollection(string) error {
+	panic("unexpected DeleteReplicationsByCollection call")
+}
+
+func (f *fakeReplicationFSM) DeleteReplicationsByTenants(string, []string) error {
+	panic("unexpected DeleteReplicationsByTenants call")
+}
+
+// TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable
+// firewalls the success-path co-occurrence invariant that the deleted
+// conflicts acceptance tests depended on: a successful apply both flips
+// UnCancellable on the FSM AND adds the replica to the schema, with
+// SetUnCancellable running first so its failure short-circuits the schema add.
+func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(t *testing.T) {
+	const (
+		className  = "TestClass"
+		shardName  = "shard1"
+		sourceNode = "node1"
+		targetNode = "node-target"
+		opID       = uint64(42)
+		schemaVer  = uint64(1)
+		applyVer   = uint64(2)
+	)
+
+	buildManager := func(t *testing.T, fsm *fakeReplicationFSM) *SchemaManager {
+		t.Helper()
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("local-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		sm.SetReplicationFSM(fsm)
+
+		ss := &sharding.State{Physical: map[string]sharding.Physical{
+			shardName: {Name: shardName, BelongsToNodes: []string{sourceNode}},
+		}}
+		require.NoError(t, sm.schema.addClass(&models.Class{Class: className}, ss, schemaVer))
+		return sm
+	}
+
+	buildCmd := func(t *testing.T) *cmd.ApplyRequest {
+		t.Helper()
+		sub, err := json.Marshal(&cmd.ReplicationAddReplicaToShard{
+			OpId: opID, Class: className, Shard: shardName,
+			TargetNode: targetNode, SchemaVersion: schemaVer,
+		})
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
+			Class:      className,
+			Version:    applyVer,
+			SubCommand: sub,
+		}
+	}
+
+	t.Run("success path co-occurs UnCancellable flip and replica add", func(t *testing.T) {
+		fsm := &fakeReplicationFSM{}
+		sm := buildManager(t, fsm)
+
+		require.NoError(t, sm.ReplicationAddReplicaToShard(buildCmd(t), false))
+
+		require.Equal(t, []uint64{opID}, fsm.setUnCancellableCalls,
+			"SetUnCancellable must be called exactly once with the op id")
+
+		// Replica in the sharding state confirms addReplicaToShard committed.
+		require.NoError(t, sm.schema.Read(className, false, func(_ *models.Class, ss *sharding.State) error {
+			require.Contains(t, ss.Physical[shardName].BelongsToNodes, targetNode,
+				"target node must be present in the shard's BelongsToNodes")
+			return nil
+		}))
+	})
+
+	t.Run("SetUnCancellable failure short-circuits addReplicaToShard", func(t *testing.T) {
+		// Failure injection proves SetUnCancellable runs first — otherwise
+		// the schema would already have mutated by the time we observe error.
+		injectedErr := errors.New("synthetic SetUnCancellable failure")
+		fsm := &fakeReplicationFSM{
+			setUnCancellableReturnFn: func(uint64) error { return injectedErr },
+		}
+		sm := buildManager(t, fsm)
+
+		err := sm.ReplicationAddReplicaToShard(buildCmd(t), false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrSchema)
+		require.ErrorContains(t, err, injectedErr.Error())
+
+		// Schema untouched ⇒ addReplicaToShard never ran.
+		require.NoError(t, sm.schema.Read(className, false, func(_ *models.Class, ss *sharding.State) error {
+			require.NotContains(t, ss.Physical[shardName].BelongsToNodes, targetNode,
+				"target node must NOT be added when SetUnCancellable fails first")
+			return nil
+		}))
+	})
+}
