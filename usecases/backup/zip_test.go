@@ -1919,3 +1919,52 @@ func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileLis
 		FileSizes: fileSizes,
 	}
 }
+
+// TestWriteOne_FileGrowsDuringCopy verifies that writeOne does not produce an
+// "archive/tar: write too long" error when the underlying file grows between
+// the stat (used for the tar header) and the io.Copy. This simulates the race
+// condition seen with HNSW commit logs during concurrent imports and backups.
+func TestWriteOne_FileGrowsDuringCopy(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write initial content (size recorded in tar header).
+	filePath := filepath.Join(dir, "commitlog.wal")
+	initialData := bytes.Repeat([]byte("A"), 1000)
+	require.NoError(t, os.WriteFile(filePath, initialData, 0o644))
+
+	// Stat the file to capture the original size for the tar header.
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	require.Equal(t, int64(1000), info.Size())
+
+	// Append extra data to simulate the file growing after stat.
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.Write(bytes.Repeat([]byte("B"), 500))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	// Open the file for reading (sees full 1500 bytes).
+	reader, err := os.Open(filePath)
+	require.NoError(t, err)
+	defer reader.Close()
+
+	// Create a zip writer backed by a tar archive.
+	z, rc, err := NewZip(dir, int(GzipBestSpeed), 0, 0, 0)
+	require.NoError(t, err)
+
+	// writeOne should succeed despite the file being larger than info.Size().
+	var writeErr error
+	go func() {
+		_, writeErr = z.writeOne(context.Background(), info, "commitlog.wal", reader)
+		z.Close()
+	}()
+
+	// Drain the reader side.
+	_, err = io.Copy(io.Discard, rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+
+	// The write must not have failed with "write too long".
+	require.NoError(t, writeErr)
+}

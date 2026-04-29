@@ -356,8 +356,11 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 		}
 		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
-	// write bytes
-	written, err = io.Copy(z.w, r)
+	// Write bytes, limiting the read to the declared file size. This prevents
+	// "archive/tar: write too long" errors when a file grows between the stat
+	// (used for the tar header) and the copy. HNSW commit logs are append-only,
+	// so a size-limited prefix is always a consistent snapshot.
+	written, err = io.Copy(z.w, io.LimitReader(r, info.Size()))
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			// we ignore in case the ctx was cancelled
