@@ -92,6 +92,9 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	alias.Alias = al
 
 	class := h.schemaReader.ReadOnlyClass(alias.Class)
+	if class == nil {
+		return nil, 0, fmt.Errorf("class %s: %w", alias.Class, ErrNotFound)
+	}
 	version, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 	if err != nil {
 		return nil, 0, err
@@ -119,6 +122,9 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 	alias := aliases[0]
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
+	if targetClass == nil {
+		return nil, fmt.Errorf("class %s: %w", targetClassName, ErrNotFound)
+	}
 
 	_, err = h.schemaManager.ReplaceAlias(ctx, alias, targetClass)
 	if err != nil {
