@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestIsRBACRootPrincipal(t *testing.T) {
@@ -88,6 +89,7 @@ func TestDebugAuthMiddleware(t *testing.T) {
 		apiKeyEnabled    bool
 		rbacEnabled      bool
 		anonymousEnabled bool
+		debugDisabled    bool
 	}
 
 	buildState := func(t *testing.T, s setup) *state.State {
@@ -109,6 +111,7 @@ func TestDebugAuthMiddleware(t *testing.T) {
 					RootUsers: []string{rootUser},
 				},
 			},
+			Profiling:   config.Profiling{DebugEndpointsEnabled: configRuntime.NewDynamicValue(!s.debugDisabled)},
 			Persistence: config.Persistence{DataPath: t.TempDir()},
 		}
 
@@ -141,6 +144,18 @@ func TestDebugAuthMiddleware(t *testing.T) {
 			setup:      setup{apiKeyEnabled: false, rbacEnabled: false},
 			authHeader: "",
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "debug endpoints runtime-disabled returns 404 even without auth configured",
+			setup:      setup{apiKeyEnabled: false, rbacEnabled: false, debugDisabled: true},
+			authHeader: "",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "debug endpoints runtime-disabled returns 404 even for valid root token",
+			setup:      setup{apiKeyEnabled: true, rbacEnabled: true, debugDisabled: true},
+			authHeader: "Bearer " + rootKey,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "anonymous + apikey, no token allowed",

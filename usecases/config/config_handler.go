@@ -406,6 +406,12 @@ type Profiling struct {
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
 	Port                 int  `json:"port" yaml:"port"`
+	// DebugEndpointsEnabled gates request handling on the debug HTTP listener
+	// (pprof, fgprof, /debug/*). Independent of Disabled: Disabled=true means
+	// the listener never binds, while DebugEndpointsEnabled=false means the
+	// listener binds but every request returns 404 until flipped on (via the
+	// DEBUG_ENDPOINTS_ENABLED env var at boot, or via runtime overrides).
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
 }
 
 type DistributedTasksConfig struct {

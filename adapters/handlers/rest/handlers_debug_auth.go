@@ -26,6 +26,10 @@ import (
 // listener (port 6060 / Profiling.Port). It mirrors the main REST API's auth
 // flow:
 //
+//   - The runtime-overrideable Profiling.DebugEndpointsEnabled flag is
+//     checked first; when false, the middleware returns 404 so the entire
+//     debug surface is indistinguishable from "not present", regardless of
+//     auth state.
 //   - If a Bearer token is present, validate it via the same composer used
 //     by the primary API. An invalid token always returns 401, even if
 //     anonymous access is enabled.
@@ -40,21 +44,33 @@ import (
 //
 // As a back-compat shortcut, if neither authentication (APIKey/OIDC) nor
 // RBAC is configured at all, the middleware becomes a pure pass-through so
-// fully unauthenticated dev setups continue to work.
+// fully unauthenticated dev setups continue to work — but only after the
+// DebugEndpointsEnabled gate has passed.
 func makeDebugAuthMiddleware(appState *state.State) func(http.Handler) http.Handler {
 	cfg := appState.ServerConfig.Config
 	anonymousAllowed := cfg.Authentication.AnonymousAccess.Enabled
 	authEnabled := cfg.Authentication.AnyApiKeyAvailable() || cfg.Authentication.OIDC.Enabled
 	rbacEnabled := cfg.Authorization.Rbac.Enabled
 	rbacCfg := cfg.Authorization.Rbac
+	debugEndpointsEnabled := cfg.Profiling.DebugEndpointsEnabled
 	validate := composer.New(cfg.Authentication, appState.APIKey, appState.OIDC)
 	logger := appState.Logger.WithField("handler", "debug_auth")
 
+	gateProfiling := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if debugEndpointsEnabled == nil || !debugEndpointsEnabled.Get() {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
 	return func(next http.Handler) http.Handler {
 		if !authEnabled && !rbacEnabled {
-			return next
+			return gateProfiling(next)
 		}
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var principal *models.Principal
 			token := extractBearerToken(r)
 
@@ -85,6 +101,7 @@ func makeDebugAuthMiddleware(appState *state.State) func(http.Handler) http.Hand
 
 			next.ServeHTTP(w, r)
 		})
+		return gateProfiling(inner)
 	}
 }
 
