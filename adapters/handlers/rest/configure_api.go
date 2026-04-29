@@ -459,7 +459,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	setupDebugHandlers(appState)
-	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+	setupGoProfiling(appState)
 
 	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
 	migrator.SetNode(appState.Cluster.LocalName())
@@ -2057,7 +2057,9 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 	return &http.Client{Transport: transport}
 }
 
-func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+func setupGoProfiling(appState *state.State) {
+	config := appState.ServerConfig.Config
+	logger := appState.Logger
 	if config.Profiling.Disabled {
 		return
 	}
@@ -2077,14 +2079,20 @@ func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 		"batchWorker",
 	}
 	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler(functionsToIgnoreInProfiling...))
+
+	// All debug endpoints (handlers registered via setupDebugHandlers, the
+	// pprof handlers from the net/http/pprof side-effect import, and fgprof
+	// above) live on http.DefaultServeMux. Wrap that mux with the debug auth
+	// middleware so the entire :6060 surface is gated identically.
+	debugHandler := makeDebugAuthMiddleware(appState)(http.DefaultServeMux)
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {
-			if err := http.ListenAndServe(":6060", nil); err != nil {
+			if err := http.ListenAndServe(":6060", debugHandler); err != nil {
 				logger.Error("error listinening and serve :6060 : %w", err)
 			}
 		} else {
-			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
+			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), debugHandler)
 		}
 	}, logger)
 
