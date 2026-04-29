@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	mathrand "math/rand/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -507,33 +508,85 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 	})
 
 	parallelWriteWg := sync.WaitGroup{}
-	parallelWriteIDs := []string{}
+	// liveIDs is the test-side source of truth for what should exist on each
+	// non-source replica after the move. Seeded with the original paragraphs
+	// so the workload is free to UPDATE/DELETE pre-HYDRATING data too.
+	liveIDs := map[strfmt.UUID]string{}
+	for i, id := range paragraphIDs {
+		liveIDs[id] = fmt.Sprintf("paragraph#%d", i)
+	}
+	deletedIDs := map[strfmt.UUID]struct{}{}
 	replicationDone := make(chan struct{})
 	t.Run("start parallel writes", func(t *testing.T) {
 		parallelWriteWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer parallelWriteWg.Done()
 			containerId := 1
+			// Per-iteration counter keeps every CREATE / UPDATE content
+			// string distinct so a stale PUT winning over a newer one shows
+			// up as a content-equality assertion failure.
+			opSeq := 0
+			// pickLive returns a random id from liveIDs, or "" if empty.
+			pickLive := func() strfmt.UUID {
+				if len(liveIDs) == 0 {
+					return ""
+				}
+				idx := mathrand.IntN(len(liveIDs))
+				i := 0
+				for id := range liveIDs {
+					if i == idx {
+						return id
+					}
+					i++
+				}
+				return ""
+			}
 			for {
 				select {
 				case <-replicationDone:
 					return
 				default:
-					newWriteId := uuid.New().String()
-					err = createObjectThreadSafe(
-						compose.ContainerURI(containerId),
-						paragraphClass.Class,
-						map[string]interface{}{
-							"contents": fmt.Sprintf("paragraph#%d", len(paragraphIDs)+len(parallelWriteIDs)),
-						},
-						newWriteId,
-						"tenant0",
-					)
-					assert.NoError(t, err, "error creating object on node with id %d", containerId)
-					parallelWriteIDs = append(parallelWriteIDs, newWriteId)
+					opSeq++
+					uri := compose.ContainerURI(containerId)
 					containerId++
 					if containerId >= clusterSize+1 {
 						containerId = 1
+					}
+
+					// 60% CREATE / 20% UPDATE / 20% DELETE. Force CREATE if
+					// the live-set is empty (cannot UPDATE/DELETE nothing).
+					roll := mathrand.IntN(100)
+					switch {
+					case roll < 60 || len(liveIDs) == 0:
+						newID := strfmt.UUID(uuid.New().String())
+						contents := fmt.Sprintf("paragraph#%d", opSeq)
+						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]interface{}{"contents": contents}, string(newID), "tenant0"); err != nil {
+							assert.NoError(t, err, "error creating object %s on node %s", newID, uri)
+							continue
+						}
+						liveIDs[newID] = contents
+					case roll < 80:
+						target := pickLive()
+						if target == "" {
+							continue
+						}
+						contents := fmt.Sprintf("paragraph#%d-updated-%d", opSeq, opSeq)
+						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), "tenant0", map[string]interface{}{"contents": contents}); err != nil {
+							assert.NoError(t, err, "error patching object %s on node %s", target, uri)
+							continue
+						}
+						liveIDs[target] = contents
+					default:
+						target := pickLive()
+						if target == "" {
+							continue
+						}
+						if err := deleteObjectThreadSafe(uri, paragraphClass.Class, string(target), "tenant0"); err != nil {
+							assert.NoError(t, err, "error deleting object %s on node %s", target, uri)
+							continue
+						}
+						delete(liveIDs, target)
+						deletedIDs[target] = struct{}{}
 					}
 				}
 			}
@@ -659,46 +712,42 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 		parallelWriteWg.Wait()
 	})
 
-	t.Run("all parallel writes are available", func(t *testing.T) {
-		numParallelWrites := len(parallelWriteIDs)
+	t.Run("post-move object set matches the writer's tracked state", func(t *testing.T) {
 		for _, nodeInfo := range allNodeInfos {
-			// in a move, sourceNode no longer has the shard replica, so we skip it
+			// In a MOVE, the source no longer hosts the shard.
 			if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
 				continue
 			}
-			assert.Equal(t, int64(numParallelWrites+len(paragraphIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %s", numParallelWrites+len(paragraphIDs), nodeInfo.nodeName))
-		}
-		for _, nodeInfo := range allNodeInfos {
-			firstMissingObjectForNode := ""
-			numMissingObjectsForNode := 0
-			for _, id := range parallelWriteIDs {
-				// in a move, sourceNode no longer has the shard replica, so we skip it
-				if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
+
+			// Count = live-set size. Pre-existing paragraphs are folded into
+			// liveIDs/deletedIDs so there is no separate paragraphIDs term.
+			assert.Equal(t, int64(len(liveIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"),
+				fmt.Sprintf("expected %d objects on node %s", len(liveIDs), nodeInfo.nodeName))
+
+			// Existence + content equality. Mismatch means a stale PUT won
+			// over a newer one — the LWW-by-timestamp guarantee is broken.
+			for id, expectedContents := range liveIDs {
+				obj, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
+				if !assert.Nil(t, err, "error getting live id %s from node %s", id, nodeInfo.nodeName) {
 					continue
 				}
-				obj, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, strfmt.UUID(id), nodeInfo.nodeName, "tenant0")
-				if err != nil || obj == nil {
-					numMissingObjectsForNode++
-					if firstMissingObjectForNode == "" {
-						assert.Nil(t, err, "error getting object from node %s", nodeInfo.nodeName, id, err)
-						assert.NotNil(t, obj, "object not found on node", nodeInfo.nodeName, id)
-						firstMissingObjectForNode = id
-					}
+				if !assert.NotNil(t, obj, "live id %s missing on node %s", id, nodeInfo.nodeName) {
+					continue
 				}
+				props, ok := obj.Properties.(map[string]interface{})
+				if !assert.True(t, ok, "object %s on node %s has unexpected properties shape", id, nodeInfo.nodeName) {
+					continue
+				}
+				assert.Equal(t, expectedContents, props["contents"],
+					"contents mismatch for id %s on node %s (LWW failure?)", id, nodeInfo.nodeName)
 			}
-			assert.Equal(t, 0, numMissingObjectsForNode, "expected no missing objects on node %s", nodeInfo.nodeName)
-			assert.Empty(t, firstMissingObjectForNode, "expected no missing objects on node %s", nodeInfo.nodeName)
-		}
-	})
 
-	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for _, objId := range paragraphIDs {
-				obj, err := common.GetTenantObjectFromNode(t, targetNode.nodeURI, paragraphClass.Class, objId, targetNode.nodeName, "tenant0")
-				assert.Nil(ct, err)
-				assert.NotNil(ct, obj)
+			// Tombstone — every deleted id must read back as not-found.
+			for id := range deletedIDs {
+				obj, _ := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
+				assert.Nil(t, obj, "deleted id %s unexpectedly present on node %s", id, nodeInfo.nodeName)
 			}
-		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
+		}
 	})
 }
 
@@ -726,6 +775,61 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("request failed with status: %s", resp.Status)
+	}
+	return nil
+}
+
+// patchObjectThreadSafe issues a PATCH against /v1/objects/{class}/{id}.
+// Mirrors createObjectThreadSafe (no helper.SetupClient) so it's safe to
+// call from the writer goroutine in parallel with the main test thread.
+func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]interface{}) error {
+	type Object struct {
+		Class      string                 `json:"class"`
+		Properties map[string]interface{} `json:"properties"`
+		ID         string                 `json:"id"`
+		Tenant     string                 `json:"tenant,omitempty"`
+	}
+	obj := Object{Class: class, Properties: properties, ID: id, Tenant: tenant}
+	jsonData, err := json.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("error marshalling JSON: %w", err)
+	}
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s", uri, class, id)
+	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	// 204 No Content is the documented success for PATCH; accept 200 too.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("request failed with status: %s", resp.Status)
+	}
+	return nil
+}
+
+// deleteObjectThreadSafe issues a DELETE against /v1/objects/{class}/{id}.
+// tenant is sent as a query param (the REST API requires it for tenant-scoped
+// objects).
+func deleteObjectThreadSafe(uri, class, id, tenant string) error {
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s", uri, class, id, tenant)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("request failed with status: %s", resp.Status)
 	}
 	return nil
