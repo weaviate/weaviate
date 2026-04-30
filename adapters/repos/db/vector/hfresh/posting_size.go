@@ -62,25 +62,27 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size uint32) e
 // PostingSizesStore is a persistent store for posting sizes.
 // It stores the sizes in a shared LSMKV bucket.
 type PostingSizesStore struct {
-	bucket *lsmkv.Bucket
+	bucket    *lsmkv.Bucket
+	keyPrefix []byte
 }
 
-func NewPostingSizesStore(bucket *lsmkv.Bucket) *PostingSizesStore {
+func NewPostingSizesStore(bucket *lsmkv.Bucket, keyPrefix []byte) *PostingSizesStore {
 	return &PostingSizesStore{
-		bucket: bucket,
+		bucket:    bucket,
+		keyPrefix: keyPrefix,
 	}
 }
 
-func (v *PostingSizesStore) key(postingID uint64) []byte {
-	buf := make([]byte, len(postingSizesBucketPrefix)+8)
-	copy(buf, postingSizesBucketPrefix)
-	binary.LittleEndian.PutUint64(buf[len(postingSizesBucketPrefix):], postingID)
+func (p *PostingSizesStore) key(postingID uint64) []byte {
+	buf := make([]byte, len(p.keyPrefix)+8)
+	copy(buf, p.keyPrefix)
+	binary.LittleEndian.PutUint64(buf[len(p.keyPrefix):], postingID)
 	return buf
 }
 
-func (v *PostingSizesStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
-	key := v.key(postingID)
-	size, err := v.bucket.Get(key[:])
+func (p *PostingSizesStore) Get(ctx context.Context, postingID uint64) (uint32, error) {
+	key := p.key(postingID)
+	size, err := p.bucket.Get(key[:])
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get size for %d", postingID)
 	}
@@ -92,9 +94,35 @@ func (v *PostingSizesStore) Get(ctx context.Context, postingID uint64) (uint32, 
 	return binary.LittleEndian.Uint32(size), nil
 }
 
-func (v *PostingSizesStore) Set(ctx context.Context, postingID uint64, size uint32) error {
-	key := v.key(postingID)
+func (p *PostingSizesStore) Set(ctx context.Context, postingID uint64, size uint32) error {
+	key := p.key(postingID)
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, size)
-	return v.bucket.Put(key[:], buf)
+	return p.bucket.Put(key[:], buf)
+}
+
+func (p *PostingSizesStore) Iter(ctx context.Context, fn func(uint64, uint32) error) error {
+	c := p.bucket.Cursor()
+	defer c.Close()
+
+	var i int
+	for k, v := c.Seek(p.keyPrefix); len(k) > 0 && bytes.HasPrefix(k, p.keyPrefix); k, v = c.Next() {
+		i++
+		if len(v) == 0 {
+			continue
+		}
+
+		if i%1000 == 0 && ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		postingID := binary.LittleEndian.Uint64(k[len(p.keyPrefix):])
+		size := binary.LittleEndian.Uint32(v)
+		err := fn(postingID, size)
+		if err != nil {
+			return err
+		}
+	}
+
+	return ctx.Err()
 }
