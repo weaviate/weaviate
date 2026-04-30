@@ -20,10 +20,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/namespaces"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // setupRaftForNamespaceTests spins up a single-node RAFT cluster wired through
@@ -71,19 +71,19 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 	t.Run("add a duplicate returns ErrAlreadyExists", func(t *testing.T) {
 		err := srv.AddNamespace(cmd.Namespace{Name: "customer1"})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, namespaces.ErrAlreadyExists)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrAlreadyExists)
 	})
 
 	t.Run("add an invalid name returns ErrBadRequest", func(t *testing.T) {
 		err := srv.AddNamespace(cmd.Namespace{Name: "BadName"})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, namespaces.ErrBadRequest)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
 	})
 
 	t.Run("add a reserved name returns ErrBadRequest", func(t *testing.T) {
 		err := srv.AddNamespace(cmd.Namespace{Name: "admin"})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, namespaces.ErrBadRequest)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
 	})
 
 	t.Run("add a second namespace and list all", func(t *testing.T) {
@@ -114,7 +114,7 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 	t.Run("delete a missing namespace returns ErrNotFound", func(t *testing.T) {
 		err := srv.DeleteNamespace("never-existed")
 		require.Error(t, err)
-		assert.ErrorIs(t, err, namespaces.ErrNotFound)
+		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
 
 		// State was not altered.
 		assert.Equal(t, 1, srv.NamespaceCount())

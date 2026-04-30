@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// TextAnalyzerConfig Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).
+// TextAnalyzerConfig Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).
 //
 // swagger:model TextAnalyzerConfig
 type TextAnalyzerConfig struct {
@@ -31,7 +31,7 @@ type TextAnalyzerConfig struct {
 	// If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.
 	ASCIIFold bool `json:"asciiFold,omitempty"`
 
-	// If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.
+	// If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.
 	ASCIIFoldIgnore []string `json:"asciiFoldIgnore,omitempty"`
 
 	// Stopword preset name. Overrides the collection-level invertedIndexConfig.stopwords for this property. Only applies to properties using 'word' tokenization. Can be a built-in preset ('en', 'none') or a user-defined preset from invertedIndexConfig.stopwordPresets.

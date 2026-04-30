@@ -28,11 +28,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	nsops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/namespaces"
-	clusternamespaces "github.com/weaviate/weaviate/cluster/namespaces"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // req is the shared request context used to satisfy params.HTTPRequest. The
@@ -123,13 +123,13 @@ func TestCreateNamespace_UnprocessableEntity(t *testing.T) {
 
 // TestCreateNamespace_ConflictOnRaftAlreadyExists covers the TOCTOU race:
 // two concurrent creates can both pass validation; the loser must get 409,
-// not 500. The handler translates clusternamespaces.ErrAlreadyExists → 409.
+// not 500. The handler translates usecasesNamespaces.ErrAlreadyExists → 409.
 func TestCreateNamespace_ConflictOnRaftAlreadyExists(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
 	raft.On("AddNamespace", cmd.Namespace{Name: "customer1"}).
-		Return(fmt.Errorf("%w: %q", clusternamespaces.ErrAlreadyExists, "customer1"))
+		Return(fmt.Errorf("%w: %q", usecasesNamespaces.ErrAlreadyExists, "customer1"))
 
 	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.CreateNamespaceConflict)
@@ -144,7 +144,7 @@ func TestCreateNamespace_UnprocessableOnRaftBadRequest(t *testing.T) {
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
 	raft.On("AddNamespace", cmd.Namespace{Name: "customer1"}).
-		Return(fmt.Errorf("%w: bad payload", clusternamespaces.ErrBadRequest))
+		Return(fmt.Errorf("%w: bad payload", usecasesNamespaces.ErrBadRequest))
 
 	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.CreateNamespaceUnprocessableEntity)
@@ -265,7 +265,7 @@ func TestDeleteNamespace_NotFoundOnRaftErrNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
 	raft.On("DeleteNamespace", "customer1").
-		Return(fmt.Errorf("%w: %q", clusternamespaces.ErrNotFound, "customer1"))
+		Return(fmt.Errorf("%w: %q", usecasesNamespaces.ErrNotFound, "customer1"))
 
 	res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.DeleteNamespaceNotFound)

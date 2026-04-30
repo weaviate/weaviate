@@ -28,6 +28,7 @@ type CreateUsersRequest struct {
 	SecureHash         string
 	UserIdentifier     string
 	ApiKeyFirstLetters string
+	Namespace          string
 	CreatedAt          time.Time
 	Version            int
 }

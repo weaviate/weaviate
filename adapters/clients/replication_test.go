@@ -626,6 +626,7 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		got, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.NoError(t, err)
 		require.Equal(t, expected, got)
@@ -640,6 +641,7 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		got, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.NoError(t, err)
 		require.Equal(t, expected, got)
@@ -659,6 +661,7 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status code")
@@ -672,6 +675,7 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.HashTreeLevel(context.Background(), server.URL[7:], "C1", "S1", 3, discriminant)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest")

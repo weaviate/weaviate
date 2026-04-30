@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -43,7 +42,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
-	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
@@ -676,28 +674,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 }
 
 func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
-	// Build distancer from the target vector's distance config
-	var distProv distancer.Provider
-	cfg := s.index.GetVectorIndexConfig(targetVector)
-	switch cfg.DistanceName() {
-	case "", vectorIndexCommon.DistanceCosine:
-		distProv = distancer.NewCosineDistanceProvider()
-	case vectorIndexCommon.DistanceDot:
-		distProv = distancer.NewDotProductProvider()
-	case vectorIndexCommon.DistanceL2Squared:
-		distProv = distancer.NewL2SquaredProvider()
-	case vectorIndexCommon.DistanceManhattan:
-		distProv = distancer.NewManhattanProvider()
-	case vectorIndexCommon.DistanceHamming:
-		distProv = distancer.NewHammingProvider()
-	default:
-		distProv = distancer.NewCosineDistanceProvider()
-	}
-
-	distFn := func(a, b []float32) (float32, error) {
-		d, err := distProv.SingleDist(a, b)
-		return d, err
-	}
+	distProv := distancerForConfig(s.index.GetVectorIndexConfig(targetVector))
 
 	// Pre-fetch candidate vectors from the object store
 	var addProps additional.Properties
@@ -730,7 +707,7 @@ func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Sele
 		return vecMap[id], nil
 	}
 
-	sel, err := selector.New(selection, distFn, vecForID, k)
+	sel, err := selector.New(selection, distProv.SingleDist, vecForID, k)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mmr selection: %w", err)
 	}

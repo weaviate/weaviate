@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	reservationTimeout          = 30 * time.Second
+	reservationTimeout          = 2 * time.Minute
 	defaultStatusFlushInterval  = 10 * time.Second
 	defaultSiblingCheckInterval = 1 * time.Minute
 

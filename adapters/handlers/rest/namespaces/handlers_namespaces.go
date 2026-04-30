@@ -24,10 +24,10 @@ import (
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	nsops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/namespaces"
-	clusternamespaces "github.com/weaviate/weaviate/cluster/namespaces"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // NamespaceRaftGetter is the subset of cluster.Raft the handlers use. Keeping
@@ -98,7 +98,7 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		return nsops.NewCreateNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := clusternamespaces.ValidateName(name); err != nil {
+	if err := usecasesNamespaces.ValidateName(name); err != nil {
 		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -108,10 +108,10 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	// and the loser would surface a misleading 500.
 	if err := h.raft.AddNamespace(cmd.Namespace{Name: name}); err != nil {
 		switch {
-		case errors.Is(err, clusternamespaces.ErrAlreadyExists):
+		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q already exists", name)))
-		case errors.Is(err, clusternamespaces.ErrBadRequest):
+		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		default:
 			return nsops.NewCreateNamespaceInternalServerError().WithPayload(
@@ -134,7 +134,7 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 		return nsops.NewGetNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := clusternamespaces.ValidateName(name); err != nil {
+	if err := usecasesNamespaces.ValidateName(name); err != nil {
 		return nsops.NewGetNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -163,7 +163,7 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 		return nsops.NewDeleteNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := clusternamespaces.ValidateName(name); err != nil {
+	if err := usecasesNamespaces.ValidateName(name); err != nil {
 		return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -172,10 +172,10 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 	// two concurrent deletes would both see the entry and only one succeeds.
 	if err := h.raft.DeleteNamespace(name); err != nil {
 		switch {
-		case errors.Is(err, clusternamespaces.ErrNotFound):
+		case errors.Is(err, usecasesNamespaces.ErrNotFound):
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
-		case errors.Is(err, clusternamespaces.ErrBadRequest):
+		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		default:
 			return nsops.NewDeleteNamespaceInternalServerError().WithPayload(

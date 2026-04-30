@@ -1633,6 +1633,41 @@ func TestEnvironmentExportDefaultBucket(t *testing.T) {
 	}
 }
 
+func TestEnvironmentDefaultVectorIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    string
+		expectedErr string
+	}{
+		{"not set", "", "", ""},
+		{"hnsw", "hnsw", "hnsw", ""},
+		{"flat", "flat", "flat", ""},
+		{"dynamic", "dynamic", "dynamic", ""},
+		{"hfresh", "hfresh", "hfresh", ""},
+		{"uppercase FLAT", "FLAT", "flat", ""},
+		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
+		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.value != "" {
+				t.Setenv("DEFAULT_VECTOR_INDEX", tt.value)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.DefaultVectorIndexType.Get())
+			}
+		})
+	}
+}
+
 func TestEnvironmentAsyncIndexing(t *testing.T) {
 	factors := []struct {
 		name     string

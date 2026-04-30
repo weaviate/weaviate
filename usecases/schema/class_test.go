@@ -2928,6 +2928,70 @@ func Test_SetClassDefaults(t *testing.T) {
 	}
 }
 
+func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		classIndexType    string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no class type => hnsw default",
+			defaultIndexType:  "",
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to flat, no class type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to dynamic, no class type => dynamic",
+			defaultIndexType:  vectorindex.VectorIndexTypeDYNAMIC,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeDYNAMIC,
+		},
+		{
+			name:              "env set to hfresh, no class type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, class explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			classIndexType:    vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hnsw, no class type => hnsw",
+			defaultIndexType:  vectorindex.VectorIndexTypeHNSW,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorIndexType:   tt.classIndexType,
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorIndexType)
+		})
+	}
+}
+
 func Test_GetConsistentClass_WithAlias(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

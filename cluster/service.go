@@ -111,9 +111,9 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		rpcClient:          client,
 		rpcServer:          svr,
 		logger:             cfg.Logger,
-		closeBootstrapper:  make(chan struct{}),
-		closeOnFSMCaughtUp: make(chan struct{}),
-		closeWaitForDB:     make(chan struct{}),
+		closeBootstrapper:  make(chan struct{}, 1),
+		closeOnFSMCaughtUp: make(chan struct{}, 1),
+		closeWaitForDB:     make(chan struct{}, 1),
 	}
 }
 

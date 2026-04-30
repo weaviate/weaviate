@@ -46,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const (
@@ -168,6 +169,9 @@ type Config struct {
 	RBAC            *rbac.Manager
 
 	DynamicUserController *apikey.DBUser
+
+	NamespacesController *usecasesNamespaces.Controller
+	NamespacesEnabled    bool
 
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
@@ -332,8 +336,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		snapshotter:        snapshotter,
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
-		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		namespaceManager:   namespaces.NewManager(cfg.Logger),
+		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
+		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, cfg.Logger),
 		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
