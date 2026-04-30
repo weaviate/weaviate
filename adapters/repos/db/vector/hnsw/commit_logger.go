@@ -434,6 +434,22 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
+// ActiveFilePath returns the absolute path of the file the writer would
+// append to right now. It is captured under l.Mutex, so it can never
+// disagree with whatever a concurrent AddNode / switch sees.
+//
+// The backup path (hnsw.ListFiles) uses this to exclude the active file by
+// identity. We can't rely on "the active file is empty after
+// PrepareForBackup" because PrepareForBackup releases this mutex before
+// returning, and writers (re-armed by the queue's deferred Resume) can
+// land an AddNode + Flush against the new file before ListFiles enumerates
+// the directory. See backup.go for the full chain.
+func (l *hnswCommitLogger) ActiveFilePath() string {
+	l.Lock()
+	defer l.Unlock()
+	return l.currentFileName
+}
+
 func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	executed, err := l.switchCommitLogs(false)
 	if err != nil {
@@ -465,7 +481,11 @@ func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 }
 
 func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
-	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	// Nothing to do here. The backup invariant ("listed files are immutable
+	// for the duration of the copy") is upheld by ListFiles excluding the
+	// active commit log file by path. The active file *does* receive writes
+	// during a backup, but it is never part of the file set the backup
+	// machinery copies.
 	return nil
 }
 

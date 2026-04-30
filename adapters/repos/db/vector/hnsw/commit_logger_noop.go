@@ -123,4 +123,8 @@ func (n *NoopCommitLogger) PrepareForBackup(force bool) error {
 	return nil
 }
 
+func (n *NoopCommitLogger) ActiveFilePath() string {
+	return ""
+}
+
 func (n *NoopCommitLogger) InitMaintenance() {}

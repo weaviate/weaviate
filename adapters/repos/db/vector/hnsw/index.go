@@ -251,6 +251,14 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	PrepareForBackup(bool) error
+	// ActiveFilePath returns the absolute path of the file the writer would
+	// append to right now. The lookup happens under the commit-logger mutex,
+	// so it reflects the live append target at the moment of the call. The
+	// backup path uses this to exclude the active file by identity rather
+	// than by transient state (size==0): once any worker write hits the new
+	// file between PrepareForBackup and ListFiles, size==0 stops being a
+	// reliable witness that "this file is the writer's append target".
+	ActiveFilePath() string
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
