@@ -1061,7 +1061,7 @@ func setupDebugHandlers(appState *state.State) {
 
 	// This endpoint dumps all server configuration from environment.go
 	// e.g. curl -X GET localhost:6060/debug/config
-	// Sensitive values (API keys, cluster basic-auth password) are replaced
+	// Sensitive values (API keys, cluster basic-auth password, Sentry DSN) are replaced
 	// with "<redacted>" by redactDebugConfigSecrets before being returned.
 	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
