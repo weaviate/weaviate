@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 )
 
@@ -1313,5 +1314,270 @@ func TestRecExecutorContextCancellation(t *testing.T) {
 		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
 		_, _, err := exec.evalNode(cancelled(), plan, nil)
 		require.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// TestRecExecutorRunIdxLoopRecursiveCursor exercises the cursor mechanics of
+// runIdxLoopRecursive in isolation. Each sub-test builds a recGroupNode with
+// duplicate-path here entries (so canUseRawAndAll=false at lcaPath="cars") and
+// invokes runIdxLoopRecursive directly. The bucket is populated with _idx.cars[K]
+// entries to drive specific cursor behaviors: per-element same-element matching,
+// scan past empty/non-matching elements, preFilter early-exit, and partial idx
+// coverage. These mirror the unit-style tests previously held on the deleted
+// flat planExecutor.runIdxLoop function.
+//
+// Why duplicate paths: canUseRawAndAll(g) returns true when len(g.subs)==0,
+// len(g.here)>=1, AND every here entry has a unique path. Reusing the same
+// path across multiple here leaves forces evalGroup to take the
+// runIdxLoopRecursive branch — equivalent semantically to the flat planner's
+// groupRunIdxLoop op. The path string itself does not affect cursor behavior;
+// only the lcaPath and rawsByCond bitmaps do.
+//
+// Why no direct port for the deleted "single bitmap fast-path" or
+// "context already cancelled" cases:
+//   - Single bitmap: in the recursive plan, len(here)==1 routes to evalGroupRoot
+//     via canUseRawAndAll, never entering runIdxLoopRecursive. The functional
+//     equivalent (fast result without bucket scan) is exercised by F-suite
+//     tests that have a single condition at an intermediate scope.
+//   - Context cancellation: TestRecExecutorContextCancellation already covers
+//     all four executor entry paths (rootAnchor, canUseRawAndAll, idxLoop,
+//     split) and both inner ctx checks (runIdxLoopRecursive, evalSplit), so a
+//     duplicate test here would not add coverage.
+func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
+	const (
+		doc5 = uint64(5)
+		doc7 = uint64(7)
+		doc9 = uint64(9)
+	)
+
+	// newLeaf returns a minimal leaf propValuePair usable as an entry in
+	// recGroupNode.here. The relPath is unused by runIdxLoopRecursive (it only
+	// reads rawsByCond[leaf]), but it must be set so canUseRawAndAll can compare
+	// paths via childRelPath.
+	newLeaf := func(path string) *propValuePair {
+		return &propValuePair{
+			operator: filters.OperatorEqual,
+			nested:   nestedInfo{isNested: true, relPath: path},
+		}
+	}
+
+	// runLoop drives runIdxLoopRecursive directly with the supplied raw bitmaps
+	// at lcaPath="cars". Each input bitmap becomes one here leaf at the same
+	// duplicate path so canUseRawAndAll is false. The returned docIDs are
+	// MaskRootLeaf'd from the rootDoc result the function emits.
+	runLoop := func(t *testing.T, bucket *lsmkv.Bucket, condBitmaps ...*sroar.Bitmap) []uint64 {
+		t.Helper()
+		ops := newLifecycleOps(t)
+		leaves := make([]*propValuePair, len(condBitmaps))
+		raws := make(map[*propValuePair]*sroar.Bitmap, len(condBitmaps))
+		for i, bm := range condBitmaps {
+			leaves[i] = newLeaf("cars.x")
+			raws[leaves[i]] = bm
+		}
+		g := &recGroupNode{lcaPath: "cars", here: leaves}
+		exec := newRecExecutor(raws, bucket, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.runIdxLoopRecursive(context.Background(), g, nil)
+		require.NoError(t, err)
+		defer release()
+		requireBitmapValid(t, result)
+		docs, docsRel := ops.MaskRootLeaf(result)
+		defer docsRel()
+		return docs.ToArray()
+	}
+
+	runLoopEmpty := func(t *testing.T, bucket *lsmkv.Bucket, condBitmaps ...*sroar.Bitmap) {
+		t.Helper()
+		ops := newLifecycleOps(t)
+		leaves := make([]*propValuePair, len(condBitmaps))
+		raws := make(map[*propValuePair]*sroar.Bitmap, len(condBitmaps))
+		for i, bm := range condBitmaps {
+			leaves[i] = newLeaf("cars.x")
+			raws[leaves[i]] = bm
+		}
+		g := &recGroupNode{lcaPath: "cars", here: leaves}
+		exec := newRecExecutor(raws, bucket, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.runIdxLoopRecursive(context.Background(), g, nil)
+		require.NoError(t, err)
+		defer release()
+		docs, docsRel := ops.MaskRootLeaf(result)
+		defer docsRel()
+		assert.Empty(t, docs.ToArray())
+	}
+
+	// ---- Core same-element semantics ----------------------------------------
+
+	t.Run("two_conditions_both_in_element_0_doc_returned", func(t *testing.T) {
+		// Both conditions land in cars[0] → same-element match.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 2, doc5),
+		})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
+		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB))
+	})
+
+	t.Run("two_conditions_in_different_elements_empty_result", func(t *testing.T) {
+		// condA in cars[0], condB in cars[1] — no element contains both.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{invnested.Encode(1, 1, doc5)})
+		writeIdx(t, bucket, "cars", 1, []uint64{invnested.Encode(2, 1, doc5)})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(2, 1, doc5))
+		runLoopEmpty(t, bucket, condA, condB)
+	})
+
+	t.Run("two_conditions_both_in_element_1_doc_returned", func(t *testing.T) {
+		// Verifies that the cursor scans past element 0 to find the match in element 1.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{invnested.Encode(1, 1, doc5)})
+		writeIdx(t, bucket, "cars", 1, []uint64{
+			invnested.Encode(2, 1, doc5),
+			invnested.Encode(2, 2, doc5),
+		})
+		condA := roaringset.NewBitmap(invnested.Encode(2, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(2, 2, doc5))
+		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB))
+	})
+
+	t.Run("three_conditions_all_in_same_element_doc_returned", func(t *testing.T) {
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 2, doc5),
+			invnested.Encode(1, 3, doc5),
+		})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
+		condC := roaringset.NewBitmap(invnested.Encode(1, 3, doc5))
+		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB, condC))
+	})
+
+	t.Run("three_conditions_two_in_element_0_third_only_in_element_1_empty", func(t *testing.T) {
+		// No element contains all three — must be empty.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 2, doc5),
+		})
+		writeIdx(t, bucket, "cars", 1, []uint64{invnested.Encode(2, 1, doc5)})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
+		condC := roaringset.NewBitmap(invnested.Encode(2, 1, doc5))
+		runLoopEmpty(t, bucket, condA, condB, condC)
+	})
+
+	// ---- Multiple documents -------------------------------------------------
+
+	t.Run("two_docs_one_matches_same_element_one_split", func(t *testing.T) {
+		// doc5: condA, condB both in cars[0] → match.
+		// doc7: condA in cars[0], condB in cars[1] → no match.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 2, doc5),
+			invnested.Encode(1, 1, doc7),
+		})
+		writeIdx(t, bucket, "cars", 1, []uint64{
+			invnested.Encode(2, 1, doc7),
+		})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5), invnested.Encode(1, 1, doc7))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5), invnested.Encode(2, 1, doc7))
+		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB))
+	})
+
+	t.Run("two_docs_both_satisfy_in_their_respective_elements", func(t *testing.T) {
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 2, doc5),
+			invnested.Encode(1, 1, doc7),
+			invnested.Encode(1, 2, doc7),
+		})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5), invnested.Encode(1, 1, doc7))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5), invnested.Encode(1, 2, doc7))
+		assert.Equal(t, []uint64{doc5, doc7}, runLoop(t, bucket, condA, condB))
+	})
+
+	t.Run("three_docs_only_middle_satisfies_same_element_constraint", func(t *testing.T) {
+		// doc5: condA in cars[0], condB in cars[1] → no match.
+		// doc7: condA, condB both in cars[0]      → match.
+		// doc9: condA in cars[0], condB in cars[1] → no match.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 1, doc7),
+			invnested.Encode(1, 2, doc7),
+			invnested.Encode(1, 1, doc9),
+		})
+		writeIdx(t, bucket, "cars", 1, []uint64{
+			invnested.Encode(2, 1, doc5),
+			invnested.Encode(2, 1, doc9),
+		})
+		condA := roaringset.NewBitmap(
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 1, doc7),
+			invnested.Encode(1, 1, doc9),
+		)
+		condB := roaringset.NewBitmap(
+			invnested.Encode(2, 1, doc5),
+			invnested.Encode(1, 2, doc7),
+			invnested.Encode(2, 1, doc9),
+		)
+		assert.Equal(t, []uint64{doc7}, runLoop(t, bucket, condA, condB))
+	})
+
+	// ---- Cursor edge cases --------------------------------------------------
+
+	t.Run("conditions_disjoint_at_docID_no_match_in_any_element", func(t *testing.T) {
+		// condA matches doc5, condB matches doc7 — no element overlaps both docs.
+		// runIdxLoopRecursive must scan but find no matches.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{
+			invnested.Encode(1, 1, doc5),
+			invnested.Encode(1, 2, doc7),
+		})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc7))
+		runLoopEmpty(t, bucket, condA, condB)
+	})
+
+	t.Run("no_idx_entries_for_path_empty_result", func(t *testing.T) {
+		// Bucket exists but holds no _idx.cars entries — cursor finds nothing.
+		bucket := newIdxBucket(t)
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
+		runLoopEmpty(t, bucket, condA, condB)
+	})
+
+	t.Run("conditions_match_but_no_idx_entry_covers_both_positions_empty", func(t *testing.T) {
+		// Both conditions match doc5, but cars[0]'s idx entry covers only condA's
+		// position — condB's leaf is absent from that element.
+		bucket := newIdxBucket(t)
+		writeIdx(t, bucket, "cars", 0, []uint64{invnested.Encode(1, 1, doc5)})
+		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
+		runLoopEmpty(t, bucket, condA, condB)
+	})
+
+	t.Run("multiple_elements_only_one_contains_both_conditions", func(t *testing.T) {
+		// Five elements, conditions only co-occur in element 3. Verifies the
+		// cursor scans through earlier elements and finds the match in the middle.
+		bucket := newIdxBucket(t)
+		for i := 0; i < 5; i++ {
+			root := uint16(i + 1)
+			if i == 3 {
+				writeIdx(t, bucket, "cars", i, []uint64{
+					invnested.Encode(root, 1, doc5),
+					invnested.Encode(root, 2, doc5),
+				})
+			} else {
+				writeIdx(t, bucket, "cars", i, []uint64{invnested.Encode(root, 1, doc5)})
+			}
+		}
+		condA := roaringset.NewBitmap(invnested.Encode(4, 1, doc5))
+		condB := roaringset.NewBitmap(invnested.Encode(4, 2, doc5))
+		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB))
 	})
 }

@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // nestedInfo groups fields that are only relevant for nested (object/object[])
@@ -180,18 +179,6 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 	return restricted.docIDs, restricted.release, nil
 }
 
-// positionBitmaps groups pre-fetched raw position bitmaps for a single nested path,
-// split by origin so the executor can apply the correct combining strategy:
-//   - tokens: from childrenFromTokenization compound ANDs (multi-token text);
-//     combined with AndAll — all tokens must share the same leaf position.
-//   - independent: from direct leaf conditions (e.g. scalar array values);
-//     combined with MaskLeafAndAll when there are multiple — values may be at
-//     different leaf positions within the same parent element.
-type positionBitmaps struct {
-	tokens      []*sroar.Bitmap
-	independent []*sroar.Bitmap
-}
-
 // resolveNestedCorrelated resolves a correlated AND filter using position-aware
 // same-element semantics. Children are grouped by arr[N] compatibility, then:
 //
@@ -328,124 +315,6 @@ func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, ch
 		return nil, nil, fmt.Errorf("nested correlated AND: execute masked for %q: %w", pv.prop, err)
 	}
 	return masked, maskedRelease, nil
-}
-
-// buildGroupExecutor fetches all position bitmaps for children, builds the
-// execution plan, and returns a ready-to-use planExecutor. The returned releases
-// hold the position bitmaps and must outlive the executor's execute call; the
-// caller is responsible for calling them. On error, all acquired resources are
-// released internally before returning.
-func (pv *propValuePair) buildGroupExecutor(ctx context.Context, s *Searcher, children []*propValuePair) (*planExecutor, []func(), error) {
-	positionsByPath := make(map[string]*positionBitmaps, len(children))
-	paths := make([]string, 0, len(children))
-	var excludePositions []*sroar.Bitmap
-	var releases []func()
-	succeeded := false
-	defer func() {
-		if !succeeded {
-			for _, rel := range releases {
-				rel()
-			}
-		}
-	}()
-
-	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
-		if leaf.operator == filters.OperatorIsNull {
-			// IsNull conditions are resolved via the _exists metadata entry, not the
-			// filterable value bucket. Both cases read the same bitmap of positions
-			// where the property IS present.
-			positions, release, err := leaf.fetchNestedExistsPositions(s)
-			if err != nil {
-				return err
-			}
-			releases = append(releases, release)
-			isDenyList := len(leaf.value) > 0 && leaf.value[0] == 0x01
-			if isDenyList {
-				// IsNull=true (property absent): exclude elements where property IS present.
-				excludePositions = append(excludePositions, positions)
-			} else {
-				// IsNull=false (property exists): include as regular independent condition.
-				path := leaf.nested.relPath
-				if _, exists := positionsByPath[path]; !exists {
-					positionsByPath[path] = &positionBitmaps{}
-					paths = append(paths, path)
-				}
-				positionsByPath[path].independent = append(positionsByPath[path].independent, positions)
-			}
-			return nil
-		}
-
-		dbm, err := leaf.fetchNestedPositions(ctx, s, 0)
-		if err != nil {
-			return err
-		}
-		releases = append(releases, dbm.release)
-		path := leaf.nested.relPath
-		if _, exists := positionsByPath[path]; !exists {
-			positionsByPath[path] = &positionBitmaps{}
-			paths = append(paths, path)
-		}
-		if isToken {
-			positionsByPath[path].tokens = append(positionsByPath[path].tokens, dbm.docIDs)
-		} else {
-			positionsByPath[path].independent = append(positionsByPath[path].independent, dbm.docIDs)
-		}
-		return nil
-	}
-
-	for _, child := range children {
-		if child.nested.isNested {
-			// When pv itself is a tokenization compound AND, its children are tokens
-			// of the same value and must share the same leaf position → route as tokens.
-			if err := fetchAndRoute(child, pv.nested.childrenFromTokenization); err != nil {
-				return nil, nil, fmt.Errorf("nested correlated AND: fetch bitmap for %q: %w", child.nested.relPath, err)
-			}
-		} else {
-			// Tokenization compound AND child: grandchildren are tokens of the same value.
-			for _, gc := range child.children {
-				if err := fetchAndRoute(gc, true); err != nil {
-					return nil, nil, fmt.Errorf("nested correlated AND: fetch bitmap for %q: %w", gc.nested.relPath, err)
-				}
-			}
-		}
-	}
-
-	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
-	if err != nil {
-		return nil, nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", pv.prop, err)
-	}
-
-	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
-	if metaBucket == nil {
-		return nil, nil, fmt.Errorf("nested correlated AND: meta bucket for %q not found — is it indexed?", pv.prop)
-	}
-
-	counts := make(conditionCounts, len(positionsByPath))
-	for path, positions := range positionsByPath {
-		counts[path] = [2]int{len(positions.tokens), len(positions.independent)}
-	}
-
-	// The plan builder is the single authority on execution strategy. When all
-	// conditions are IsNull=true (paths is empty), it sets useRootAnchor=true so
-	// the executor knows to use the root _exists bitmap as the element universe.
-	plan, err := newExecutionPlanBuilder(rootProp.NestedProperties).build(paths, counts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
-	}
-
-	var rootAnchor *sroar.Bitmap
-	if plan.useRootAnchor {
-		anchor, anchorRelease, err := pv.fetchRootAnchor(s, metaBucket, children)
-		if err != nil {
-			return nil, nil, fmt.Errorf("nested correlated AND: fetch root anchor for %q: %w", pv.prop, err)
-		}
-		releases = append(releases, anchorRelease)
-		rootAnchor = anchor
-	}
-
-	executor := newPlanExecutor(plan, positionsByPath, metaBucket, s.nestedBitmapOps, concurrency.SROAR_MERGE, rootAnchor, excludePositions...)
-	succeeded = true
-	return executor, releases, nil
 }
 
 // fetchRootAnchor returns the bitmap of element positions used as the starting

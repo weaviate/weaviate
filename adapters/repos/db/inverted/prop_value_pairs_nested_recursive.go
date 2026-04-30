@@ -253,15 +253,11 @@ func (f *searcherBitmapFetcher) fetchRootAnchor(children []*propValuePair) (*sro
 	return f.pv.fetchRootAnchor(f.s, metaBucket, children)
 }
 
-// buildRecGroupExecutor is the recursive sibling of buildGroupExecutor. It
-// fetches raw positions for the group's children, normalizes tokenization /
-// IsNull, builds the recursive plan from the resulting positives, and returns
-// a ready-to-use recExecutor. The returned releases must be invoked after the
-// executor is done. plan is nil when the group has no positives — execute()
-// then takes the rootAnchor path.
-//
-// Not yet wired into resolveNestedCorrelated; exposed to the integration test
-// helper during the recursive-path bringup.
+// buildRecGroupExecutor fetches raw positions for the group's children,
+// normalizes tokenization / IsNull, builds the recursive plan from the
+// resulting positives, and returns a ready-to-use recExecutor. The returned
+// releases must be invoked after the executor is done. plan is nil when the
+// group has no positives — execute() then takes the rootAnchor path.
 func (pv *propValuePair) buildRecGroupExecutor(
 	ctx context.Context,
 	s *Searcher,

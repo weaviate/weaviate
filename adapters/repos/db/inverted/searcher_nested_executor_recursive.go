@@ -33,8 +33,7 @@ type recExclude struct {
 }
 
 // recExecutor evaluates a recPlanNode tree to produce the docID bitmap of
-// matching documents. It is a self-contained sibling to planExecutor; the
-// production resolver path is not wired up to it yet.
+// matching documents.
 //
 // Each leaf condition in the plan (a *propValuePair appearing in some
 // recGroupNode.here) maps to a raw position bitmap via rawsByCond. The
@@ -47,11 +46,10 @@ type recExclude struct {
 // LCA. When the LCA matches a group's lcaPath in the plan (planLCAs), the
 // exclude is subtracted raw-level inside that group — preserving leaf-precise
 // per-element semantics for §8.5 sibling-element negation. Otherwise it is
-// subtracted at rootDoc level via MaskLeaf+AndNot in execute(), matching
-// planExecutor.computeMasked semantics. rootAnchor is the seed for the
-// no-positive path: when plan is nil, the executor clones the anchor, AndNots
-// excludes at raw level (preserving leaf alignment), then MaskLeaf to produce
-// a rootDoc bitmap.
+// subtracted at rootDoc level via MaskLeaf+AndNot in execute(). rootAnchor is
+// the seed for the no-positive path: when plan is nil, the executor clones
+// the anchor, AndNots excludes at raw level (preserving leaf alignment), then
+// MaskLeaf to produce a rootDoc bitmap.
 //
 // Position lifecycle: every bitmap returned to a caller comes with a release
 // function. Internal intermediates are released before this method returns.
@@ -226,16 +224,14 @@ func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScop
 //   - canUseRawAndAll: raw AndAll preserves leaf-precise same-element
 //     semantics. The idx loop is unnecessary because every here leaf's
 //     position is naturally aligned (terminates at lcaPath depth, single
-//     condition per path, no subs). Mirrors flat groupAndAll. Also covers
-//     the "single contributor" short-circuit (1 here leaf, 0 subs) — the
-//     flat runIdxLoop's len==1 fast path.
+//     condition per path, no subs). Also covers the "single contributor"
+//     short-circuit (1 here leaf, 0 subs).
 //   - lcaPath == "" (and not raw-AndAll-eligible): AndAllMaskLeaf — root_idx
 //     encodes element identity at root scope, no per-element loop needed.
-//     Mirrors flat groupAndAllMaskLeaf.
 //   - lcaPath != "" with multiple contributors and at least one masked input
 //     (sub plan, or here paths going deeper): per-element idx loop — each
 //     element of lcaPath is a candidate; here MaskLeafAnd and sub plans must
-//     all match within the same element. Mirrors flat groupRunIdxLoop.
+//     all match within the same element.
 //
 // The here=0, subs=1 case is collapsed away by the planner so it does not
 // reach evalGroup (see buildGroup).
@@ -250,8 +246,7 @@ func (e *recExecutor) evalGroup(ctx context.Context, g *recGroupNode, parentScop
 // for sub results, plus parentScope when set, and combines them. It handles
 // both the canUseRawAndAll path (any lcaPath) and the lcaPath="" non-raw path.
 //
-// Two combining strategies — mirroring the flat plan's groupAndAll vs
-// groupAndAllMaskLeaf distinction:
+// Two combining strategies:
 //
 //   - canUseRawAndAll (no subs, every here path unique): raw positions are
 //     naturally leaf-aligned, so raw AndAll keeps only positions where every
@@ -259,14 +254,12 @@ func (e *recExecutor) evalGroup(ctx context.Context, g *recGroupNode, parentScop
 //     to the rootDoc shape evalNode promises. parentScope, when set, is also
 //     a raw bitmap and is folded into the AndAll — it acts as an
 //     element-membership filter without disturbing same-element semantics.
-//     Equivalent to flat groupAndAll.
 //
 //   - Otherwise (subs present, or a path appears more than once in here):
 //     raw positions cannot match — different sub elements / different array
 //     values share the same root_idx but different leaf_idx, so we mask
 //     leaves before ANDing. Only valid at lcaPath="" because root_idx alone
-//     identifies the element at root scope. Equivalent to flat
-//     groupAndAllMaskLeaf.
+//     identifies the element at root scope.
 //
 // Already-leaf-masked bitmaps (sub results) are unaffected by the additional
 // MaskLeaf — masking is idempotent — so they can be mixed in with raws safely.

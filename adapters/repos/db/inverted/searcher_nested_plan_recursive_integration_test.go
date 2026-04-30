@@ -367,25 +367,25 @@ func TestRecPlanBuilderShape(t *testing.T) {
 //
 // Rules under test (per buildPlan(items, scope)):
 //
-//   B1: 0 constrained at scope         → no SPLIT, just buildGroup at scope
-//   B2: 1 constrained, 0 unconstrained → 1-branch SPLIT, branch contains the
-//                                        single constrained item
-//   B3: 1 constrained, 1 unconstrained → 1-branch SPLIT, branch's GROUP merges
-//                                        unconstrained as additional here items
-//                                        when they terminate at the scope LCA
-//   B4: 1 constrained, 1 unconstrained → 1-branch SPLIT, branch's GROUP places
-//                                        unconstrained into a deeper sub when
-//                                        they continue past the scope LCA
-//   B5: ≥2 constrained, 0 unconstrained → multi-branch SPLIT, one branch per
-//                                         constrained index
-//   B6: ≥2 constrained, ≥1 unconstrained → multi-branch SPLIT; unconstrained
-//                                          items are silently dropped (per the
-//                                          TODO in buildPlan — slated to be
-//                                          rejected by validation in
-//                                          entities/filters/filters_validator.go).
-//                                          Locking in the current behaviour
-//                                          makes the validation hand-off
-//                                          explicit when it lands.
+//	B1: 0 constrained at scope         → no SPLIT, just buildGroup at scope
+//	B2: 1 constrained, 0 unconstrained → 1-branch SPLIT, branch contains the
+//	                                     single constrained item
+//	B3: 1 constrained, 1 unconstrained → 1-branch SPLIT, branch's GROUP merges
+//	                                     unconstrained as additional here items
+//	                                     when they terminate at the scope LCA
+//	B4: 1 constrained, 1 unconstrained → 1-branch SPLIT, branch's GROUP places
+//	                                     unconstrained into a deeper sub when
+//	                                     they continue past the scope LCA
+//	B5: ≥2 constrained, 0 unconstrained → multi-branch SPLIT, one branch per
+//	                                      constrained index
+//	B6: ≥2 constrained, ≥1 unconstrained → multi-branch SPLIT; unconstrained
+//	                                       items are silently dropped (per the
+//	                                       TODO in buildPlan — slated to be
+//	                                       rejected by validation in
+//	                                       entities/filters/filters_validator.go).
+//	                                       Locking in the current behaviour
+//	                                       makes the validation hand-off
+//	                                       explicit when it lands.
 func TestRecPlanBuilderBucketingRules(t *testing.T) {
 	class := filterExamplesClass()
 	props := rootNestedProps(t, class, "countries")
