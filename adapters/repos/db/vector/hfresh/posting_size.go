@@ -14,6 +14,7 @@ import (
 type PostingSizes struct {
 	data  *common.GroupedPagedArray[uint32]
 	store *PostingSizesStore
+	count atomic.Uint64
 }
 
 func NewPostingSizes(bucket *lsmkv.Bucket) *PostingSizes {
@@ -28,6 +29,11 @@ func NewPostingSizes(bucket *lsmkv.Bucket) *PostingSizes {
 func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32, error) {
 	page, slot := p.data.EnsurePageFor(postingID)
 	newSize := atomic.AddUint32(&page[slot], 1)
+
+	if newSize == 1 {
+		// if the new size is 1, it means we just created a new entry.
+		p.count.Add(1)
+	}
 
 	err := p.store.Set(ctx, postingID, newSize)
 	if err != nil {
@@ -55,6 +61,14 @@ func (p *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error
 // Set sets the size of the posting with the given ID. It also persists the new size in the underlying store.
 func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size uint32) error {
 	page, slot := p.data.EnsurePageFor(postingID)
+
+	oldSize := atomic.LoadUint32(&page[slot])
+	if oldSize == 0 && size > 0 {
+		p.count.Add(1)
+	} else if oldSize > 0 && size == 0 {
+		p.count.Add(^uint64(0)) // decrement by 1
+	}
+
 	atomic.StoreUint32(&page[slot], size)
 
 	return p.store.Set(ctx, postingID, size)
@@ -65,6 +79,9 @@ func (p *PostingSizes) Restore(ctx context.Context) error {
 	return p.store.Iter(ctx, func(postingID uint64, size uint32) error {
 		page, slot := p.data.EnsurePageFor(postingID)
 		atomic.StoreUint32(&page[slot], size)
+		if size > 0 {
+			p.count.Add(1)
+		}
 		return nil
 	})
 }
