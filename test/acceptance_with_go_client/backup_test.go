@@ -25,10 +25,12 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestBackupWithConcurrentDelete(t *testing.T) {
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.NoError(t, err)
 
 	baseName := t.Name()
