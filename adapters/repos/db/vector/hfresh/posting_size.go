@@ -51,6 +51,14 @@ func (p *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error
 	return size, nil
 }
 
+// Set sets the size of the posting with the given ID. It also persists the new size in the underlying store.
+func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size uint32) error {
+	page, slot := p.data.EnsurePageFor(postingID)
+	atomic.StoreUint32(&page[slot], size)
+
+	return p.store.Set(ctx, postingID, size)
+}
+
 // PostingSizesStore is a persistent store for posting sizes.
 // It stores the sizes in a shared LSMKV bucket.
 type PostingSizesStore struct {
