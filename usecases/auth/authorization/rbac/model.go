@@ -393,6 +393,15 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 		return weaviateKeyMatch(reqObj, polObj)
 	}
 
+	// Normalize `/*` to `/.*` before rewriting. KeyMatch5 applies this
+	// transform itself, but only at slash boundaries; once the rewrite
+	// prepends `<ns>:` to a bare `*` segment the `*` is no longer
+	// slash-bounded and KeyMatch5's transform stops firing. Producers like
+	// CollectionsMetadata, ShardsMetadata, and Objects emit literal `*`
+	// segments — without this normalization they would never match a
+	// qualified request after the rewrite.
+	polObj = strings.ReplaceAll(polObj, "/*", "/.*")
+
 	// Reaching this point means a rewrite is needed: either ns != "" (the
 	// caller is namespaced) or ns == "" with a qualified request (a global
 	// caller addressing a namespace-qualified resource).

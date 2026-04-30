@@ -18,7 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/namespaces"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -45,10 +47,9 @@ func TestAuthzNamespaces(t *testing.T) {
 		},
 		map[string]string{viewerUser: viewerKey},
 		false,
-		map[string]string{
-			"NAMESPACES_ENABLED": "true",
-			"DISABLE_GRAPHQL":    "true",
-		},
+		nil,
+		true, // withDbUsers — needed for the namespace-scoping subtests below.
+		true, // withNamespaces
 	)
 	defer down()
 
@@ -204,6 +205,169 @@ func TestAuthzNamespaces(t *testing.T) {
 
 		assert.Empty(t, helper.ListNamespaces(t, noPermsKey))
 	})
+
+	// Namespace-scoping subtests (WS5 matcher + role-safety guards). Reuses
+	// the same compose to avoid a second cluster boot.
+	const (
+		ns1 = "customer1"
+		ns2 = "customer2"
+	)
+	helper.CreateNamespace(t, ns1, adminKey)
+	defer helper.DeleteNamespace(t, ns1, adminKey)
+	helper.CreateNamespace(t, ns2, adminKey)
+	defer helper.DeleteNamespace(t, ns2, adminKey)
+
+	user1Key := helper.CreateUserWithNamespace(t, "u1", ns1, adminKey)
+	defer helper.DeleteUser(t, ns1+":u1", adminKey)
+	user2Key := helper.CreateUserWithNamespace(t, "u2", ns2, adminKey)
+	defer helper.DeleteUser(t, ns2+":u2", adminKey)
+
+	helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
+	defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
+	helper.CreateClassAuth(t, &models.Class{Class: "MoviesArchive"}, user1Key)
+	defer helper.DeleteClassAuth(t, ns1+":MoviesArchive", adminKey)
+	helper.CreateClassAuth(t, &models.Class{Class: "Music"}, user1Key)
+	defer helper.DeleteClassAuth(t, ns1+":Music", adminKey)
+
+	helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user2Key)
+	defer helper.DeleteClassAuth(t, ns2+":Movies", adminKey)
+	helper.CreateClassAuth(t, &models.Class{Class: "Music"}, user2Key)
+	defer helper.DeleteClassAuth(t, ns2+":Music", adminKey)
+
+	t.Run("read_collections wildcard scope: namespaced caller can read own-NS collection by unqualified name", func(t *testing.T) {
+		const role = "read-all"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		assert.Equal(t, ns1+":Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
+	})
+
+	t.Run("read_collections regex scope (Movies*): matches in own namespace only", func(t *testing.T) {
+		const role = "read-movies-prefix"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies.*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		assert.Equal(t, ns1+":Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
+		assert.Equal(t, ns1+":MoviesArchive", helper.GetClassAuth(t, "MoviesArchive", user1Key).Class)
+
+		_, err := helper.Client(t).Schema.SchemaObjectsGet(
+			schema.NewSchemaObjectsGetParams().WithClassName("Music"),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err, "Music should not match Movies.*")
+	})
+
+	t.Run("read_collections exact scope (Movies): allows only Movies in own namespace", func(t *testing.T) {
+		const role = "read-movies-exact"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		assert.Equal(t, ns1+":Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
+
+		_, err := helper.Client(t).Schema.SchemaObjectsGet(
+			schema.NewSchemaObjectsGetParams().WithClassName("MoviesArchive"),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err, "exact-scope role must not match MoviesArchive")
+	})
+
+	t.Run("schema dump filters to own namespace for namespaced caller", func(t *testing.T) {
+		const role = "read-all-for-dump"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		resp, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams(), helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		got := classNames(resp.Payload.Classes)
+		assert.ElementsMatch(t, []string{ns1 + ":Movies", ns1 + ":MoviesArchive", ns1 + ":Music"}, got,
+			"namespaced caller must only see own-namespace classes in schema dump")
+	})
+
+	t.Run("global operator sees both namespaces in schema dump by qualified name", func(t *testing.T) {
+		resp, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams(), helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		got := classNames(resp.Payload.Classes)
+		assert.ElementsMatch(t, []string{
+			ns1 + ":Movies", ns1 + ":MoviesArchive", ns1 + ":Music",
+			ns2 + ":Movies", ns2 + ":Music",
+		}, got)
+	})
+
+	t.Run("built-in admin role cannot be assigned to namespaced DB user", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").WithBody(authz.AssignRoleToUserBody{
+				Roles:    []string{authorization.Admin},
+				UserType: models.UserTypeInputDb,
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("built-in viewer role cannot be assigned to namespaced DB user", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").WithBody(authz.AssignRoleToUserBody{
+				Roles:    []string{authorization.Viewer},
+				UserType: models.UserTypeInputDb,
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var forbidden *authz.AssignRoleToUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
+	})
+
+	t.Run("role with namespace-qualified resource path is rejected at create time", func(t *testing.T) {
+		const role = "qualified-path-role"
+		_, err := helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: String(role),
+				Permissions: []*models.Permission{
+					helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(ns1 + ":Movies").Permission(),
+				},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err, "create role must reject namespace-qualified collection name")
+	})
+}
+
+func classNames(classes []*models.Class) []string {
+	out := make([]string, len(classes))
+	for i, c := range classes {
+		out[i] = c.Class
+	}
+	return out
 }
 
 func authzNamespaceNames(list []*models.Namespace) []string {
