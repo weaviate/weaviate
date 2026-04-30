@@ -39,19 +39,19 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-type ReplicationTestSuite struct {
+type ReplicationTestSuiteSlow struct {
 	suite.Suite
 }
 
-func (suite *ReplicationTestSuite) SetupTest() {
+func (suite *ReplicationTestSuiteSlow) SetupTest() {
 	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
-func TestReplicationTestSuite(t *testing.T) {
-	suite.Run(t, new(ReplicationTestSuite))
+func TestReplicationTestSuiteSlow(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuiteSlow))
 }
 
-func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
+func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileCopy() {
 	t := suite.T()
 	ctx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
