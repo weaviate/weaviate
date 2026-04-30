@@ -1061,7 +1061,8 @@ func setupDebugHandlers(appState *state.State) {
 
 	// This endpoint dumps all server configuration from environment.go
 	// e.g. curl -X GET localhost:6060/debug/config
-	// Note: Authentication and Authorization sections are skipped for security
+	// Sensitive values (API keys, cluster basic-auth password) are replaced
+	// with "<redacted>" by redactDebugConfigSecrets before being returned.
 	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1083,8 +1084,11 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		cleaned := cleanEmptyValues(configMap)
+		redactDebugConfigSecrets(cleaned)
+
 		// for human readability
-		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		jsonBytes, err = json.MarshalIndent(cleaned, "", "  ")
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on cleaned config")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1292,6 +1296,53 @@ func cleanValue(v any) any {
 	default:
 		// For any other type, preserve the value
 		return v
+	}
+}
+
+// redactDebugConfigSecrets walks the marshaled config map and replaces
+// known-sensitive values with redactPlaceholder. Field structure is left
+// intact so an operator can still confirm whether a credential is
+// configured, but the actual value is never returned over the wire.
+//
+// When adding a new credential field to any config struct that is reachable
+// from config.Config, add its JSON path here too.
+func redactDebugConfigSecrets(m map[string]any) {
+	redactPath(m, "<redacted>", "authentication", "APIKey", "allowed_keys")
+	redactPath(m, "<redacted>", "cluster", "auth", "basic", "password")
+	// Sentry DSN embeds the project key as the userinfo segment of the URL
+	// (https://<key>@host/<project>), so the entire string is a credential.
+	redactPath(m, "<redacted>", "sentry", "dsn")
+}
+
+// redactPath walks a nested map by the given key path and replaces the
+// terminal value with placeholder. Slices have each element replaced with
+// placeholder so the count is preserved. Missing intermediate keys are a
+// no-op (the field was empty and already cleaned away).
+func redactPath(m map[string]any, placeholder string, path ...string) {
+	if len(path) == 0 {
+		return
+	}
+	for i := 0; i < len(path)-1; i++ {
+		sub, ok := m[path[i]].(map[string]any)
+		if !ok {
+			return
+		}
+		m = sub
+	}
+	last := path[len(path)-1]
+	v, ok := m[last]
+	if !ok {
+		return
+	}
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i := range x {
+			out[i] = placeholder
+		}
+		m[last] = out
+	default:
+		m[last] = placeholder
 	}
 }
 

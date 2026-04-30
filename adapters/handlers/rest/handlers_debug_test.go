@@ -46,3 +46,63 @@ func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
 	assert.Contains(t, jsonStrAfter, `"query_slow_log_enabled": true`, "should reflect runtime value true after update")
 	assert.NotContains(t, jsonStrAfter, `"query_slow_log_enabled": false`, "should not contain default value false after update")
 }
+
+func TestRedactDebugConfigSecrets(t *testing.T) {
+	t.Run("redacts api keys, cluster password, and sentry dsn", func(t *testing.T) {
+		m := map[string]any{
+			"authentication": map[string]any{
+				"APIKey": map[string]any{
+					"enabled":      true,
+					"users":        []any{"root-user", "regular-user"},
+					"allowed_keys": []any{"root-secret", "user-secret"},
+				},
+			},
+			"cluster": map[string]any{
+				"auth": map[string]any{
+					"basic": map[string]any{
+						"username": "cluster-user",
+						"password": "cluster-secret",
+					},
+				},
+			},
+			"sentry": map[string]any{
+				"enabled":       true,
+				"dsn":           "https://abc123@sentry.io/12345",
+				"cluster_id":    "node-0",
+				"cluster_owner": "team-storage",
+			},
+		}
+
+		redactDebugConfigSecrets(m)
+
+		// API keys redacted (each entry replaced; count preserved)
+		apiKey := m["authentication"].(map[string]any)["APIKey"].(map[string]any)
+		assert.Equal(t, []any{"<redacted>", "<redacted>"}, apiKey["allowed_keys"])
+		// Sibling fields untouched
+		assert.Equal(t, true, apiKey["enabled"])
+		assert.Equal(t, []any{"root-user", "regular-user"}, apiKey["users"])
+
+		// Cluster password redacted, username untouched
+		basic := m["cluster"].(map[string]any)["auth"].(map[string]any)["basic"].(map[string]any)
+		assert.Equal(t, "<redacted>", basic["password"])
+		assert.Equal(t, "cluster-user", basic["username"])
+
+		// Sentry DSN redacted, sibling identifiers untouched
+		sentry := m["sentry"].(map[string]any)
+		assert.Equal(t, "<redacted>", sentry["dsn"])
+		assert.Equal(t, "node-0", sentry["cluster_id"])
+		assert.Equal(t, "team-storage", sentry["cluster_owner"])
+	})
+
+	t.Run("no-op when sensitive fields are absent", func(t *testing.T) {
+		m := map[string]any{
+			"authentication": map[string]any{
+				"APIKey": map[string]any{"enabled": false},
+			},
+		}
+		redactDebugConfigSecrets(m)
+		// Did not introduce a key that wasn't there
+		_, ok := m["authentication"].(map[string]any)["APIKey"].(map[string]any)["allowed_keys"]
+		assert.False(t, ok)
+	})
+}
