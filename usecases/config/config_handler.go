@@ -418,7 +418,7 @@ type Profiling struct {
 	// a restart since the listener was never bound. Independent of
 	// Disabled: GO_PROFILING_DISABLE=true is honored as a legacy kill
 	// switch and prevents binding regardless.
-	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debug_endpoints_enabled" yaml:"debug_endpoints_enabled"`
+	DebugEndpointsEnabled *runtime.DynamicValue[bool] `json:"debugEndpointsEnabled" yaml:"debugEndpointsEnabled"`
 }
 
 type DistributedTasksConfig struct {
