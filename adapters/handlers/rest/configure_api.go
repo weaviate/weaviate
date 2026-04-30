@@ -2060,7 +2060,15 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 func setupGoProfiling(appState *state.State) {
 	config := appState.ServerConfig.Config
 	logger := appState.Logger
-	if config.Profiling.Disabled {
+	// Two independent gates:
+	//   - GO_PROFILING_DISABLE=true (legacy) → never bind.
+	//   - DEBUG_ENDPOINTS_ENABLED=true (default false) → must opt in to bind.
+	// The default-off behavior closes the unauthenticated /debug/* surface
+	// described in the security report; operators wanting profiling must set
+	// DEBUG_ENDPOINTS_ENABLED=true explicitly.
+	enabled := config.Profiling.DebugEndpointsEnabled
+	if config.Profiling.Disabled || enabled == nil || !enabled.Get() {
+		logger.Info("debug HTTP listener (port 6060) disabled; set DEBUG_ENDPOINTS_ENABLED=true and/or unset GO_PROFILING_DISABLE to enable")
 		return
 	}
 
@@ -2080,11 +2088,12 @@ func setupGoProfiling(appState *state.State) {
 	}
 	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler(functionsToIgnoreInProfiling...))
 
-	// All debug endpoints (handlers registered via setupDebugHandlers, the
-	// pprof handlers from the net/http/pprof side-effect import, and fgprof
-	// above) live on http.DefaultServeMux. Wrap that mux with the debug auth
-	// middleware so the entire :6060 surface is gated identically.
-	debugHandler := makeDebugAuthMiddleware(appState)(http.DefaultServeMux)
+	// Per-request gate so a runtime override that flips DebugEndpointsEnabled
+	// to false takes effect without a restart. The listener stays bound but
+	// every request gets a 404 until the flag is flipped back. (Going from
+	// default-off to enabled still requires a restart since the listener was
+	// never bound in the first place.)
+	debugHandler := makeDebugEndpointsGate(enabled)(http.DefaultServeMux)
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {
