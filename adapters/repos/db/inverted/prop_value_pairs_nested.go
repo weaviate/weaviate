@@ -287,9 +287,9 @@ func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *S
 }
 
 // resolveNestedCorrelatedGroup resolves a single set of children using
-// position-aware same-element correlation.
+// position-aware same-element correlation through the recursive plan + executor.
 func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Searcher, children []*propValuePair) (*docBitmap, error) {
-	executor, releases, err := pv.buildGroupExecutor(ctx, s, children)
+	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 
 	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
 	// consider deriving it from the request context or shard-level config.
-	docIDs, release, err := executor.execute(ctx)
+	docIDs, release, err := executor.execute(ctx, plan)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}
@@ -309,10 +309,10 @@ func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Se
 }
 
 // resolveGroupMasked resolves children to root+docID positions (leaf bits zeroed)
-// instead of plain docIDs, by setting plan.returnMasked on the executor. Used by
-// resolveMultiGroupRootDocIDAnd to AND groups at root+docID level.
+// instead of plain docIDs by toggling returnMasked on the recursive executor.
+// Used by resolveMultiGroupRootDocIDAnd to AND groups at root+docID level.
 func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, children []*propValuePair) (*sroar.Bitmap, func(), error) {
-	executor, releases, err := pv.buildGroupExecutor(ctx, s, children)
+	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -322,8 +322,8 @@ func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, ch
 		}
 	}()
 
-	executor.plan.returnMasked = true
-	masked, maskedRelease, err := executor.execute(ctx)
+	executor.withReturnMasked(true)
+	masked, maskedRelease, err := executor.execute(ctx, plan)
 	if err != nil {
 		return nil, nil, fmt.Errorf("nested correlated AND: execute masked for %q: %w", pv.prop, err)
 	}
@@ -588,4 +588,3 @@ func groupChildrenByArrayIndicesKey(children []*propValuePair) ([][]*propValuePa
 
 	return groups, len(groups) > 1 && allRootConstrained
 }
-

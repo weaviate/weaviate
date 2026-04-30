@@ -2911,8 +2911,10 @@ func TestPlanCasesIntegration(t *testing.T) {
 				writeNestedValue(t, vb, "cars.tires.caps.color", "red", []uint64{E1(2, doc5), E1(2, doc7)})
 				writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{E1(3, doc5), E1(3, doc7)})
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{E1(1, doc5), E1(2, doc5), E1(3, doc5)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0), []uint64{E1(1, doc5), E1(2, doc5)}))
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{E1(1, doc7), E1(2, doc7)}))
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{E1(3, doc7)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0), []uint64{E1(1, doc7), E1(2, doc7)}))
 			},
 			nestedArraySetup: func(t *testing.T, vb, mb *lsmkv.Bucket) {
 				// doc5: nestedArray[0].cars[0]={tires(bolts:leaf=1,caps:leaf=2),acc:leaf=3}
@@ -2920,17 +2922,20 @@ func TestPlanCasesIntegration(t *testing.T) {
 				writeNestedValue(t, vb, "cars.tires.caps.color", "red", []uint64{E1(2, doc5)})
 				writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{E1(3, doc5)})
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{E1(1, doc5), E1(2, doc5), E1(3, doc5)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0), []uint64{E1(1, doc5), E1(2, doc5)}))
 				// doc7 cross-root: bolts+caps in nestedArray[0].cars[0], accessories in nestedArray[1].cars[0]
 				require.NoError(t, vb.RoaringSetAddList(invnested.ValueKey("cars.tires.bolts.size", size10), []uint64{E(1, 1, doc7)}))
 				writeNestedValue(t, vb, "cars.tires.caps.color", "red", []uint64{E(1, 2, doc7)})
 				writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{E(2, 1, doc7)})
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{E(1, 1, doc7), E(1, 2, doc7), E(2, 1, doc7)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0), []uint64{E(1, 1, doc7), E(1, 2, doc7)}))
 				// doc9 same-root: nestedArray[0].cars[0]={tires(bolts+caps)}, cars[1]={accessories}
 				require.NoError(t, vb.RoaringSetAddList(invnested.ValueKey("cars.tires.bolts.size", size10), []uint64{E(1, 1, doc9)}))
 				writeNestedValue(t, vb, "cars.tires.caps.color", "red", []uint64{E(1, 2, doc9)})
 				writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{E(1, 3, doc9)})
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{E(1, 1, doc9), E(1, 2, doc9)}))
 				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{E(1, 3, doc9)}))
+				require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 0), []uint64{E(1, 1, doc9), E(1, 2, doc9)}))
 			},
 			filter: func(prop string) *filters.Clause {
 				return and(
@@ -5397,6 +5402,61 @@ func TestIsNullInCorrelatedAnd(t *testing.T) {
 		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
 	})
+
+	// Group: §8.5 sibling-element IsNull=true when target's deepest object[] LCA
+	// is below the root prop
+	// -------------------------------------------------------------------------
+
+	t.Run("§8.5 sibling-element IsNull=true at intermediate LCA — positive on same path", func(t *testing.T) {
+		// pv.prop="garages"; both children's deepest object[] LCA is garages.cars.
+		// Per §8.5 a doc matches when *some car in some garage* has both
+		// make=honda AND year absent. The negation at scope garages.cars must
+		// eliminate only the specific car element where year exists, not its
+		// sibling cars within the same garage.
+		//
+		// doc1 garages[0].cars[0]={make:honda, year present}, cars[1]={make:honda, no year}
+		//   → cars[1] satisfies positive AND absence → MATCH per §8.5
+		// doc2 garages[0].cars[0]={make:honda, year present}, cars[1]={make:ferrari, no year}
+		//   → no single car has both → no match
+		// doc3 garages[0].cars[0]={make:honda, year present}, cars[1]={make:honda, year present}
+		//   → both cars have year → no match
+		//
+		// The recursive executor applies the cars.year IsNull=true exclude
+		// raw-level inside the GROUP@"cars" canUseRawAndAll path: the AndAll'd
+		// raw cars.make=honda bitmap has cars.year's existence positions
+		// AndNot'd before MaskLeaf, so only the specific car element with year
+		// absent survives. This preserves per-element §8.5 semantics; a sibling
+		// car with year present does not eliminate its sibling without year.
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		// All cars live in garages[0] → root_idx=1. leaf_idx identifies the car.
+		p1c0 := enc(1, 1, doc1) // doc1 garages[0].cars[0]
+		p1c1 := enc(1, 2, doc1) // doc1 garages[0].cars[1]
+		p2c0 := enc(1, 1, doc2)
+		p2c1 := enc(1, 2, doc2)
+		p3c0 := enc(1, 1, doc3)
+		p3c1 := enc(1, 2, doc3)
+
+		// cars.make=honda — every car except doc2.cars[1]
+		writeNestedValue(t, vb, "cars.make", "honda",
+			[]uint64{p1c0, p1c1, p2c0, p3c0, p3c1})
+		// cars.make=ferrari — doc2.cars[1] only
+		writeNestedValue(t, vb, "cars.make", "ferrari", []uint64{p2c1})
+		// cars.year present — every cars[0], plus doc3.cars[1]
+		writeNestedExists(t, mb, "cars.year",
+			[]uint64{p1c0, p2c0, p3c0, p3c1})
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "cars.make", "honda"),
+			makeIsNullPvp(class, "garages", "cars.year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -5574,8 +5634,10 @@ func filterExamplesClass() *models.Class {
 	tok := models.PropertyTokenizationField
 
 	np := func(name string, dt []string) *models.NestedProperty {
-		return &models.NestedProperty{Name: name, DataType: dt,
-			IndexFilterable: &vTrue, Tokenization: tok}
+		return &models.NestedProperty{
+			Name: name, DataType: dt,
+			IndexFilterable: &vTrue, Tokenization: tok,
+		}
 	}
 
 	carsProps := []*models.NestedProperty{
@@ -5583,34 +5645,46 @@ func filterExamplesClass() *models.Class {
 		np("model", schema.DataTypeText.PropString()),
 		np("color", schema.DataTypeText.PropString()),
 		np("tags", schema.DataTypeTextArray.PropString()),
-		{Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+		{
+			Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
 			NestedProperties: []*models.NestedProperty{
 				np("type", schema.DataTypeText.PropString()),
-			}},
-		{Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			},
+		},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
 			NestedProperties: []*models.NestedProperty{
 				np("width", schema.DataTypeText.PropString()),
-			}},
+			},
+		},
 	}
 	garagesProps := []*models.NestedProperty{
 		np("city", schema.DataTypeText.PropString()),
 		np("make", schema.DataTypeText.PropString()),
 		np("postcode", schema.DataTypeText.PropString()),
-		{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
-			NestedProperties: carsProps},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: carsProps,
+		},
 	}
 	countriesProps := []*models.NestedProperty{
-		{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
-			NestedProperties: garagesProps},
+		{
+			Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: garagesProps,
+		},
 	}
 
 	return &models.Class{
 		Class: "FilterExamplesClass",
 		Properties: []*models.Property{
-			{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
-				NestedProperties: garagesProps},
-			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
-				NestedProperties: countriesProps},
+			{
+				Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: garagesProps,
+			},
+			{
+				Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: countriesProps,
+			},
 		},
 	}
 }
@@ -5981,8 +6055,10 @@ func TestCorrelatedAndFilterExamples(t *testing.T) {
 
 		// _idx.garages[N]: positions of garages[N] across all countries
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 0),
-			[]uint64{enc(1, leafG0Direct, docMatch), enc(1, leafG0Cars1, docMatch),
-				enc(1, leafG0Direct, docNoMatch)}))
+			[]uint64{
+				enc(1, leafG0Direct, docMatch), enc(1, leafG0Cars1, docMatch),
+				enc(1, leafG0Direct, docNoMatch),
+			}))
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 1),
 			[]uint64{enc(1, leafG1Cars1, docNoMatch)}))
 		// _idx.cars[1]: positions of cars[1] in all garages
@@ -6033,16 +6109,22 @@ func TestCorrelatedAndFilterExamples(t *testing.T) {
 
 		// _idx.garages[1]: garages[1] positions
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 1),
-			[]uint64{enc(1, leafG1Direct, docNoMatch1), enc(1, leafG1Cars1, docNoMatch1),
-				enc(1, leafG1Direct, docNoMatch2)}))
+			[]uint64{
+				enc(1, leafG1Direct, docNoMatch1), enc(1, leafG1Cars1, docNoMatch1),
+				enc(1, leafG1Direct, docNoMatch2),
+			}))
 		// _idx.garages[2]: garages[2] positions
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 2),
-			[]uint64{enc(1, leafG2Direct, docMatch), enc(1, leafG1Cars1+2, docMatch),
-				enc(1, leafG2Direct, docNoMatch1), enc(1, leafG1Cars1+2, docNoMatch2)}))
+			[]uint64{
+				enc(1, leafG2Direct, docMatch), enc(1, leafG1Cars1+2, docMatch),
+				enc(1, leafG2Direct, docNoMatch1), enc(1, leafG1Cars1+2, docNoMatch2),
+			}))
 		// _idx.cars[1]: cars[1] positions across all garages
 		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
-			[]uint64{enc(1, leafG1Cars1+2, docMatch), enc(1, leafG1Cars1, docNoMatch1),
-				enc(1, leafG1Cars1+2, docNoMatch2)}))
+			[]uint64{
+				enc(1, leafG1Cars1+2, docMatch), enc(1, leafG1Cars1, docNoMatch1),
+				enc(1, leafG1Cars1+2, docNoMatch2),
+			}))
 
 		idx2g := filnested.ArrayIndex{RelPath: "garages", Index: 2}
 		idx1cars := filnested.ArrayIndex{RelPath: "cars", Index: 1}
@@ -6069,9 +6151,9 @@ func TestCorrelatedAndFilterExamples(t *testing.T) {
 	// -----------------------------------------------------------------------
 	t.Run("C5_countries.garages.city_AND_countries.garages.cars.make_AND_countries.garages.cars.model", func(t *testing.T) {
 		const (
-			docMatch     = uint64(1)
-			docNoMatch   = uint64(2)
-			leafG0Cars0  = uint16(6) // garages[0].cars[0] (extends the leaf table for this test)
+			docMatch    = uint64(1)
+			docNoMatch  = uint64(2)
+			leafG0Cars0 = uint16(6) // garages[0].cars[0] (extends the leaf table for this test)
 		)
 		searcher, vb, mb := newFilterExamplesSearcher(t, "countries")
 
@@ -6565,12 +6647,12 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 				enc(1, leafG0Direct, docMatch), enc(1, leafG0Cars0Tag, docMatch), enc(1, leafG0Cars0Access, docMatch),
 				enc(1, leafG0Direct, docNoMatch), enc(1, leafG0Cars0Access, docNoMatch), enc(1, leafG0Cars1Tag, docNoMatch),
 			}))
-		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0),
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 0),
 			[]uint64{
 				enc(1, leafG0Cars0Tag, docMatch), enc(1, leafG0Cars0Access, docMatch),
 				enc(1, leafG0Cars0Access, docNoMatch),
 			}))
-		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 1),
 			[]uint64{enc(1, leafG0Cars1Tag, docNoMatch)}))
 		// docNoMatch silences leafG0Cars1Access reference
 		_ = leafG0Cars1Access
@@ -6626,12 +6708,12 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 				enc(1, leafG0Direct, docMatch), enc(1, leafG0Cars0Access, docMatch), enc(1, leafG0Cars0Tire, docMatch),
 				enc(1, leafG0Direct, docNoMatch), enc(1, leafG0Cars0Access, docNoMatch), enc(1, leafG0Cars1Tire, docNoMatch),
 			}))
-		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0),
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 0),
 			[]uint64{
 				enc(1, leafG0Cars0Access, docMatch), enc(1, leafG0Cars0Tire, docMatch),
 				enc(1, leafG0Cars0Access, docNoMatch),
 			}))
-		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 1),
 			[]uint64{enc(1, leafG0Cars1Tire, docNoMatch)}))
 
 		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
@@ -6641,5 +6723,443 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 
 		run(t, makeCorrelatedPvp(class, "countries", city, postcode, accType, tireWidth), searcher, []uint64{docMatch})
 		run(t, makeCorrelatedPvp(class, "countries", tireWidth, accType, postcode, city), searcher, []uint64{docMatch})
+	})
+
+	// -----------------------------------------------------------------------
+	// F9: garages[0].cars.tires.width AND garages[0].cars.accessories.type AND
+	//     garages[1].cars.tires.width AND garages[1].cars.accessories.type
+	//
+	// Two compatibility groups — {garages[0]} and {garages[1]} — are
+	// allRootConstrained (root="garages", outermost arr[N] at RelPath="") so
+	// dispatch goes through resolveMultiGroupDocIDLevelAnd. Within each group
+	// the plan is SPLIT@""[idx] → GROUP@"cars" with two deeper subs (tires +
+	// accessories), which exercises runIdxLoopRecursive on _idx.cars[K] to
+	// enforce same-car semantics for tires.width + accessories.type.
+	//
+	// docMatch:   garages[0].cars[0].{tires.width=205, acc.type=spoiler} AND
+	//             garages[1].cars[0].{tires.width=225, acc.type=sunroof} → match
+	// docNoMatch: garages[0] OK; garages[1].cars[0].tires.width=225 but
+	//             accessories.type=sunroof in garages[1].cars[1] → no match
+	// -----------------------------------------------------------------------
+	t.Run("F9_garages[0].cars.{tires,accessories}_AND_garages[1].cars.{tires,accessories}", func(t *testing.T) {
+		const (
+			docMatch   = uint64(1)
+			docNoMatch = uint64(2)
+
+			leafG0Cars0Tire = uint16(1)
+			leafG0Cars0Acc  = uint16(2)
+			leafG1Cars0Tire = uint16(3)
+			leafG1Cars0Acc  = uint16(4)
+			leafG1Cars1Acc  = uint16(5)
+		)
+		searcher, vb, mb := newFilterExamplesSearcher(t, "garages")
+
+		// docMatch: garages[0].cars[0] has tires.width=205 + acc.type=spoiler;
+		// garages[1].cars[0] has tires.width=225 + acc.type=sunroof.
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0Cars0Tire, docMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0Cars0Acc, docMatch)})
+		writeNestedValue(t, vb, "cars.tires.width", "225", []uint64{enc(2, leafG1Cars0Tire, docMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "sunroof", []uint64{enc(2, leafG1Cars0Acc, docMatch)})
+
+		// docNoMatch: garages[0].cars[0] OK; garages[1].cars[0].tires.width=225
+		// but garages[1].cars[1].acc.type=sunroof — different cars within g[1].
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0Cars0Tire, docNoMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0Cars0Acc, docNoMatch)})
+		writeNestedValue(t, vb, "cars.tires.width", "225", []uint64{enc(2, leafG1Cars0Tire, docNoMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "sunroof", []uint64{enc(2, leafG1Cars1Acc, docNoMatch)})
+
+		// _idx[""][0]: positions in garages[0].
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 0),
+			[]uint64{
+				enc(1, leafG0Cars0Tire, docMatch), enc(1, leafG0Cars0Acc, docMatch),
+				enc(1, leafG0Cars0Tire, docNoMatch), enc(1, leafG0Cars0Acc, docNoMatch),
+			}))
+		// _idx[""][1]: positions in garages[1].
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 1),
+			[]uint64{
+				enc(2, leafG1Cars0Tire, docMatch), enc(2, leafG1Cars0Acc, docMatch),
+				enc(2, leafG1Cars0Tire, docNoMatch), enc(2, leafG1Cars1Acc, docNoMatch),
+			}))
+		// _idx.cars[0]: positions in cars[0] across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0),
+			[]uint64{
+				enc(1, leafG0Cars0Tire, docMatch), enc(1, leafG0Cars0Acc, docMatch),
+				enc(1, leafG0Cars0Tire, docNoMatch), enc(1, leafG0Cars0Acc, docNoMatch),
+				enc(2, leafG1Cars0Tire, docMatch), enc(2, leafG1Cars0Acc, docMatch),
+				enc(2, leafG1Cars0Tire, docNoMatch),
+			}))
+		// _idx.cars[1]: positions in cars[1] across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+			[]uint64{enc(2, leafG1Cars1Acc, docNoMatch)}))
+
+		idx0g := filnested.ArrayIndex{RelPath: "", Index: 0}
+		idx1g := filnested.ArrayIndex{RelPath: "", Index: 1}
+
+		g0Tires := makeLeafPvpWithIdx(class, "garages", "cars.tires.width", "205", idx0g)
+		g0Acc := makeLeafPvpWithIdx(class, "garages", "cars.accessories.type", "spoiler", idx0g)
+		g1Tires := makeLeafPvpWithIdx(class, "garages", "cars.tires.width", "225", idx1g)
+		g1Acc := makeLeafPvpWithIdx(class, "garages", "cars.accessories.type", "sunroof", idx1g)
+
+		run(t, makeCorrelatedPvp(class, "garages", g0Tires, g0Acc, g1Tires, g1Acc), searcher, []uint64{docMatch})
+		run(t, makeCorrelatedPvp(class, "garages", g1Acc, g1Tires, g0Acc, g0Tires), searcher, []uint64{docMatch})
+	})
+
+	// -----------------------------------------------------------------------
+	// F10: garages.cars[0].tires.width AND garages.cars[0].accessories.type AND
+	//      garages.cars[1].tires.width AND garages.cars[1].accessories.type
+	//
+	// Two compatibility groups — {cars[0]} and {cars[1]} — conflict at
+	// RelPath="cars", so allRootConstrained is false and dispatch goes through
+	// resolveMultiGroupRootDocIDAnd (returnMasked=true → AND at root+docID
+	// level → MaskRootLeaf). Within each group the plan is SPLIT@"cars"[idx]
+	// → GROUP@"cars" with two deeper subs (tires + accessories), exercising
+	// runIdxLoopRecursive at lcaPath="cars" inside the per-group execution.
+	//
+	// docMatch:   garages[0].cars[0].{tires=205, acc=spoiler} AND
+	//             garages[0].cars[1].{tires=225, acc=sunroof} → match (same garage)
+	// docNoMatch: garages[0].cars[0].{tires=205, acc=spoiler} AND
+	//             garages[1].cars[1].{tires=225, acc=sunroof} → no match
+	//             (cars[0] and cars[1] satisfied, but in different garages)
+	// -----------------------------------------------------------------------
+	t.Run("F10_garages.cars[0].{tires,accessories}_AND_garages.cars[1].{tires,accessories}", func(t *testing.T) {
+		const (
+			docMatch   = uint64(1)
+			docNoMatch = uint64(2)
+
+			leafG0Cars0Tire = uint16(1)
+			leafG0Cars0Acc  = uint16(2)
+			leafG0Cars1Tire = uint16(3)
+			leafG0Cars1Acc  = uint16(4)
+			leafG1Cars1Tire = uint16(5)
+			leafG1Cars1Acc  = uint16(6)
+		)
+		searcher, vb, mb := newFilterExamplesSearcher(t, "garages")
+
+		// docMatch: same garage[0] holds both cars[0]={205,spoiler} and cars[1]={225,sunroof}.
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0Cars0Tire, docMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0Cars0Acc, docMatch)})
+		writeNestedValue(t, vb, "cars.tires.width", "225", []uint64{enc(1, leafG0Cars1Tire, docMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "sunroof", []uint64{enc(1, leafG0Cars1Acc, docMatch)})
+
+		// docNoMatch: cars[0] satisfied in garage[0], cars[1] satisfied in garage[1].
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0Cars0Tire, docNoMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0Cars0Acc, docNoMatch)})
+		writeNestedValue(t, vb, "cars.tires.width", "225", []uint64{enc(2, leafG1Cars1Tire, docNoMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "sunroof", []uint64{enc(2, leafG1Cars1Acc, docNoMatch)})
+
+		// _idx.cars[0]: positions in cars[0] across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0),
+			[]uint64{
+				enc(1, leafG0Cars0Tire, docMatch), enc(1, leafG0Cars0Acc, docMatch),
+				enc(1, leafG0Cars0Tire, docNoMatch), enc(1, leafG0Cars0Acc, docNoMatch),
+			}))
+		// _idx.cars[1]: positions in cars[1] across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+			[]uint64{
+				enc(1, leafG0Cars1Tire, docMatch), enc(1, leafG0Cars1Acc, docMatch),
+				enc(2, leafG1Cars1Tire, docNoMatch), enc(2, leafG1Cars1Acc, docNoMatch),
+			}))
+
+		idx0cars := filnested.ArrayIndex{RelPath: "cars", Index: 0}
+		idx1cars := filnested.ArrayIndex{RelPath: "cars", Index: 1}
+
+		c0Tires := makeLeafPvpWithIdx(class, "garages", "cars.tires.width", "205", idx0cars)
+		c0Acc := makeLeafPvpWithIdx(class, "garages", "cars.accessories.type", "spoiler", idx0cars)
+		c1Tires := makeLeafPvpWithIdx(class, "garages", "cars.tires.width", "225", idx1cars)
+		c1Acc := makeLeafPvpWithIdx(class, "garages", "cars.accessories.type", "sunroof", idx1cars)
+
+		run(t, makeCorrelatedPvp(class, "garages", c0Tires, c0Acc, c1Tires, c1Acc), searcher, []uint64{docMatch})
+		run(t, makeCorrelatedPvp(class, "garages", c1Acc, c1Tires, c0Acc, c0Tires), searcher, []uint64{docMatch})
+	})
+
+	// -----------------------------------------------------------------------
+	// F11: garages[0].cars[1].make AND garages[0].cars[1].model — same single
+	// group with arr[N] constraints at two scopes ("" and "cars"). Within a
+	// compatibility group all members share the same index at any constrained
+	// scope, so the planner only ever emits 1-branch SPLITs — nested here as
+	// SPLIT@"" → SPLIT@"cars" → GROUP@"cars".
+	//
+	// The outer SPLIT pins to garages[0], the inner SPLIT pins to cars[1], and
+	// the inner GROUP combines make + model with canUseRawAndAll (raw AndAll on
+	// unique here paths) so same-leaf semantics enforce same-car.
+	//
+	// docMatch:    garages[0].cars[1].make=honda AND cars[1].model=civic → match
+	// docNoMatch1: garages[0].cars[0].{make,model} satisfied — wrong car
+	// docNoMatch2: garages[0].cars[1].make=honda AND garages[1].cars[1].model=civic
+	//              — wrong garage for model
+	// -----------------------------------------------------------------------
+	t.Run("F11_garages[0].cars[1].make_AND_garages[0].cars[1].model", func(t *testing.T) {
+		const (
+			docMatch    = uint64(1)
+			docNoMatch1 = uint64(2)
+			docNoMatch2 = uint64(3)
+
+			leafG0Cars0 = uint16(1)
+			leafG0Cars1 = uint16(2)
+			leafG1Cars1 = uint16(3)
+		)
+		searcher, vb, mb := newFilterExamplesSearcher(t, "garages")
+
+		// docMatch: make+model both in garages[0].cars[1].
+		writeNestedValue(t, vb, "cars.make", "honda", []uint64{enc(1, leafG0Cars1, docMatch)})
+		writeNestedValue(t, vb, "cars.model", "civic", []uint64{enc(1, leafG0Cars1, docMatch)})
+		// docNoMatch1: make+model in garages[0].cars[0] — outer SPLIT pins g[0]
+		// passes, but inner SPLIT@"cars" branch=1 finds nothing.
+		writeNestedValue(t, vb, "cars.make", "honda", []uint64{enc(1, leafG0Cars0, docNoMatch1)})
+		writeNestedValue(t, vb, "cars.model", "civic", []uint64{enc(1, leafG0Cars0, docNoMatch1)})
+		// docNoMatch2: make in garages[0].cars[1], model in garages[1].cars[1].
+		writeNestedValue(t, vb, "cars.make", "honda", []uint64{enc(1, leafG0Cars1, docNoMatch2)})
+		writeNestedValue(t, vb, "cars.model", "civic", []uint64{enc(2, leafG1Cars1, docNoMatch2)})
+
+		// _idx[""][0]: positions in garages[0].
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 0),
+			[]uint64{
+				enc(1, leafG0Cars1, docMatch),
+				enc(1, leafG0Cars0, docNoMatch1),
+				enc(1, leafG0Cars1, docNoMatch2),
+			}))
+		// _idx.cars[1]: positions in cars[1] across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+			[]uint64{
+				enc(1, leafG0Cars1, docMatch),
+				enc(1, leafG0Cars1, docNoMatch2),
+				enc(2, leafG1Cars1, docNoMatch2),
+			}))
+
+		idx0g := filnested.ArrayIndex{RelPath: "", Index: 0}
+		idx1cars := filnested.ArrayIndex{RelPath: "cars", Index: 1}
+
+		carsMake := makeLeafPvpWithIdx(class, "garages", "cars.make", "honda", idx0g, idx1cars)
+		carsModel := makeLeafPvpWithIdx(class, "garages", "cars.model", "civic", idx0g, idx1cars)
+
+		run(t, makeCorrelatedPvp(class, "garages", carsMake, carsModel), searcher, []uint64{docMatch})
+		run(t, makeCorrelatedPvp(class, "garages", carsModel, carsMake), searcher, []uint64{docMatch})
+	})
+
+	// -----------------------------------------------------------------------
+	// F12: garages[0].cars[1].tires[2].width AND
+	//      garages[0].cars[1].accessories[3].type — single compatibility group
+	// with arr[N] constraints at three scopes ("", "cars", "cars.tires" /
+	// "cars.accessories"). The planner builds nested SPLITs for the shared "" +
+	// "cars" levels and per-sub SPLITs for the disjoint deepest levels:
+	//
+	//   SPLIT@""[0]
+	//     SPLIT@"cars"[1]
+	//       GROUP@"cars" subs:
+	//         SPLIT@"cars.tires"[2] → GROUP@"cars.tires" here=[width]
+	//         SPLIT@"cars.accessories"[3] → GROUP@"cars.accessories" here=[type]
+	//
+	// docMatch:    garages[0].cars[1].tires[2].width=W AND
+	//              garages[0].cars[1].accessories[3].type=T → match
+	// docNoMatch1: garages[0].cars[1].tires[1].width=W (wrong tire idx) AND
+	//              garages[0].cars[1].accessories[3].type=T → tires sub empty
+	// docNoMatch2: garages[0].cars[2].tires[2].width=W (wrong car idx) AND
+	//              garages[0].cars[1].accessories[3].type=T → SPLIT@"cars"
+	//              branch=1 excludes the width position
+	// docNoMatch3: garages[0].cars[1].tires[2].width=W AND
+	//              garages[1].cars[1].accessories[3].type=T → SPLIT@"" branch=0
+	//              excludes the type position
+	// -----------------------------------------------------------------------
+	t.Run("F12_garages[0].cars[1].tires[2]_AND_garages[0].cars[1].accessories[3]", func(t *testing.T) {
+		const (
+			docMatch    = uint64(1)
+			docNoMatch1 = uint64(2)
+			docNoMatch2 = uint64(3)
+			docNoMatch3 = uint64(4)
+
+			leafG0C1T2 = uint16(1)
+			leafG0C1A3 = uint16(2)
+			leafG0C1T1 = uint16(3)
+			leafG0C2T2 = uint16(4)
+			leafG1C1A3 = uint16(5)
+		)
+		searcher, vb, mb := newFilterExamplesSearcher(t, "garages")
+
+		// docMatch.
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0C1T2, docMatch)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0C1A3, docMatch)})
+		// docNoMatch1: width in tires[1] (wrong idx); type in acc[3] (correct).
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0C1T1, docNoMatch1)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0C1A3, docNoMatch1)})
+		// docNoMatch2: width in cars[2].tires[2]; type in cars[1].acc[3].
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0C2T2, docNoMatch2)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(1, leafG0C1A3, docNoMatch2)})
+		// docNoMatch3: width in g[0].cars[1].tires[2]; type in g[1].cars[1].acc[3].
+		writeNestedValue(t, vb, "cars.tires.width", "205", []uint64{enc(1, leafG0C1T2, docNoMatch3)})
+		writeNestedValue(t, vb, "cars.accessories.type", "spoiler", []uint64{enc(2, leafG1C1A3, docNoMatch3)})
+
+		// _idx[""][0]: positions in garages[0]. All four docs have at least one
+		// position in garages[0] (only docNoMatch3's type leaf is in garages[1]).
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("", 0),
+			[]uint64{
+				enc(1, leafG0C1T2, docMatch), enc(1, leafG0C1A3, docMatch),
+				enc(1, leafG0C1T1, docNoMatch1), enc(1, leafG0C1A3, docNoMatch1),
+				enc(1, leafG0C2T2, docNoMatch2), enc(1, leafG0C1A3, docNoMatch2),
+				enc(1, leafG0C1T2, docNoMatch3),
+			}))
+		// _idx.cars[1]: positions in cars[1] across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1),
+			[]uint64{
+				enc(1, leafG0C1T2, docMatch), enc(1, leafG0C1A3, docMatch),
+				enc(1, leafG0C1T1, docNoMatch1), enc(1, leafG0C1A3, docNoMatch1),
+				enc(1, leafG0C1A3, docNoMatch2),
+				enc(1, leafG0C1T2, docNoMatch3), enc(2, leafG1C1A3, docNoMatch3),
+			}))
+		// _idx.cars[2]: positions in cars[2] (only docNoMatch2's misplaced width).
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 2),
+			[]uint64{enc(1, leafG0C2T2, docNoMatch2)}))
+		// _idx.cars.tires[2]: positions of tires[2] across all cars/garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 2),
+			[]uint64{
+				enc(1, leafG0C1T2, docMatch),
+				enc(1, leafG0C2T2, docNoMatch2),
+				enc(1, leafG0C1T2, docNoMatch3),
+			}))
+		// _idx.cars.tires[1]: positions of tires[1] (only docNoMatch1's misplaced width).
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.tires", 1),
+			[]uint64{enc(1, leafG0C1T1, docNoMatch1)}))
+		// _idx.cars.accessories[3]: positions of accessories[3] across all cars/garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars.accessories", 3),
+			[]uint64{
+				enc(1, leafG0C1A3, docMatch),
+				enc(1, leafG0C1A3, docNoMatch1),
+				enc(1, leafG0C1A3, docNoMatch2),
+				enc(2, leafG1C1A3, docNoMatch3),
+			}))
+
+		idx0g := filnested.ArrayIndex{RelPath: "", Index: 0}
+		idx1cars := filnested.ArrayIndex{RelPath: "cars", Index: 1}
+		idx2tires := filnested.ArrayIndex{RelPath: "cars.tires", Index: 2}
+		idx3acc := filnested.ArrayIndex{RelPath: "cars.accessories", Index: 3}
+
+		tireWidth := makeLeafPvpWithIdx(class, "garages", "cars.tires.width", "205", idx0g, idx1cars, idx2tires)
+		accType := makeLeafPvpWithIdx(class, "garages", "cars.accessories.type", "spoiler", idx0g, idx1cars, idx3acc)
+
+		run(t, makeCorrelatedPvp(class, "garages", tireWidth, accType), searcher, []uint64{docMatch})
+		run(t, makeCorrelatedPvp(class, "garages", accType, tireWidth), searcher, []uint64{docMatch})
+	})
+
+	// -----------------------------------------------------------------------
+	// F14: countries.garages[0].city=berlin AND
+	//      countries.garages[1].postcode=12345 AND
+	//      countries.garages[1].cars[2].make=honda AND
+	//      countries.garages[1].cars[3].model=civic
+	//
+	// Compatibility grouping always yields three groups (for ABCD order it is
+	// {A}, {B, C}, {D}; for DACB order it is {D, B}, {A}, {C}). In both cases
+	// allRootConstrained=false (outermost RelPath="garages") so dispatch goes
+	// through resolveMultiGroupRootDocIDAnd: each group resolves with
+	// returnMasked=true, and the per-group root+docID outputs are AndAll'd
+	// before MaskRootLeaf.
+	//
+	// Per-group plans (ABCD order):
+	//   {A}     SPLIT@"garages"[0] → GROUP@"garages" here=[city]
+	//   {B, C}  SPLIT@"garages"[1]
+	//             GROUP@"garages" here=[postcode]
+	//               SPLIT@"garages.cars"[2]
+	//                 GROUP@"garages.cars" here=[make]
+	//   {D}     SPLIT@"garages"[1] → SPLIT@"garages.cars"[3]
+	//             GROUP@"garages.cars" here=[model]
+	//
+	// docMatch:    country[1].garages[0].city; garages[1].{postcode,
+	//              cars[2].make, cars[3].model}
+	// docNoMatch1: city placed in garages[1] — group {A}'s SPLIT@"garages"[0] empty
+	// docNoMatch2: make placed in garages[2].cars[2] — the nested SPLIT inside
+	//              group {B, C} cannot pin make to garages[1] AND cars[2]
+	//              simultaneously (and group {C} alone fails in the DACB ordering
+	//              for the same reason)
+	// docNoMatch3: city in country[1]; rest in country[2] — different root_idx
+	//              breaks the cross-group root+docID AND
+	// -----------------------------------------------------------------------
+	t.Run("F14_garages[0].city_AND_garages[1].postcode_AND_garages[1].cars[2].make_AND_garages[1].cars[3].model", func(t *testing.T) {
+		const (
+			docMatch    = uint64(1)
+			docNoMatch1 = uint64(2)
+			docNoMatch2 = uint64(3)
+			docNoMatch3 = uint64(4)
+
+			leafC1G0       = uint16(1)
+			leafC1G1Direct = uint16(2)
+			leafC1G1C2     = uint16(3)
+			leafC1G1C3     = uint16(4)
+			leafC1G2C2     = uint16(5)
+			leafC2G1Direct = uint16(6)
+			leafC2G1C2     = uint16(7)
+			leafC2G1C3     = uint16(8)
+		)
+		searcher, vb, mb := newFilterExamplesSearcher(t, "countries")
+
+		// docMatch: c[1].g[0].city; c[1].g[1].{postcode, cars[2].make, cars[3].model}.
+		writeNestedValue(t, vb, "garages.city", "berlin", []uint64{enc(1, leafC1G0, docMatch)})
+		writeNestedValue(t, vb, "garages.postcode", "12345", []uint64{enc(1, leafC1G1Direct, docMatch)})
+		writeNestedValue(t, vb, "garages.cars.make", "honda", []uint64{enc(1, leafC1G1C2, docMatch)})
+		writeNestedValue(t, vb, "garages.cars.model", "civic", []uint64{enc(1, leafC1G1C3, docMatch)})
+
+		// docNoMatch1: city in g[1] (wrong garage). City and postcode share
+		// leafC1G1Direct because both live at the same garages[1] direct position.
+		writeNestedValue(t, vb, "garages.city", "berlin", []uint64{enc(1, leafC1G1Direct, docNoMatch1)})
+		writeNestedValue(t, vb, "garages.postcode", "12345", []uint64{enc(1, leafC1G1Direct, docNoMatch1)})
+		writeNestedValue(t, vb, "garages.cars.make", "honda", []uint64{enc(1, leafC1G1C2, docNoMatch1)})
+		writeNestedValue(t, vb, "garages.cars.model", "civic", []uint64{enc(1, leafC1G1C3, docNoMatch1)})
+
+		// docNoMatch2: make placed in g[2].cars[2] (wrong garage for make).
+		writeNestedValue(t, vb, "garages.city", "berlin", []uint64{enc(1, leafC1G0, docNoMatch2)})
+		writeNestedValue(t, vb, "garages.postcode", "12345", []uint64{enc(1, leafC1G1Direct, docNoMatch2)})
+		writeNestedValue(t, vb, "garages.cars.make", "honda", []uint64{enc(1, leafC1G2C2, docNoMatch2)})
+		writeNestedValue(t, vb, "garages.cars.model", "civic", []uint64{enc(1, leafC1G1C3, docNoMatch2)})
+
+		// docNoMatch3: city in c[1]; postcode/make/model in c[2] (different country).
+		writeNestedValue(t, vb, "garages.city", "berlin", []uint64{enc(1, leafC1G0, docNoMatch3)})
+		writeNestedValue(t, vb, "garages.postcode", "12345", []uint64{enc(2, leafC2G1Direct, docNoMatch3)})
+		writeNestedValue(t, vb, "garages.cars.make", "honda", []uint64{enc(2, leafC2G1C2, docNoMatch3)})
+		writeNestedValue(t, vb, "garages.cars.model", "civic", []uint64{enc(2, leafC2G1C3, docNoMatch3)})
+
+		// _idx.garages[0]: positions in garages[0].
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 0),
+			[]uint64{
+				enc(1, leafC1G0, docMatch),
+				enc(1, leafC1G0, docNoMatch2),
+				enc(1, leafC1G0, docNoMatch3),
+			}))
+		// _idx.garages[1]: positions in garages[1] across all countries.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 1),
+			[]uint64{
+				enc(1, leafC1G1Direct, docMatch), enc(1, leafC1G1C2, docMatch), enc(1, leafC1G1C3, docMatch),
+				enc(1, leafC1G1Direct, docNoMatch1), enc(1, leafC1G1C2, docNoMatch1), enc(1, leafC1G1C3, docNoMatch1),
+				enc(1, leafC1G1Direct, docNoMatch2), enc(1, leafC1G1C3, docNoMatch2), // make is in g[2] for this doc
+				enc(2, leafC2G1Direct, docNoMatch3), enc(2, leafC2G1C2, docNoMatch3), enc(2, leafC2G1C3, docNoMatch3),
+			}))
+		// _idx.garages[2]: positions in garages[2] (only docNoMatch2's misplaced make).
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 2),
+			[]uint64{enc(1, leafC1G2C2, docNoMatch2)}))
+		// _idx.garages.cars[2]: positions in cars[2] across all garages/countries.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 2),
+			[]uint64{
+				enc(1, leafC1G1C2, docMatch),
+				enc(1, leafC1G1C2, docNoMatch1),
+				enc(1, leafC1G2C2, docNoMatch2),
+				enc(2, leafC2G1C2, docNoMatch3),
+			}))
+		// _idx.garages.cars[3]: positions in cars[3] across all garages/countries.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 3),
+			[]uint64{
+				enc(1, leafC1G1C3, docMatch),
+				enc(1, leafC1G1C3, docNoMatch1),
+				enc(1, leafC1G1C3, docNoMatch2),
+				enc(2, leafC2G1C3, docNoMatch3),
+			}))
+
+		idx0g := filnested.ArrayIndex{RelPath: "garages", Index: 0}
+		idx1g := filnested.ArrayIndex{RelPath: "garages", Index: 1}
+		idx2cars := filnested.ArrayIndex{RelPath: "garages.cars", Index: 2}
+		idx3cars := filnested.ArrayIndex{RelPath: "garages.cars", Index: 3}
+
+		a := makeLeafPvpWithIdx(class, "countries", "garages.city", "berlin", idx0g)
+		b := makeLeafPvpWithIdx(class, "countries", "garages.postcode", "12345", idx1g)
+		c := makeLeafPvpWithIdx(class, "countries", "garages.cars.make", "honda", idx1g, idx2cars)
+		d := makeLeafPvpWithIdx(class, "countries", "garages.cars.model", "civic", idx1g, idx3cars)
+
+		run(t, makeCorrelatedPvp(class, "countries", a, b, c, d), searcher, []uint64{docMatch})
+		run(t, makeCorrelatedPvp(class, "countries", d, a, c, b), searcher, []uint64{docMatch})
 	})
 }
