@@ -1,6 +1,7 @@
 package hfresh
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"sync/atomic"
@@ -18,7 +19,7 @@ type PostingSizes struct {
 func NewPostingSizes(bucket *lsmkv.Bucket) *PostingSizes {
 	return &PostingSizes{
 		data:  common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
-		store: NewPostingSizesStore(bucket),
+		store: NewPostingSizesStore(bucket, postingSizesBucketPrefix),
 	}
 }
 
@@ -57,6 +58,15 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size uint32) e
 	atomic.StoreUint32(&page[slot], size)
 
 	return p.store.Set(ctx, postingID, size)
+}
+
+// Restore loads all posting sizes from the underlying store into memory. This should be called during startup to populate the in-memory cache.
+func (p *PostingSizes) Restore(ctx context.Context) error {
+	return p.store.Iter(ctx, func(postingID uint64, size uint32) error {
+		page, slot := p.data.EnsurePageFor(postingID)
+		atomic.StoreUint32(&page[slot], size)
+		return nil
+	})
 }
 
 // PostingSizesStore is a persistent store for posting sizes.
