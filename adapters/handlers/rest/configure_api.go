@@ -2210,6 +2210,8 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
+		registered.MCPEnabled = appState.ServerConfig.Config.MCP.Enabled
+		registered.MCPWriteAccessEnabled = appState.ServerConfig.Config.MCP.WriteAccessEnabled
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer

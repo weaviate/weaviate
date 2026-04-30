@@ -24,8 +24,9 @@ import (
 type WeaviateCreator struct {
 	auth.Auth
 
-	batchManager batchManager
-	logger       logrus.FieldLogger
+	batchManager       batchManager
+	logger             logrus.FieldLogger
+	writeAccessEnabled func() bool
 }
 
 type batchManager interface {
@@ -33,10 +34,23 @@ type batchManager interface {
 		objects []*models.Object, fields []*string, repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 
-func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager, logger logrus.FieldLogger) *WeaviateCreator {
+// NewWeaviateCreator creates a new WeaviateCreator. The writeAccessEnabled
+// callback is checked at every UpsertObject call so the runtime-configurable
+// MCP_SERVER_WRITE_ACCESS_ENABLED flag can be honored without a restart.
+func NewWeaviateCreator(auth *auth.Auth, batchManager batchManager, logger logrus.FieldLogger, writeAccessEnabled func() bool) *WeaviateCreator {
 	return &WeaviateCreator{
-		batchManager: batchManager,
-		Auth:         *auth,
-		logger:       logger,
+		batchManager:       batchManager,
+		Auth:               *auth,
+		logger:             logger,
+		writeAccessEnabled: writeAccessEnabled,
 	}
+}
+
+// IsWriteAccessEnabled returns whether write tools are currently allowed to
+// execute. Used by tool handlers and by the tools/list filter.
+func (c *WeaviateCreator) IsWriteAccessEnabled() bool {
+	if c.writeAccessEnabled == nil {
+		return false
+	}
+	return c.writeAccessEnabled()
 }

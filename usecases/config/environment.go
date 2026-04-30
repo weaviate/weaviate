@@ -961,12 +961,13 @@ func FromEnv(config *Config) error {
 	}
 
 	// MCP Server Configuration
-	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	config.MCP.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED")))
 	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
-	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	mcpWriteAccess := DefaultMCPWriteAccessEnabled
 	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
-		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+		mcpWriteAccess = entcfg.Enabled(v)
 	}
+	config.MCP.WriteAccessEnabled = configRuntime.NewDynamicValue(mcpWriteAccess)
 	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
 		config.MCP.ConfigPath = v
 	}

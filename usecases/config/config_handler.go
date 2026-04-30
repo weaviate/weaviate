@@ -443,9 +443,9 @@ type GRPC struct {
 }
 
 type MCP struct {
-	Enabled            bool   `json:"enabled" yaml:"enabled"`
-	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
-	ConfigPath         string `json:"configPath" yaml:"configPath"`
+	Enabled            *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+	WriteAccessEnabled *runtime.DynamicValue[bool] `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string                      `json:"configPath" yaml:"configPath"`
 }
 
 type Profiling struct {
