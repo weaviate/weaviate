@@ -36,6 +36,21 @@ func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32,
 	return newSize, nil
 }
 
+// Get returns the size of the posting with the given ID. If the posting is not found, it returns ErrPostingNotFound.
+func (p *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error) {
+	page, slot := p.data.GetPageFor(postingID)
+	if page == nil {
+		return 0, ErrPostingNotFound
+	}
+
+	size := atomic.LoadUint32(&page[slot])
+	if size == 0 {
+		return 0, ErrPostingNotFound
+	}
+
+	return size, nil
+}
+
 // PostingSizesStore is a persistent store for posting sizes.
 // It stores the sizes in a shared LSMKV bucket.
 type PostingSizesStore struct {
