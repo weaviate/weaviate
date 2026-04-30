@@ -3,13 +3,41 @@ package hfresh
 import (
 	"context"
 	"encoding/binary"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
-// PostingSizesStore is a persistent store for vector versions.
-// It stores the versions in an LSMKV bucket.
+type PostingSizes struct {
+	data  *common.GroupedPagedArray[uint32]
+	store *PostingSizesStore
+}
+
+func NewPostingSizes(bucket *lsmkv.Bucket) *PostingSizes {
+	return &PostingSizes{
+		data:  common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
+		store: NewPostingSizesStore(bucket),
+	}
+}
+
+// Increment increases the size of the posting by 1 and returns the new size.
+// It also persists the new size in the underlying store.
+func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32, error) {
+	page, slot := p.data.EnsurePageFor(postingID)
+	newSize := atomic.AddUint32(&page[slot], 1)
+
+	err := p.store.Set(ctx, postingID, newSize)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to set size for posting %d", postingID)
+	}
+
+	return newSize, nil
+}
+
+// PostingSizesStore is a persistent store for posting sizes.
+// It stores the sizes in a shared LSMKV bucket.
 type PostingSizesStore struct {
 	bucket *lsmkv.Bucket
 }
