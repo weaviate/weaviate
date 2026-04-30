@@ -2068,7 +2068,11 @@ func setupGoProfiling(appState *state.State) {
 	// DEBUG_ENDPOINTS_ENABLED=true explicitly.
 	enabled := config.Profiling.DebugEndpointsEnabled
 	if config.Profiling.Disabled || enabled == nil || !enabled.Get() {
-		logger.Info("debug HTTP listener (port 6060) disabled; set DEBUG_ENDPOINTS_ENABLED=true and/or unset GO_PROFILING_DISABLE to enable")
+		port := config.Profiling.Port
+		if port == 0 {
+			port = 6060
+		}
+		logger.Infof("debug HTTP listener (port %d) disabled; set DEBUG_ENDPOINTS_ENABLED=true and/or unset GO_PROFILING_DISABLE to enable", port)
 		return
 	}
 
@@ -2097,11 +2101,10 @@ func setupGoProfiling(appState *state.State) {
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {
-			if err := http.ListenAndServe(":6060", debugHandler); err != nil {
-				logger.Error("error listinening and serve :6060 : %w", err)
-			}
-		} else {
-			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), debugHandler)
+			portNumber = 6060
+		}
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", portNumber), debugHandler); err != nil {
+			logger.WithError(err).Errorf("error listening and serve :%d", portNumber)
 		}
 	}, logger)
 
