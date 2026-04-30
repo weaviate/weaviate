@@ -86,6 +86,11 @@ func (p *PostingSizes) Restore(ctx context.Context) error {
 	})
 }
 
+// Count returns the total number of postings.
+func (p *PostingSizes) Count() uint64 {
+	return p.count.Load()
+}
+
 // PostingSizesStore is a persistent store for posting sizes.
 // It stores the sizes in a shared LSMKV bucket.
 type PostingSizesStore struct {
