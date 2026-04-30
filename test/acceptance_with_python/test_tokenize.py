@@ -2,12 +2,13 @@ import json
 import urllib.request
 import urllib.error
 from typing import Any, Generator
-import os
 
 import pytest
 
+from ._wvhost import rest_url
 
-WEAVIATE_URL = os.environ.get("WEAVIATE_URL", "http://localhost:8080")
+
+WEAVIATE_URL = rest_url()
 
 
 REQUEST_TIMEOUT = 10.0

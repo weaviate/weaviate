@@ -3,6 +3,8 @@ from typing import Optional
 import pytest
 import weaviate
 import weaviate.classes as wvc
+
+from ._wvhost import grpc_port, rest_port
 from .conftest import CollectionFactory
 
 
@@ -51,7 +53,10 @@ def test_groupby_with_refs(
                 assert len(obj.properties.get("text")) == 2
 
     # repeat with GQL - slightly different code path in
-    client = weaviate.connect_to_local()
+    client = weaviate.connect_to_local(
+        port=rest_port(),
+        grpc_port=grpc_port(),
+    )
     ref = "_additional{id distance}"
     if return_refs is None:
         ref = f"text {ref}"

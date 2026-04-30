@@ -1,9 +1,14 @@
 import weaviate
 import weaviate.classes as wvc
 
+from ._wvhost import grpc_port, rest_port
+
 
 def test_collection_casing() -> None:
-    with weaviate.connect_to_local() as client:
+    with weaviate.connect_to_local(
+        port=rest_port(),
+        grpc_port=grpc_port(),
+    ) as client:
         # Goal: Collection create/get/delete should automatically transform class name to GQL (first letter caps).
 
         # create collection with all "lower" case -> GQL ("Testcollectioncase")

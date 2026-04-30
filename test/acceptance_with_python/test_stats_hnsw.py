@@ -1,10 +1,16 @@
 import json
+
 import httpx
-from weaviate.classes.config import Configure, VectorDistances
 import weaviate
+from weaviate.classes.config import Configure, VectorDistances
+
+from ._wvhost import grpc_port, rest_port
 
 
 def test_stats_hnsw() -> None:
+    http_port = rest_port()
+    grpc_port_ = grpc_port()
+
     short_url = "http://localhost:6060/debug/stats/collection/collection_name/shards"
     response = httpx.post(short_url)
     assert response.status_code == 404
@@ -18,7 +24,7 @@ def test_stats_hnsw() -> None:
     assert response.status_code == 404
     assert "invalid path" in response.text
     # HNSW index
-    client = weaviate.connect_to_local()
+    client = weaviate.connect_to_local(port=http_port, grpc_port=grpc_port_)
     client.collections.delete(name="vector")
     collection = client.collections.create_from_dict(
         {
@@ -62,6 +68,7 @@ def test_stats_hnsw() -> None:
     ] == keywords
 
     # Flat index
+    client.collections.delete(name="flatIndex")
     flat_index = client.collections.create(
         name="flatIndex",
         vector_index_config=Configure.VectorIndex.flat(

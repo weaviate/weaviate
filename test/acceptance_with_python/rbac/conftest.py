@@ -1,18 +1,12 @@
-from typing import (
-    Union,
-    Sequence,
-    Any,
-    ContextManager,
-    Protocol,
-    Iterator,
-)
+from contextlib import contextmanager
+from typing import Any, ContextManager, Iterator, Protocol, Sequence, Union
 
 import pytest
 import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
-from contextlib import contextmanager
 
+from .._wvhost import rbac_grpc_port, rbac_rest_port
 from weaviate import WeaviateClient
 from weaviate.rbac.models import PermissionsCreateType
 
@@ -56,15 +50,23 @@ def role_wrapper() -> RoleWrapperProtocol:
     ) -> Iterator[None]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)
-        if not isinstance(permissions, list) or len(permissions) > 0:
+        has_permissions = not isinstance(permissions, list) or len(permissions) > 0
+        if has_permissions:
             admin_client.roles.create(role_name=name, permissions=permissions)
             admin_client.users.assign_roles(user_id=user, role_names=name)
 
-        yield
-
-        if not isinstance(permissions, list) or len(permissions) > 0:
-            admin_client.users.revoke_roles(user_id=user, role_names=name)
-            admin_client.roles.delete(name)
+        try:
+            yield
+        finally:
+            if has_permissions:
+                try:
+                    admin_client.users.revoke_roles(user_id=user, role_names=name)
+                except Exception:
+                    pass
+                try:
+                    admin_client.roles.delete(name)
+                except Exception:
+                    pass
 
     return contextmanager(wrapper)
 
@@ -72,7 +74,9 @@ def role_wrapper() -> RoleWrapperProtocol:
 @pytest.fixture
 def admin_client():
     with weaviate.connect_to_local(
-        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
+        port=rbac_rest_port(),
+        grpc_port=rbac_grpc_port(),
+        auth_credentials=wvc.init.Auth.api_key("admin-key"),
     ) as client:
         yield client
 
@@ -80,7 +84,9 @@ def admin_client():
 @pytest.fixture
 def custom_client():
     with weaviate.connect_to_local(
-        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        port=rbac_rest_port(),
+        grpc_port=rbac_grpc_port(),
+        auth_credentials=wvc.init.Auth.api_key("custom-key"),
     ) as client:
         yield client
 
@@ -88,6 +94,8 @@ def custom_client():
 @pytest.fixture
 def viewer_client():
     with weaviate.connect_to_local(
-        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("viewer-key")
+        port=rbac_rest_port(),
+        grpc_port=rbac_grpc_port(),
+        auth_credentials=wvc.init.Auth.api_key("viewer-key"),
     ) as client:
         yield client

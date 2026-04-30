@@ -1,8 +1,9 @@
-import weaviate
-import weaviate.classes as wvc
 import math
 
+import weaviate
+import weaviate.classes as wvc
 
+from ._wvhost import grpc_port, rest_port
 from .conftest import CollectionFactory, NamedCollection
 
 GQL_RETURNS = "{_additional {distance id score}"
@@ -12,12 +13,17 @@ APPLE_DISTANCE = 0.5168729424476624
 KALE_DISTANCE = 0.5732871294021606
 
 
+def _get_gql_client():
+    """Get a Weaviate client for GraphQL queries using environment-configured ports."""
+    return weaviate.connect_to_local(port=rest_port(), grpc_port=grpc_port())
+
+
 def test_gql_near_text(named_collection: NamedCollection):
     collection = named_collection()
     collection.data.insert(properties={"title1": "apple", "title2": "car", "title3": "kale"})
 
     # use collection for auto cleanup etc, but we need the client to use gql directly
-    client = weaviate.connect_to_local()
+    client = _get_gql_client()
     gql = client.graphql_raw_query(
         """{
       Get {
@@ -57,7 +63,7 @@ def test_gql_near_vector(named_collection: NamedCollection):
     )
 
     # use collection for auto cleanup etc, but we need the client to use gql directly
-    client = weaviate.connect_to_local()
+    client = _get_gql_client()
     gql = client.graphql_raw_query(
         """{
       Get {
@@ -102,7 +108,7 @@ def test_gql_near_object(named_collection: NamedCollection):
 
     uuid_str = '"' + str(uuid1) + '"'
     # use collection for auto cleanup etc, but we need the client to use gql directly
-    with weaviate.connect_to_local() as client:
+    with _get_gql_client() as client:
         gql = client.graphql_raw_query(
             """{
             Get {
@@ -146,7 +152,7 @@ def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory
         properties={}, vector={"title1": [0, 1], "title2": [0, 1, 0], "title3": [0, 0, 1, 0]}
     )
 
-    client = weaviate.connect_to_local()
+    client = _get_gql_client()
     gql = client.graphql_raw_query(
         """{
       Get {
@@ -191,7 +197,7 @@ def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory):
         properties={}, vector={"title1": [1, 0], "title2": [1, 0, 0], "title3": [0, 1, 0, 0]}
     )
 
-    client = weaviate.connect_to_local()
+    client = _get_gql_client()
 
     gql_query = (
         """{

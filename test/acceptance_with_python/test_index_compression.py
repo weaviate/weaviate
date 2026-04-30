@@ -7,9 +7,14 @@ from weaviate.classes.config import Property, DataType
 from weaviate.classes.config import Reconfigure
 from weaviate.util import generate_uuid5
 
+from ._wvhost import grpc_port, rest_port
+
 
 def test_index_compression() -> None:
-    with weaviate.connect_to_local() as client:
+    with weaviate.connect_to_local(
+        port=rest_port(),
+        grpc_port=grpc_port(),
+    ) as client:
         COLLECTION_NAME = "Compressed"
 
         target_vector_dimensions = {

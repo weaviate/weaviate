@@ -5,6 +5,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.backup.backup import BackupStatus
 
+from ._wvhost import grpc_port, rest_port
 from .conftest import _sanitize_collection_name
 from _pytest.fixtures import SubRequest
 
@@ -22,7 +23,10 @@ pytestmark = pytest.mark.xdist_group(name="backup")
 def test_backup_and_restore(request: SubRequest, compression: wvc.backup.BackupCompressionLevel):
     name = _sanitize_collection_name(request.node.name)
 
-    with weaviate.connect_to_local() as client:
+    with weaviate.connect_to_local(
+        port=rest_port(),
+        grpc_port=grpc_port(),
+    ) as client:
         client.collections.delete(name)
         collection = client.collections.create(
             name=name,

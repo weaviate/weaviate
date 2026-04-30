@@ -9,12 +9,13 @@ import urllib.error
 import urllib.request
 from typing import Generator
 
-import os
 import pytest
 import weaviate.classes as wvc
 
+from ._wvhost import rest_url
 
-BASE_URL = os.environ.get("WEAVIATE_URL", "http://localhost:8080")
+
+BASE_URL = rest_url()
 
 
 def _sanitize_collection_name(name: str) -> str:

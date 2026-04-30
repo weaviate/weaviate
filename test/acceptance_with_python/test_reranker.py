@@ -1,10 +1,15 @@
 import weaviate
 import weaviate.classes as wvc
 
+from ._wvhost import grpc_port, rest_port
+
 
 # the dummy reranker is not supported in the python client => create collection from dict
 def test_reranker() -> None:
-    client = weaviate.connect_to_local()
+    client = weaviate.connect_to_local(
+        port=rest_port(),
+        grpc_port=grpc_port(),
+    )
     collection_name = "TestRerankerDummy"
     client.collections.delete(name=collection_name)
     collection = client.collections.create_from_dict(

@@ -4,6 +4,7 @@ import pytest
 from _pytest.fixtures import SubRequest
 
 import weaviate
+from ._wvhost import grpc_port, rest_port
 from weaviate.collections import Collection
 from weaviate.collections.classes.config import (
     Property,
@@ -58,10 +59,13 @@ class CollectionFactory(Protocol):
 
 @pytest.fixture
 def weaviate_client() -> Callable[[int, int], weaviate.WeaviateClient]:
-    def connect(http_port: int = 8080, grpc_port: int = 50051) -> weaviate.WeaviateClient:
+    def connect(
+        http_port: int = rest_port(),
+        grpc_port_: int = grpc_port(),
+    ) -> weaviate.WeaviateClient:
         return weaviate.connect_to_local(
             port=http_port,
-            grpc_port=grpc_port,
+            grpc_port=grpc_port_,
             additional_config=AdditionalConfig(timeout=(60, 120)),  # for image tests
         )
 
@@ -88,7 +92,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         object_ttl: Optional[_ObjectTTLConfigCreate] = None,
         generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
-        ports: Tuple[int, int] = (8080, 50051),
+        ports: Tuple[int, int] = (rest_port(), grpc_port()),
         data_model_properties: Optional[Type[Properties]] = None,
         data_model_refs: Optional[Type[Properties]] = None,
         replication_config: Optional[_ReplicationConfigCreate] = None,
