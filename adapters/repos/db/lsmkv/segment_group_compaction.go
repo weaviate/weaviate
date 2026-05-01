@@ -411,6 +411,16 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 		if err := c.do(); err != nil {
 			return false, err
 		}
+	case segmentindex.StrategyColumnar:
+		leftSeg, ok1 := left.(*segment)
+		rightSeg, ok2 := right.(*segment)
+		if !ok1 || !ok2 {
+			return false, fmt.Errorf("columnar compaction requires concrete segment types")
+		}
+		c := newCompactorColumnar(f, leftSeg, rightSeg, level, cleanupTombstones, sg.enableChecksumValidation)
+		if err := c.do(); err != nil {
+			return false, err
+		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
