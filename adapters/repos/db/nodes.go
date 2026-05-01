@@ -16,14 +16,13 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/pkg/errors"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.

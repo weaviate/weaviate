@@ -59,7 +59,7 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
-	view := b.getConsistentView()
+	view := b.GetConsistentView()
 
 	readers := make([]roaringsetrange.InnerReader, len(view.Disk))
 	for i, segment := range view.Disk {
@@ -70,7 +70,7 @@ func (b *Bucket) readerRoaringSetRangeFromSegments() ReaderRoaringSetRange {
 	}
 	readers = append(readers, view.Active.newRoaringSetRangeReader())
 
-	return roaringsetrange.NewCombinedReader(readers, view.Release, concurrency.SROAR_MERGE, b.logger)
+	return roaringsetrange.NewCombinedReader(readers, view.ReleaseView, concurrency.SROAR_MERGE, b.logger)
 }
 
 func (b *Bucket) readerRoaringSetRangeFromSegmentInMemo() ReaderRoaringSetRange {

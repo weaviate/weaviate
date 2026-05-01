@@ -103,14 +103,16 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID               common.VectorForID[float32]
-	TempVectorForIDThunk      common.TempVectorForID[float32]
-	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	multiVectorForID          common.MultiVectorForID
-	trackDimensionsOnce       sync.Once
-	trackMuveraOnce           sync.Once
-	trackRQOnce               sync.Once
-	dims                      int32
+	vectorForID                       common.VectorForID[float32]
+	TempMultiVectorForIDThunk         common.TempVectorForID[[]float32]
+	GetViewThunk                      common.GetViewThunk
+	TempVectorForIDWithViewThunk      common.TempVectorForIDWithView[float32]
+	TempMultiVectorForIDWithViewThunk common.TempVectorForIDWithView[[]float32]
+	multiVectorForID                  common.MultiVectorForID
+	trackDimensionsOnce               sync.Once
+	trackMuveraOnce                   sync.Once
+	trackRQOnce                       sync.Once
+	dims                              atomic.Int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -177,7 +179,7 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 	rqConfig   ent.RQConfig
-	rqActive   bool
+	rqActive   atomic.Bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -350,19 +352,21 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:                  rand.Float64,
-		compressActionLock:        &sync.RWMutex{},
-		className:                 cfg.ClassName,
-		VectorForIDThunk:          cfg.VectorForIDThunk,
-		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
-		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
-		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
-		pqConfig:                  uc.PQ,
-		bqConfig:                  uc.BQ,
-		sqConfig:                  uc.SQ,
-		rqConfig:                  uc.RQ,
-		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
+		randFunc:                          rand.Float64,
+		compressActionLock:                &sync.RWMutex{},
+		className:                         cfg.ClassName,
+		VectorForIDThunk:                  cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:             cfg.MultiVectorForIDThunk,
+		TempMultiVectorForIDThunk:         cfg.TempMultiVectorForIDThunk,
+		GetViewThunk:                      cfg.GetViewThunk,
+		TempVectorForIDWithViewThunk:      cfg.TempVectorForIDWithViewThunk,
+		TempMultiVectorForIDWithViewThunk: cfg.TempMultiVectorForIDWithViewThunk,
+		pqConfig:                          uc.PQ,
+		bqConfig:                          uc.BQ,
+		sqConfig:                          uc.SQ,
+		rqConfig:                          uc.RQ,
+		rescoreConcurrency:                2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:                  common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
@@ -389,11 +393,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -404,7 +408,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 
 	if uc.RQ.Enabled {
-		index.rqActive = true
+		index.rqActive.Store(true)
 	}
 
 	if uc.Multivector.Enabled {
@@ -558,12 +562,12 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
-			continue
-		}
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+				continue
+			}
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
@@ -913,6 +917,15 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
+// normalizeVecInPlace normalizes the vector in-place without allocating.
+// Use this only when the caller owns the vector and doesn't need to preserve
+// the original (e.g., pooled temporary vectors).
+func (h *hnsw) normalizeVecInPlace(vec []float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		distancer.NormalizeInPlace(vec)
+	}
+}
+
 func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		normalized := make([][]float32, len(vecs))
@@ -1038,7 +1051,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	}
 
 	stats := HnswStats{
-		Dimensions:         h.dims,
+		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),

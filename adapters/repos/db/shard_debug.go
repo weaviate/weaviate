@@ -37,7 +37,9 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	}
 
 	q.Pause()
-	q.Wait()
+	if err := q.Wait(ctx); err != nil {
+		return err
+	}
 
 	err := vidx.Drop(ctx, false)
 	if err != nil {

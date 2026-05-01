@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -96,7 +95,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				"index": index.ID(),
 				"shard": shardName,
 			}).Error("panic during shard initialization")
-			debug.PrintStack()
+			enterrors.PrintStack(index.logger)
 		}
 
 		if err != nil {

@@ -280,6 +280,24 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
+	// Safety checks for node ID
+	switch {
+	// If the id is beyond maxNodeID, it is probably invalid (e.g. corrupt commit log).
+	// Log the id and ignore it.
+	case source > maxNodeID:
+		d.logger.WithField("action", "hnsw_deserialization").
+			WithField("node_id", source).
+			Warnf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
+		return nil
+	// If the id is suspiciously high compared to current index size, it is
+	// probably invalid (e.g. corrupt commit log). Log the id and ignore it.
+	case source > 1000_000_000 && len(res.Nodes)*5 < int(source):
+		d.logger.WithField("action", "hnsw_deserialization").
+			WithField("node_id", source).
+			Warnf("deserialized node ID %d is suspiciously high compared to current index size %d, ignoring", source, len(res.Nodes))
+		return nil
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return err
@@ -332,6 +350,24 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		d.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
 		targets = targets[:maxConnectionsPerNode]
 		length = uint16(len(targets))
+	}
+
+	// Safety checks for node ID
+	switch {
+	// If the id is beyond maxNodeID, it is probably invalid (e.g. corrupt commit log).
+	// Log the id and ignore it.
+	case source > maxNodeID:
+		d.logger.WithField("action", "hnsw_deserialization").
+			WithField("node_id", source).
+			Warnf("deserialized node ID beyond maxNodeID (%d), ignoring", maxNodeID)
+		return 0, nil
+	// If the id is suspiciously high compared to current index size, it is
+	// probably invalid (e.g. corrupt commit log). Log the id and ignore it.
+	case source > 1000_000_000 && len(res.Nodes)*5 < int(source):
+		d.logger.WithField("action", "hnsw_deserialization").
+			WithField("node_id", source).
+			Warnf("deserialized node ID %d is suspiciously high compared to current index size %d, ignoring", source, len(res.Nodes))
+		return 0, nil
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)

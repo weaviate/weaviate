@@ -255,6 +255,7 @@ func createVectorHnswIndexTestConfig() Config {
 		VectorForIDThunk:      testVectorForID,
 		MakeBucketOptions:     lsmkv.MakeNoopBucketOptions,
 		AllocChecker:          memwatch.NewDummyMonitor(),
+		GetViewThunk:          func() common.BucketView { return &noopBucketView{} },
 	}
 }
 

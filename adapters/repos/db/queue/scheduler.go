@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type Scheduler struct {
@@ -55,6 +56,8 @@ type SchedulerOptions struct {
 	RetryInterval time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
+	// Prometheus metrics. Optional.
+	Metrics *monitoring.PrometheusMetrics
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
@@ -124,10 +127,10 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 
 	s.queues.m[q.ID()] = newQueueState(s.ctx, q)
 
-	q.Metrics().Registered(q.ID())
+	s.updateQueueCountMetric()
 }
 
-func (s *Scheduler) UnregisterQueue(id string) {
+func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 	if s.ctx == nil {
 		// scheduler not started
 		return
@@ -143,14 +146,14 @@ func (s *Scheduler) UnregisterQueue(id string) {
 	q.cancelFn()
 
 	// wait for the workers to finish processing the queue's tasks
-	s.Wait(id)
+	_ = s.Wait(ctx, id)
 
 	// the queue is paused, so it's safe to remove it
 	s.queues.Lock()
 	delete(s.queues.m, id)
 	s.queues.Unlock()
 
-	q.q.Metrics().Unregistered(q.q.ID())
+	s.updateQueueCountMetric()
 }
 
 func (s *Scheduler) Start() {
@@ -189,7 +192,7 @@ func (s *Scheduler) Start() {
 	enterrors.GoWrapper(f, s.Logger)
 }
 
-func (s *Scheduler) Close() error {
+func (s *Scheduler) Close(ctx context.Context) error {
 	if s == nil || s.ctx == nil {
 		// scheduler not initialized. No op.
 		return nil
@@ -204,7 +207,7 @@ func (s *Scheduler) Close() error {
 	s.cancelFn()
 
 	// wait for the workers to finish processing tasks
-	s.activeTasks.Wait()
+	_ = s.activeTasks.Wait(ctx)
 
 	// wait for the spawned goroutines to stop
 	s.wg.Wait()
@@ -238,7 +241,24 @@ func (s *Scheduler) PauseQueue(id string) {
 	q.paused = true
 	q.m.Unlock()
 
+	s.updatePausedMetric()
+
 	s.Logger.WithField("id", id).Debug("queue paused")
+}
+
+// IsQueuePaused returns true if the queue is paused.
+func (s *Scheduler) IsQueuePaused(id string) bool {
+	if s.ctx == nil {
+		// scheduler not started
+		return false
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return false
+	}
+
+	return q.Paused()
 }
 
 func (s *Scheduler) ResumeQueue(id string) {
@@ -256,31 +276,60 @@ func (s *Scheduler) ResumeQueue(id string) {
 	q.paused = false
 	q.m.Unlock()
 
+	s.updatePausedMetric()
+
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
-func (s *Scheduler) Wait(id string) {
+func (s *Scheduler) updatePausedMetric() {
+	if s.Metrics == nil {
+		return
+	}
+
+	var count int
+	s.queues.Lock()
+	for _, q := range s.queues.m {
+		if q.Paused() {
+			count++
+		}
+	}
+	s.queues.Unlock()
+
+	s.Metrics.QueuePaused.Set(float64(count))
+}
+
+func (s *Scheduler) updateQueueCountMetric() {
+	if s.Metrics == nil {
+		return
+	}
+
+	s.Metrics.QueueCount.Set(float64(len(s.queues.m)))
+}
+
+func (s *Scheduler) Wait(ctx context.Context, id string) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
 	q := s.getQueue(id)
 	if q == nil {
-		return
+		return nil
 	}
 
-	q.scheduled.Wait()
-	q.activeTasks.Wait()
+	if err := q.scheduled.Wait(ctx); err != nil {
+		return err
+	}
+	return q.activeTasks.Wait(ctx)
 }
 
-func (s *Scheduler) WaitAll() {
+func (s *Scheduler) WaitAll(ctx context.Context) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
-	s.activeTasks.Wait()
+	return s.activeTasks.Wait(ctx)
 }
 
 func (s *Scheduler) getQueue(id string) *queueState {
@@ -403,7 +452,9 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 
 		q.MarkAsUnscheduled()
 
-		nothingScheduled = count <= 0
+		if count > 0 {
+			nothingScheduled = false
+		}
 	}
 
 	return nothingScheduled

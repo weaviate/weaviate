@@ -12,32 +12,39 @@
 package common
 
 import (
+	"context"
 	"sync"
 )
 
 // SharedGauge is a thread-safe gauge that can be shared between multiple goroutines.
 // It is used to track the number of running tasks, and allows to wait until all tasks are done.
 type SharedGauge struct {
+	mu    sync.Mutex
 	count int64
-	cond  *sync.Cond
+	done  chan struct{} // closed when count reaches 0; replaced when count rises from 0
 }
 
 func NewSharedGauge() *SharedGauge {
-	return &SharedGauge{
-		cond: sync.NewCond(&sync.Mutex{}),
-	}
+	// Start at zero: done channel is already closed.
+	done := make(chan struct{})
+	close(done)
+	return &SharedGauge{done: done}
 }
 
 func (sc *SharedGauge) Incr() {
-	sc.cond.L.Lock()
-	defer sc.cond.L.Unlock()
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
 
+	if sc.count == 0 {
+		// Open a fresh channel; waiters will block on it until count drops to 0 again.
+		sc.done = make(chan struct{})
+	}
 	sc.count++
 }
 
 func (sc *SharedGauge) Decr() {
-	sc.cond.L.Lock()
-	defer sc.cond.L.Unlock()
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
 
 	if sc.count == 0 {
 		panic("illegal gauge state: count cannot be negative")
@@ -46,22 +53,34 @@ func (sc *SharedGauge) Decr() {
 	sc.count--
 
 	if sc.count == 0 {
-		sc.cond.Broadcast()
+		close(sc.done)
 	}
 }
 
 func (sc *SharedGauge) Count() int64 {
-	sc.cond.L.Lock()
-	defer sc.cond.L.Unlock()
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
 
 	return sc.count
 }
 
-func (sc *SharedGauge) Wait() {
-	sc.cond.L.Lock()
-	defer sc.cond.L.Unlock()
+// Wait blocks until the count reaches zero or the context is cancelled.
+// Returns ctx.Err() if the context was cancelled before the count reached zero.
+func (sc *SharedGauge) Wait(ctx context.Context) error {
+	for {
+		sc.mu.Lock()
+		if sc.count == 0 {
+			sc.mu.Unlock()
+			return nil
+		}
+		done := sc.done
+		sc.mu.Unlock()
 
-	for sc.count != 0 {
-		sc.cond.Wait()
+		select {
+		case <-done:
+			// count reached 0 at some point; loop to confirm it's still 0
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }

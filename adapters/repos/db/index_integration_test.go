@@ -731,7 +731,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
@@ -752,7 +752,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
@@ -823,7 +823,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
@@ -844,7 +844,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
@@ -911,7 +911,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 		}
 	}
 
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// wait until the index is compressed
 	for i := 0; i < 10; i++ {
@@ -933,7 +933,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// wait until the index is compressed
 	for i := 0; i < 10; i++ {
@@ -1028,7 +1028,7 @@ func TestIndex_ConvertQueue(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
@@ -1092,7 +1092,7 @@ func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 	}
 
 	// wait for the in-flight indexing to finish
-	q.Wait()
+	require.NoError(t, q.Wait(t.Context()))
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {

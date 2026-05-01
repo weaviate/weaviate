@@ -18,26 +18,24 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderRoaringSet reads one or many row(s) depending on the specified
 // operator
 type RowReaderRoaringSet struct {
-	value         []byte
-	operator      filters.Operator
-	newCursor     func() lsmkv.CursorRoaringSet
-	getter        func(key []byte) (*sroar.Bitmap, func(), error)
-	bitmapFactory *roaringset.BitmapFactory
+	value      []byte
+	operator   filters.Operator
+	newCursor  func() lsmkv.CursorRoaringSet
+	getter     func(key []byte) (*sroar.Bitmap, func(), error)
+	isDenyList bool
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // ReadFn will always be empty
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
+	keyOnly bool,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
@@ -46,11 +44,10 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 	}
 
 	return &RowReaderRoaringSet{
-		value:         value,
-		operator:      operator,
-		newCursor:     newCursor,
-		getter:        getter,
-		bitmapFactory: bitmapFactory,
+		value:     value,
+		operator:  operator,
+		newCursor: newCursor,
+		getter:    getter,
 	}
 }
 
@@ -110,16 +107,8 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	v, eqRelease, err := rr.equalHelper(ctx)
-	if err != nil {
-		return err
-	}
-	defer eqRelease()
-
-	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(v, concurrency.SROAR_MERGE)
-	_, err = readFn(rr.value, inverted, release)
-	return err
+	rr.isDenyList = true
+	return rr.equal(ctx, readFn)
 }
 
 // greaterThan reads from the specified value to the end. The first row is only

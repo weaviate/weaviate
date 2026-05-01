@@ -78,21 +78,34 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
 	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
 
-	for j, docID := range batch {
-		index := j
-		docID := docID
+	lastDeleted := -1
+outer:
+	for i, uuid := range batch {
+		select {
+		case <-ctx.Done():
+			break outer
+		default:
+		}
+
 		f := func() error {
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, docID, deletionTime, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, deletionTime, dryRun)
 			objLock.Lock()
-			result[index] = obj
+			result[i] = obj
 			objLock.Unlock()
 			return nil
 		}
-		eg.Go(f, index, docID)
+		eg.Go(f, i, uuid)
+		lastDeleted = i
+
 	}
 	// safe to ignore error, as the internal routines never return an error
 	eg.Wait()
+
+	ctxErr := ctx.Err()
+	for i, count := lastDeleted+1, len(batch); i < count; i++ {
+		result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: ctxErr}
+	}
 
 	return result
 }

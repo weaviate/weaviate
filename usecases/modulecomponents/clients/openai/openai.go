@@ -128,12 +128,10 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildUrlFn:    buildUrl,
-		logger:        logger,
-		sampledLogger: logrusext.NewSampler(logger, 5, time.Minute),
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
+		buildUrlFn:         buildUrl,
+		logger:             logger,
+		sampledLogger:      logrusext.NewSampler(logger, 5, time.Minute),
 	}
 }
 
@@ -162,7 +160,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 	startTime := time.Now()
 	metrics.ModuleExternalRequests.WithLabelValues("text2vec", "openai").Inc()
 
-	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, settings.IsAzure, settings.Dimensions))
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, settings.ModelVersion, settings.IsAzure, settings.Dimensions))
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "marshal body")
 	}
@@ -217,7 +215,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, 0, fmt.Errorf("failed to parse vectorization response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
@@ -287,9 +285,15 @@ func (v *Client) getError(statusCode int, requestID string, resBodyError *openAI
 	return errors.New(errorMsg)
 }
 
-func (v *Client) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
+func (v *Client) getEmbeddingsRequest(input []string, model, modelVersion string, isAzure bool, dimensions *int64) embeddingsRequest {
 	if isAzure {
 		return embeddingsRequest{Input: input, Dimensions: dimensions}
+	}
+	if modelVersion != "" {
+		// model version is present only for legacy models with possible values: 001, 002
+		// legacy models (text-embedding-ada-002) doesn't support dimensions setting
+		// we don't want to send this parameter even it's present in class's settings
+		return embeddingsRequest{Input: input, Model: model}
 	}
 	return embeddingsRequest{Input: input, Model: model, Dimensions: dimensions}
 }

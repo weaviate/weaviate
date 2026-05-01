@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
@@ -43,7 +44,7 @@ type client struct {
 func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		origin:       origin,
-		httpClient:   &http.Client{Timeout: timeout},
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		maxDocuments: 32,
 		logger:       logger,
 	}
@@ -129,7 +130,7 @@ func (c *client) performRank(ctx context.Context,
 
 	var resBody RankResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 {

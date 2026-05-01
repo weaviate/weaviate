@@ -52,6 +52,7 @@ type Metrics struct {
 	asyncReplicationHashTreeInitDuration     prometheus.Histogram
 
 	asyncReplicationIterationCount        prometheus.Counter
+	asyncReplicationIterationRunning      prometheus.Gauge
 	asyncReplicationIterationFailureCount prometheus.Counter
 	asyncReplicationIterationDuration     prometheus.Histogram
 
@@ -258,6 +259,21 @@ func NewMetrics(
 	}
 	if !alreadyRegistered {
 		m.asyncReplicationIterationCount.Add(0)
+	}
+
+	m.asyncReplicationIterationRunning, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_iteration_running",
+			Help:      "Number of currently running async replication iterations",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_replication_iteration_running: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncReplicationIterationRunning.Set(0)
 	}
 
 	m.asyncReplicationIterationFailureCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(
@@ -670,6 +686,18 @@ func (m *Metrics) ObserveAsyncReplicationHashTreeInitDuration(d time.Duration) {
 func (m *Metrics) IncAsyncReplicationIterationCount() {
 	if m.monitoring {
 		m.asyncReplicationIterationCount.Inc()
+	}
+}
+
+func (m *Metrics) IncAsyncReplicationIterationRunning() {
+	if m.monitoring {
+		m.asyncReplicationIterationRunning.Inc()
+	}
+}
+
+func (m *Metrics) DecAsyncReplicationIterationRunning() {
+	if m.monitoring {
+		m.asyncReplicationIterationRunning.Dec()
 	}
 }
 

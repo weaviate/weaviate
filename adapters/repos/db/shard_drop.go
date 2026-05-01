@@ -62,7 +62,7 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 	// to their associated vector index, as they might still be using the store
 	// and other resources we are about to drop.
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Drop(); err != nil {
+		if err = queue.Drop(ctx); err != nil {
 			return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
 		}
 		return nil

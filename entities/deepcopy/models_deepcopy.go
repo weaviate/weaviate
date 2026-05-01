@@ -36,9 +36,18 @@ func Class(c *models.Class) *models.Class {
 	}
 	var replicationConf *models.ReplicationConfig = nil
 	if c.ReplicationConfig != nil {
+		var asyncConfig *models.ReplicationAsyncConfig
+
+		if c.ReplicationConfig.AsyncConfig != nil {
+			ac := *c.ReplicationConfig.AsyncConfig
+			asyncConfig = &ac
+		}
+
 		replicationConf = &models.ReplicationConfig{
 			Factor:           c.ReplicationConfig.Factor,
 			DeletionStrategy: c.ReplicationConfig.DeletionStrategy,
+			AsyncEnabled:     c.ReplicationConfig.AsyncEnabled,
+			AsyncConfig:      asyncConfig,
 		}
 	}
 

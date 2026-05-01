@@ -71,7 +71,10 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -147,9 +150,12 @@ func TestHnswPqNilVectors(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		MakeBucketOptions:    lsmkv.MakeNoopBucketOptions,
-		AllocChecker:         memwatch.NewDummyMonitor(),
+		GetViewThunk: func() common.BucketView {
+			return &noopBucketView{}
+		},
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AllocChecker:                 memwatch.NewDummyMonitor(),
 	}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)

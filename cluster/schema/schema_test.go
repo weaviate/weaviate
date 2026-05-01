@@ -205,6 +205,110 @@ func Test_schemaShardMetrics(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
 }
 
+// Test_UpdateTenants_TransitionalStateRejection verifies that status changes are
+// rejected when a tenant is mid-freeze (FREEZING) or mid-unfreeze (UNFREEZING).
+// Without this guard a HOT request arriving while FREEZING would immediately
+// trigger UNFREEZE, creating a race that can result in permanent data loss.
+func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
+	const (
+		nodeID     = "testNode"
+		tenantName = "tenant1"
+		className  = "TestClass"
+	)
+	newSchema := func() *schema {
+		return NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+	}
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:              className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	fsm := NewMockreplicationFSM(t)
+	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+
+	t.Run("FREEZING rejects HOT", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+		}))
+		// HOT → FROZEN puts the tenant into FREEZING
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		// HOT request while FREEZING must be rejected
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
+
+	t.Run("FREEZING rejects COLD", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+		}))
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "COLD"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
+
+	t.Run("FREEZING allows FROZEN (idempotent)", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+		}))
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		// Second FROZEN request while already FREEZING must succeed (idempotent)
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+	})
+
+	t.Run("UNFREEZING rejects conflicting status", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+		}))
+		// FROZEN → HOT puts the tenant into UNFREEZING
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		// COLD request while UNFREEZING-to-HOT must be rejected
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "COLD"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
+}
+
 func Test_schemaDeepCopy(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
 	s := NewSchema("testNode", nil, r)

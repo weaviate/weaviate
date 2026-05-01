@@ -215,6 +215,10 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 	return f.resolveAliasTo
 }
 
+func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
+	return 0, nil
+}
+
 type fakeVectorRepo struct {
 	mock.Mock
 	CapturedSchemaVersion uint64

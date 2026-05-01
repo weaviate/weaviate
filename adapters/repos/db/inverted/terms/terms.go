@@ -159,11 +159,9 @@ func (s *SortedDocPointerWithScoreMerger) Do(ctx context.Context, segments [][]D
 		return nil, errors.Wrap(err, "init sorted map decoder")
 	}
 
+	done := ctx.Done()
 	i := 0
 	for {
-		if i%100 == 0 && ctx.Err() != nil {
-			return nil, fmt.Errorf("sortedDocPointerWithScoreMerger do: %w", ctx.Err())
-		}
 
 		match, ok := s.findSegmentWithLowestKey()
 		if !ok {
@@ -177,6 +175,14 @@ func (s *SortedDocPointerWithScoreMerger) Do(ctx context.Context, segments [][]D
 
 		s.output[i] = match
 		i++
+
+		if i%100 == 0 {
+			select {
+			case <-done:
+				return nil, fmt.Errorf("sortedDocPointerWithScoreMerger do: %w", ctx.Err())
+			default:
+			}
+		}
 	}
 
 	return s.output[:i], nil

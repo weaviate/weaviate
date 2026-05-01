@@ -24,11 +24,16 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type backupIntegrationNoopBucketView struct{}
+
+func (n *backupIntegrationNoopBucketView) ReleaseView() {}
 
 func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
@@ -39,6 +44,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
 	parentCommitLoggerCycle := cyclemanager.NewManager(
+		"commit-logger",
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
@@ -48,6 +54,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	parentTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("parentTombstoneCleanup", logger, 1)
 	parentTombstoneCleanupCycle := cyclemanager.NewManager(
+		"tombstone-cleanup",
 		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
 		parentTombstoneCleanupCallbacks.CycleCallback, logger)
 	parentTombstoneCleanupCycle.Start()
@@ -64,6 +71,7 @@ func TestBackup_Integration(t *testing.T) {
 		Logger:           logger,
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
+		GetViewThunk:     func() common.BucketView { return &backupIntegrationNoopBucketView{} },
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},

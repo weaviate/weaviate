@@ -60,7 +60,7 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
-		httpClient:         &http.Client{Timeout: timeout},
+		httpClient:         modulecomponents.NewBaseHttpClient(timeout),
 		buildUrlFn:         buildUrl,
 		logger:             logger,
 	}
@@ -136,7 +136,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 
 	var resBody answersResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse QnA response (status %d): %w", res.StatusCode, err)
 	}
 
 	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))

@@ -448,6 +448,17 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 		if errorResult != nil {
 			return errorResult
 		}
+		if len(pq.kms) == 0 {
+			return fmt.Errorf("pq encoders were not initialized")
+		}
+		for i := 0; i < pq.m; i++ {
+			if pq.kms[i] == nil {
+				return fmt.Errorf("pq encoder for segment %d was not initialized", i)
+			}
+			if km, ok := pq.kms[i].(*KMeansEncoder); ok && len(km.centers) == 0 {
+				return fmt.Errorf("pq encoder for segment %d has no centroids after fitting", i)
+			}
+		}
 	}
 	pq.buildGlobalDistances()
 	return nil

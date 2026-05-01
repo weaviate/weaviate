@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -38,24 +39,27 @@ type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
 	IsMultiVector(string) bool
+	HasModule(string) bool
 	MigrateVectorizerSettings(any, any) bool
 }
 
 type Parser struct {
-	clusterState        clusterState
-	configParser        VectorConfigParser
-	validator           validator
-	modules             modulesProvider
-	defaultQuantization *configRuntime.DynamicValue[string]
+	clusterState         clusterState
+	configParser         VectorConfigParser
+	validator            validator
+	modules              modulesProvider
+	defaultQuantization  *configRuntime.DynamicValue[string]
+	defaultShardingCount *configRuntime.DynamicValue[int]
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string]) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider, defaultQuantization *configRuntime.DynamicValue[string], defaultShardingCount *configRuntime.DynamicValue[int]) *Parser {
 	return &Parser{
-		clusterState:        cs,
-		configParser:        vCfg,
-		validator:           v,
-		modules:             modules,
-		defaultQuantization: defaultQuantization,
+		clusterState:         cs,
+		configParser:         vCfg,
+		validator:            v,
+		modules:              modules,
+		defaultQuantization:  defaultQuantization,
+		defaultShardingCount: defaultShardingCount,
 	}
 }
 
@@ -177,7 +181,16 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
-		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, p.clusterState.NodeCount())
+		// Override nodeCount with the configured default. This runs before RAFT
+		// proposal, so the resolved desiredCount is committed to the log and
+		// all nodes see the same value regardless of their local config.
+		nodeCount := p.clusterState.NodeCount()
+		if p.defaultShardingCount != nil {
+			if override := p.defaultShardingCount.Get(); override > 0 {
+				nodeCount = override
+			}
+		}
+		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig, nodeCount)
 		if err != nil {
 			return err
 		}
@@ -197,10 +210,16 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 				vectorizerModuleName = name
 			}
 		}
+
+		if !p.modules.HasModule(vectorizerModuleName) {
+			return fmt.Errorf("parse vector config for %s: vectorizer module not found with name: %q", targetVector, vectorizerModuleName)
+		}
+
 		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector, p.defaultQuantization)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
+
 		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
 			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}

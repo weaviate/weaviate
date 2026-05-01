@@ -14,13 +14,11 @@ package modstgs3
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -93,78 +91,72 @@ func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
 	return s.client, nil
 }
 
-func (s *s3Client) makeObjectName(parts ...string) string {
+func (s *s3Client) makeObjectName(overridePath string, parts ...string) string {
 	base := path.Join(parts...)
+	if overridePath != "" {
+		return path.Join(overridePath, base)
+	}
 	return path.Join(s.config.BackupPath, base)
 }
 
 func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string {
 	remoteBucket := s.config.Bucket
-	remotePath := s.config.BackupPath
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath)
-	}
-
 	if overrideBucket != "" {
 		remoteBucket = overrideBucket
 	}
-
-	return "s3://" + path.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
+	return "s3://" + path.Join(remoteBucket, s.makeObjectName(overridePath, backupID))
 }
 
 func (s *s3Client) AllBackups(ctx context.Context,
 ) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
+	// List non-recursively to get only backup ID prefixes (directories),
+	// avoiding a deep recursive walk through all node data files.
+	prefix := s.config.BackupPath
+	if prefix != "" && prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
 	objectsInfo := s.client.ListObjects(ctx,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
-			Recursive: true,
-			Prefix:    s.config.BackupPath,
+			Recursive: false,
+			Prefix:    prefix,
 		},
 	)
 
+	// Construct the exact backup_config.json key for each backup ID prefix.
+	var keys []string
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-
-		// Only process global backup files - this is the key filter
-		// This filters out all other files and only processes backup_config.json
-		if !strings.HasSuffix(info.Key, ubak.GlobalBackupFile) {
-			continue
+		if info.Err != nil {
+			return nil, fmt.Errorf("list objects: %w", info.Err)
 		}
-
-		// Get the backup object
-		obj, err := s.client.GetObject(ctx,
-			s.config.Bucket, info.Key, minio.GetObjectOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("get object %q: %w", info.Key, err)
+		// Non-recursive listing returns common prefixes (directories) as keys ending with "/".
+		// For each backup ID directory, the config file is at <prefix>backup_config.json.
+		if len(info.Key) > 0 && info.Key[len(info.Key)-1] == '/' {
+			keys = append(keys, info.Key+ubak.GlobalBackupFile)
 		}
-
-		// Use a buffer to limit memory usage
-		var buf bytes.Buffer
-		_, err = io.Copy(&buf, obj)
-		if err != nil {
-			obj.Close()
-			return nil, fmt.Errorf("read object %q: %w", info.Key, err)
-		}
-
-		// Ensure object is closed to prevent connection leaks
-		if err := obj.Close(); err != nil {
-			return nil, fmt.Errorf("close object %q: %w", info.Key, err)
-		}
-
-		// Unmarshal the backup metadata
-		var desc backup.DistributedBackupDescriptor
-		if err := json.Unmarshal(buf.Bytes(), &desc); err != nil {
-			return nil, fmt.Errorf("unmarshal object %q: %w", info.Key, err)
-		}
-
-		meta = append(meta, &desc)
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, s.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		obj, err := s.client.GetObject(ctx, s.config.Bucket, key, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("get object: %w", err)
+		}
+		defer obj.Close()
+
+		var buf bytes.Buffer
+		if _, err = io.Copy(&buf, obj); err != nil {
+			wrapped := fmt.Errorf("read object: %w", err)
+			var s3Err minio.ErrorResponse
+			if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
+				return nil, backup.NewErrNotFound(wrapped)
+			}
+			return nil, wrapped
+		}
+		return buf.Bytes(), nil
+	})
 }
 
 func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
@@ -172,11 +164,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	if err != nil {
 		return nil, errors.Wrap(err, "get object: failed to get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
+	remotePath := s.makeObjectName(overridePath, backupID, key)
 
 	bucket := s.config.Bucket
 	if overrideBucket != "" {
@@ -221,7 +209,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 		return errors.Wrap(err, "put object: failed to get client")
 	}
 
-	remotePath := s.makeObjectName(backupID, key)
+	remotePath := s.makeObjectName(overridePath, backupID, key)
 	opt := minio.PutObjectOptions{
 		ContentType:    "application/octet-stream",
 		PartSize:       MINIO_MIN_PART_SIZE,
@@ -229,10 +217,6 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
 
 	bucket := s.config.Bucket
 	if overrideBucket != "" {
@@ -264,9 +248,13 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
-	objectName := s.makeObjectName(backupID, key)
+	bucket := s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+	objectName := s.makeObjectName(overridePath, backupID, key)
 	opt := minio.RemoveObjectOptions{}
-	if err := client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
+	if err := client.RemoveObject(ctx, bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")
 	}
 
@@ -279,10 +267,7 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	if err != nil {
 		return errors.Wrap(err, "write to file: cannot get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
+	remotePath := s.makeObjectName(overridePath, backupID, key)
 
 	bucket := s.config.Bucket
 	if overrideBucket != "" {
@@ -303,23 +288,23 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 	return nil
 }
 
-func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 	start := time.Now()
 	client, err := s.getClient(ctx)
 	if err != nil {
 		return -1, errors.Wrap(err, "write: cannot get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
+	remotePath := s.makeObjectName(overridePath, backupID, key)
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
 		PartSize:         MINIO_MIN_PART_SIZE,
 		SendContentMd5:   true,
-	}
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
 	}
 
 	bucket := s.config.Bucket
@@ -345,11 +330,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	if err != nil {
 		return -1, errors.Wrap(err, "read: cannot get client")
 	}
-	remotePath := s.makeObjectName(backupID, key)
-
-	if overridePath != "" {
-		remotePath = path.Join(overridePath, backupID, key)
-	}
+	remotePath := s.makeObjectName(overridePath, backupID, key)
 
 	bucket := s.config.Bucket
 	if overrideBucket != "" {
@@ -360,6 +341,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	if err != nil {
 		return 0, fmt.Errorf("get object %q: %w", remotePath, err)
 	}
+	defer obj.Close()
 
 	read, err := io.Copy(w, obj)
 	if err != nil {

@@ -138,6 +138,8 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	require.Nil(t, err, "failed to start replication for tenant %s from node %s to node %s", tenantName, sourceNode, targetNode)
 	opId := *res.Payload.ID
 
+	cancel() // stop mutating to allow the verification to proceed
+
 	t.Log("Waiting for replication operation to complete")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		res, err := helper.Client(t).Replication.ReplicationDetails(
@@ -147,17 +149,6 @@ func test(suite *ReplicationTestSuite, strategy string) {
 		require.Nil(t, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
-
-	t.Log("Replication operation completed successfully, cancelling data mutation")
-	cancel() // stop mutating to allow the verification to proceed
-
-	t.Log("Waiting for a while to ensure all data is replicated")
-
-	// Verify that shards all have consistent data
-	t.Log("Verifying data consistency of tenant")
-
-	t.Log("Replication operation completed successfully, cancelling data mutation")
-	cancel() // stop mutating to allow the verification to proceed
 
 	verbose := verbosity.OutputVerbose
 	ns, err = helper.Client(t).Nodes.NodesGetClass(

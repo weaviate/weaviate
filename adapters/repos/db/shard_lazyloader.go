@@ -244,11 +244,11 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
-func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+func (l *LazyLoadShard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
 	if err := l.Load(ctx); err != nil {
-		return nil, err
+		return types.RepairResponse{}, err
 	}
-	return l.shard.ObjectByIDErrDeleted(ctx, id, props, additional)
+	return l.shard.ObjectDigestErrDeleted(ctx, id)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
@@ -286,11 +286,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.SetAsyncReplicationEnabled(ctx, enabled)
+	return l.shard.SetAsyncReplicationState(ctx, config, enabled)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
@@ -349,13 +349,19 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
+func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectDigests(ctx, query)
+}
+
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) (objs []types.RepairResponse, err error) {
-	if !l.isLoaded() {
+	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-
 	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
@@ -428,11 +434,18 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
-func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	return l.shard.ListBackupFiles(ctx, ret)
+}
+
+func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -697,9 +710,9 @@ func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, d
 	return l.shard.batchDeleteObject(ctx, id, deletionTime)
 }
 
-func (l *LazyLoadShard) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
+func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
 	l.mustLoad()
-	return l.shard.putObjectLSM(object, idBytes)
+	return l.shard.putObjectLSM(ctx, object, idBytes)
 }
 
 func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {
@@ -707,9 +720,9 @@ func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes 
 	return l.shard.mayUpsertObjectHashTree(object, idBytes, status)
 }
 
-func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
+func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
 	l.mustLoad()
-	return l.shard.mutableMergeObjectLSM(merge, idBytes)
+	return l.shard.mutableMergeObjectLSM(ctx, merge, idBytes)
 }
 
 func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

@@ -104,6 +104,7 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
+	Backup                              Backup                   `json:"backup" yaml:"backup"`
 	Name                                string                   `json:"name" yaml:"name"`
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -209,6 +210,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this shard count instead of the cluster node count.
+	// A value of 0 means use the cluster node count (default behavior).
+	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
+
 	QueryBitmapBufsMaxMemory  int `json:"query_bitmap_bufs_max_memory" yaml:"query_bitmap_bufs_max_memory"`
 	QueryBitmapBufsMaxBufSize int `json:"query_bitmap_bufs_max_buf_size" yaml:"query_bitmap_bufs_max_buf_size"`
 
@@ -238,6 +243,9 @@ type Config struct {
 	ObjectsTtlAllowSeconds bool `json:"objects_ttl_allow_seconds" yaml:"objects_ttl_allow_seconds"`
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
+
+	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
+	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -355,6 +363,22 @@ func (a AutoSchema) Validate() error {
 type QueryDefaults struct {
 	Limit        int64 `json:"limit" yaml:"limit"`
 	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
+}
+
+// DefaultBackupMinChunkSize is the default minimum size for backup chunks
+const DefaultBackupMinChunkSize = 1024 * 1024 // 1MB
+
+// DefaultBackupChunkTargetSize is the default target size for packing small files into chunks
+const DefaultBackupChunkTargetSize = 10 * 1024 * 1024 // 10MB
+
+// DefaultBackupSplitFileSize is the default size for splitting large files during backup
+const DefaultBackupSplitFileSize = 50 * 1024 * 1024 * 1024 // 50GB
+
+// Backup contains backup-related configuration
+type Backup struct {
+	MinChunkSize    int64 `json:"min_chunk_size" yaml:"min_chunk_size"`
+	ChunkTargetSize int64 `json:"chunk_target_size" yaml:"chunk_target_size"`
+	SplitFileSize   int64 `json:"split_file_size" yaml:"split_file_size"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

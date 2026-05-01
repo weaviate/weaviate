@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -272,7 +271,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.CancelFunc) {
 	if r := recover(); r != nil {
 		entsentry.Recover(r)
-		debug.PrintStack()
+		enterrors.PrintStack(c.logger)
 		c.logger.WithFields(logrus.Fields{
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,
@@ -445,7 +444,7 @@ func trace() string {
 	pcs = pcs[:n]
 	for i := range pcs {
 		f := errors.Frame(pcs[i])
-		sb.WriteString(fmt.Sprintf("%n@%s:%d", f, f, f))
+		fmt.Fprintf(&sb, "%n@%s:%d", f, f, f)
 		if i < n-1 {
 			sb.WriteString(";")
 		}

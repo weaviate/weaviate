@@ -43,7 +43,7 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
-	status, err := s.putObjectLSM(object, uuid)
+	status, err := s.putObjectLSM(ctx, object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
 	}
@@ -202,7 +202,7 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 	return obj, nil
 }
 
-func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
+func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
@@ -245,7 +245,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
 
-		err := s.waitForMinimalHashTreeInitialization(context.Background())
+		err := s.waitForMinimalHashTreeInitialization(ctx)
 		if err != nil {
 			return err
 		}
@@ -467,6 +467,15 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err := s.subtractPropLengths(prevProps); err != nil {
 			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
 		}
+	}
+
+	// Removing the old docId from the factory solves an issue,
+	// where, if using a NotEquals filter on a property,
+	// there is a possible time period where that docId has been deleted from the inverted index,
+	// but is still present in HNSW or other vector indices.
+	// For any NotEquals filter, we do an Equals filter and invert it's results.
+	if status.docIDChanged {
+		s.bitmapFactory.RemoveIds(status.oldDocID)
 	}
 
 	if err := s.SetPropertyLengths(props); err != nil {

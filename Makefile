@@ -7,7 +7,7 @@ help:
 
 .DEFAULT_GOAL := weaviate
 
-GO_VERSION         := 1.25.0
+GO_VERSION         := $(shell go version | cut -d' ' -f3 | sed 's/^go//')
 
 # Git tags
 GIT_REVISION       := $(shell git rev-parse --short HEAD)
@@ -110,3 +110,6 @@ mocks: ## Regenerate test mocks
 .PHONY: grpc
 grpc:
 	./tools/dev/grpc_regenerate.sh
+
+deps:
+	@echo "Sync go deps in Weaviate, e2e with Go client and benchmark_bm25" && go mod tidy && go mod vendor && cd test/acceptance_with_go_client/ && go mod tidy && go mod vendor && cd ../benchmark_bm25/ && go mod tidy && go mod vendor && cd ../.. && echo "Success" || echo "Failed"

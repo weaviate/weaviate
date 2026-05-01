@@ -14,7 +14,6 @@ package modstggcs
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -25,13 +24,15 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -40,11 +41,14 @@ type gcsClient struct {
 	config    clientConfig
 	projectID string
 	dataPath  string
+	logger    logrus.FieldLogger
 }
 
-func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
-	options := []option.ClientOption{}
+func storageOptions(ctx context.Context) ([]option.ClientOption, error) {
+	opts := []option.ClientOption{}
 	useAuth := strings.ToLower(os.Getenv("BACKUP_GCS_USE_AUTH")) != "false"
+	backupGCSAuthProxyEndpoint := os.Getenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT")
+
 	if useAuth {
 		scopes := []string{
 			"https://www.googleapis.com/auth/devstorage.read_write",
@@ -53,10 +57,22 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		if err != nil {
 			return nil, errors.Wrap(err, "find default credentials")
 		}
-		options = append(options, option.WithCredentials(creds))
+		opts = append(opts, option.WithCredentials(creds))
+	} else if backupGCSAuthProxyEndpoint != "" {
+		opts = append(
+			opts,
+			option.WithTokenSource(
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(backupGCSAuthProxyEndpoint)),
+			),
+		)
 	} else {
-		options = append(options, option.WithoutAuthentication())
+		opts = append(opts, option.WithoutAuthentication())
 	}
+
+	return opts, nil
+}
+
+func projectID() string {
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if len(projectID) == 0 {
 		projectID = os.Getenv("GCLOUD_PROJECT")
@@ -64,7 +80,17 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 			projectID = os.Getenv("GCP_PROJECT")
 		}
 	}
-	client, err := storage.NewClient(ctx, options...)
+
+	return projectID
+}
+
+func newClient(ctx context.Context, config *clientConfig, dataPath string, logger logrus.FieldLogger) (*gcsClient, error) {
+	opts, err := storageOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := storage.NewClient(ctx, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
@@ -75,21 +101,9 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 		Multiplier: 3,
 	}),
 		storage.WithPolicy(storage.RetryAlways),
-		storage.WithErrorFunc(func(err error) bool {
-			if storage.ShouldRetry(err) {
-				return true
-			}
-
-			var gerr *googleapi.Error
-			if errors.As(err, &gerr) {
-				// retry on 401 on top of the default retryable errors
-				return gerr.Code == 401
-			}
-
-			return false
-		}),
+		storage.WithErrorFunc(gcpcommon.RetryErrorFunc),
 	)
-	return &gcsClient{client, *config, projectID, dataPath}, nil
+	return &gcsClient{client: client, config: *config, projectID: projectID(), dataPath: dataPath, logger: logger}, nil
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
@@ -132,15 +146,14 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 }
 
 func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
 	bucket, err := g.findBucket(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("find bucket: %w", err)
 	}
 
+	var keys []string
 	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath, MatchGlob: "**/" + ubak.GlobalBackupFile})
 	for {
-		// Check context before each iteration
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -153,23 +166,12 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 			return nil, fmt.Errorf("get next object: %w", err)
 		}
 
-		// mostly needed for testing on the emulator
-		if !strings.HasSuffix(next.Name, ubak.GlobalBackupFile) {
-			continue
-		}
-
-		contents, err := g.getObject(ctx, bucket, next.Name)
-		if err != nil {
-			return nil, fmt.Errorf("read object %q: %w", next.Name, err)
-		}
-		var desc backup.DistributedBackupDescriptor
-		if err := json.Unmarshal(contents, &desc); err != nil {
-			return nil, fmt.Errorf("unmarshal object %q: %w", next.Name, err)
-		}
-		meta = append(meta, &desc)
+		keys = append(keys, next.Name)
 	}
 
-	return meta, nil
+	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
+		return g.getObject(ctx, bucket, key)
+	})
 }
 
 func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
@@ -327,8 +329,12 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, ov
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	defer r.Close()
+func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r backup.ReadCloserWithError) (written int64, err error) {
+	// Close the reader when done. Use CloseWithError to signal any error to the
+	// producer so it sees the actual error instead of "closed pipe".
+	defer func() {
+		r.CloseWithError(err)
+	}()
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
@@ -336,20 +342,20 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	}
 
 	// create a new writer
-	path := g.makeObjectName(overridePath, []string{backupID, key})
-	writer := bucket.Object(path).NewWriter(ctx)
+	objectPath := g.makeObjectName(overridePath, []string{backupID, key})
+	writer := bucket.Object(objectPath).NewWriter(ctx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{"backup-id": backupID}
 
 	// copy
-	written, err := io.Copy(writer, r)
+	written, err = io.Copy(writer, r)
 	if err != nil {
 		writer.Close() // ignore error here as copy already failed
-		return 0, fmt.Errorf("io.copy for gcs write %q: %w", path, err)
+		return written, fmt.Errorf("io.copy for gcs write %q: %w", objectPath, err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return 0, fmt.Errorf("close writer for gcs write %q: %w", path, err)
+		return written, fmt.Errorf("close writer for gcs write %q: %w", objectPath, err)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.

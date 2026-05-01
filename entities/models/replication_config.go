@@ -31,6 +31,9 @@ import (
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
 
+	// Configuration parameters for asynchronous replication.
+	AsyncConfig *ReplicationAsyncConfig `json:"asyncConfig,omitempty"`
+
 	// Enable asynchronous replication (default: `false`).
 	AsyncEnabled bool `json:"asyncEnabled"`
 
@@ -46,6 +49,10 @@ type ReplicationConfig struct {
 func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAsyncConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateDeletionStrategy(formats); err != nil {
 		res = append(res, err)
 	}
@@ -53,6 +60,25 @@ func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ReplicationConfig) validateAsyncConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.AsyncConfig) { // not required
+		return nil
+	}
+
+	if m.AsyncConfig != nil {
+		if err := m.AsyncConfig.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("asyncConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("asyncConfig")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -101,8 +127,33 @@ func (m *ReplicationConfig) validateDeletionStrategy(formats strfmt.Registry) er
 	return nil
 }
 
-// ContextValidate validates this replication config based on context it is used
+// ContextValidate validate this replication config based on the context it is used
 func (m *ReplicationConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateAsyncConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ReplicationConfig) contextValidateAsyncConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.AsyncConfig != nil {
+		if err := m.AsyncConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("asyncConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("asyncConfig")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

@@ -54,6 +54,8 @@ const (
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
+	DefaultMaxShardingCount = 512
+
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
@@ -485,6 +487,20 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultShardingCount := 0
+	if err := parseNonNegativeInt(
+		"DEFAULT_SHARDING_COUNT",
+		func(v int) { defaultShardingCount = v },
+		0,
+	); err != nil {
+		return err
+	}
+	if defaultShardingCount > DefaultMaxShardingCount {
+		return fmt.Errorf("DEFAULT_SHARDING_COUNT must be <= %d, got %d",
+			DefaultMaxShardingCount, defaultShardingCount)
+	}
+	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
+
 	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
 		config.HFreshEnabled = true
 	}
@@ -607,6 +623,39 @@ func FromEnv(config *Config) error {
 		if config.QueryDefaults.Limit == 0 {
 			config.QueryDefaults.Limit = DefaultQueryDefaultsLimit
 		}
+	}
+
+	if v := os.Getenv("BACKUP_MIN_CHUNK_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_MIN_CHUNK_SIZE: %w", err)
+		}
+
+		config.Backup.MinChunkSize = parsed
+	} else {
+		config.Backup.MinChunkSize = DefaultBackupMinChunkSize
+	}
+
+	if v := os.Getenv("BACKUP_CHUNK_TARGET_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_CHUNK_TARGET_SIZE: %w", err)
+		}
+
+		config.Backup.ChunkTargetSize = parsed
+	} else {
+		config.Backup.ChunkTargetSize = DefaultBackupChunkTargetSize
+	}
+
+	if v := os.Getenv("BACKUP_SPLIT_FILE_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse BACKUP_SPLIT_FILE_SIZE: %w", err)
+		}
+
+		config.Backup.SplitFileSize = parsed
+	} else {
+		config.Backup.SplitFileSize = DefaultBackupSplitFileSize
 	}
 
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
@@ -814,7 +863,7 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
-	if err := parseNonNegativeInt(
+	if err := parsePositiveInt(
 		"GRPC_MAX_OPEN_CONNS",
 		func(val int) { config.GRPC.MaxOpenConns = val },
 		DefaultGRPCMaxOpenConns,
@@ -822,7 +871,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if err := parseDuration(
+	if err := parsePositiveDuration(
 		"GRPC_IDLE_CONN_TIMEOUT",
 		func(val time.Duration) { config.GRPC.IdleConnTimeout = val },
 		DefaultGRPCIdleConnTimeout,
@@ -845,6 +894,16 @@ func FromEnv(config *Config) error {
 	}
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+
+	if err := parsePositiveInt(
+		"ASYNC_REPLICATION_CLUSTER_MAX_WORKERS",
+		func(val int) {
+			config.Replication.AsyncReplicationClusterMaxWorkers = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationClusterMaxWorkers,
+	); err != nil {
+		return err
+	}
 
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
@@ -997,6 +1056,13 @@ func FromEnv(config *Config) error {
 		operationalMode = v
 	}
 	config.OperationalMode = configRuntime.NewDynamicValue(operationalMode)
+
+	disableDimensionMetrics := false
+	if v := os.Getenv("DIMENSION_METRICS_DISABLED"); v != "" {
+		disableDimensionMetrics = entcfg.Enabled(v)
+	}
+
+	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
 
 	return nil
 }
@@ -1368,21 +1434,6 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 	return nil
 }
 
-func parseDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
-	var err error
-	asDuration := defaultValue
-
-	if v := os.Getenv(envName); v != "" {
-		asDuration, err = time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as time.Duration: %w", envName, err)
-		}
-	}
-
-	cb(asDuration)
-	return nil
-}
-
 const (
 	DefaultQueryMaximumResults       = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
@@ -1408,6 +1459,7 @@ const (
 	DefaultGRPCMaxOpenConns                    = 100
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
+	DefaultAsyncReplicationClusterMaxWorkers   = 15
 	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
 )
 

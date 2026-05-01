@@ -164,6 +164,16 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+		{
+			name: "compactionReplaceStrategy_MismatchedSecondaryIndexCount",
+			f:    compactionReplaceStrategy_MismatchedSecondaryIndexCount,
+			opts: []BucketOption{},
+		},
+		{
+			name: "compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight",
+			f:    compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight,
+			opts: []BucketOption{},
+		},
 
 		{
 			name: "compactionSetStrategy",

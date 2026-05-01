@@ -75,7 +75,7 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
-	obj, status, err := s.mergeObjectInStorage(doc, idBytes)
+	obj, status, err := s.mergeObjectInStorage(ctx, doc, idBytes)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 	return nil
 }
 
-func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
+func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte,
 ) (*storobj.Object, objectInsertStatus, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -130,7 +130,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
 
-		err := s.waitForMinimalHashTreeInitialization(context.Background())
+		err := s.waitForMinimalHashTreeInitialization(ctx)
 		if err != nil {
 			return err
 		}
@@ -208,7 +208,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 // The above makes this a perfect candidate for a batch reference update as
 // this alters neither the vector position, nor does it remove anything from
 // the inverted index
-func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
+func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte,
 ) (mutableMergeResult, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -217,7 +217,7 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
 
-	err := s.waitForMinimalHashTreeInitialization(context.Background())
+	err := s.waitForMinimalHashTreeInitialization(ctx)
 	if err != nil {
 		return out, err
 	}

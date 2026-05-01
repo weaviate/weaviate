@@ -22,12 +22,17 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type tooManyLinksNoopBucketView struct{}
+
+func (n *tooManyLinksNoopBucketView) ReleaseView() {}
 
 // The !race build tag makes sure that this test is EXCLUDED from running with
 // the race detector on, but now we also need to make sure that it runs in the
@@ -50,6 +55,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
 	parentCommitLoggerCycle := cyclemanager.NewManager(
+		"commit-logger",
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
@@ -59,6 +65,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 	parentTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("parentTombstoneCleanup", logger, 1)
 	parentTombstoneCleanupCycle := cyclemanager.NewManager(
+		"tombstone-cleanup",
 		cyclemanager.NewFixedTicker(1),
 		parentTombstoneCleanupCallbacks.CycleCallback, logger)
 	parentTombstoneCleanupCycle.Start()
@@ -95,6 +102,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &tooManyLinksNoopBucketView{} },
 		}, ent.UserConfig{
 			MaxConnections:         m,
 			EFConstruction:         128,
@@ -230,6 +238,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
+			GetViewThunk: func() common.BucketView { return &tooManyLinksNoopBucketView{} },
 		}, ent.UserConfig{
 			MaxConnections:         m,
 			EFConstruction:         128,

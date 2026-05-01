@@ -50,11 +50,9 @@ type databricks struct {
 func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *databricks {
 	return &databricks{
 		databricksToken: databricksToken,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		buildEndpoint: buildEndpointFn,
-		logger:        logger,
+		httpClient:      modulecomponents.NewBaseHttpClient(timeout),
+		buildEndpoint:   buildEndpointFn,
+		logger:          logger,
 	}
 }
 
@@ -121,7 +119,7 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {

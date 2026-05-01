@@ -36,4 +36,6 @@ type Payload struct {
 	Arch             string      `json:"arch"`
 	UsedModules      []string    `json:"usedModules,omitempty"`
 	CollectionsCount int         `json:"collectionsCount"`
+	CloudProvider    *string     `json:"cloudProvider,omitempty"`
+	UniqueID         *string     `json:"uniqueID,omitempty"`
 }

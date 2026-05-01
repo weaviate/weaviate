@@ -41,8 +41,8 @@ type RemoteIndexIncomingRepo interface {
 	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time) SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) SimpleResponse
 	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference) SimpleResponse
-	CommitReplication(shardName, requestID string) interface{}
-	AbortReplication(shardName, requestID string) interface{}
+	CommitReplication(ctx context.Context, shardName, requestID string) interface{}
+	AbortReplication(ctx context.Context, shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
 	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (Replica, error)
@@ -126,24 +126,24 @@ func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, index
 	return index.ReplicateReferences(ctx, shardName, requestID, refs)
 }
 
-func (rri *RemoteReplicaIncoming) CommitReplication(indexName,
-	shardName, requestID string,
+func (rri *RemoteReplicaIncoming) CommitReplication(ctx context.Context,
+	indexName, shardName, requestID string,
 ) interface{} {
-	index, simpleResp := rri.indexForIncomingRead(context.Background(), indexName)
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.CommitReplication(shardName, requestID)
+	return index.CommitReplication(ctx, shardName, requestID)
 }
 
-func (rri *RemoteReplicaIncoming) AbortReplication(indexName,
-	shardName, requestID string,
+func (rri *RemoteReplicaIncoming) AbortReplication(ctx context.Context,
+	indexName, shardName, requestID string,
 ) interface{} {
-	index, simpleResp := rri.indexForIncomingRead(context.Background(), indexName)
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.AbortReplication(shardName, requestID)
+	return index.AbortReplication(ctx, shardName, requestID)
 }
 
 func (rri *RemoteReplicaIncoming) OverwriteObjects(ctx context.Context,

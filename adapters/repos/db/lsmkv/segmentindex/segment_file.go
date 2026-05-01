@@ -128,6 +128,10 @@ func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 // into each segment node's `WriteTo` instead.
 //
 // This method uses the written data to further calculate the checksum.
+// BodyWriter returns the writer for segment body data. The returned writer
+// must copy bytes synchronously on Write (as bufio.Writer does). Callers
+// (e.g. compactorReplace) pass aliased value buffers that are reused after
+// Write returns, so an async or zero-copy writer would silently corrupt data.
 func (f *SegmentFile) BodyWriter() io.Writer {
 	f.writtenTo = true
 
@@ -221,17 +225,17 @@ func (f *SegmentFile) WriteHeaderInverted(headerInverted *HeaderInverted) (int64
 
 // WriteIndexes writes the indexes struct to the underlying writer.
 // This method uses the written data to further calculate the checksum.
-func (f *SegmentFile) WriteIndexes(indexes *Indexes, expectedSize int64) (int64, error) {
+func (f *SegmentFile) WriteIndexes(indexes *Indexes) (int64, error) {
 	if f.writer == nil {
 		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
 			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
 	}
 
 	if f.checksumsDisabled {
-		return indexes.WriteTo(f.writer, uint64(expectedSize))
+		return indexes.WriteTo(f.writer)
 	}
 
-	n, err := indexes.WriteTo(f.checksumWriter, uint64(expectedSize))
+	n, err := indexes.WriteTo(f.checksumWriter)
 	if err != nil {
 		return n, fmt.Errorf("write segment file indexes: %w", err)
 	}

@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -37,7 +36,7 @@ const (
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
-	dims := int(atomic.LoadInt32(&h.dims))
+	dims := int(h.dims.Load())
 
 	// no vectors exist
 	if dims == 0 {
@@ -61,7 +60,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
-	dims := int(atomic.LoadInt32(&h.dims))
+	dims := int(h.dims.Load())
 
 	// no vectors exist
 	if dims == 0 {
@@ -104,6 +103,62 @@ func (h *hnsw) validatePQSegments(dims int) error {
 	return nil
 }
 
+func (h *hnsw) checkAndCompress() error {
+	var err error
+	if h.rqActive.Load() {
+		// Defer RQ initialization until the cache is fully prefilled.
+		if !h.cachePrefilled.Load() {
+			return nil
+		}
+		h.trackRQOnce.Do(func() {
+			h.compressActionLock.Lock()
+			defer h.compressActionLock.Unlock()
+			singleVector := !h.multivector.Load() || h.muvera.Load()
+			if singleVector {
+				h.compressor, err = compressionhelpers.NewRQCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
+			} else {
+				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.multiVectorForNodeID)
+			}
+
+			if err == nil {
+				h.Lock()
+				defer h.Unlock()
+				h.compressed.Store(true)
+				if h.cache != nil {
+
+					data := h.cache.All()
+					if singleVector {
+						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+							func(index uint64) {
+								if len(data[index]) == 0 {
+									return
+								}
+								h.compressor.Preload(index, data[index])
+							})
+					} else {
+						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+							func(index uint64) {
+								if len(data[index]) == 0 {
+									return
+								}
+								docID, relativeID := h.cache.GetKeys(index)
+								h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+							})
+					}
+					h.cache.Drop()
+				}
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+	}
+	return err
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -134,7 +189,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			}
 		}
 		if err == nil {
-			atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+			h.dims.Store(int32(len(vectors[0])))
 		}
 	})
 
@@ -142,26 +197,9 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, h.makeBucketOptions, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
-
-			if err == nil {
-				h.Lock()
-				defer h.Unlock()
-				h.compressed.Store(true)
-				if h.cache != nil {
-					h.cache.Drop()
-				}
-				h.cache = nil
-				h.compressor.PersistCompression(h.commitLog)
-			}
-		})
-		if err != nil {
-			return err
-		}
+	err = h.checkAndCompress()
+	if err != nil {
+		return err
 	}
 
 	levels := make([]int, len(ids))
@@ -268,41 +306,15 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			}
 		}
 		if err == nil {
-			atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+			h.dims.Store(int32(len(vectors[0][0])))
 		}
 	})
 
 	if err != nil {
 		return err
 	}
-	if h.rqConfig.Enabled && h.rqActive {
-		h.trackRQOnce.Do(func() {
-			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
-				h.distancerProvider, 1e12, h.logger, h.store,
-				h.allocChecker, h.makeBucketOptions, int(h.rqConfig.Bits), int(h.dims), h.getTargetVector())
 
-			if err == nil {
-				h.Lock()
-				data := h.cache.All()
-				h.compressor.GrowCache(h.vecIDcounter)
-				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
-					func(index uint64) {
-						if len(data[index]) == 0 {
-							return
-						}
-						docID, relativeID := h.cache.GetKeys(index)
-						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
-					})
-				h.compressed.Store(true)
-				h.cache.Drop()
-				h.compressor.PersistCompression(h.commitLog)
-				h.Unlock()
-			}
-		})
-		if err != nil {
-			return err
-		}
-	}
+	err = h.checkAndCompress()
 	if err != nil {
 		return err
 	}

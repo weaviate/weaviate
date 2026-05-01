@@ -25,12 +25,17 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type persistenceIntegrationNoopBucketView struct{}
+
+func (n *persistenceIntegrationNoopBucketView) ReleaseView() {}
 
 func TestHnswPersistence(t *testing.T) {
 	dirName := t.TempDir()
@@ -51,6 +56,7 @@ func TestHnswPersistence(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -89,6 +95,7 @@ func TestHnswPersistence(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -123,6 +130,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -196,6 +204,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -232,6 +241,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -279,6 +289,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -314,6 +325,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -368,6 +380,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -413,6 +426,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
@@ -453,6 +467,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
+		GetViewThunk:          func() common.BucketView { return &persistenceIntegrationNoopBucketView{} },
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,

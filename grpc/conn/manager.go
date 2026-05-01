@@ -24,7 +24,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -40,9 +39,6 @@ type ConnManager struct {
 	conns    map[string]*connEntry
 	grpcOpts []grpc.DialOption
 
-	stopCh chan struct{}
-	wg     sync.WaitGroup
-
 	closed bool
 
 	sf singleflight.Group
@@ -53,23 +49,22 @@ type connEntry struct {
 	lastUsed atomic.Int64 // unix nanos
 }
 
-func NewConnManager(maxOpenConns int, timeout time.Duration, reg prometheus.Registerer, logger logrus.FieldLogger, grpcOpts ...grpc.DialOption) *ConnManager {
-	m := &ConnManager{
+func NewConnManager(maxOpenConns int, timeout time.Duration, reg prometheus.Registerer, logger logrus.FieldLogger, grpcOpts ...grpc.DialOption) (*ConnManager, error) {
+	if maxOpenConns <= 0 {
+		return nil, fmt.Errorf("grpcconn: maxOpenConns must be > 0, got %d", maxOpenConns)
+	}
+	if timeout <= 0 {
+		return nil, fmt.Errorf("grpcconn: timeout must be > 0, got %v", timeout)
+	}
+
+	return &ConnManager{
 		maxOpenConns: maxOpenConns,
 		timeout:      timeout,
 		metrics:      newConnMetrics(reg),
 		logger:       logger,
 		conns:        make(map[string]*connEntry),
 		grpcOpts:     grpcOpts,
-		stopCh:       make(chan struct{}),
-	}
-
-	if timeout > 0 {
-		m.wg.Add(1)
-		enterrors.GoWrapper(m.cleanupLoop, logger)
-	}
-
-	return m
+	}, nil
 }
 
 func (m *ConnManager) GetConn(addr string) (*grpc.ClientConn, error) {
@@ -226,81 +221,7 @@ func (m *ConnManager) CloseConn(addr string) error {
 	return fmt.Errorf("no connection found for address: %s", addr)
 }
 
-func (m *ConnManager) cleanupLoop() {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	defer m.wg.Done()
-
-	for {
-		select {
-		case <-ticker.C:
-			m.CleanupIdleConnections()
-		case <-m.stopCh:
-			return
-		}
-	}
-}
-
-func (m *ConnManager) CleanupIdleConnections() {
-	if m.timeout <= 0 {
-		return
-	}
-
-	// snapshot stale entries under read lock
-	m.mu.RLock()
-	if m.closed {
-		m.mu.RUnlock()
-		return
-	}
-
-	type staleEntry struct {
-		addr string
-		ptr  *connEntry
-	}
-
-	var stale []staleEntry
-
-	for addr, entry := range m.conns {
-		if time.Since(time.Unix(0, entry.lastUsed.Load())) > m.timeout {
-			stale = append(stale, staleEntry{addr: addr, ptr: entry})
-		}
-	}
-	m.mu.RUnlock()
-
-	if len(stale) == 0 {
-		return
-	}
-
-	// delete the exact entries (defensive re-check) under write lock
-	var toClose []*grpc.ClientConn
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		return
-	}
-	for _, s := range stale {
-		if cur, ok := m.conns[s.addr]; ok && cur == s.ptr {
-			delete(m.conns, s.addr)
-			toClose = append(toClose, s.ptr.conn)
-		}
-	}
-	m.mu.Unlock()
-
-	// close outside the lock
-	for _, c := range toClose {
-		err := c.Close()
-		if err == nil {
-			m.metrics.connCloseTotal.Inc()
-			m.metrics.connOpenGauge.Dec()
-			m.metrics.connEvictTotal.WithLabelValues("idle_cleanup").Inc()
-		} else {
-			m.logger.Warnf("failed to close idle connection: %v", err)
-		}
-	}
-}
-
 func (m *ConnManager) Close() {
-	// Flip state and snapshot under lock
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -314,15 +235,8 @@ func (m *ConnManager) Close() {
 	}
 	// clear map so new lookups fail immediately
 	m.conns = make(map[string]*connEntry)
-
-	stopCh := m.stopCh
 	m.mu.Unlock()
 
-	// stop background work and wait, without holding the mutex
-	close(stopCh)
-	m.wg.Wait()
-
-	// close connections outside the lock
 	for _, c := range toClose {
 		if err := c.Close(); err != nil {
 			m.logger.Warnf("failed to close connection: %v", err)

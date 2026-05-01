@@ -13,6 +13,8 @@ package v1
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -145,39 +147,60 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
 
-		// correct the type of value when filtering on a float/int property but sending an int/float. This is easy to
-		// get wrong
-		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
-			val = float64(number)
-		}
-		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
-			val = int(number)
-			if float64(int(number)) != number {
-				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
-			}
-		}
-
-		// correct type for containsXXX in case users send int/float for a float/int array
-		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeNumber {
-			valSlice, ok := val.([]int)
-			if ok {
-				val64 := make([]float64, len(valSlice))
-				for i := 0; i < len(valSlice); i++ {
-					val64[i] = float64(valSlice[i])
+		// correct the type of value when filtering on a float/int property but sending an int/float/string. This is easy to
+		// get wrong for humans and agents alike (e.g. sending "2.3" as a filter on a number property)
+		if dataType == schema.DataTypeNumber {
+			switch v := val.(type) {
+			case int:
+				val = float64(v)
+			case string:
+				fVal, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					return filters.Clause{}, fmt.Errorf("expected a number value, but could not parse string '%v' as float: %w", v, err)
+				}
+				val = fVal
+			// correct type for containsXXX in case users send ints for a []number type
+			case []int:
+				if !returnFilter.Operator.IsContains() {
+					break
+				}
+				val64 := make([]float64, len(v))
+				for i := 0; i < len(v); i++ {
+					val64[i] = float64(v[i])
 				}
 				val = val64
 			}
 		}
-
-		if returnFilter.Operator.IsContains() && dataType == schema.DataTypeInt {
-			valSlice, ok := val.([]float64)
-			if ok {
-				valInt := make([]int, len(valSlice))
-				for i := 0; i < len(valSlice); i++ {
-					if float64(int(valSlice[i])) != valSlice[i] {
-						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", valSlice[i])
+		if dataType == schema.DataTypeInt {
+			switch v := val.(type) {
+			case float64:
+				iVal, err := floatToInt(v)
+				if err != nil {
+					return filters.Clause{}, err
+				}
+				val = iVal
+			case string:
+				fVal, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					return filters.Clause{}, fmt.Errorf("expected an integer value, but could not parse string '%v' as int: %w", v, err)
+				}
+				iVal, err := floatToInt(fVal)
+				if err != nil {
+					return filters.Clause{}, err
+				}
+				val = iVal
+			// correct type for containsXXX in case users send floats for a []int type
+			case []float64:
+				if !returnFilter.Operator.IsContains() {
+					break
+				}
+				valInt := make([]int, len(v))
+				for i := 0; i < len(v); i++ {
+					iVal, err := floatToInt(v[i])
+					if err != nil {
+						return filters.Clause{}, err
 					}
-					valInt[i] = int(valSlice[i])
+					valInt[i] = iVal
 				}
 				val = valInt
 			}
@@ -308,4 +331,27 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 	default:
 		return nil, "", fmt.Errorf("unknown target type %v", target)
 	}
+}
+
+// floatToInt safely converts a float64 to int for use as an integer filter
+// value. It rejects NaN, ±Inf, values outside the int64 range, and fractional
+// values. This allows whole-number floats (e.g. 2.0 or "2.0") to be accepted
+// as a convenience, while avoiding Go's implementation-defined behavior for
+// out-of-range float→int conversions and silent truncation of fractional
+// values.
+//
+// Note: float64 cannot represent every int64 exactly. Values near the int64
+// boundary that ParseFloat rounds up to float64(math.MaxInt64) = 2^63 are
+// rejected as out of range. Callers that need exact large integers should
+// use the native integer filter value instead of float/text.
+func floatToInt(v float64) (int, error) {
+	switch {
+	case math.IsNaN(v) || math.IsInf(v, 0):
+		return 0, fmt.Errorf("filtering for integer, but received a non-finite number %v", v)
+	case v < float64(math.MinInt64) || v >= float64(math.MaxInt64):
+		return 0, fmt.Errorf("filtering for integer, but received a value out of range %v", v)
+	case math.Trunc(v) != v:
+		return 0, fmt.Errorf("filtering for integer, but received a floating point number %v", v)
+	}
+	return int(v), nil
 }

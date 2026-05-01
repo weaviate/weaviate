@@ -21,11 +21,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	gproto "google.golang.org/protobuf/proto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -269,10 +270,38 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// Ensure that if non-default values for properties is stored in raft we fix them before processing an update to
 		// avoid triggering diff on properties and therefore discarding a legitimate update.
 		migratePropertiesIfNecessary(&meta.Class)
+
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
 		}
+
+		// Capture previous and updated replication factors
+		var initialRF int64
+		if meta.Class.ReplicationConfig != nil {
+			initialRF = meta.Class.ReplicationConfig.Factor
+		}
+
+		var updatedRF int64
+		if u.ReplicationConfig != nil {
+			updatedRF = u.ReplicationConfig.Factor
+		}
+
+		// validate replication factor increase
+		if initialRF < updatedRF {
+			for _, physical := range meta.Sharding.Physical {
+				if int64(len(physical.BelongsToNodes)) < updatedRF {
+					return fmt.Errorf(
+						"not enough replicas in shard %q to increase replication factor to %d for class %q",
+						physical.Name,
+						updatedRF,
+						meta.Class.Class,
+					)
+				}
+			}
+		}
+
+		// Apply updates
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
@@ -282,25 +311,14 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.Description = u.Description
 		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
+
 		if req.State != nil {
 			meta.Sharding = *req.State
 		}
 
-		// validate replication factor change
-		if meta.Class.ReplicationConfig != nil && u.ReplicationConfig != nil {
-			initialRF := meta.Class.ReplicationConfig.Factor
-			updatedRF := u.ReplicationConfig.Factor
-
-			if initialRF < updatedRF {
-				for _, physical := range meta.Sharding.Physical {
-					if int64(len(physical.BelongsToNodes)) < updatedRF {
-						return fmt.Errorf("not enough replicas in shard %q to increase replication factor to %d for class %q", physical.Name, updatedRF, meta.Class.Class)
-					}
-				}
-			}
-
-			// set the updated replication factor
-			meta.Sharding.ReplicationFactor = u.ReplicationConfig.Factor
+		// update sharding replication factor
+		if u.ReplicationConfig != nil {
+			meta.Sharding.ReplicationFactor = updatedRF
 		}
 
 		return nil
@@ -459,9 +477,10 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
+			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			schemaOnly:            schemaOnly,
+			allowPartialSchemaErr: true,
 		},
 	)
 }
@@ -617,6 +636,13 @@ type applyOp struct {
 	updateStore          func() error
 	schemaOnly           bool
 	enableSchemaCallback bool
+	// allowPartialSchemaErr, when true, allows updateStore to proceed when
+	// updateSchema returns a *PartialUpdateError. This is used for operations
+	// where the schema layer filters out invalid entries (e.g. missing or
+	// transitional-state tenants) and the DB must still be updated for the
+	// entries that were successfully applied.
+	// The schema error is returned to the caller after updateStore completes.
+	allowPartialSchemaErr bool
 }
 
 func (op applyOp) validate() error {
@@ -639,8 +665,12 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
-	if err := op.updateSchema(); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
+	schemaErr := op.updateSchema()
+	if schemaErr != nil {
+		var partialErr *PartialUpdateError
+		if !op.allowPartialSchemaErr || !errors.As(schemaErr, &partialErr) {
+			return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
+		}
 	}
 
 	if op.enableSchemaCallback && s.db != nil {
@@ -651,8 +681,20 @@ func (s *SchemaManager) apply(op applyOp) error {
 
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
+			if schemaErr != nil {
+				// Both the schema update (partial) and the DB update failed.
+				// Return both so the caller is informed of what was skipped
+				// and what failed.
+				return fmt.Errorf("%w: %s: %w; %w: %s: %w",
+					ErrSchema, op.op, schemaErr,
+					errDB, op.op, err)
+			}
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
+	}
+
+	if schemaErr != nil {
+		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, schemaErr)
 	}
 
 	return nil
