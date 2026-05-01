@@ -146,6 +146,11 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 			return "", err
 		}
 		skipIndices = true
+	case StrategyColumnar:
+		if keys, err = m.flushDataColumnar(segmentFile); err != nil {
+			return "", err
+		}
+		skipIndices = true
 	default:
 		return "", fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}

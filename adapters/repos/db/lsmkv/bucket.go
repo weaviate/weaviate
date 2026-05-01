@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -237,6 +238,9 @@ type Bucket struct {
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
 	skipSecondaryKeyCheck bool
+
+	// Schema for columnar buckets. Nil for non-columnar strategies.
+	columnarSchema *columnar.Schema
 
 	// immutable prevents all write operations. Set via WithImmutable, used by
 	// snapshot buckets to guarantee they never modify data. This is distinct
@@ -1481,6 +1485,10 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if b.strategy == StrategyColumnar && b.columnarSchema != nil {
+		mt.initColumnar(b.columnarSchema)
 	}
 
 	return mt, nil

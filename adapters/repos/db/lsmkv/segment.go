@@ -127,6 +127,8 @@ type segment struct {
 	invertedHeader *segmentindex.HeaderInverted
 	invertedData   *segmentInvertedData
 
+	columnarData *columnarSegmentData
+
 	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
 	refCount         int
 
@@ -292,19 +294,24 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
-	primaryIndex, err := header.PrimaryIndex(contents)
-	if err != nil {
-		return nil, fmt.Errorf("extract primary index position: %w", err)
-	}
+	// Columnar segments do not use a traditional B-tree index — the sorted
+	// docID array within the segment serves as the index. Skip index parsing.
+	var primaryDiskIndex diskIndex
+	if header.Strategy != segmentindex.StrategyColumnar {
+		primaryIndex, err := header.PrimaryIndex(contents)
+		if err != nil {
+			return nil, fmt.Errorf("extract primary index position: %w", err)
+		}
 
-	// if there are no secondary indices and checksum validation is enabled,
-	// we need to remove the checksum bytes from the primary index
-	// See below for the same logic if there are secondary indices
-	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
-		primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
-	}
+		// if there are no secondary indices and checksum validation is enabled,
+		// we need to remove the checksum bytes from the primary index
+		// See below for the same logic if there are secondary indices
+		if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation && header.SecondaryIndices == 0 {
+			primaryIndex = primaryIndex[:len(primaryIndex)-segmentindex.ChecksumSize]
+		}
 
-	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
+		primaryDiskIndex = segmentindex.NewDiskTree(primaryIndex)
+	}
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
@@ -358,6 +365,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		unMapContents:      unMapContents,
 		observeMetaWrite:   func(n int64) { observeWrite.Observe(float64(n)) },
 		deleteMarkerSuffix: fmt.Sprintf(".%013d%s", cfg.deleteMarkerCounter, DeleteMarkerSuffix),
+	}
+
+	// Load columnar metadata if applicable
+	if header.Strategy == segmentindex.StrategyColumnar {
+		colData, err := loadColumnarSegmentData(contents)
+		if err != nil {
+			return nil, fmt.Errorf("load columnar segment data: %w", err)
+		}
+		seg.columnarData = colData
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
