@@ -12,15 +12,18 @@ import (
 )
 
 type PostingSizes struct {
-	data  *common.GroupedPagedArray[uint32]
-	store *PostingSizesStore
-	count atomic.Uint64
+	metrics   *Metrics
+	data      *common.GroupedPagedArray[uint32]
+	store     *PostingSizesStore
+	count     atomic.Uint64
+	totalSize atomic.Uint64
 }
 
-func NewPostingSizes(bucket *lsmkv.Bucket) *PostingSizes {
+func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) *PostingSizes {
 	return &PostingSizes{
-		data:  common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
-		store: NewPostingSizesStore(bucket, postingSizesBucketPrefix),
+		metrics: metrics,
+		data:    common.NewGroupedPagedArray[uint32](16*1024, 64*1024), // 1 billion entries with 64k per page
+		store:   NewPostingSizesStore(bucket, postingSizesBucketPrefix),
 	}
 }
 
@@ -34,11 +37,16 @@ func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32,
 		// if the new size is 1, it means we just created a new entry.
 		p.count.Add(1)
 	}
+	p.totalSize.Add(1)
 
 	err := p.store.Set(ctx, postingID, newSize)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to set size for posting %d", postingID)
 	}
+
+	p.metrics.ObservePostingSize(float64(newSize))
+	p.metrics.SetPostings(int(p.count.Load()))
+	p.metrics.SetSize(int(p.totalSize.Load()))
 
 	return newSize, nil
 }
@@ -74,17 +82,32 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) erro
 	}
 
 	atomic.StoreUint32(&page[slot], uint32(size))
+	p.totalSize.Add(uint64(int64(size) - int64(oldSize)))
 
-	return p.store.Set(ctx, postingID, uint32(size))
+	if err := p.store.Set(ctx, postingID, uint32(size)); err != nil {
+		return err
+	}
+
+	p.metrics.ObservePostingSize(float64(size))
+	p.metrics.SetPostings(int(p.count.Load()))
+	p.metrics.SetSize(int(p.totalSize.Load()))
+
+	return nil
 }
 
 // Restore loads all posting sizes from the underlying store into memory. This should be called during startup to populate the in-memory cache.
 func (p *PostingSizes) Restore(ctx context.Context) error {
+	defer func() {
+		p.metrics.SetPostings(int(p.count.Load()))
+		p.metrics.SetSize(int(p.totalSize.Load()))
+	}()
+
 	return p.store.Iter(ctx, func(postingID uint64, size uint32) error {
 		page, slot := p.data.EnsurePageFor(postingID)
 		atomic.StoreUint32(&page[slot], size)
 		if size > 0 {
 			p.count.Add(1)
+			p.totalSize.Add(uint64(size))
 		}
 		return nil
 	})

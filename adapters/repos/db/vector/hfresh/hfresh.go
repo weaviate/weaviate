@@ -126,7 +126,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		vectorForId:   cfg.VectorForIDThunk,
 		VersionMap:    NewVersionMap(bucket),
 		PostingMap:    NewPostingMap(bucket, metrics),
-		PostingSizes:  NewPostingSizes(bucket),
+		PostingSizes:  NewPostingSizes(bucket, metrics),
 		IndexMetadata: NewIndexMetadataStore(bucket),
 		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of

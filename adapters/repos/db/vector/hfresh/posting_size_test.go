@@ -29,7 +29,7 @@ func makePostingSizes(t *testing.T) *PostingSizes {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	return NewPostingSizes(bucket)
+	return NewPostingSizes(bucket, NewMetrics(nil, "n/a", "n/a"))
 }
 
 func makePostingSizesWithBucket(t *testing.T) (*PostingSizes, *lsmkv.Bucket) {
@@ -38,7 +38,7 @@ func makePostingSizesWithBucket(t *testing.T) (*PostingSizes, *lsmkv.Bucket) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	return NewPostingSizes(bucket), bucket
+	return NewPostingSizes(bucket, NewMetrics(nil, "n/a", "n/a")), bucket
 }
 
 func TestPostingSizes(t *testing.T) {
@@ -282,7 +282,7 @@ func TestPostingSizes(t *testing.T) {
 		require.NoError(t, err)
 
 		// create a fresh PostingSizes instance pointing at the same bucket
-		fresh := NewPostingSizes(bucket)
+		fresh := NewPostingSizes(bucket, NewMetrics(nil, "n/a", "n/a"))
 		require.EqualValues(t, 0, fresh.Count())
 
 		err = fresh.Restore(ctx)
@@ -321,7 +321,7 @@ func TestPostingSizes(t *testing.T) {
 		err = ps.Set(ctx, 3, 7)
 		require.NoError(t, err)
 
-		fresh := NewPostingSizes(bucket)
+		fresh := NewPostingSizes(bucket, NewMetrics(nil, "n/a", "n/a"))
 		err = fresh.Restore(ctx)
 		require.NoError(t, err)
 
@@ -346,7 +346,7 @@ func TestPostingSizes(t *testing.T) {
 		err := ps.Set(ctx, 1, 5)
 		require.NoError(t, err)
 
-		fresh := NewPostingSizes(bucket)
+		fresh := NewPostingSizes(bucket, NewMetrics(nil, "n/a", "n/a"))
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
 
