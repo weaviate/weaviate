@@ -2205,3 +2205,352 @@ func TestNestedFilteringF13CorrelatedAndDifferentCarsSameGarage(t *testing.T) {
 	}
 	assert.ElementsMatch(t, want, got)
 }
+
+// TestNestedFilteringF15CorrelatedAndDifferentRootCountries exercises a
+// correlated AND filter where two conditions target different root-level
+// element indices (countries[0] and countries[1]):
+//
+//	countries[0].garages.city = "berlin" AND countries[1].garages.postcode = "10115"
+//
+// Independent-clause semantics: a doc matches when countries[0] has SOME garage
+// with city="berlin" AND countries[1] has SOME garage with postcode="10115".
+// The two clauses are about different root elements so they don't need to share
+// any sub-tree state — the doc just needs both root sub-trees to be populated
+// at the right indices with the right values.
+func TestNestedFilteringF15CorrelatedAndDifferentRootCountries(t *testing.T) {
+	const nestedClass = "F15"
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:     "countries",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:     "garages",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+							{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	garage := func(props ...string) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i]] = props[i+1]
+		}
+		return out
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		anyGarages := make([]any, len(garages))
+		for i, g := range garages {
+			anyGarages[i] = g
+		}
+		return map[string]any{"garages": anyGarages}
+	}
+
+	// fillerGarage carries non-matching city + postcode; both fields populated.
+	fillerGarage := func() map[string]any {
+		return garage("city", "munich", "postcode", "80331")
+	}
+	// fillerCountry has 3 filler garages — guaranteed not to satisfy either condition.
+	fillerCountry := func() map[string]any {
+		return country(fillerGarage(), fillerGarage(), fillerGarage())
+	}
+
+	const (
+		idMatchMinimal                 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		idMatchExtraCountry            = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		idMatchSameValuesBothCountries = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+		idMatchEachCountryManyGarages  = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+		idMatchAllCountriesAlsoBoth    = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+		idNoMatchAllFiller             = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+		idNoMatchOnlyCity              = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+		idNoMatchOnlyPostcode          = strfmt.UUID("00000000-0000-0000-0000-000000000008")
+		idNoMatchSwappedCountries      = strfmt.UUID("00000000-0000-0000-0000-000000000009")
+		idNoMatchOnlyOneCountry        = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
+		idNoMatchBothInCountry0        = strfmt.UUID("00000000-0000-0000-0000-00000000000b")
+		idNoMatchCrossConfusion        = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
+		idNoMatchValuesAtCountry2      = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
+		idAbsentNoCountries            = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
+		idAbsentEmptyGarages           = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
+
+		idNoMatchNoGaragesField                = strfmt.UUID("00000000-0000-0000-0000-000000000010")
+		idMatchHeterogeneousCountries          = strfmt.UUID("00000000-0000-0000-0000-000000000011")
+		idMatchEveryGarageMatchesPerCountry    = strfmt.UUID("00000000-0000-0000-0000-000000000012")
+		idMatchCountry2AlsoMatches             = strfmt.UUID("00000000-0000-0000-0000-000000000013")
+		idNoMatchInvertedFieldsAcrossCountries = strfmt.UUID("00000000-0000-0000-0000-000000000014")
+	)
+
+	docs := []struct {
+		id        strfmt.UUID
+		countries []any
+		note      string
+	}{
+		{
+			id: idMatchMinimal,
+			countries: []any{
+				country(garage("city", "berlin")),
+				country(garage("postcode", "10115")),
+			},
+			note: "minimal: countries[0] has city=berlin, countries[1] has postcode=10115",
+		},
+		{
+			id: idMatchExtraCountry,
+			countries: []any{
+				country(garage("city", "berlin")),
+				country(garage("postcode", "10115")),
+				fillerCountry(),
+			},
+			note: "extra country at index 2 doesn't break the match",
+		},
+		{
+			id: idMatchSameValuesBothCountries,
+			countries: []any{
+				country(garage("city", "berlin", "postcode", "10115")),
+				country(garage("city", "berlin", "postcode", "10115")),
+			},
+			note: "both countries carry both fields; condition still satisfied at the right indices",
+		},
+		{
+			id: idMatchEachCountryManyGarages,
+			countries: []any{
+				country(fillerGarage(), garage("city", "berlin", "postcode", "80331"), fillerGarage()),
+				country(fillerGarage(), garage("city", "munich", "postcode", "10115"), fillerGarage()),
+			},
+			note: "each country has 3 garages; matching garage is in the middle of each country's list",
+		},
+		{
+			id: idMatchAllCountriesAlsoBoth,
+			countries: []any{
+				country(
+					garage("city", "berlin", "postcode", "10115"),
+					garage("city", "berlin", "postcode", "10115"),
+					garage("city", "berlin", "postcode", "10115"),
+				),
+				country(
+					garage("city", "berlin", "postcode", "10115"),
+					garage("city", "berlin", "postcode", "10115"),
+					garage("city", "berlin", "postcode", "10115"),
+				),
+			},
+			note: "every garage in every country has both fields — saturated match data",
+		},
+
+		{
+			id:        idNoMatchAllFiller,
+			countries: []any{fillerCountry(), fillerCountry(), fillerCountry()},
+			note:      "no berlin or 10115 anywhere — pure value mismatch",
+		},
+		{
+			id: idNoMatchOnlyCity,
+			countries: []any{
+				country(garage("city", "berlin", "postcode", "80331"), fillerGarage()),
+				fillerCountry(),
+				fillerCountry(),
+			},
+			note: "countries[0] has city=berlin; postcode=10115 missing entirely",
+		},
+		{
+			id: idNoMatchOnlyPostcode,
+			countries: []any{
+				fillerCountry(),
+				country(garage("city", "munich", "postcode", "10115"), fillerGarage()),
+				fillerCountry(),
+			},
+			note: "countries[1] has postcode=10115; city=berlin missing entirely",
+		},
+		{
+			id: idNoMatchSwappedCountries,
+			countries: []any{
+				country(garage("city", "munich", "postcode", "10115")),
+				country(garage("city", "berlin", "postcode", "80331")),
+			},
+			note: "values present at swapped country indices: 10115 at countries[0], berlin at countries[1]",
+		},
+		{
+			id: idNoMatchOnlyOneCountry,
+			countries: []any{
+				country(garage("city", "berlin", "postcode", "10115")),
+			},
+			note: "single country with both values — countries[1] does not exist",
+		},
+		{
+			id: idNoMatchBothInCountry0,
+			countries: []any{
+				country(garage("city", "berlin", "postcode", "10115"), fillerGarage()),
+				fillerCountry(),
+			},
+			note: "both values in countries[0]; countries[1] has no postcode=10115",
+		},
+		{
+			id: idNoMatchCrossConfusion,
+			countries: []any{
+				country(garage("city", "10115", "postcode", "berlin")),
+				country(garage("city", "10115", "postcode", "berlin")),
+			},
+			note: "values present but on swapped fields (city=10115, postcode=berlin) — field/value binding must hold",
+		},
+		{
+			id: idNoMatchValuesAtCountry2,
+			countries: []any{
+				fillerCountry(),
+				fillerCountry(),
+				country(garage("city", "berlin", "postcode", "10115")),
+			},
+			note: "both values exist but only at countries[2] — must not satisfy countries[0]/countries[1] constraints",
+		},
+
+		{
+			id:        idAbsentNoCountries,
+			countries: []any{},
+			note:      "absent: empty countries array",
+		},
+		{
+			id: idAbsentEmptyGarages,
+			countries: []any{
+				map[string]any{"garages": []any{}},
+				map[string]any{"garages": []any{}},
+			},
+			note: "absent: countries exist but garages arrays are empty",
+		},
+
+		// Country with no garages field at all — distinct from empty array.
+		// countries[1] is an empty object; the garages key is absent entirely.
+		{
+			id: idNoMatchNoGaragesField,
+			countries: []any{
+				country(garage("city", "berlin", "postcode", "10115")),
+				map[string]any{},
+			},
+			note: "countries[1] has no garages field at all (vs empty array)",
+		},
+
+		// Heterogeneous country shapes: countries[0] has 5 garages with the
+		// matching city in the middle; countries[1] has just 1 garage with the
+		// matching postcode. Proves engine handles non-uniform country sizes.
+		{
+			id: idMatchHeterogeneousCountries,
+			countries: []any{
+				country(
+					fillerGarage(),
+					fillerGarage(),
+					garage("city", "berlin", "postcode", "80331"),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				country(garage("city", "munich", "postcode", "10115")),
+			},
+			note: "heterogeneous: countries[0] has 5 garages, countries[1] has 1 — match works across mixed shapes",
+		},
+
+		// Every garage in the matching country has the matching value (parallel
+		// to F13's honda-at-multiple-positions). Tests that having the matching
+		// value at every sub-position doesn't confuse the resolver.
+		{
+			id: idMatchEveryGarageMatchesPerCountry,
+			countries: []any{
+				country(
+					garage("city", "berlin", "postcode", "80331"),
+					garage("city", "berlin", "postcode", "80331"),
+					garage("city", "berlin", "postcode", "80331"),
+				),
+				country(
+					garage("city", "munich", "postcode", "10115"),
+					garage("city", "munich", "postcode", "10115"),
+					garage("city", "munich", "postcode", "10115"),
+				),
+			},
+			note: "every garage in countries[0] has city=berlin; every garage in countries[1] has postcode=10115",
+		},
+
+		// countries[2] also satisfies both conditions — defensive dedup at
+		// root level. Result must contain doc exactly once, not duplicated.
+		{
+			id: idMatchCountry2AlsoMatches,
+			countries: []any{
+				country(garage("city", "berlin", "postcode", "80331")),
+				country(garage("city", "munich", "postcode", "10115")),
+				country(garage("city", "berlin", "postcode", "10115")),
+			},
+			note: "countries[0] satisfies city, countries[1] satisfies postcode, countries[2] satisfies both — must dedup",
+		},
+
+		// Inverted fields between countries: countries[0] has only the
+		// postcode field set (with the value the filter wants at countries[1]);
+		// countries[1] has only the city field set (with the value the filter
+		// wants at countries[0]). Both values exist in the doc but neither is
+		// at the right country index. Distinct from idNoMatchSwappedCountries
+		// (which has both fields populated everywhere) — here the relevant
+		// field is structurally absent at the right country.
+		{
+			id: idNoMatchInvertedFieldsAcrossCountries,
+			countries: []any{
+				country(garage("postcode", "10115")),
+				country(garage("city", "berlin")),
+			},
+			note: "countries[0] has only postcode=10115; countries[1] has only city=berlin — values present but at wrong country indices",
+		},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	for _, d := range docs {
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: d.id,
+			Properties: map[string]any{"countries": d.countries},
+		}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+	}
+
+	makeFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	filter := andFilter(
+		makeFilter("countries[0].garages.city", "berlin"),
+		makeFilter("countries[1].garages.postcode", "10115"),
+	)
+
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: 100},
+		Filters:    filter,
+	})
+	require.NoError(t, err)
+
+	got := make([]strfmt.UUID, len(res))
+	for i, r := range res {
+		got[i] = r.ID
+	}
+
+	want := []strfmt.UUID{
+		idMatchMinimal,
+		idMatchExtraCountry,
+		idMatchSameValuesBothCountries,
+		idMatchEachCountryManyGarages,
+		idMatchAllCountriesAlsoBoth,
+		idMatchHeterogeneousCountries,
+		idMatchEveryGarageMatchesPerCountry,
+		idMatchCountry2AlsoMatches,
+	}
+	assert.ElementsMatch(t, want, got)
+}
