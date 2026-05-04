@@ -548,18 +548,16 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name:              "namespaces enabled, dynamic DB user, admin role rejected",
+			name:              "namespaces enabled, dynamic DB user, admin role allowed (narrowed)",
 			role:              authorization.Admin,
 			userID:            "namespaced-user",
 			namespacesEnabled: true,
-			wantForbidden:     true,
 		},
 		{
-			name:              "namespaces enabled, dynamic DB user, viewer role rejected",
+			name:              "namespaces enabled, dynamic DB user, viewer role allowed (narrowed)",
 			role:              authorization.Viewer,
 			userID:            "namespaced-user",
 			namespacesEnabled: true,
-			wantForbidden:     true,
 		},
 		{
 			name:              "namespaces enabled, dynamic DB user, custom role allowed",
@@ -621,6 +619,89 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 				assert.True(t, ok, "expected Forbidden, got %T", res)
 				if ok {
 					assert.Contains(t, parsed.Payload.Error[0].Message, "reserved for global/operator principals")
+				}
+			} else {
+				_, ok := res.(*authz.AssignRoleToUserOK)
+				assert.True(t, ok, "expected OK, got %T", res)
+			}
+		})
+	}
+}
+
+// TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed locks that the only roles blocked
+// from API assignment are the env-var-only operator roles (Root, ReadOnly).
+// Admin/Viewer are API-assignable to namespaced DB users
+// on NS-enabled clusters because they are narrowed at registration time
+// (matcher specializes the namespace-bearing policies to the user's
+// namespace).
+func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
+	type testCase struct {
+		name             string
+		role             string
+		wantForbidden    bool
+		expectedErrorMsg string
+	}
+
+	tests := []testCase{
+		{
+			name: "namespaced DB user, admin allowed (narrowed)",
+			role: authorization.Admin,
+		},
+		{
+			name: "namespaced DB user, viewer allowed (narrowed)",
+			role: authorization.Viewer,
+		},
+		{
+			name:             "namespaced DB user, root rejected by env-var guard",
+			role:             authorization.Root,
+			wantForbidden:    true,
+			expectedErrorMsg: "modifying 'root' role or changing its assignments is not allowed",
+		},
+		{
+			name:             "namespaced DB user, read-only rejected by env-var guard",
+			role:             authorization.ReadOnly,
+			wantForbidden:    true,
+			expectedErrorMsg: "modifying 'read-only' role or changing its assignments is not allowed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			principal := &models.Principal{Username: "admin-user"}
+			userID := "namespaced-user"
+			params := authz.AssignRoleToUserParams{
+				ID:          userID,
+				HTTPRequest: req,
+				Body: authz.AssignRoleToUserBody{
+					Roles:    []string{tt.role},
+					UserType: models.UserTypeInputDb,
+				},
+			}
+
+			if !tt.wantForbidden {
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(userID)[0]).Return(nil)
+				controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
+				controller.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {}}, nil)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(userID, authentication.AuthTypeDb), params.Body.Roles).Return(nil)
+			}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				apiKeysConfigs:    config.StaticAPIKey{Enabled: true},
+				namespacesEnabled: true,
+				logger:            logger,
+			}
+			res := h.assignRoleToUser(params, principal)
+			if tt.wantForbidden {
+				parsed, ok := res.(*authz.AssignRoleToUserForbidden)
+				assert.True(t, ok, "expected Forbidden, got %T", res)
+				if ok && tt.expectedErrorMsg != "" {
+					assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedErrorMsg)
 				}
 			} else {
 				_, ok := res.(*authz.AssignRoleToUserOK)

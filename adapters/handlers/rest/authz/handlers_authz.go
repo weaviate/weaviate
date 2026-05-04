@@ -495,17 +495,6 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
 	}
 
-	if h.namespacesEnabled && !h.isStaticAPIKeyUser(params.ID) {
-		for _, role := range params.Body.Roles {
-			if slices.Contains(authorization.BuiltInRoles, role) {
-				return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf(
-					"role %q is reserved for global/operator principals and cannot be assigned to namespaced dynamic DB user %q",
-					role, params.ID,
-				)))
-			}
-		}
-	}
-
 	for _, userType := range userTypes {
 		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
@@ -1077,16 +1066,6 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	}).Info("roles for group requested")
 
 	return authz.NewGetRolesForGroupOK().WithPayload(roles)
-}
-
-// isStaticAPIKeyUser reports whether userID is configured as a static API-key
-// user (env-var managed). Static API-key users are always global principals
-// and remain eligible for built-in roles even on namespace-enabled clusters.
-func (h *authZHandlers) isStaticAPIKeyUser(userID string) bool {
-	if !h.apiKeysConfigs.Enabled {
-		return false
-	}
-	return slices.Contains(h.apiKeysConfigs.Users, userID)
 }
 
 func (h *authZHandlers) userExists(user string, userType authentication.AuthType) (bool, error) {
