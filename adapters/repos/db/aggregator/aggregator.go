@@ -57,6 +57,7 @@ type Aggregator struct {
 	bitmapFactory          *roaringset.BitmapFactory
 	modules                *modules.Provider
 	defaultLimit           int64
+	className              string
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -67,7 +68,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
-	modules *modules.Provider, defaultLimit int64,
+	modules *modules.Provider, defaultLimit int64, className string,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
@@ -85,6 +86,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		bitmapFactory:          bitmapFactory,
 		modules:                modules,
 		defaultLimit:           defaultLimit,
+		className:              className,
 	}
 }
 

@@ -51,7 +51,7 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 		props = append(props, propTmp.Name)
 	}
 
-	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional, props).Do(ctx)
+	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional, props, className).Do(ctx)
 }
 
 type grouper struct {
@@ -62,12 +62,14 @@ type grouper struct {
 	propertyDataType schema.PropertyDataType
 	objBucket        *lsmkv.Bucket
 	properties       []string
+	className        string
 }
 
 func newGrouper(ids []uint64, dists []float32,
 	groupBy *searchparams.GroupBy, objBucket *lsmkv.Bucket,
 	propertyDataType schema.PropertyDataType,
 	additional additional.Properties, properties []string,
+	className schema.ClassName,
 ) *grouper {
 	return &grouper{
 		ids:              ids,
@@ -77,6 +79,7 @@ func newGrouper(ids []uint64, dists []float32,
 		propertyDataType: propertyDataType,
 		additional:       additional,
 		properties:       properties,
+		className:        className.String(),
 	}
 }
 
@@ -136,7 +139,7 @@ DOCS_LOOP:
 
 			if _, ok := docIDObject[docID]; !ok {
 				// whole object, might be that we only need value and ID to be extracted
-				unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional, props)
+				unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, g.className, g.additional, props)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%w: unmarshal data object at position %d", err, i)
 				}
@@ -217,7 +220,7 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		if err != nil {
 			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
-		unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional, nil)
+		unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, g.className, g.additional, nil)
 		if err != nil {
 			return nil, fmt.Errorf("%w: unmarshal data object doc id %d", err, docID)
 		}

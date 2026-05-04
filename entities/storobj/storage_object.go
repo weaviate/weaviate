@@ -105,16 +105,40 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
+// FromBinary decodes a payload from the objects bucket.
+//
+// WARNING: the class name read from on-disk bytes is NOT authoritative. The
+// objects bucket may contain payloads written under a different class
+// identity than the one currently owning the bucket (e.g. namespace-qualified
+// writes from earlier code, data copied from another cluster, restored
+// backups). Treating Object.Class from the decoded payload as canonical can
+// surface stale or qualified names to callers and break data portability.
+//
+// Callers that read from a shard's objects bucket and have an authoritative
+// class name in scope (typically shard.index.Config.ClassName) MUST use
+// FromBinaryWithClassName instead, which stamps the supplied class name on
+// the decoded object and ignores the on-disk value. Reserve FromBinary for
+// callers that genuinely have no class context (e.g. wire-receive decode
+// where the surrounding protocol carries the class out-of-band).
 func FromBinary(data []byte) (*Object, error) {
+	return FromBinaryWithClassName(data, "")
+}
+
+// FromBinaryWithClassName decodes a payload using the caller-supplied class
+// name in place of the on-disk value. An empty className falls back to the
+// on-disk bytes (matching FromBinary).
+func FromBinaryWithClassName(data []byte, className string) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinary(data); err != nil {
+	if err := ko.UnmarshalBinaryWithClassName(data, className); err != nil {
 		return nil, err
 	}
 
 	return ko, nil
 }
 
-func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+// FromBinaryUUIDOnlyWithClassName lets the caller supply an authoritative
+// class name; an empty className falls back to the on-disk bytes.
+func FromBinaryUUIDOnlyWithClassName(data []byte, className string) (*Object, error) {
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -138,14 +162,49 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLen := rw.ReadUint16()
+	classNameLength := uint64(rw.ReadUint16())
 
-	ko.Object.Class = string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	// When the caller supplies a non-empty className it wins and the on-disk
+	// bytes are skipped; an empty argument falls back to the on-disk value
+	// (callers without a canonical class to supply, e.g. wire-receive paths).
+	if className == "" {
+		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not copy className")
+		}
+		className = string(classNameBytes)
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
+	}
+	ko.Object.Class = className
 
 	return ko, nil
 }
 
+// FromBinaryOptional decodes a payload while optionally including/excluding
+// vectors, properties, etc. The class name is read from the on-disk bytes.
+//
+// WARNING: the class name read from on-disk bytes is NOT authoritative. The
+// objects bucket may contain payloads written under a different class
+// identity than the one currently owning the bucket (e.g. namespace-qualified
+// writes from earlier code, data copied from another cluster, restored
+// backups). Treating Object.Class from the decoded payload as canonical can
+// surface stale or qualified names to callers and break data portability.
+//
+// Callers that read from a shard's objects bucket and have an authoritative
+// class name in scope (typically shard.index.Config.ClassName) MUST use
+// FromBinaryOptionalWithClassName instead, which stamps the supplied class
+// name on the decoded object and ignores the on-disk value. Reserve
+// FromBinaryOptional for callers that genuinely have no class context.
 func FromBinaryOptional(data []byte,
+	addProp additional.Properties, properties *PropertyExtraction,
+) (*Object, error) {
+	return FromBinaryOptionalWithClassName(data, "", addProp, properties)
+}
+
+// FromBinaryOptionalWithClassName lets the caller supply an authoritative
+// class name; an empty className falls back to the on-disk bytes.
+func FromBinaryOptionalWithClassName(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
@@ -177,8 +236,19 @@ func FromBinaryOptional(data []byte,
 	}
 	ko.Vector = ko.Object.Vector
 
-	classNameLen := rw.ReadUint16()
-	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+	// When the caller supplies a non-empty className it wins and the on-disk
+	// bytes are skipped; an empty argument falls back to the on-disk value
+	// (callers without a canonical class to supply, e.g. wire-receive paths).
+	classNameLength := uint64(rw.ReadUint16())
+	if className == "" {
+		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
+		if err != nil {
+			return nil, errors.Wrap(err, "Could not copy className")
+		}
+		className = string(classNameBytes)
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
+	}
 
 	propLength := rw.ReadUint32()
 	var props []byte
@@ -305,33 +375,36 @@ type bucket interface {
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	className string,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false, className)
 	}
 
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false, className)
 }
 
 func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
+	className string,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true, className)
 	}
 
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true, className)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
+	className string,
 ) ([]*Object, error) {
-	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
+	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false, className)
 }
 
 func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
-	includeEmpty bool,
+	includeEmpty bool, className string,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -357,7 +430,7 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
+			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty, className)
 			if err != nil {
 				return err
 			}
@@ -389,13 +462,14 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
+	className string,
 ) ([]*Object, error) {
-	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
+	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false, className)
 }
 
 func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
-	includeEmpty bool,
+	includeEmpty bool, className string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -447,7 +521,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional, props)
+		unmarshalled, err := FromBinaryOptionalWithClassName(res, className, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -1192,9 +1266,30 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
-// see MarshalBinary for the exact contents of each version
+// UnmarshalBinary implements encoding.BinaryUnmarshaler.
+//
+// WARNING: the class name read from on-disk bytes is NOT authoritative. The
+// objects bucket may contain payloads written under a different class
+// identity than the one currently owning the bucket (e.g. namespace-qualified
+// writes from earlier code, data copied from another cluster, restored
+// backups). Treating Object.Class from the decoded payload as canonical can
+// surface stale or qualified names to callers and break data portability.
+//
+// Callers that read from a shard's objects bucket and have an authoritative
+// class name in scope (typically shard.index.Config.ClassName) MUST use
+// UnmarshalBinaryWithClassName instead, which stamps the supplied class name
+// on the decoded object and ignores the on-disk value. Reserve UnmarshalBinary
+// for callers that genuinely have no class context (it remains the entry
+// point for the standard encoding.BinaryUnmarshaler interface).
 func (ko *Object) UnmarshalBinary(data []byte) error {
+	return ko.UnmarshalBinaryWithClassName(data, "")
+}
+
+// UnmarshalBinaryWithClassName is the versioned way to unmarshal a kind object
+// from binary. A non-empty className takes precedence over the on-disk class
+// name; an empty className falls back to the on-disk bytes (matching
+// UnmarshalBinary).
+func (ko *Object) UnmarshalBinaryWithClassName(data []byte, className string) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
@@ -1219,10 +1314,18 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	ko.Vector = make([]float32, vectorLength)
 	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
+	// On-disk className bytes are kept in the format for backward compat but
+	// the value is discarded: the canonical class name is the caller-supplied
+	// `className` argument.
 	classNameLength := uint64(rw.ReadUint16())
-	className, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy class name")
+	if className == "" {
+		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
+		if err != nil {
+			return errors.Wrap(err, "Could not copy className")
+		}
+		className = string(classNameBytes)
+	} else {
+		rw.MoveBufferPositionForward(classNameLength)
 	}
 
 	schemaLength := uint64(rw.ReadUint32())
@@ -1259,7 +1362,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
 		updateTime,
-		string(className),
+		className,
 		schema,
 		meta,
 		vectorWeights, nil, 0,

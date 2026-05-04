@@ -36,7 +36,7 @@ type ShardInvertedReindexTask interface {
 	ObjectsIterator(shard ShardLike) objectsIterator
 }
 
-type objectsIterator func(ctx context.Context, fn func(object *storobj.Object) error) error
+type objectsIterator func(ctx context.Context, fn func(object *storobj.Object) error, className string) error
 
 type ReindexableProperty struct {
 	PropertyName    string
@@ -287,7 +287,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 
 		i++
 		return nil
-	}); err != nil {
+	}, r.class.Class); err != nil {
 		return err
 	}
 

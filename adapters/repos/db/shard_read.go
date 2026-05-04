@@ -88,7 +88,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromBinaryWithClassName(bytes, s.index.Config.ClassName.String())
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -121,7 +121,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinary(bytes)
+		obj, err := storobj.FromBinaryWithClassName(bytes, s.index.Config.ClassName.String())
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -256,7 +256,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromBinaryWithClassName(bytes, s.index.Config.ClassName.String())
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -659,7 +659,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
+	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger, s.index.Config.ClassName.String())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -684,7 +684,7 @@ func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Sele
 		addProps = additional.Properties{Vectors: []string{targetVector}}
 	}
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger, s.index.Config.ClassName.String())
 	if err != nil {
 		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
 	}
@@ -733,7 +733,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger, className.String())
 	}
 
 	if cursor == nil {
@@ -768,7 +768,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinary(val)
+		obj, err := storobj.FromBinaryWithClassName(val, s.index.Config.ClassName.String())
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}

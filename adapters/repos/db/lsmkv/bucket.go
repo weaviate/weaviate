@@ -387,14 +387,14 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 	return b.flushCallbackCtrl
 }
 
-func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error, className string) error {
 	cursor := b.Cursor()
 	defer cursor.Close()
 
 	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryWithClassName(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}

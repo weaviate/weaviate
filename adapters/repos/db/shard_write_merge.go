@@ -139,7 +139,7 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		lock.Lock()
 		defer lock.Unlock()
 
-		prevObj, err = fetchObject(bucket, idBytes)
+		prevObj, err = fetchObject(bucket, idBytes, s.index.Config.ClassName.String())
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
 		}
@@ -228,7 +228,7 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	lock.Lock()
 	defer lock.Unlock()
 
-	prevObj, err := fetchObject(bucket, idBytes)
+	prevObj, err := fetchObject(bucket, idBytes, s.index.Config.ClassName.String())
 	if err != nil {
 		return out, err
 	}

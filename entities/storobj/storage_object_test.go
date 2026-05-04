@@ -1574,7 +1574,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger)
+			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, nil, logger, "test")
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -1593,7 +1593,7 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger, "test")
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
@@ -1717,11 +1717,11 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger)
+					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, nil, logger, "test")
 					require.Nil(t, err)
 
 				} else {
-					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil)
+					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, nil, "test")
 					require.Nil(t, err)
 				}
 			}
@@ -1764,7 +1764,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger)
+		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, nil, logger, "test")
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {

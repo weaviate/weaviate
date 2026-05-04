@@ -115,7 +115,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	defer func() {
 		helpers.AnnotateSlowQueryLog(ctx, "objects_by_doc_ids_took", time.Since(beforeObjects))
 	}()
-	return s.objectsByDocID(ctx, it, additional, limit, properties)
+	return s.objectsByDocID(ctx, it, additional, limit, properties, className)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -131,6 +131,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 
 func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
+	className schema.ClassName,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -196,9 +197,9 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 
 		var unmarshalled *storobj.Object
 		if additional.ReferenceQuery {
-			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
+			unmarshalled, err = storobj.FromBinaryUUIDOnlyWithClassName(res, className.String())
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
+			unmarshalled, err = storobj.FromBinaryOptionalWithClassName(res, className.String(), additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
