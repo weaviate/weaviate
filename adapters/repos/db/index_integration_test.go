@@ -316,12 +316,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	tenantName := ""
-	if index.partitioningEnabled {
-		tenantName = shard.Name()
-	}
-
-	err := index.updateShardStatus(ctx, tenantName, shard.Name(), storagestate.StatusReadOnly.String(), 0)
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -333,12 +328,7 @@ func TestIndex_DropReadOnlyEmptyIndex_MultiTenant(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShardMultiTenant(t, ctx, class.Class)
 
-	tenantName := ""
-	if index.partitioningEnabled {
-		tenantName = shard.Name()
-	}
-
-	err := index.updateShardStatus(ctx, tenantName, shard.Name(), storagestate.StatusReadOnly.String(), 0)
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
