@@ -67,9 +67,8 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
 	name = schema.UppercaseClassName(name)
-	if rname := h.schemaReader.ResolveAlias(name); rname != "" {
-		name = rname
-	}
+	resolved, _ := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	name = resolved
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
