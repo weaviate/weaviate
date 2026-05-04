@@ -333,6 +333,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true: GraphQL is not supported on namespace-enabled clusters")
 	}
 
+	if err := c.validateOIDCNamespaceClaims(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.Persistence.Validate(); err != nil {
 		return configErr(err)
 	}
@@ -350,6 +354,41 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// validateOIDCNamespaceClaims enforces the cross-field invariant that the
+// new namespace + global-principal claim env vars must be set when both
+// NAMESPACES_ENABLED and AUTHENTICATION_OIDC_ENABLED are on, and must be
+// unset when NAMESPACES_ENABLED is off. The check is a no-op when OIDC is
+// disabled (the middleware never reads the claims).
+func (c *Config) validateOIDCNamespaceClaims() error {
+	if !c.Authentication.OIDC.Enabled {
+		return nil
+	}
+
+	nsClaim := dynamicString(c.Authentication.OIDC.NamespaceClaim)
+	globalClaim := dynamicString(c.Authentication.OIDC.GlobalPrincipalClaim)
+
+	if c.Namespaces.Enabled {
+		if nsClaim == "" || globalClaim == "" {
+			return fmt.Errorf("AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM are required when NAMESPACES_ENABLED=true and AUTHENTICATION_OIDC_ENABLED=true")
+		}
+		return nil
+	}
+
+	if nsClaim != "" || globalClaim != "" {
+		return fmt.Errorf("AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM must not be set when NAMESPACES_ENABLED=false")
+	}
+	return nil
+}
+
+// dynamicString returns the value carried by a *DynamicValue[string], or ""
+// when the pointer itself is nil (uninitialized config).
+func dynamicString(v *runtime.DynamicValue[string]) string {
+	if v == nil {
+		return ""
+	}
+	return v.Get()
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

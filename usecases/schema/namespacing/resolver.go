@@ -23,12 +23,23 @@ type SchemaManager interface {
 	ResolveAlias(alias string) string
 }
 
-// qualify prepends principal.Namespace to name.
-func qualify(principal *models.Principal, name string) string {
-	if principal == nil || principal.Namespace == "" {
+// QualifiedName joins a namespace and a name with NamespaceSeparator. If
+// namespace is empty, name is returned unchanged. Used to qualify class
+// names, alias names, DB user IDs, and OIDC usernames — anything keyed by
+// "<namespace>:<entity>" on namespace-enabled clusters.
+func QualifiedName(namespace, name string) string {
+	if namespace == "" {
 		return name
 	}
-	return principal.Namespace + schema.NamespaceSeparator + name
+	return namespace + schema.NamespaceSeparator + name
+}
+
+// qualify prepends principal.Namespace to name.
+func qualify(principal *models.Principal, name string) string {
+	if principal == nil {
+		return name
+	}
+	return QualifiedName(principal.Namespace, name)
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied

@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -550,19 +551,19 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 		{
 			name:              "namespaces enabled, dynamic DB user, admin role allowed (narrowed)",
 			role:              authorization.Admin,
-			userID:            "namespaced-user",
+			userID:            "customer1:alice",
 			namespacesEnabled: true,
 		},
 		{
 			name:              "namespaces enabled, dynamic DB user, viewer role allowed (narrowed)",
 			role:              authorization.Viewer,
-			userID:            "namespaced-user",
+			userID:            "customer1:alice",
 			namespacesEnabled: true,
 		},
 		{
 			name:              "namespaces enabled, dynamic DB user, custom role allowed",
 			role:              "customRole",
-			userID:            "namespaced-user",
+			userID:            "customer1:alice",
 			namespacesEnabled: true,
 		},
 		{
@@ -575,7 +576,7 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 		{
 			name:              "namespaces disabled, dynamic DB user, admin role allowed",
 			role:              authorization.Admin,
-			userID:            "namespaced-user",
+			userID:            "customer1:alice",
 			namespacesEnabled: false,
 		},
 	}
@@ -672,7 +673,7 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			principal := &models.Principal{Username: "admin-user"}
-			userID := "namespaced-user"
+			userID := "customer1:alice"
 			params := authz.AssignRoleToUserParams{
 				ID:          userID,
 				HTTPRequest: req,
@@ -706,6 +707,215 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 			} else {
 				_, ok := res.(*authz.AssignRoleToUserOK)
 				assert.True(t, ok, "expected OK, got %T", res)
+			}
+		})
+	}
+}
+
+// TestUserIDNamespacePrefixRequiredOnNSEnabled covers the bare-form user-ID
+// gate: assign / revoke / read paths reject `params.ID` without a `:` on
+// NS-enabled clusters for OIDC and dynamic-DB users; static API-key users
+// are intentionally bare and pass through.
+func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
+	type op string
+	const (
+		opAssign       op = "assign"
+		opRevoke       op = "revoke"
+		opGetRolesUser op = "getRoles"
+	)
+
+	type wantStatus int
+	const (
+		wantBadRequest wantStatus = iota
+		wantOK
+	)
+
+	tests := []struct {
+		name              string
+		operation         op
+		namespacesEnabled bool
+		userID            string
+		userType          string
+		staticAPIKeyUsers []string
+		want              wantStatus
+	}{
+		{
+			name:              "assign, NS-enabled, oidc, bare ID — 400",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+		},
+		{
+			name:              "assign, NS-enabled, oidc, prefixed ID — 200",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            "customer1:alice",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantOK,
+		},
+		{
+			name:              "assign, NS-disabled, oidc, bare ID — 200 (backward compat)",
+			operation:         opAssign,
+			namespacesEnabled: false,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantOK,
+		},
+		{
+			name:              "assign, NS-enabled, db, bare ID — 400",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputDb),
+			want:              wantBadRequest,
+		},
+		{
+			name:              "assign, NS-enabled, db, prefixed ID — 200",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            "customer1:alice",
+			userType:          string(models.UserTypeInputDb),
+			want:              wantOK,
+		},
+		{
+			name:              "assign, NS-enabled, static API-key bare ID — 200 (intentionally global)",
+			operation:         opAssign,
+			namespacesEnabled: true,
+			userID:            "static-user",
+			userType:          string(models.UserTypeInputDb),
+			staticAPIKeyUsers: []string{"static-user"},
+			want:              wantOK,
+		},
+		{
+			name:              "revoke, NS-enabled, oidc, prefixed ID — 200",
+			operation:         opRevoke,
+			namespacesEnabled: true,
+			userID:            "customer1:alice",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantOK,
+		},
+		{
+			name:              "revoke, NS-enabled, oidc, bare ID — 400",
+			operation:         opRevoke,
+			namespacesEnabled: true,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+		},
+		{
+			name:              "revoke, NS-enabled, db, bare ID — 400",
+			operation:         opRevoke,
+			namespacesEnabled: true,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputDb),
+			want:              wantBadRequest,
+		},
+		{
+			name:              "getRolesForUser, NS-enabled, oidc, bare ID — 400",
+			operation:         opGetRolesUser,
+			namespacesEnabled: true,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputOidc),
+			want:              wantBadRequest,
+		},
+		{
+			name:              "getRolesForUser, NS-enabled, db, bare ID — 400",
+			operation:         opGetRolesUser,
+			namespacesEnabled: true,
+			userID:            "alice",
+			userType:          string(models.UserTypeInputDb),
+			want:              wantBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			principal := &models.Principal{Username: "admin"}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				apiKeysConfigs:    config.StaticAPIKey{Enabled: true, Users: tt.staticAPIKeyUsers},
+				oidcConfigs:       config.OIDC{Enabled: true},
+				namespacesEnabled: tt.namespacesEnabled,
+				logger:            logger,
+			}
+
+			isStatic := slices.Contains(tt.staticAPIKeyUsers, tt.userID)
+
+			switch tt.operation {
+			case opAssign:
+				if tt.want == wantOK {
+					authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
+					controller.On("GetRoles", "customRole").Return(map[string][]authorization.Policy{"customRole": {}}, nil)
+					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
+						controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+					}
+					controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), []string{"customRole"}).Return(nil)
+				}
+				params := authz.AssignRoleToUserParams{
+					ID:          tt.userID,
+					HTTPRequest: req,
+					Body: authz.AssignRoleToUserBody{
+						Roles:    []string{"customRole"},
+						UserType: models.UserTypeInput(tt.userType),
+					},
+				}
+				res := h.assignRoleToUser(params, principal)
+				switch tt.want {
+				case wantBadRequest:
+					br, ok := res.(*authz.AssignRoleToUserBadRequest)
+					require.True(t, ok, "expected BadRequest, got %T", res)
+					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+				case wantOK:
+					_, ok := res.(*authz.AssignRoleToUserOK)
+					assert.True(t, ok, "expected OK, got %T", res)
+				}
+			case opRevoke:
+				if tt.want == wantOK {
+					authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
+					controller.On("GetRoles", "customRole").Return(map[string][]authorization.Policy{"customRole": {}}, nil)
+					if tt.userType == string(models.UserTypeInputDb) && !isStatic {
+						controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+					}
+					controller.On("RevokeRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthType(tt.userType)), "customRole").Return(nil)
+				}
+				params := authz.RevokeRoleFromUserParams{
+					ID:          tt.userID,
+					HTTPRequest: req,
+					Body: authz.RevokeRoleFromUserBody{
+						Roles:    []string{"customRole"},
+						UserType: models.UserTypeInput(tt.userType),
+					},
+				}
+				res := h.revokeRoleFromUser(params, principal)
+				switch tt.want {
+				case wantBadRequest:
+					br, ok := res.(*authz.RevokeRoleFromUserBadRequest)
+					require.True(t, ok, "expected BadRequest, got %T", res)
+					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+				case wantOK:
+					_, ok := res.(*authz.RevokeRoleFromUserOK)
+					assert.True(t, ok, "expected OK, got %T", res)
+				}
+			case opGetRolesUser:
+				params := authz.GetRolesForUserParams{
+					ID:          tt.userID,
+					UserType:    tt.userType,
+					HTTPRequest: req,
+				}
+				res := h.getRolesForUser(params, principal)
+				if tt.want == wantBadRequest {
+					br, ok := res.(*authz.GetRolesForUserBadRequest)
+					require.True(t, ok, "expected BadRequest, got %T", res)
+					assert.Contains(t, br.Payload.Error[0].Message, "namespace-prefixed")
+				}
 			}
 		})
 	}

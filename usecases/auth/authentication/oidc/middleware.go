@@ -29,24 +29,36 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // Client handles the OIDC setup at startup and provides a middleware to be
 // used with the goswagger API
 type Client struct {
-	Config   config.OIDC
-	verifier *oidc.IDTokenVerifier
-	logger   logrus.FieldLogger
+	Config            config.OIDC
+	verifier          *oidc.IDTokenVerifier
+	logger            logrus.FieldLogger
+	nsExister         namespaces.Exister
+	namespacesEnabled bool
 }
 
 // New OIDC Client: It tries to retrieve the JWKs at startup (or fails), it
 // provides a middleware which can be used at runtime with a go-swagger style
-// API
-func New(cfg config.Config, logger logrus.FieldLogger) (*Client, error) {
+// API.
+//
+// nsExister is consulted only on namespace-enabled clusters to validate the
+// namespace claim of incoming tokens. namespacesEnabled is the cluster-level
+// flag (config.Namespaces.Enabled) plumbed in from the caller — the OIDC
+// config sub-tree does not carry this flag and Client.Config stays narrow.
+func New(cfg config.Config, nsExister namespaces.Exister, namespacesEnabled bool, logger logrus.FieldLogger) (*Client, error) {
 	client := &Client{
-		Config: cfg.Authentication.OIDC,
-		logger: logger.WithField("component", "oidc"),
+		Config:            cfg.Authentication.OIDC,
+		logger:            logger.WithField("component", "oidc"),
+		nsExister:         nsExister,
+		namespacesEnabled: namespacesEnabled,
 	}
 
 	if !client.Config.Enabled {
@@ -157,11 +169,103 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	groups := c.extractGroups(claims)
 
+	namespace, isGlobal, err := c.classifyPrincipal(claims, username)
+	if err != nil {
+		return nil, err
+	}
+
 	return &models.Principal{
-		Username: username,
-		Groups:   groups,
-		UserType: models.UserTypeInputOidc,
+		Username:         namespacing.QualifiedName(namespace, username),
+		Groups:           groups,
+		UserType:         models.UserTypeInputOidc,
+		Namespace:        namespace,
+		IsGlobalOperator: isGlobal,
 	}, nil
+}
+
+// classifyPrincipal resolves the namespace and global-operator flag for an
+// OIDC token's claims. On namespace-disabled clusters it short-circuits to
+// the legacy "global, no namespace" shape — startup validation guarantees
+// the claim env vars are empty in that case, so the classifier has nothing
+// to inspect.
+//
+// On namespace-enabled clusters the rule matrix is:
+//
+//	namespace claim    | global claim     | result
+//	-------------------+------------------+-----------------------------
+//	non-empty          | absent OR false  | namespaced (validate exists)
+//	absent             | true             | global operator
+//	non-empty          | true             | reject (both)
+//	absent             | absent OR false  | reject (neither)
+//
+// "absent" covers both missing keys and empty-string values for the
+// namespace claim — an empty namespace name carries no information.
+//
+// Type-mismatched claims (namespace not a string, global-principal not a
+// bool) return 401 — a malformed claim is a token the server cannot
+// interpret, which is an authentication failure from the caller's
+// perspective.
+//
+// On namespace-enabled clusters, the resolved username from extractUsername
+// must not contain ':' — that character is the namespace separator used to
+// build prefixed usernames, and a token-side ':' would make the prefix
+// scheme ambiguous. Reject with 401 in that case.
+func (c *Client) classifyPrincipal(claims map[string]interface{}, username string) (namespace string, isGlobal bool, err error) {
+	if !c.namespacesEnabled {
+		return "", false, nil
+	}
+
+	if strings.Contains(username, schema.NamespaceSeparator) {
+		return "", false, errors.New(401, "unauthorized: OIDC username '%s' must not contain ':' on a namespace-enabled cluster", username)
+	}
+
+	nsClaimKey := ""
+	if c.Config.NamespaceClaim != nil {
+		nsClaimKey = c.Config.NamespaceClaim.Get()
+	}
+	globalClaimKey := ""
+	if c.Config.GlobalPrincipalClaim != nil {
+		globalClaimKey = c.Config.GlobalPrincipalClaim.Get()
+	}
+
+	nsValue := ""
+	if nsClaimKey != "" {
+		if raw, ok := claims[nsClaimKey]; ok {
+			s, isStr := raw.(string)
+			if !isStr {
+				return "", false, errors.New(401, "unauthorized: namespace claim '%s' is not a string", nsClaimKey)
+			}
+			nsValue = s
+		}
+	}
+
+	globalSet := false
+	globalValue := false
+	if globalClaimKey != "" {
+		if raw, ok := claims[globalClaimKey]; ok {
+			b, isBool := raw.(bool)
+			if !isBool {
+				return "", false, errors.New(401, "unauthorized: global-principal claim '%s' is not a bool", globalClaimKey)
+			}
+			globalSet = true
+			globalValue = b
+		}
+	}
+
+	switch {
+	case nsValue != "" && globalSet && globalValue:
+		return "", false, errors.New(401, "unauthorized: token must not carry both a namespace claim and a global-principal claim set to true")
+	case nsValue != "":
+		if !c.nsExister.Exists(nsValue) {
+			return "", false, errors.New(401, "unauthorized: namespace '%s' does not exist", nsValue)
+		}
+		// TODO: also reject when namespace is in 'deleting' state.
+		return nsValue, false, nil
+	case globalSet && globalValue:
+		return "", true, nil
+	default:
+		return "", false, errors.New(401, "unauthorized: token must carry either a namespace claim or a global-principal claim set to true")
+	}
 }
 
 func (c *Client) extractClaims(token *oidc.IDToken) (map[string]interface{}, error) {

@@ -470,6 +470,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		}
 	}
 
+	if err := h.validateUserIDForNamespaces(params.ID); err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	if len(params.Body.Roles) == 0 {
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
 	}
@@ -644,6 +648,10 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	if err := h.validateUserIDForNamespaces(params.ID); err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
 
 	ownUser := params.ID == principal.Username && params.UserType == string(principal.UserType)
 
@@ -879,6 +887,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		if err := validateEnvVarRoles(role); err != nil {
 			return authz.NewRevokeRoleFromUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("revoking: %w", err)))
 		}
+	}
+
+	if err := h.validateUserIDForNamespaces(params.ID); err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if len(params.Body.Roles) == 0 {
@@ -1161,6 +1173,25 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 func validateEnvVarRoles(name string) error {
 	if slices.Contains(authorization.EnvVarRoles, name) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
+	}
+	return nil
+}
+
+// validateUserIDForNamespaces rejects bare-form user IDs on
+// namespace-enabled clusters. Every namespaced principal — dynamic DB user
+// or OIDC user — is keyed by `<namespace>:<user>`, so a bare ID can only
+// ever produce stuck Casbin rows that don't match any real namespaced
+// principal. Static API-key users are intentionally bare and global; they
+// pass through unchanged.
+func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
+	if !h.namespacesEnabled {
+		return nil
+	}
+	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
+		return nil
+	}
+	if !strings.Contains(userID, ":") {
+		return fmt.Errorf("user IDs on namespace-enabled clusters must be namespace-prefixed (e.g. \"customer1:alice\"); bare-form IDs are only accepted for static API-key users")
 	}
 	return nil
 }

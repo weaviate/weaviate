@@ -40,7 +40,7 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 	expectedErr := errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 
 	logger, _ := logrustest.NewNullLogger()
-	client, err := New(cfg, logger)
+	client, err := New(cfg, nil, false, logger)
 	require.Nil(t, err)
 
 	principal, err := client.ValidateAndExtract("token-doesnt-matter", []string{})
@@ -60,7 +60,7 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 		"missing required field 'username_claim', missing required field 'client_id': either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 
 	logger, _ := logrustest.NewNullLogger()
-	_, err := New(cfg, logger)
+	_, err := New(cfg, nil, false, logger)
 	assert.ErrorAs(t, err, &expectedErr)
 }
 
@@ -90,7 +90,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := token(t, "best-user", server.URL, "best_client")
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -117,7 +117,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := tokenWithEmail(t, "best-user", server.URL, "best_client", "foo@bar.com")
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -144,7 +144,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := tokenWithGroups(t, "best-user", server.URL, "best_client", []string{"group1", "group2"})
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -172,7 +172,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 
 		token := tokenWithStringGroups(t, "best-user", server.URL, "best_client", "group1")
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
 		principal, err := client.ValidateAndExtract(token, []string{})
@@ -313,7 +313,7 @@ func Test_Middleware_SkipTLSVerify_WithTLSServer(t *testing.T) {
 		}
 
 		logger, _ := logrustest.NewNullLogger()
-		_, err := New(cfg, logger)
+		_, err := New(cfg, nil, false, logger)
 		require.Error(t, err, "expected TLS error connecting to OIDC server with self-signed cert")
 	})
 
@@ -335,7 +335,7 @@ func Test_Middleware_SkipTLSVerify_WithTLSServer(t *testing.T) {
 		}
 
 		logger, _ := logrustest.NewNullLogger()
-		client, err := New(cfg, logger)
+		client, err := New(cfg, nil, false, logger)
 		require.NoError(t, err)
 
 		tok := token(t, "best-user", server.URL, "best_client")
@@ -403,4 +403,175 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "failed to decode certificate")
 	})
+}
+
+// fakeExister is a minimal namespaces.Exister stub for classifyPrincipal
+// matrix testing. Names in the map are treated as existing.
+type fakeExister struct {
+	known map[string]struct{}
+}
+
+func newFakeExister(names ...string) *fakeExister {
+	m := map[string]struct{}{}
+	for _, n := range names {
+		m[n] = struct{}{}
+	}
+	return &fakeExister{known: m}
+}
+
+func (f *fakeExister) Exists(name string) bool {
+	_, ok := f.known[name]
+	return ok
+}
+
+// TestClassifyPrincipal locks the per-token classification matrix from the
+// RFC. The fake exister recognizes "customer1" only, so namespace-existence
+// is exercised on the rejection side too.
+func TestClassifyPrincipal(t *testing.T) {
+	const (
+		nsClaimKey     = "weaviate_namespace"
+		globalClaimKey = "weaviate_global_principal"
+	)
+
+	type want struct {
+		namespace string
+		isGlobal  bool
+		errCode   int32 // 0 means no error
+		errSubstr string
+	}
+
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		username          string
+		claims            map[string]any
+		want              want
+	}{
+		{
+			name:              "NS-disabled short-circuits to global with empty namespace",
+			namespacesEnabled: false,
+			username:          "alice",
+			claims:            map[string]any{},
+			want:              want{namespace: "", isGlobal: false},
+		},
+		{
+			name:              "NS-disabled ignores claims even if present",
+			namespacesEnabled: false,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: true},
+			want:              want{namespace: "", isGlobal: false},
+		},
+		{
+			name:              "NS-enabled, namespace claim resolves to existing namespace",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1"},
+			want:              want{namespace: "customer1", isGlobal: false},
+		},
+		{
+			name:              "NS-enabled, namespace + global=false → namespaced",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: false},
+			want:              want{namespace: "customer1", isGlobal: false},
+		},
+		{
+			name:              "NS-enabled, global=true alone → global operator",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{globalClaimKey: true},
+			want:              want{namespace: "", isGlobal: true},
+		},
+		{
+			name:              "NS-enabled, both claims → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1", globalClaimKey: true},
+			want:              want{errCode: 401, errSubstr: "must not carry both"},
+		},
+		{
+			name:              "NS-enabled, neither claim → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{},
+			want:              want{errCode: 401, errSubstr: "must carry either"},
+		},
+		{
+			name:              "NS-enabled, namespace empty + global absent → reject (empty == absent)",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: ""},
+			want:              want{errCode: 401, errSubstr: "must carry either"},
+		},
+		{
+			name:              "NS-enabled, namespace absent + global=false → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{globalClaimKey: false},
+			want:              want{errCode: 401, errSubstr: "must carry either"},
+		},
+		{
+			name:              "NS-enabled, namespace claim names unknown namespace → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "ghost"},
+			want:              want{errCode: 401, errSubstr: "namespace 'ghost' does not exist"},
+		},
+		{
+			name:              "NS-enabled, namespace claim type mismatch → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: 42},
+			want:              want{errCode: 401, errSubstr: "namespace claim"},
+		},
+		{
+			name:              "NS-enabled, global-principal claim type mismatch → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{globalClaimKey: "yes"},
+			want:              want{errCode: 401, errSubstr: "global-principal claim"},
+		},
+		{
+			name:              "NS-enabled, username contains ':' → reject",
+			namespacesEnabled: true,
+			username:          "customer2:bob",
+			claims:            map[string]any{nsClaimKey: "customer1"},
+			want:              want{errCode: 401, errSubstr: "must not contain ':'"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{
+				Config: config.OIDC{
+					NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
+					GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
+				},
+				nsExister:         newFakeExister("customer1"),
+				namespacesEnabled: tt.namespacesEnabled,
+			}
+			// On NS-disabled the classifier must work even if the claim
+			// names are unset (startup validation guarantees that).
+			if !tt.namespacesEnabled {
+				c.Config.NamespaceClaim = runtime.NewDynamicValue("")
+				c.Config.GlobalPrincipalClaim = runtime.NewDynamicValue("")
+			}
+
+			ns, isGlobal, err := c.classifyPrincipal(tt.claims, tt.username)
+			if tt.want.errCode != 0 {
+				require.Error(t, err)
+				var apiErr errors.Error
+				if assert.ErrorAs(t, err, &apiErr) {
+					assert.Equal(t, tt.want.errCode, apiErr.Code(), "error code mismatch: %v", err)
+				}
+				if tt.want.errSubstr != "" {
+					assert.Contains(t, err.Error(), tt.want.errSubstr)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want.namespace, ns)
+			assert.Equal(t, tt.want.isGlobal, isGlobal)
+		})
+	}
 }
