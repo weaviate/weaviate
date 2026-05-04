@@ -15,9 +15,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
