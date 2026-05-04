@@ -2554,3 +2554,452 @@ func TestNestedFilteringF15CorrelatedAndDifferentRootCountries(t *testing.T) {
 	}
 	assert.ElementsMatch(t, want, got)
 }
+
+// TestNestedFilteringF16CorrelatedAndDifferentRootGaragesWithSameCarSubs
+// exercises a correlated AND filter where two pairs of conditions target
+// different root-level garages indices, with each pair requiring same-car
+// correlation inside its garage:
+//
+//	garages[0].cars.make = "honda"   AND garages[0].cars.tires.width = 205 AND
+//	garages[1].cars.make = "ferrari" AND garages[1].cars.tires.width = 225
+//
+// Combines two semantic axes:
+//   - root-level independence (garages[0] sub-tree is independent of garages[1])
+//   - same-car correlation within each garage (make and tires.width must be
+//     at the same car; tires.width can be in any of that car's tires)
+//
+// A doc matches when SOME garages[0] has a car with make="honda" AND that same
+// car has a tire with width=205, AND SOME garages[1] has a car with
+// make="ferrari" AND that same car has a tire with width=225.
+func TestNestedFilteringF16CorrelatedAndDifferentRootGaragesWithSameCarSubs(t *testing.T) {
+	const nestedClass = "F16"
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:     "garages",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:     "cars",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+							{
+								Name:     "tires",
+								DataType: schema.DataTypeObjectArray.PropString(),
+								NestedProperties: []*models.NestedProperty{
+									{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tire := func(width int) map[string]any {
+		return map[string]any{"width": width}
+	}
+	carWithTires := func(makeName string, tires ...map[string]any) map[string]any {
+		anyTires := make([]any, len(tires))
+		for i, t := range tires {
+			anyTires[i] = t
+		}
+		return map[string]any{"make": makeName, "tires": anyTires}
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		anyCars := make([]any, len(cars))
+		for i, c := range cars {
+			anyCars[i] = c
+		}
+		return map[string]any{"cars": anyCars}
+	}
+
+	// fillerCar carries a non-matching make and a single non-matching tire.
+	fillerCar := func() map[string]any {
+		return carWithTires("toyota", tire(175))
+	}
+	// fillerGarage has 3 filler cars — guaranteed not to satisfy either subfilter.
+	fillerGarage := func() map[string]any {
+		return garage(fillerCar(), fillerCar(), fillerCar())
+	}
+	// matchingG0Car is a single car satisfying both garages[0] subfilter conditions.
+	matchingG0Car := func() map[string]any {
+		return carWithTires("honda", tire(205))
+	}
+	// matchingG1Car is a single car satisfying both garages[1] subfilter conditions.
+	matchingG1Car := func() map[string]any {
+		return carWithTires("ferrari", tire(225))
+	}
+	matchingG0 := func() map[string]any { return garage(matchingG0Car()) }
+	matchingG1 := func() map[string]any { return garage(matchingG1Car()) }
+
+	const (
+		idMatchMinimal                  = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		idMatchExtraGarages             = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		idMatchMatchingCarSurroundedByFillers = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+		idMatchEveryCarMatchesInBothG   = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+		idMatchHeterogeneousGarages     = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+		idMatchMatchingCarHasManyTires  = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+		idMatchG2AlsoMatchesG0          = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+
+		idNoMatchG0SplitMakeAndWidth    = strfmt.UUID("00000000-0000-0000-0000-000000000008")
+		idNoMatchG1SplitMakeAndWidth    = strfmt.UUID("00000000-0000-0000-0000-000000000009")
+		idNoMatchG0AllCarsSplit         = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
+
+		idNoMatchSplitAcrossGarages     = strfmt.UUID("00000000-0000-0000-0000-00000000000b")
+		idNoMatchSwappedGarages         = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
+		idNoMatchValuesAtG2Only         = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
+		idNoMatchInvertedAcrossGarages  = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
+
+		idNoMatchAllFiller              = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
+		idNoMatchOnlyMakeInG0           = strfmt.UUID("00000000-0000-0000-0000-000000000010")
+		idNoMatchOnlyWidthInG0          = strfmt.UUID("00000000-0000-0000-0000-000000000011")
+		idNoMatchMixedSplits            = strfmt.UUID("00000000-0000-0000-0000-000000000012")
+
+		idAbsentNoGarages               = strfmt.UUID("00000000-0000-0000-0000-000000000013")
+		idAbsentOnlyOneGarage           = strfmt.UUID("00000000-0000-0000-0000-000000000014")
+		idAbsentG0EmptyObject           = strfmt.UUID("00000000-0000-0000-0000-000000000015")
+		idAbsentG0NoCarsArray           = strfmt.UUID("00000000-0000-0000-0000-000000000016")
+		idAbsentMatchingCarNoTires      = strfmt.UUID("00000000-0000-0000-0000-000000000017")
+		idAbsentMatchingCarEmptyTires   = strfmt.UUID("00000000-0000-0000-0000-000000000018")
+
+		idMatchHondaAtAllCarsOneHasWidth = strfmt.UUID("00000000-0000-0000-0000-000000000019")
+		idMatchMultipleSameCarsMatchInG0 = strfmt.UUID("00000000-0000-0000-0000-00000000001a")
+	)
+
+	docs := []struct {
+		id      strfmt.UUID
+		garages []any
+		note    string
+	}{
+		{
+			id:      idMatchMinimal,
+			garages: []any{matchingG0(), matchingG1()},
+			note:    "minimal: each garage has one car satisfying its subfilter",
+		},
+		{
+			id:      idMatchExtraGarages,
+			garages: []any{matchingG0(), matchingG1(), fillerGarage(), fillerGarage()},
+			note:    "extra garages beyond [1] are irrelevant",
+		},
+		{
+			id: idMatchMatchingCarSurroundedByFillers,
+			garages: []any{
+				garage(fillerCar(), matchingG0Car(), fillerCar()),
+				garage(fillerCar(), matchingG1Car(), fillerCar()),
+			},
+			note: "matching car at index 1 of 3 in each garage",
+		},
+		{
+			id: idMatchEveryCarMatchesInBothG,
+			garages: []any{
+				garage(matchingG0Car(), matchingG0Car(), matchingG0Car()),
+				garage(matchingG1Car(), matchingG1Car(), matchingG1Car()),
+			},
+			note: "every car satisfies the per-garage subfilter — saturated match",
+		},
+		{
+			id: idMatchHeterogeneousGarages,
+			garages: []any{
+				garage(fillerCar(), fillerCar(), matchingG0Car(), fillerCar(), fillerCar()),
+				garage(matchingG1Car()),
+			},
+			note: "heterogeneous: g0 has 5 cars (match in middle), g1 has 1 car",
+		},
+		{
+			id: idMatchMatchingCarHasManyTires,
+			garages: []any{
+				garage(carWithTires("honda", tire(175), tire(205), tire(215), tire(235))),
+				garage(carWithTires("ferrari", tire(195), tire(215), tire(225), tire(235))),
+			},
+			note: "matching car has 4 tires; one matches the required width",
+		},
+		{
+			id: idMatchG2AlsoMatchesG0,
+			garages: []any{
+				matchingG0(),
+				matchingG1(),
+				matchingG0(),
+			},
+			note: "garages[0] and garages[2] both have honda+205; result must dedup to single doc",
+		},
+
+		// Same-car correlation within a garage — headline F16-specific cases.
+		// In each, the make and tires.width values needed for one garage's
+		// subfilter exist but in DIFFERENT cars within that garage.
+		{
+			id: idNoMatchG0SplitMakeAndWidth,
+			garages: []any{
+				garage(
+					carWithTires("honda", tire(175)),
+					carWithTires("toyota", tire(205)),
+				),
+				matchingG1(),
+			},
+			note: "g0 has make=honda in cars[0] but tires.width=205 only in cars[1] — different cars; same-car correlation must reject",
+		},
+		{
+			id: idNoMatchG1SplitMakeAndWidth,
+			garages: []any{
+				matchingG0(),
+				garage(
+					carWithTires("ferrari", tire(235)),
+					carWithTires("bmw", tire(225)),
+				),
+			},
+			note: "symmetric: g1 has make=ferrari and tires.width=225 in different cars",
+		},
+		{
+			id: idNoMatchG0AllCarsSplit,
+			garages: []any{
+				garage(
+					carWithTires("honda", tire(175), tire(195)),
+					carWithTires("toyota", tire(205), tire(215)),
+					carWithTires("honda", tire(235), tire(175)),
+				),
+				matchingG1(),
+			},
+			note: "g0 has multiple honda cars but none with width=205; the only width=205 lives in a non-honda car",
+		},
+
+		// Cross-garage rejection: condition pairs not satisfied across garages.
+		{
+			id: idNoMatchSplitAcrossGarages,
+			garages: []any{
+				matchingG0(),
+				fillerGarage(),
+			},
+			note: "g0 satisfied; g1 has neither ferrari nor 225",
+		},
+		{
+			id: idNoMatchSwappedGarages,
+			garages: []any{
+				matchingG1(), // g0 has ferrari+225 (which the filter expects at g1)
+				matchingG0(), // g1 has honda+205 (which the filter expects at g0)
+			},
+			note: "right value pairs at swapped garage indices",
+		},
+		{
+			id: idNoMatchValuesAtG2Only,
+			garages: []any{
+				fillerGarage(),
+				fillerGarage(),
+				matchingG0(),
+				matchingG1(),
+			},
+			note: "matching value pairs exist at garages[2]+[3] but not at garages[0]+[1]",
+		},
+		{
+			id: idNoMatchInvertedAcrossGarages,
+			garages: []any{
+				// g0 has only the make value the filter wants at g1 (ferrari);
+				// no width=205 anywhere in g0.
+				garage(carWithTires("ferrari", tire(215)), carWithTires("ferrari", tire(235))),
+				// g1 has only the make value the filter wants at g0 (honda);
+				// no width=225 anywhere in g1.
+				garage(carWithTires("honda", tire(195)), carWithTires("honda", tire(175))),
+			},
+			note: "each garage has only the make value the OTHER garage's filter expects, with no matching widths anywhere — distinct from Swapped (which has full pairs)",
+		},
+
+		// Rich value mismatch — every garage fully populated, neither subfilter satisfied.
+		{
+			id: idNoMatchAllFiller,
+			garages: []any{
+				fillerGarage(),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "all filler — no honda, no ferrari, no 205, no 225 anywhere",
+		},
+		{
+			id: idNoMatchOnlyMakeInG0,
+			garages: []any{
+				garage(
+					carWithTires("honda", tire(175)),
+					carWithTires("honda", tire(195)),
+					carWithTires("honda", tire(215)),
+				),
+				matchingG1(),
+			},
+			note: "g0 has make=honda everywhere but no tires.width=205 in any car",
+		},
+		{
+			id: idNoMatchOnlyWidthInG0,
+			garages: []any{
+				garage(
+					carWithTires("toyota", tire(205)),
+					carWithTires("kia", tire(205)),
+					carWithTires("bmw", tire(205)),
+				),
+				matchingG1(),
+			},
+			note: "g0 has tires.width=205 everywhere but no make=honda in any car",
+		},
+		// Mixed splits: BOTH g0 and g1 have same-car correlation broken
+		// simultaneously. Tests that the dispatch correctly fans into 2 groups
+		// and each group independently rejects.
+		{
+			id: idNoMatchMixedSplits,
+			garages: []any{
+				garage(
+					carWithTires("honda", tire(175)),
+					carWithTires("toyota", tire(205)),
+				),
+				garage(
+					carWithTires("ferrari", tire(235)),
+					carWithTires("bmw", tire(225)),
+				),
+			},
+			note: "both g0 and g1 have same-car splits — neither subfilter satisfied at any single car",
+		},
+
+		// Absent-data variants probing distinct missing-structure code paths.
+		{
+			id:      idAbsentNoGarages,
+			garages: []any{},
+			note:    "absent: empty garages array",
+		},
+		{
+			id:      idAbsentOnlyOneGarage,
+			garages: []any{matchingG0()},
+			note:    "absent: only garages[0] exists; garages[1] missing",
+		},
+		{
+			id: idAbsentG0EmptyObject,
+			garages: []any{
+				map[string]any{}, // no cars field at all
+				matchingG1(),
+			},
+			note: "absent: garages[0] is empty object (no cars field); garages[1] perfect",
+		},
+		{
+			id: idAbsentG0NoCarsArray,
+			garages: []any{
+				map[string]any{"cars": []any{}},
+				matchingG1(),
+			},
+			note: "absent: garages[0] has explicit empty cars array",
+		},
+		{
+			id: idAbsentMatchingCarNoTires,
+			garages: []any{
+				garage(map[string]any{"make": "honda"}), // no tires field on the honda car
+				matchingG1(),
+			},
+			note: "absent: g0's honda car has no tires field at all",
+		},
+		{
+			id: idAbsentMatchingCarEmptyTires,
+			garages: []any{
+				garage(map[string]any{"make": "honda", "tires": []any{}}),
+				matchingG1(),
+			},
+			note: "absent: g0's honda car has explicit empty tires array (vs missing tires field)",
+		},
+
+		// Match: every car in g0 has make=honda but only one car has tires.width=205.
+		// Same-car correlation must select that specific car. g1 perfect.
+		{
+			id: idMatchHondaAtAllCarsOneHasWidth,
+			garages: []any{
+				garage(
+					carWithTires("honda", tire(175)),
+					carWithTires("honda", tire(205)),
+					carWithTires("honda", tire(235)),
+				),
+				matchingG1(),
+			},
+			note: "every car in g0 has honda; only middle car has width=205 — same-car correlation finds it",
+		},
+
+		// Match: multiple cars in g0 each independently satisfy the g0 subfilter
+		// (each has both make=honda AND tires.width=205). Within-garage dedup
+		// parallel — result must contain doc once, not multiple times per match.
+		{
+			id: idMatchMultipleSameCarsMatchInG0,
+			garages: []any{
+				garage(
+					carWithTires("honda", tire(205)),
+					carWithTires("honda", tire(205)),
+					carWithTires("honda", tire(205)),
+				),
+				matchingG1(),
+			},
+			note: "g0 has 3 cars each independently satisfying the subfilter; result must dedup",
+		},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	for _, d := range docs {
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: d.id,
+			Properties: map[string]any{"garages": d.garages},
+		}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+	}
+
+	makeTextFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	makeIntFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andClauses := func(lfs ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(lfs))
+		for i, lf := range lfs {
+			operands[i] = *lf.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: operands,
+		}}
+	}
+
+	filter := andClauses(
+		makeTextFilter("garages[0].cars.make", "honda"),
+		makeIntFilter("garages[0].cars.tires.width", 205),
+		makeTextFilter("garages[1].cars.make", "ferrari"),
+		makeIntFilter("garages[1].cars.tires.width", 225),
+	)
+
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: 100},
+		Filters:    filter,
+	})
+	require.NoError(t, err)
+
+	got := make([]strfmt.UUID, len(res))
+	for i, r := range res {
+		got[i] = r.ID
+	}
+
+	want := []strfmt.UUID{
+		idMatchMinimal,
+		idMatchExtraGarages,
+		idMatchMatchingCarSurroundedByFillers,
+		idMatchEveryCarMatchesInBothG,
+		idMatchHeterogeneousGarages,
+		idMatchMatchingCarHasManyTires,
+		idMatchG2AlsoMatchesG0,
+		idMatchHondaAtAllCarsOneHasWidth,
+		idMatchMultipleSameCarsMatchInG0,
+	}
+	assert.ElementsMatch(t, want, got)
+}
