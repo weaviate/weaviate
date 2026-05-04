@@ -1460,3 +1460,256 @@ func TestNestedFilteringAllDatatypesDBReadBack(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// TestNestedFilteringTokenizationCorrelatedAnd exercises the multi-token
+// tokenization path end-to-end through the production write+search pipeline.
+//
+// The hand-built integration tests for tokenization construct propValuePair
+// trees directly with childrenFromTokenization=true. This test instead writes
+// real text values (e.g. "new york") that the analyzer tokenizes at write
+// time, and runs real text filters that the searcher tokenizes at query time.
+// It verifies that:
+//
+//  1. Write-time tokenization stores all tokens of a single value occurrence
+//     at the SAME parent-element position (the invariant hardcoded at
+//     objects_nested.go analyzeNestedValue line 247: Positions: pv.Positions)
+//  2. Search-time tokenization in buildNestedTextFilterPair produces the same
+//     decomposition as the analyzer
+//  3. The pvp shape produced by buildNestedTextFilterPair + groupNestedByProp
+//     (multi-token wrapper as a child of an outer correlated AND) is correctly
+//     resolved by the recursive resolver — this shape is NOT directly tested by
+//     the hand-built integration tests, which model a different wrapper shape
+//  4. Same-element correlation works across the multi-token wrapper child plus
+//     a sibling leaf condition
+//
+// Sub-tests cover:
+//   - word_tokenization: 2-token filter ("new york") with sibling postcode
+//   - field_tokenization: same filter under field-tokenization (whole string one token)
+//   - word_three_token_filter: 3-token filter ("new york city") — stronger AndAll
+//   - word_token_order_independence: filter "york new" — proves order doesn't matter
+//   - word_no_sibling_condition: filter without postcode — different pvp shape (no
+//     groupNestedByProp wrapper; buildNestedTextFilterPair sits at the top)
+//   - word_repeated_tokens_filter: filter "new new york" — duplicate tokens collapse
+func TestNestedFilteringTokenizationCorrelatedAnd(t *testing.T) {
+	const (
+		nestedClass = "Article"
+		topProp     = "addresses"
+
+		idMatch                 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		idNoMatchSplit          = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		idNoMatchPostcode       = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+		idNoMatchDifferentAddr  = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+		idNoMatchExtraToken     = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+		idMatchExtraStoredToken = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+		idMatchDuplicateAddrs   = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+	)
+	vTrue := true
+
+	// makeClass builds the test class with the requested tokenization for both
+	// city and postcode. Tokenization is set explicitly because
+	// createTestDatabaseWithClass bypasses setNestedPropertiesDefaults.
+	makeClass := func(tok string) *models.Class {
+		return &models.Class{
+			Class:             nestedClass,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name:     topProp,
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+						{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					},
+				},
+			},
+		}
+	}
+
+	// addressDocs is the shared dataset. Element layout is identical across all
+	// sub-tests; what differs is how the analyzer tokenizes the text values at
+	// write time and how the searcher tokenizes the filter value at query time.
+	addressDocs := []struct {
+		id        strfmt.UUID
+		addresses []any
+	}{
+		{
+			id: idMatch,
+			addresses: []any{
+				map[string]any{"city": "new york", "postcode": "10115"},
+			},
+		},
+		{
+			// Tokens of "new york" split across two elements; postcode lives in
+			// the element holding only "new". Under word tokenization the city
+			// tokens land at different leaves, so AndAll on tokens cannot match
+			// in either element. Under field tokenization neither element has
+			// the literal "new york" string so the city condition itself fails.
+			id: idNoMatchSplit,
+			addresses: []any{
+				map[string]any{"city": "new", "postcode": "10115"},
+				map[string]any{"city": "york"},
+			},
+		},
+		{
+			id: idNoMatchPostcode,
+			addresses: []any{
+				map[string]any{"city": "new york"},
+			},
+		},
+		{
+			// City matches in element[0]; postcode matches in element[1] —
+			// different addresses, so same-element correlation must reject.
+			id: idNoMatchDifferentAddr,
+			addresses: []any{
+				map[string]any{"city": "new york"},
+				map[string]any{"postcode": "10115"},
+			},
+		},
+		{
+			// Under word tokenization "new yorkville" → ["new","yorkville"] so
+			// the "york" token from the filter has no match. Under field
+			// tokenization the literal "new york" filter value also doesn't
+			// match the literal "new yorkville" stored value.
+			id: idNoMatchExtraToken,
+			addresses: []any{
+				map[string]any{"city": "new yorkville", "postcode": "10115"},
+			},
+		},
+		{
+			// Stored value has more tokens than the 2-token filter. Under word
+			// tokenization the filter's [new, york] are both at the same leaf
+			// (the "new york city" value's element); the extra "city" token
+			// doesn't break AndAll. Under field tokenization the whole string
+			// "new york city" is one token that doesn't equal "new york".
+			id: idMatchExtraStoredToken,
+			addresses: []any{
+				map[string]any{"city": "new york city", "postcode": "10115"},
+			},
+		},
+		{
+			// Two addresses each independently satisfy the filter. The result
+			// must contain the doc exactly once (dedup at the docID level).
+			id: idMatchDuplicateAddrs,
+			addresses: []any{
+				map[string]any{"city": "new york", "postcode": "10115"},
+				map[string]any{"city": "new york", "postcode": "10115"},
+			},
+		},
+	}
+
+	makeFilter := func(path string, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	// runScenario writes the dataset and runs the given filter.
+	runScenario := func(t *testing.T, tokenization string, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), makeClass(tokenization))
+		ctx := context.Background()
+
+		for _, d := range addressDocs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id,
+				Properties: map[string]any{topProp: d.addresses},
+			}, nil, nil, nil, nil, 0))
+		}
+
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	cityAndPostcode := andFilter(
+		makeFilter("addresses.city", "new york"),
+		makeFilter("addresses.postcode", "10115"),
+	)
+
+	// word_tokenization: filter tokens [new, york] need same-leaf positions
+	// AND a sibling postcode at the same address. idMatchExtraStoredToken
+	// matches because [new, york] are both at the leaf of "new york city";
+	// idMatchDuplicateAddrs matches once via dedup.
+	t.Run("word_tokenization", func(t *testing.T) {
+		runScenario(t, models.NestedPropertyTokenizationWord, cityAndPostcode,
+			[]strfmt.UUID{idMatch, idMatchExtraStoredToken, idMatchDuplicateAddrs})
+	})
+
+	// field_tokenization: filter is one token "new york". Only idMatch and
+	// idMatchDuplicateAddrs have stored values literally equal to "new york".
+	// idMatchExtraStoredToken has "new york city" which is a distinct token.
+	t.Run("field_tokenization", func(t *testing.T) {
+		runScenario(t, models.NestedPropertyTokenizationField, cityAndPostcode,
+			[]strfmt.UUID{idMatch, idMatchDuplicateAddrs})
+	})
+
+	// word_three_token_filter: filter tokens [new, york, city] — only
+	// idMatchExtraStoredToken stores "new york city" with all three tokens at
+	// the same leaf and the matching postcode at the same address.
+	t.Run("word_three_token_filter", func(t *testing.T) {
+		filter := andFilter(
+			makeFilter("addresses.city", "new york city"),
+			makeFilter("addresses.postcode", "10115"),
+		)
+		runScenario(t, models.NestedPropertyTokenizationWord, filter,
+			[]strfmt.UUID{idMatchExtraStoredToken})
+	})
+
+	// word_token_order_independence: filter value "york new" tokenizes to the
+	// same set as "new york". Tokens at storage are unordered per leaf so the
+	// filter must produce identical results regardless of token order.
+	t.Run("word_token_order_independence", func(t *testing.T) {
+		filter := andFilter(
+			makeFilter("addresses.city", "york new"),
+			makeFilter("addresses.postcode", "10115"),
+		)
+		runScenario(t, models.NestedPropertyTokenizationWord, filter,
+			[]strfmt.UUID{idMatch, idMatchExtraStoredToken, idMatchDuplicateAddrs})
+	})
+
+	// word_no_sibling_condition: filter has only the multi-token text
+	// condition; no sibling. The pvp shape skips groupNestedByProp wrapping —
+	// buildNestedTextFilterPair's wrapper sits at the top of the pvp tree.
+	// idNoMatchPostcode and idNoMatchDifferentAddr now match because there is
+	// no postcode constraint to fail on.
+	t.Run("word_no_sibling_condition", func(t *testing.T) {
+		filter := makeFilter("addresses.city", "new york")
+		runScenario(t, models.NestedPropertyTokenizationWord, filter,
+			[]strfmt.UUID{
+				idMatch,
+				idNoMatchPostcode,
+				idNoMatchDifferentAddr,
+				idMatchExtraStoredToken,
+				idMatchDuplicateAddrs,
+			})
+	})
+
+	// word_repeated_tokens_filter: filter value "new new york" has duplicate
+	// "new" token. AndAll naturally collapses duplicates; the effective filter
+	// is [new, york]. Result equals word_tokenization.
+	t.Run("word_repeated_tokens_filter", func(t *testing.T) {
+		filter := andFilter(
+			makeFilter("addresses.city", "new new york"),
+			makeFilter("addresses.postcode", "10115"),
+		)
+		runScenario(t, models.NestedPropertyTokenizationWord, filter,
+			[]strfmt.UUID{idMatch, idMatchExtraStoredToken, idMatchDuplicateAddrs})
+	})
+}
