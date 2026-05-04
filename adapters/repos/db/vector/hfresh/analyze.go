@@ -38,7 +38,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}
 
 	// load the posting metadata
-	_, err := h.PostingMap.Get(ctx, postingID)
+	_, err := h.PostingSizes.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
 		return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
 	}

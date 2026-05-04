@@ -75,7 +75,6 @@ type HFresh struct {
 	PostingStore  *PostingStore       // Used for managing persistence of postings.
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
-	PostingMap    *PostingMap         // Maps postings to vector IDs.
 	PostingSizes  *PostingSizes       // Keeps track of the size of each posting.
 	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
@@ -125,7 +124,6 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		PostingStore:  postingStore,
 		vectorForId:   cfg.VectorForIDThunk,
 		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket, metrics),
 		PostingSizes:  NewPostingSizes(bucket, metrics),
 		IndexMetadata: NewIndexMetadataStore(bucket),
 		postingLocks:  common.NewDefaultShardedRWLocks(),

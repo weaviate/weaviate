@@ -149,7 +149,7 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
-	if err := h.PostingMap.Restore(h.ctx); err != nil {
+	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
 
@@ -222,9 +222,9 @@ func (h *HFresh) restoreMetrics() error {
 	h.metrics.SetPendingReassignTasks(reassignCount)
 	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
 
-	postingsCount := h.PostingMap.Size()
+	postingsCount := h.PostingSizes.Count()
 	h.Centroids.counter.Store(int32(postingsCount))
-	h.metrics.SetPostings(postingsCount)
+	h.metrics.SetPostings(int(postingsCount))
 
 	return nil
 }
