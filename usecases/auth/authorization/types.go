@@ -51,8 +51,10 @@ const (
 	CollectionsDomain = "collections"
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
+	McpDomain         = "mcp"
 	ReplicateDomain   = "replicate"
 	AliasesDomain     = "aliases"
+	NamespacesDomain  = "namespaces"
 )
 
 var (
@@ -96,6 +98,9 @@ var (
 		Collection: All,
 		Alias:      All,
 	}
+	AllNamespaces = &models.PermissionNamespaces{
+		Namespace: All,
+	}
 
 	ComponentName = "RBAC"
 
@@ -120,6 +125,8 @@ var (
 	DeleteUsers          = "delete_users"
 
 	ManageBackups = "manage_backups"
+
+	ManageNamespaces = "manage_namespaces"
 
 	CreateCollections = "create_collections"
 	ReadCollections   = "read_collections"
@@ -146,6 +153,10 @@ var (
 	UpdateAliases = "update_aliases"
 	DeleteAliases = "delete_aliases"
 
+	CreateMcp = "create_mcp"
+	ReadMcp   = "read_mcp"
+	UpdateMcp = "update_mcp"
+
 	availableWeaviateActions = []string{
 		// Roles domain
 		CreateRoles,
@@ -155,6 +166,9 @@ var (
 
 		// Backups domain
 		ManageBackups,
+
+		// Namespaces domain
+		ManageNamespaces,
 
 		// Users domain
 		AssignAndRevokeUsers,
@@ -202,6 +216,11 @@ var (
 		ReadAliases,
 		UpdateAliases,
 		DeleteAliases,
+
+		// MCP domain
+		CreateMcp,
+		ReadMcp,
+		UpdateMcp,
 	}
 )
 
@@ -373,6 +392,20 @@ func CollectionsMetadata(classes ...string) []string {
 	return resources
 }
 
+// Namespaces generates a list of namespace resource strings based on the
+// provided names. If no names are provided (or a single empty/"*"), it
+// returns the wildcard resource string "namespaces/*".
+func Namespaces(names ...string) []string {
+	if len(names) == 0 || (len(names) == 1 && (names[0] == "" || names[0] == "*")) {
+		return []string{fmt.Sprintf("%s/*", NamespacesDomain)}
+	}
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = fmt.Sprintf("%s/%s", NamespacesDomain, n)
+	}
+	return out
+}
+
 func Aliases(class string, aliases ...string) []string {
 	class = schema.UppercaseClassName(class)
 	aliases = schema.UppercaseClassesNames(aliases...)
@@ -538,6 +571,18 @@ func Replications(class, shard string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicateDomain, class, shard)
 }
 
+// Mcp generates a resource string covering the MCP endpoint.
+// For now, this gates nothing specific to the MCP server besides its entirety
+//
+// Returns:
+// - A string representing the resource path.
+//
+// Example outputs:
+// - mcp
+func Mcp() string {
+	return McpDomain
+}
+
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
 // The domain is expected to be the first part of the resource path.
 func WildcardPath(resource string) string {
@@ -569,6 +614,7 @@ func viewerPermissions() []*models.Permission {
 			Users:       AllUsers,
 			Aliases:     AllAliases,
 			Groups:      AllOIDCGroups,
+			Namespaces:  AllNamespaces,
 		})
 	}
 
@@ -591,6 +637,7 @@ func adminPermissions() []*models.Permission {
 			Users:       AllUsers,
 			Aliases:     AllAliases,
 			Groups:      AllOIDCGroups,
+			Namespaces:  AllNamespaces,
 		})
 	}
 

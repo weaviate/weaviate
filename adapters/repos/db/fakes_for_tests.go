@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -352,9 +353,9 @@ func (f *FakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
+	properties []string, selection *searchparams.Selection,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	return nil, nil, nil, nil
 }
 
 func (f *FakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
@@ -472,6 +473,10 @@ func (f *FakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName strin
 type FakeReplicationClient struct{}
 
 var _ replica.Client = (*FakeReplicationClient)(nil)
+
+func (f *FakeReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	return 0, nil
+}
 
 func (f *FakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,

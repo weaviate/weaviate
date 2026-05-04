@@ -48,7 +48,7 @@ type Searcher struct {
 	getClass               func(string) *models.Class
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	stopwords              stopwords.StopwordDetector
+	stopwordProvider       *stopwords.Provider
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
@@ -62,7 +62,7 @@ var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided.
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
+	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
@@ -72,7 +72,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		getClass:               getClass,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		stopwords:              stopwords,
+		stopwordProvider:       stopwordProvider,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
@@ -643,21 +643,37 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
 	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	var terms []string
-
 	valueString, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
+	var terms []string
 	switch propType {
 	case schema.DataTypeText:
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, valueString, class.Class)
+			// LIKE queries need special wildcard-preserving tokenization;
+			// fold manually then use the wildcard tokenizer.
+			text := valueString
+			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
+				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
+				text = tokenizer.FoldASCII(text, ignore)
+			}
+			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, text, class.Class)
 		} else {
-			terms = tokenizer.TokenizeForClass(prop.Tokenization, valueString, class.Class)
+			var sw tokenizer.StopwordDetector
+			if prop.Tokenization == models.PropertyTokenizationWord {
+				d, err := s.stopwordProvider.Get(prop)
+				if err != nil {
+					return nil, err
+				}
+				sw = d
+			}
+			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
+			terms = result.Query
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -673,9 +689,6 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) && prop.Tokenization == models.PropertyTokenizationWord {
-			continue
-		}
 		propValuePairs = append(propValuePairs, &propValuePair{
 			value:              []byte(term),
 			prop:               prop.Name,

@@ -139,6 +139,7 @@ type Compose struct {
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
+	withWeaviateNamespaces         bool
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
@@ -544,6 +545,22 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMCP() *Compose {
+	d.WithWeaviateEnv("MCP_SERVER_ENABLED", "true")
+	d.WithWeaviateEnv("MCP_SERVER_WRITE_ACCESS_ENABLED", "true")
+	return d
+}
+
+func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
+	d.weaviateFiles = append(d.weaviateFiles, testcontainers.ContainerFile{
+		HostFilePath:      hostPath,
+		ContainerFilePath: containerPath,
+		FileMode:          0o644,
+	})
+	d.WithWeaviateEnv("MCP_SERVER_CONFIG_PATH", containerPath)
+	return d
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
 	d.With1NodeCluster()
 	d.withWeaviateExposeDebugPort = true
@@ -633,6 +650,13 @@ func (d *Compose) WithRBAC() *Compose {
 
 func (d *Compose) WithDbUsers() *Compose {
 	d.withWeaviateDbUsers = true
+	return d
+}
+
+// WithNamespaces enables NAMESPACES_ENABLED on the Weaviate container and
+// disables GraphQL, which Config.Validate requires whenever namespaces are on.
+func (d *Compose) WithNamespaces() *Compose {
+	d.withWeaviateNamespaces = true
 	return d
 }
 
@@ -1042,6 +1066,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 
 	if d.withWeaviateDbUsers {
 		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
+	}
+
+	if d.withWeaviateNamespaces {
+		settings["NAMESPACES_ENABLED"] = "true"
+		settings["DISABLE_GRAPHQL"] = "true"
 	}
 
 	if d.withAutoschema {

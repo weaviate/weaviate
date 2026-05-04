@@ -62,6 +62,7 @@ type GetParams struct {
 	KeywordRanking          *searchparams.KeywordRanking
 	HybridSearch            *searchparams.HybridSearch
 	GroupBy                 *searchparams.GroupBy
+	Selection               *searchparams.Selection
 	TargetVectorCombination *TargetCombination
 	Group                   *GroupParams
 	ModuleParams            map[string]interface{}

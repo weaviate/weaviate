@@ -79,6 +79,11 @@ func (c *StaticApiKey) validateConfig() error {
 	return nil
 }
 
+// ValidateAndExtract returns a principal for the given static API key.
+// Static keys are always global operators: the returned principal carries
+// IsGlobalOperator=true and an empty Namespace. Downstream callers must
+// read IsGlobalOperator — not an empty namespace string — to recognize
+// operator-level principals.
 func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
 	tokenPos, ok := c.isTokenAllowed(token)
 	if !ok {
@@ -86,7 +91,9 @@ func (c *StaticApiKey) ValidateAndExtract(token string, scopes []string) (*model
 	}
 
 	return &models.Principal{
-		Username: c.getUser(tokenPos), UserType: models.UserTypeInputDb,
+		Username:         c.getUser(tokenPos),
+		UserType:         models.UserTypeInputDb,
+		IsGlobalOperator: true,
 	}, nil
 }
 

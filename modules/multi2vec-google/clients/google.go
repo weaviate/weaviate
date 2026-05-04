@@ -134,7 +134,7 @@ func (v *google) sendRequest(ctx context.Context,
 		return 0, nil, errors.Wrap(err, "create POST request")
 	}
 
-	apiKey, err := v.getApiKey(ctx)
+	apiKey, err := v.getApiKey(ctx, v.useGeminiApi(config))
 	if err != nil {
 		return 0, nil, errors.Wrapf(err, "Google API Key")
 	}
@@ -236,8 +236,8 @@ func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) e
 	return nil
 }
 
-func (v *google) getApiKey(ctx context.Context) (string, error) {
-	return v.googleApiKey.GetApiKey(ctx, v.apiKey, false, v.useGoogleAuth)
+func (v *google) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
+	return v.googleApiKey.GetApiKey(ctx, v.apiKey, useGenerativeAIEndpoint, v.useGoogleAuth)
 }
 
 func (v *google) getEmbeddingsFromVertexResponse(statusCode int, bodyBytes []byte) (

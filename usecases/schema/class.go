@@ -18,6 +18,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -38,10 +40,12 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -110,8 +114,23 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
+	// originalClassName must be passed to validateCanAddClass below: the
+	// qualified form ("<ns>:<Class>") fails ValidateClassName because
+	// ClassNameRegexCore forbids ":". Removing this capture would reject
+	// every legitimate namespaced create. Both the rejection of
+	// caller-supplied ":" and the success of the namespaced-create flow are
+	// covered by test/acceptance/namespace/collection_alias_test.go.
+	originalClassName := cls.Class
+	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class)
+	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
+		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
+	}
 	if err != nil {
+		return nil, 0, err
+	}
+	cls.Class = qualified
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -132,7 +151,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, true); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, originalClassName, classGetterWithAuth, true); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -252,7 +271,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateClassInvariants(ctx, class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -457,7 +476,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 		}
 
 		if class.VectorIndexType == "" {
-			class.VectorIndexType = vectorindex.DefaultVectorIndexType
+			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+				class.VectorIndexType = v
+			} else {
+				class.VectorIndexType = vectorindex.DefaultVectorIndexType
+			}
 		}
 
 		if h.config.DefaultVectorDistanceMetric != "" {
@@ -594,7 +617,7 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 	if property.IndexFilterable == nil {
 		property.IndexFilterable = &vTrue
 
-		if isPrimitive && primitiveDataType == schema.DataTypeBlob {
+		if isPrimitive && (primitiveDataType == schema.DataTypeBlob || primitiveDataType == schema.DataTypeBlobHash) {
 			property.IndexFilterable = &vFalse
 		}
 	}
@@ -704,8 +727,13 @@ func (h *Handler) validateProperty(
 			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
+		var userPresets map[string][]string
+		if class.InvertedIndexConfig != nil {
+			userPresets = class.InvertedIndexConfig.StopwordPresets
+		}
+
 		if propertyDataType.IsNested() {
-			if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			if err := validateNestedProperties(property.NestedProperties, property.Name, userPresets); err != nil {
 				return err
 			}
 		} else {
@@ -716,6 +744,10 @@ func (h *Handler) validateProperty(
 		}
 
 		if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+			return err
+		}
+
+		if err := validatePropertyProcessing(property, propertyDataType, userPresets); err != nil {
 			return err
 		}
 
@@ -756,21 +788,34 @@ func setInvertedConfigDefaults(class *models.Class) {
 	}
 }
 
-func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+// validateCanAddClass runs heavy creation-time validation. originalName is
+// the raw user-supplied short class name; ValidateClassName must see it
+// rather than the qualified form because ClassNameRegexCore forbids ":".
+func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
 		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
 	}
 
-	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
+	// Reject any vector config entry with the "none" sentinel on a brand-new
+	// class. The "none" type is an internal marker set only by the
+	// DeleteClassVectorIndex API for previously-existing indexes.
+	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			return fmt.Errorf("vector %q: cannot create a new class with vectorIndexType %q; "+
+				"this is an internal sentinel for dropped indexes", name, cfg.VectorIndexType)
+		}
+	}
+
+	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
 }
 
 func (h *Handler) validateClassInvariants(
-	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
-	if _, err := schema.ValidateClassName(class.Class); err != nil {
+	if _, err := schema.ValidateClassName(originalName); err != nil {
 		return err
 	}
 
@@ -916,6 +961,131 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
+func validatePropertyProcessing(prop *models.Property, propertyDataType schema.PropertyDataType, userPresets map[string][]string) error {
+	// Treat an empty config as absent — some client generators emit
+	// "textAnalyzer": {} by default and this should not block creation.
+	if prop.TextAnalyzer != nil && !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) == 0 && prop.TextAnalyzer.StopwordPreset == "" {
+		prop.TextAnalyzer = nil
+	}
+	if prop.TextAnalyzer == nil {
+		return nil
+	}
+
+	// processing only makes sense for text/text[] with searchable index
+	if !propertyDataType.IsPrimitive() {
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types", prop.Name)
+	}
+
+	dt := propertyDataType.AsPrimitive()
+	switch dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// allowed
+	default:
+		return fmt.Errorf("property '%s': processing options are only allowed for text and text[] data types, got '%s'", prop.Name, dt)
+	}
+
+	if (prop.IndexSearchable == nil || !*prop.IndexSearchable) && (prop.IndexFilterable == nil || !*prop.IndexFilterable) {
+		return fmt.Errorf("property '%s': processing options are only allowed for properties with an inverted index, got IndexSearchable=%s and IndexFilterable=%s",
+			prop.Name, fmtBoolPtr(prop.IndexSearchable), fmtBoolPtr(prop.IndexFilterable))
+	}
+
+	if !prop.TextAnalyzer.ASCIIFold && len(prop.TextAnalyzer.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("property '%s': asciiFoldIgnore requires asciiFold to be enabled", prop.Name)
+	}
+
+	for _, entry := range prop.TextAnalyzer.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("property '%s': each asciiFoldIgnore entry must be a single character, got %q",
+				prop.Name, entry)
+		}
+	}
+
+	// explicitly check for support for tokenizers:
+	if prop.Tokenization != "" {
+		switch prop.Tokenization {
+		case models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationTrigram,
+			models.PropertyTokenizationWord,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField: // supported tokenizers, do nothing
+		default:
+			return fmt.Errorf("property '%s': unsupported tokenization '%s'", prop.Name, prop.Tokenization)
+		}
+	}
+
+	if prop.TextAnalyzer.StopwordPreset != "" {
+		if prop.Tokenization != models.PropertyTokenizationWord {
+			return fmt.Errorf("property '%s': stopwordPreset is only supported with tokenization %q, got %q",
+				prop.Name, models.PropertyTokenizationWord, prop.Tokenization)
+		}
+		_, builtIn := stopwords.Presets[prop.TextAnalyzer.StopwordPreset]
+		_, userDefined := userPresets[prop.TextAnalyzer.StopwordPreset]
+		if !builtIn && !userDefined {
+			return fmt.Errorf("property '%s': unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets",
+				prop.Name, prop.TextAnalyzer.StopwordPreset)
+		}
+	}
+
+	return nil
+}
+
+// validateStopwordPresetsStillReferenced rejects an inverted-index-config
+// update that would remove a user-defined stopwordPreset still referenced by
+// any (top-level or nested) property's textAnalyzer.stopwordPreset. Without
+// this check, the property would silently fall back to no stopwords at query
+// time once the preset disappears from the collection config.
+func validateStopwordPresetsStillReferenced(properties []*models.Property,
+	updatedPresets map[string][]string,
+) error {
+	check := func(propName, presetName string) error {
+		if presetName == "" {
+			return nil
+		}
+		if _, builtIn := stopwords.Presets[presetName]; builtIn {
+			return nil
+		}
+		if _, ok := updatedPresets[presetName]; ok {
+			return nil
+		}
+		return fmt.Errorf("invertedIndexConfig.stopwordPresets: cannot remove preset %q because it is still used by property %q",
+			presetName, propName)
+	}
+
+	var walkNested func(parentName string, nested []*models.NestedProperty) error
+	walkNested = func(parentName string, nested []*models.NestedProperty) error {
+		for _, np := range nested {
+			if np == nil {
+				continue
+			}
+			fullName := parentName + "." + np.Name
+			if np.TextAnalyzer != nil {
+				if err := check(fullName, np.TextAnalyzer.StopwordPreset); err != nil {
+					return err
+				}
+			}
+			if err := walkNested(fullName, np.NestedProperties); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, prop := range properties {
+		if prop == nil {
+			continue
+		}
+		if prop.TextAnalyzer != nil {
+			if err := check(prop.Name, prop.TextAnalyzer.StopwordPreset); err != nil {
+				return err
+			}
+		}
+		if err := walkNested(prop.Name, prop.NestedProperties); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *Handler) validateVectorSettings(class *models.Class) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
@@ -938,6 +1108,9 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 	}
 
 	for name, cfg := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
 		// check only if vectorizer correctly configured (map with single key being vectorizer name)
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
@@ -1031,6 +1204,10 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		if _, ok := initial.VectorConfig[k]; !ok {
 			continue
 		}
+		initialVecCfg := initial.VectorConfig[k]
+		if modelsext.IsVectorIndexDropped(v) || modelsext.IsVectorIndexDropped(initialVecCfg) {
+			continue
+		}
 
 		// SkipDefaultQuantization and TrackDefaultQuantization must be effectively immutable
 		// without enforcing that on the client. We just set these fields to their initial values.
@@ -1103,6 +1280,16 @@ func structToMap(obj any) (objMap map[string]any) {
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &objMap) // Convert to a map
 	return objMap
+}
+
+func fmtBoolPtr(b *bool) string {
+	if b == nil {
+		return "<nil>"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 type immutableText struct {

@@ -28,12 +28,21 @@ import (
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
-	reservationTimeout          = 30 * time.Second
+	reservationTimeout          = 2 * time.Minute
 	defaultStatusFlushInterval  = 10 * time.Second
 	defaultSiblingCheckInterval = 1 * time.Minute
+
+	// maxExportParallelismMultiplier caps EXPORT_PARALLELISM at
+	// GOMAXPROCS*N. Each worker holds a 16 MB buffered pipe and an LSM
+	// cursor, so an unbounded value (e.g. a mis-set env var) could pin
+	// many GBs of memory and exhaust file descriptors. 4x is chosen to
+	// still allow oversubscription for I/O wait without leaving room
+	// for pathological misconfiguration.
+	maxExportParallelismMultiplier = 4
 )
 
 // Participant handles export requests on a single node.
@@ -61,6 +70,11 @@ type Participant struct {
 	client       ExportClient
 	nodeResolver NodeResolver
 	localNode    string
+	metrics      *ExportMetrics
+
+	// exportParallelism controls the number of concurrent scan workers.
+	// nil or 0 means GOMAXPROCS.
+	exportParallelism *configRuntime.DynamicValue[int]
 
 	// exportWg tracks in-flight export goroutines so Shutdown can wait for
 	// them to finish their cleanup (final status flush, sibling abort, metadata
@@ -89,6 +103,8 @@ func NewParticipant(
 	client ExportClient,
 	nodeResolver NodeResolver,
 	localNode string,
+	metrics *ExportMetrics,
+	exportParallelism *configRuntime.DynamicValue[int],
 ) *Participant {
 	if client == nil {
 		panic("export: participant requires a non-nil client")
@@ -98,14 +114,16 @@ func NewParticipant(
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Participant{
-		shutdownCtx:    ctx,
-		shutdownCancel: cancel,
-		selector:       selector,
-		backends:       backends,
-		logger:         logger,
-		client:         client,
-		nodeResolver:   nodeResolver,
-		localNode:      localNode,
+		shutdownCtx:       ctx,
+		shutdownCancel:    cancel,
+		selector:          selector,
+		backends:          backends,
+		logger:            logger,
+		client:            client,
+		nodeResolver:      nodeResolver,
+		localNode:         localNode,
+		metrics:           metrics,
+		exportParallelism: exportParallelism,
 	}
 }
 
@@ -236,7 +254,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	// Abort/IsRunning callers. If initialization fails, backendStore stays
 	// nil and the main critical section below will handle the error with
 	// proper slot cleanup via clearAndRelease.
-	backendStore, backendErr := p.backends.BackupBackend(req.Backend)
+	backendStore, backendErr := p.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseExport)
 	if backendErr == nil {
 		if backendErr = backendStore.Initialize(ctx, req.ID, req.Bucket, req.Path); backendErr != nil {
 			backendStore = nil
@@ -245,6 +263,7 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 
 	// Wait for the snapshot goroutine started during Prepare. The mutex
 	// is NOT held here so that Abort can cancel the snapshot if needed.
+	snapshotWaitStart := time.Now()
 	var snapshots []shardSnapshot
 	var skipped []skippedShard
 	var snapshotErr error
@@ -258,7 +277,12 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 	case <-ctx.Done():
 		snapshotErr = ctx.Err()
 	}
+	snapshotDuration := time.Since(snapshotWaitStart)
 	if snapshotErr != nil {
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", exportID).
+			WithField("duration_ms", snapshotDuration.Milliseconds()).
+			Errorf("snapshot phase failed: %v", snapshotErr)
 		p.cleanupSnapshots(snapshots)
 		func() {
 			p.mu.Lock()
@@ -267,6 +291,13 @@ func (p *Participant) Commit(ctx context.Context, exportID string) error {
 		}()
 		return snapshotErr
 	}
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", exportID).
+		WithField("node", req.NodeName).
+		WithField("duration_ms", snapshotDuration.Milliseconds()).
+		WithField("snapshots", len(snapshots)).
+		WithField("skipped", len(skipped)).
+		Info("snapshot phase completed")
 
 	var exportCtx context.Context
 	f := func() (errRet error) {
@@ -477,6 +508,7 @@ func (p *Participant) abortSiblings(exportID string, req *ExportRequest) {
 }
 
 func (p *Participant) executeExport(ctx context.Context, backend modulecapabilities.BackupBackend, req *ExportRequest, snapshots []shardSnapshot, skipped []skippedShard) {
+	exportStart := time.Now()
 	defer func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -491,17 +523,27 @@ func (p *Participant) executeExport(ctx context.Context, backend modulecapabilit
 	}
 
 	if err := p.doExport(ctx, backend, req, nodeStatus, snapshots, skipped); err != nil {
+		p.metrics.Duration.Observe(time.Since(exportStart).Seconds())
+		if ctx.Err() != nil {
+			p.metrics.OperationsTotal.WithLabelValues("canceled").Inc()
+		} else {
+			p.metrics.OperationsTotal.WithLabelValues("failed").Inc()
+		}
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
+			WithField("duration_ms", time.Since(exportStart).Milliseconds()).
 			Error(err)
 		// Best-effort: notify sibling nodes to abort so they stop quickly
 		// instead of waiting for the next periodic sibling-health check.
 		p.abortSiblings(req.ID, req)
 	} else {
+		p.metrics.Duration.Observe(time.Since(exportStart).Seconds())
+		p.metrics.OperationsTotal.WithLabelValues("success").Inc()
 		p.logger.WithField("action", "export_participant").
 			WithField("export_id", req.ID).
 			WithField("node", req.NodeName).
+			WithField("duration_ms", time.Since(exportStart).Milliseconds()).
 			Info("participant export completed successfully")
 	}
 
@@ -628,7 +670,7 @@ func (p *Participant) doExport(ctx context.Context, backend modulecapabilities.B
 	}
 
 	// Scan all snapshots in parallel using an N-worker pool.
-	parallelism := runtime.GOMAXPROCS(0) * 2
+	parallelism := p.getExportParallelism()
 	jobCh := make(chan scanJob, parallelism)
 
 	// Start N workers that process scan jobs.
@@ -828,6 +870,15 @@ func (p *Participant) submitShardJobs(
 	}
 
 	ranges := computeRanges(snapshotBucket, parallelism)
+	shardScanStart := time.Now()
+
+	p.logger.WithField("action", "export_participant").
+		WithField("export_id", req.ID).
+		WithField("class", snap.className).
+		WithField("shard", snap.shardName).
+		WithField("ranges", len(ranges)).
+		WithField("estimated_objects", snapshotBucket.CountAsync()).
+		Info("starting shard scan")
 
 	writerCfg := &rangeWriterConfig{
 		backend:   backend,
@@ -838,6 +889,7 @@ func (p *Participant) submitShardJobs(
 		logger:    p.logger,
 		onFlush: func(n int64) {
 			nodeStatus.AddShardExported(snap.className, snap.shardName, n)
+			p.metrics.ObjectsTotal.Add(float64(n))
 		},
 	}
 
@@ -894,16 +946,26 @@ rangeloop:
 		}
 		os.RemoveAll(snap.dir)
 
+		shardDuration := time.Since(shardScanStart)
 		if shardErr != nil {
+			p.logger.WithField("action", "export_participant").
+				WithField("export_id", req.ID).
+				WithField("class", snap.className).
+				WithField("shard", snap.shardName).
+				WithField("duration_ms", shardDuration.Milliseconds()).
+				Errorf("shard scan failed: %v", shardErr)
 			nodeStatus.SetShardProgress(snap.className, snap.shardName, export.ShardFailed, shardErr.Error(), "")
 			return
 		}
 
 		written := nodeStatus.GetShardWritten(snap.className, snap.shardName)
 
-		p.logger.WithField("class", snap.className).
+		p.logger.WithField("action", "export_participant").
+			WithField("export_id", req.ID).
+			WithField("class", snap.className).
 			WithField("shard", snap.shardName).
 			WithField("objects", written).
+			WithField("duration_ms", shardDuration.Milliseconds()).
 			Info("shard export completed")
 
 		if written == 0 {
@@ -1155,4 +1217,30 @@ func (p *Participant) startNodeStatusWriter(
 			wg.Wait()
 		})
 	}
+}
+
+// getExportParallelism returns the number of concurrent scan workers for the
+// export pipeline. It reads the dynamic config value (settable via
+// EXPORT_PARALLELISM env var or runtime overrides). A value of 0 (default)
+// means GOMAXPROCS.
+//
+// Values above GOMAXPROCS*maxExportParallelismMultiplier are clamped to
+// bound memory (each worker holds a 16 MB pipe buffer plus an LSM cursor)
+// and a warning is logged.
+func (p *Participant) getExportParallelism() int {
+	maxP := runtime.GOMAXPROCS(0)
+	n := maxP
+	if p.exportParallelism != nil {
+		if configured := p.exportParallelism.Get(); configured > 0 {
+			n = configured
+		}
+	}
+	if limit := maxP * maxExportParallelismMultiplier; n > limit {
+		p.logger.WithField("action", "export_participant").
+			WithField("configured", n).
+			WithField("capped", limit).
+			Warnf("EXPORT_PARALLELISM=%d exceeds cap of GOMAXPROCS*%d=%d; clamping", n, maxExportParallelismMultiplier, limit)
+		n = limit
+	}
+	return n
 }

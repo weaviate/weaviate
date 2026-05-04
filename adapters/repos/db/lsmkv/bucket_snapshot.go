@@ -303,9 +303,9 @@ func NewSnapshotBucket(
 	// Snapshot-enforced options go AFTER caller opts so they cannot be
 	// overridden — snapshot buckets must always be read-only and non-compacting.
 	// Copy into a new slice to avoid mutating the caller's underlying array.
-	allOpts := make([]BucketOption, len(opts), len(opts)+2)
+	allOpts := make([]BucketOption, len(opts), len(opts)+3)
 	copy(allOpts, opts)
-	allOpts = append(allOpts, WithDisableCompaction(true), WithImmutable(true))
+	allOpts = append(allOpts, WithDisableCompaction(true), WithImmutable(true), WithSequentialAccess(true))
 	return NewBucketCreator().NewBucket(ctx, snapshotDir, snapshotDir,
 		logger, nil, noopCB, noopCB, allOpts...)
 }

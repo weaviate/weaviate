@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +32,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -57,15 +58,39 @@ const (
 
 type replicationClient struct {
 	retryClient
+	zstdEncoderPool sync.Pool
 }
 
-func NewReplicationClient(httpClient *http.Client) *replicationClient {
-	return &replicationClient{
+var _ replica.Client = (*replicationClient)(nil)
+
+func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
+	// Verify encoder creation works at startup before returning the client.
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	}
+	c := &replicationClient{
 		retryClient: retryClient{
 			client:  httpClient,
 			retryer: newRetryer(),
 		},
 	}
+	// zstdEncoderPool reuses *zstd.Encoder instances across goroutines.
+	// A pool is required because zstd.Encoder is not safe for concurrent use:
+	// each caller acquires an exclusive encoder via Get, runs EncodeAll, then
+	// returns it with Put. New returns nil on failure; call sites guard with
+	// an ok+nil check and fall back to creating a fresh encoder.
+	c.zstdEncoderPool = sync.Pool{
+		New: func() any {
+			e, err := zstd.NewWriter(nil)
+			if err != nil {
+				return nil
+			}
+			return e
+		},
+	}
+	c.zstdEncoderPool.Put(enc)
+	return c, nil
 }
 
 // FetchObject fetches one object it exits
@@ -188,12 +213,15 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}
 
-	enc, err := zstd.NewWriter(nil)
-	if err != nil {
-		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
+	if !ok || enc == nil {
+		enc, err = zstd.NewWriter(nil)
+		if err != nil {
+			return nil, fmt.Errorf("create zstd encoder: %w", err)
+		}
 	}
-	defer enc.Close()
 	bodyBytes := enc.EncodeAll(body, make([]byte, 0, len(body)))
+	c.zstdEncoderPool.Put(enc)
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
 	defer cancel()
@@ -229,6 +257,21 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	return result, err
 }
 
+func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	var resp int
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodGet, host, index, shard,
+		"", "_count", nil, 0,
+	)
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	// CountObjects is used as a best-effort consistency check during aggregation, so we don't want to retry on error
+	// We just accept the error and return it so it can be ignored in the reconciliation logic
+	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, &resp, 0)
+	return resp, err
+}
+
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
@@ -237,12 +280,15 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
 
-	enc, err := zstd.NewWriter(nil)
-	if err != nil {
-		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
+	if !ok || enc == nil {
+		enc, err = zstd.NewWriter(nil)
+		if err != nil {
+			return nil, fmt.Errorf("create zstd encoder: %w", err)
+		}
 	}
-	defer enc.Close()
 	bodyCompressed := enc.EncodeAll(body, make([]byte, 0, len(body)))
+	c.zstdEncoderPool.Put(enc)
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,

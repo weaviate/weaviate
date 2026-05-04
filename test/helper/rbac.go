@@ -204,6 +204,22 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 	return resp.Payload
 }
 
+// CreateRoleAndAssign creates a role with the given permissions, assigns it to
+// an already-existing user, and registers a t.Cleanup that reverses both
+// (revoke role then delete role). The user is not created or deleted here —
+// callers are expected to declare users statically on the compose (see
+// docker.WithUserApiKey).
+func CreateRoleAndAssign(t *testing.T, adminKey, userName, roleName string, permissions ...*models.Permission) {
+	t.Helper()
+	role := &models.Role{Name: &roleName, Permissions: permissions}
+	CreateRole(t, adminKey, role)
+	AssignRoleToUser(t, adminKey, roleName, userName)
+	t.Cleanup(func() {
+		RevokeRoleFromUser(t, adminKey, roleName, userName)
+		DeleteRole(t, adminKey, roleName)
+	})
+}
+
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
 	userType := models.UserTypeInputDb

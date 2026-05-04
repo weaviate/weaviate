@@ -316,6 +316,16 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_ADD_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Add(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Delete(&cmd)
+		}
+
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)

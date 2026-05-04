@@ -78,23 +78,11 @@ type ExportCancelParams struct {
 	*/
 	Backend string
 
-	/* Bucket.
-
-	   Optional bucket name where the export is stored.
-	*/
-	Bucket *string
-
 	/* ID.
 
 	   The unique identifier of the export to cancel.
 	*/
 	ID string
-
-	/* Path.
-
-	   Optional path prefix within the bucket.
-	*/
-	Path *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -160,17 +148,6 @@ func (o *ExportCancelParams) SetBackend(backend string) {
 	o.Backend = backend
 }
 
-// WithBucket adds the bucket to the export cancel params
-func (o *ExportCancelParams) WithBucket(bucket *string) *ExportCancelParams {
-	o.SetBucket(bucket)
-	return o
-}
-
-// SetBucket adds the bucket to the export cancel params
-func (o *ExportCancelParams) SetBucket(bucket *string) {
-	o.Bucket = bucket
-}
-
 // WithID adds the id to the export cancel params
 func (o *ExportCancelParams) WithID(id string) *ExportCancelParams {
 	o.SetID(id)
@@ -180,17 +157,6 @@ func (o *ExportCancelParams) WithID(id string) *ExportCancelParams {
 // SetID adds the id to the export cancel params
 func (o *ExportCancelParams) SetID(id string) {
 	o.ID = id
-}
-
-// WithPath adds the path to the export cancel params
-func (o *ExportCancelParams) WithPath(path *string) *ExportCancelParams {
-	o.SetPath(path)
-	return o
-}
-
-// SetPath adds the path to the export cancel params
-func (o *ExportCancelParams) SetPath(path *string) {
-	o.Path = path
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -206,43 +172,9 @@ func (o *ExportCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 		return err
 	}
 
-	if o.Bucket != nil {
-
-		// query param bucket
-		var qrBucket string
-
-		if o.Bucket != nil {
-			qrBucket = *o.Bucket
-		}
-		qBucket := qrBucket
-		if qBucket != "" {
-
-			if err := r.SetQueryParam("bucket", qBucket); err != nil {
-				return err
-			}
-		}
-	}
-
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
-	}
-
-	if o.Path != nil {
-
-		// query param path
-		var qrPath string
-
-		if o.Path != nil {
-			qrPath = *o.Path
-		}
-		qPath := qrPath
-		if qPath != "" {
-
-			if err := r.SetQueryParam("path", qPath); err != nil {
-				return err
-			}
-		}
 	}
 
 	if len(res) > 0 {

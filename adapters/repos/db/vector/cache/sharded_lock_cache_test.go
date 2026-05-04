@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestVectorCacheGrowth(t *testing.T) {
@@ -349,26 +350,36 @@ func TestMultiCacheCleanup(t *testing.T) {
 func TestGet_OutOfBounds(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
-	t.Run("shardedLockCache returns error for out-of-bounds id", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	notFoundVecForID := func(ctx context.Context, id uint64) ([]float32, error) {
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+	notFoundMultiVecForID := func(ctx context.Context, id uint64) ([][]float32, error) {
+		return nil, storobj.NewErrNotFoundf(id, "not found")
+	}
+
+	t.Run("shardedLockCache grows and handles miss for out-of-bounds id", func(t *testing.T) {
+		vectorCache := NewShardedFloat32LockCache(notFoundVecForID, nil, 1_000_000, 1, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
 
 		outOfBoundsID := uint64(len(cache.cache) + 1)
 		vec, err := cache.Get(context.Background(), outOfBoundsID)
 
 		assert.Nil(t, vec)
-		assert.ErrorContains(t, err, "out of bounds")
+		assert.Error(t, err)
+		// Cache should have grown to accommodate the ID.
+		assert.Greater(t, len(cache.cache), int(outOfBoundsID))
 	})
 
-	t.Run("shardedLockCache returns error for id exactly at cache length", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(nil, nil, 1_000_000, 1, logger, false, 0, nil)
+	t.Run("shardedLockCache grows and handles miss for id exactly at cache length", func(t *testing.T) {
+		vectorCache := NewShardedFloat32LockCache(notFoundVecForID, nil, 1_000_000, 1, logger, false, 0, nil)
 		cache := vectorCache.(*shardedLockCache[float32])
 
 		atBoundID := uint64(len(cache.cache))
 		vec, err := cache.Get(context.Background(), atBoundID)
 
 		assert.Nil(t, vec)
-		assert.ErrorContains(t, err, "out of bounds")
+		assert.Error(t, err)
+		assert.Greater(t, len(cache.cache), int(atBoundID))
 	})
 
 	t.Run("shardedLockCache returns vector for valid id", func(t *testing.T) {
@@ -383,28 +394,28 @@ func TestGet_OutOfBounds(t *testing.T) {
 		assert.Equal(t, expected, vec)
 	})
 
-	t.Run("shardedMultipleLockCache returns error for out-of-bounds id", func(t *testing.T) {
-		var multivecForId common.VectorForID[[]float32] = nil
-		vectorCache := NewShardedMultiFloat32LockCache(multivecForId, 1_000_000, logger, false, 0, nil)
+	t.Run("shardedMultipleLockCache grows and handles miss for out-of-bounds id", func(t *testing.T) {
+		vectorCache := NewShardedMultiFloat32LockCache(notFoundMultiVecForID, 1_000_000, logger, false, 0, nil)
 		cache := vectorCache.(*shardedMultipleLockCache[float32])
 
 		outOfBoundsID := uint64(len(cache.cache) + 1)
 		vec, err := cache.Get(context.Background(), outOfBoundsID)
 
 		assert.Nil(t, vec)
-		assert.ErrorContains(t, err, "out of bounds")
+		assert.Error(t, err)
+		assert.Greater(t, len(cache.cache), int(outOfBoundsID))
 	})
 
-	t.Run("shardedMultipleLockCache returns error for id exactly at cache length", func(t *testing.T) {
-		var multivecForId common.VectorForID[[]float32] = nil
-		vectorCache := NewShardedMultiFloat32LockCache(multivecForId, 1_000_000, logger, false, 0, nil)
+	t.Run("shardedMultipleLockCache grows and handles miss for id exactly at cache length", func(t *testing.T) {
+		vectorCache := NewShardedMultiFloat32LockCache(notFoundMultiVecForID, 1_000_000, logger, false, 0, nil)
 		cache := vectorCache.(*shardedMultipleLockCache[float32])
 
 		atBoundID := uint64(len(cache.cache))
 		vec, err := cache.Get(context.Background(), atBoundID)
 
 		assert.Nil(t, vec)
-		assert.ErrorContains(t, err, "out of bounds")
+		assert.Error(t, err)
+		assert.Greater(t, len(cache.cache), int(atBoundID))
 	})
 
 	t.Run("shardedMultipleLockCache returns vector for valid id", func(t *testing.T) {

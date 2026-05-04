@@ -20,12 +20,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/export"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
+
+// testMetrics creates a fresh ExportMetrics registered on an isolated
+// Prometheus registry so parallel tests don't interfere.
+func testMetrics() *ExportMetrics {
+	return NewExportMetrics(prometheus.NewRegistry())
+}
 
 // fakeNodeResolver resolves node names to hostnames from a static map.
 type fakeNodeResolver struct {
@@ -264,7 +273,7 @@ type fakeBackendProvider struct {
 	backend modulecapabilities.BackupBackend
 }
 
-func (p *fakeBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
+func (p *fakeBackendProvider) BackupBackend(_ string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	return p.backend, nil
 }
 
@@ -381,5 +390,15 @@ func (b *writeBlockingBackend) waitForParquetWrite(t *testing.T) {
 	case <-b.parquetReady:
 	case <-time.After(10 * time.Second):
 		t.Fatal("no parquet write attempted within timeout")
+	}
+}
+
+// testExportConfig returns an Export config with export enabled and a test bucket,
+// suitable for unit tests that need a non-nil exportConfig.
+func testExportConfig() config.Export {
+	return config.Export{
+		Enabled:       configRuntime.NewDynamicValue(true),
+		DefaultBucket: configRuntime.NewDynamicValue("test-bucket"),
+		DefaultPath:   configRuntime.NewDynamicValue(""),
 	}
 }

@@ -865,6 +865,25 @@ func TestEnvironmentAuthentication(t *testing.T) {
 					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
 					Certificate:       configRuntime.NewDynamicValue(""),
 					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(false),
+				},
+			},
+		},
+		{
+			name:         "Valid OIDC Auth with SkipTLSVerify",
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY"},
+			expected: Authentication{
+				OIDC: OIDC{
+					Enabled:           true,
+					Issuer:            configRuntime.NewDynamicValue(""),
+					ClientID:          configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
+					UsernameClaim:     configRuntime.NewDynamicValue(""),
+					GroupsClaim:       configRuntime.NewDynamicValue(""),
+					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:       configRuntime.NewDynamicValue(""),
+					JWKSUrl:           configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:     configRuntime.NewDynamicValue(true),
 				},
 			},
 		},
@@ -887,8 +906,8 @@ func TestEnvironmentAuthentication(t *testing.T) {
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.auth_env_var) == 1 {
-				t.Setenv(tt.auth_env_var[0], "true")
+			for _, envVar := range tt.auth_env_var {
+				t.Setenv(envVar, "true")
 			}
 			conf := Config{}
 			err := FromEnv(&conf)
@@ -1508,6 +1527,142 @@ func TestParsePositiveDuration(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestEnvironmentExportDefaultPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		// preset simulates a value coming from the startup config file
+		// (YAML/JSON), which is parsed into Config before FromEnv runs.
+		preset   *string
+		expected string
+	}{
+		{
+			name:     "env set",
+			envValue: []string{"custom/prefix"},
+			expected: "custom/prefix",
+		},
+		{
+			name:     "env set with whitespace trimmed",
+			envValue: []string{"  some/path  "},
+			expected: "some/path",
+		},
+		{
+			name:     "env set to empty string",
+			envValue: []string{""},
+			expected: "",
+		},
+		{
+			name:     "not set defaults to empty",
+			envValue: []string{},
+			expected: "",
+		},
+		{
+			name:     "preset via startup config is preserved",
+			envValue: []string{},
+			preset:   stringPtr("from/config/file"),
+			expected: "from/config/file",
+		},
+		{
+			name:     "preset via startup config with empty string is preserved",
+			envValue: []string{},
+			preset:   stringPtr(""),
+			expected: "",
+		},
+		{
+			name:     "env overrides preset from startup config",
+			envValue: []string{"from/env"},
+			preset:   stringPtr("from/config/file"),
+			expected: "from/env",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.envValue) == 1 {
+				t.Setenv("EXPORT_DEFAULT_PATH", tt.envValue[0])
+			}
+			conf := Config{}
+			if tt.preset != nil {
+				conf.Export.DefaultPath = configRuntime.NewDynamicValue(*tt.preset)
+			}
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Export.DefaultPath.Get())
+		})
+	}
+}
+
+func stringPtr(s string) *string { return &s }
+
+func TestEnvironmentExportDefaultBucket(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue []string
+		expected string
+	}{
+		{
+			name:     "set",
+			envValue: []string{"my-bucket"},
+			expected: "my-bucket",
+		},
+		{
+			name:     "set with whitespace trimmed",
+			envValue: []string{"  my-bucket  "},
+			expected: "my-bucket",
+		},
+		{
+			name:     "not set defaults to empty",
+			envValue: []string{},
+			expected: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.envValue) == 1 {
+				t.Setenv("EXPORT_DEFAULT_BUCKET", tt.envValue[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Export.DefaultBucket.Get())
+		})
+	}
+}
+
+func TestEnvironmentDefaultVectorIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    string
+		expectedErr string
+	}{
+		{"not set", "", "", ""},
+		{"hnsw", "hnsw", "hnsw", ""},
+		{"flat", "flat", "flat", ""},
+		{"dynamic", "dynamic", "dynamic", ""},
+		{"hfresh", "hfresh", "hfresh", ""},
+		{"uppercase FLAT", "FLAT", "flat", ""},
+		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
+		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.value != "" {
+				t.Setenv("DEFAULT_VECTOR_INDEX", tt.value)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.DefaultVectorIndexType.Get())
 			}
 		})
 	}

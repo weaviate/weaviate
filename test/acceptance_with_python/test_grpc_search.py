@@ -12,6 +12,7 @@ from .conftest import CollectionFactory
 
 UUID1 = "00000000-0000-0000-0000-000000000001"
 
+
 def test_fetch_objects_search(collection_factory: CollectionFactory) -> None:
     collection = collection_factory(
         properties=[Property(name="Name", data_type=DataType.TEXT)],
@@ -125,6 +126,7 @@ def test_near_text_search(
     if return_properties is not None:
         assert objs[0].properties["value"] == "apple cake"
 
+
 def test_hybrid_near_vector_search(collection_factory: CollectionFactory) -> None:
     collection = collection_factory(
         properties=[
@@ -170,25 +172,33 @@ def test_implicit_nested_object_return_props(collection_factory: CollectionFacto
     collection = collection_factory(
         properties=[
             Property(name="name", data_type=DataType.TEXT),
-            Property(name="nested", data_type=DataType.OBJECT, nested_properties=[
-                Property(name="nested_name", data_type=DataType.TEXT),
-                Property(name="nested_nested", data_type=DataType.OBJECT, nested_properties=[
-                    Property(name="nested_nested_name", data_type=DataType.TEXT)
-                ]),
-            ]),
+            Property(
+                name="nested",
+                data_type=DataType.OBJECT,
+                nested_properties=[
+                    Property(name="nested_name", data_type=DataType.TEXT),
+                    Property(
+                        name="nested_nested",
+                        data_type=DataType.OBJECT,
+                        nested_properties=[
+                            Property(name="nested_nested_name", data_type=DataType.TEXT)
+                        ],
+                    ),
+                ],
+            ),
         ],
         vectorizer_config=Configure.Vectorizer.none(),
     )
 
-    uuid = collection.data.insert({
-        "name": "test",
-        "nested": {
-            "nested_name": "nested_test",
-            "nested_nested": {
-                "nested_nested_name": "nested_nested_test"
-            }
+    uuid = collection.data.insert(
+        {
+            "name": "test",
+            "nested": {
+                "nested_name": "nested_test",
+                "nested_nested": {"nested_nested_name": "nested_nested_test"},
+            },
         }
-    })
+    )
 
     obj = collection.query.fetch_object_by_id(uuid, return_properties=["name", "nested"]).properties
     assert obj["name"] == "test"

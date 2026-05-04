@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type Handler struct {
@@ -35,15 +36,17 @@ type Handler struct {
 	batchManager  *objects.BatchManager
 	logger        logrus.FieldLogger
 	schemaManager *schema.Manager
+	nsEnabled     bool
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, nsEnabled bool) *Handler {
 	return &Handler{
 		authorizer:    authorizer,
 		authenticator: authenticator,
 		batchManager:  batchManager,
 		logger:        logger,
 		schemaManager: schemaManager,
+		nsEnabled:     nsEnabled,
 	}
 }
 
@@ -63,10 +66,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
-		// classname might be an alias
-		if cls := h.schemaManager.ResolveAlias(classname); cls != "" {
-			classname = cls
-		}
+		classname, _ = namespacing.Resolve(principal, h.schemaManager, h.nsEnabled, classname)
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]

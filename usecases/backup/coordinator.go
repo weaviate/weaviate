@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -640,7 +641,7 @@ func (c *coordinator) commit(ctx context.Context,
 			// for the whole cluster (not just the node)
 			// Skip this for restore operations
 			if req.Method != OpRestore {
-				if backend, err := c.backends.BackupBackend(req.Backend); err == nil {
+				if backend, err := c.backends.BackupBackend(req.Backend, modulecapabilities.BackendUseCaseBackup); err == nil {
 					// Create a nodeStore for this specific node
 					nodeBackupID := fmt.Sprintf("%s/%s", req.ID, node)
 					nodeStore := nodeStore{

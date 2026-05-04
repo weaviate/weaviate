@@ -13,12 +13,14 @@ package authorization
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestUsers(t *testing.T) {
@@ -213,6 +215,84 @@ func TestTenants(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestNamespaces(t *testing.T) {
+	tests := []struct {
+		name     string
+		names    []string
+		expected []string
+	}{
+		{"No names", []string{}, []string{fmt.Sprintf("%s/*", NamespacesDomain)}},
+		{"Single empty string", []string{""}, []string{fmt.Sprintf("%s/*", NamespacesDomain)}},
+		{"Single wildcard", []string{"*"}, []string{fmt.Sprintf("%s/*", NamespacesDomain)}},
+		{"Single name", []string{"customer1"}, []string{fmt.Sprintf("%s/customer1", NamespacesDomain)}},
+		{"Multiple names", []string{"customer1", "customer2"}, []string{fmt.Sprintf("%s/customer1", NamespacesDomain), fmt.Sprintf("%s/customer2", NamespacesDomain)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Namespaces(tt.names...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestBuiltInPermissions_NamespaceManageOnly asserts that the manage_namespaces
+// action is granted only to admin-level built-in roles. The viewer/read-only
+// roles rely on the convention that availableWeaviateActions entries starting
+// with a letter other than 'R' are filtered out of viewerPermissions(); this
+// test locks in that the namespaces domain exposes no read-prefixed action,
+// so viewers get none of it.
+func TestBuiltInPermissions_NamespaceManageOnly(t *testing.T) {
+	hasNamespaceAction := func(perms []*models.Permission) bool {
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			if strings.HasSuffix(*p.Action, "_namespaces") {
+				return true
+			}
+		}
+		return false
+	}
+
+	hasBackupAction := func(perms []*models.Permission) bool {
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			if strings.HasSuffix(*p.Action, "_backups") {
+				return true
+			}
+		}
+		return false
+	}
+
+	hasExactAction := func(perms []*models.Permission, action string) bool {
+		for _, p := range perms {
+			if p == nil || p.Action == nil {
+				continue
+			}
+			if *p.Action == action {
+				return true
+			}
+		}
+		return false
+	}
+
+	admin := BuiltInPermissions[Admin]
+	root := BuiltInPermissions[Root]
+	viewer := BuiltInPermissions[Viewer]
+	readOnly := BuiltInPermissions[ReadOnly]
+
+	assert.True(t, hasExactAction(admin, ManageNamespaces), "Admin must include manage_namespaces")
+	assert.True(t, hasExactAction(root, ManageNamespaces), "Root must include manage_namespaces")
+	assert.False(t, hasNamespaceAction(viewer), "Viewer must not include any *_namespaces action")
+	assert.False(t, hasNamespaceAction(readOnly), "ReadOnly must not include any *_namespaces action")
+	// Regression guard for the "only R-prefixed actions survive viewer filter"
+	// convention: backups has no read-prefixed action either, so viewers get none.
+	assert.False(t, hasBackupAction(viewer), "Viewer must not include any *_backups action")
 }
 
 func TestGetWildcardPath(t *testing.T) {

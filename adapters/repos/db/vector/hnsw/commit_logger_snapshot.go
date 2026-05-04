@@ -265,7 +265,193 @@ func (l *hnswCommitLogger) shouldCreateSnapshot(logger logrus.FieldLogger,
 	return true
 }
 
+// migrateCompactV2Snapshot moves any .snapshot files found in the commitlog
+// directory to the snapshot directory. Compact v2 stores snapshots alongside
+// commit logs; this version expects them in a separate directory.
+// Range-named files (e.g. 1000_1500.snapshot) are renamed to {endTS}.snapshot
+// so the existing snapshot machinery can parse them.
+// The method is idempotent: once moved, there is nothing left to migrate.
+func (l *hnswCommitLogger) migrateCompactV2Snapshot() error {
+	commitlogDir := commitLogDirectory(l.rootPath, l.id)
+	entries, err := l.fs.ReadDir(commitlogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrap(err, "read commitlog directory")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".snapshot") {
+			continue
+		}
+
+		// Parse end timestamp (handles both {ts}.snapshot and {start}_{end}.snapshot)
+		name := strings.TrimSuffix(entry.Name(), ".snapshot")
+		var endTS int64
+		if _, end, ok := strings.Cut(name, "_"); ok {
+			endTS, err = strconv.ParseInt(end, 10, 64)
+		} else {
+			endTS, err = strconv.ParseInt(name, 10, 64)
+		}
+		if err != nil {
+			continue // skip files we can't parse
+		}
+
+		// Ensure snapshot directory exists
+		snapshotDir := snapshotDirectory(l.rootPath, l.id)
+		if err := l.fs.MkdirAll(snapshotDir, 0o755); err != nil {
+			return errors.Wrap(err, "create snapshot directory")
+		}
+
+		oldPath := filepath.Join(commitlogDir, entry.Name())
+		newName := fmt.Sprintf("%d.snapshot", endTS)
+		newPath := filepath.Join(snapshotDir, newName)
+
+		if err := l.fs.Rename(oldPath, newPath); err != nil {
+			return errors.Wrapf(err, "migrate snapshot %s to %s", oldPath, newPath)
+		}
+
+		l.logger.WithFields(logrus.Fields{
+			"action":   "migrate_compact_v2_snapshot",
+			"old_path": oldPath,
+			"new_path": newPath,
+		}).Info("migrated compact v2 snapshot to snapshot directory")
+	}
+
+	return nil
+}
+
+// migrateCompactV2SortedFiles renames any compact v2 ".sorted" commit log
+// files to plain "{endTS}.condensed". A .sorted file is just a re-ordered
+// WAL, so renaming is enough — the rest of the commit logger (condensor,
+// combiner, snapshotFileName, ...) only knows about ".condensed" and would
+// otherwise produce chained suffixes like ".sorted.snapshot".
+// The method is idempotent: once renamed, there is nothing left to migrate.
+func (l *hnswCommitLogger) migrateCompactV2SortedFiles() error {
+	commitlogDir := commitLogDirectory(l.rootPath, l.id)
+	entries, err := l.fs.ReadDir(commitlogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrap(err, "read commitlog directory")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sorted") {
+			continue
+		}
+		name := entry.Name()
+		inner := strings.TrimSuffix(name, ".sorted")
+
+		// Parse end timestamp (handles both "{ts}" and "{start}_{end}")
+		var endTS int64
+		if _, end, ok := strings.Cut(inner, "_"); ok {
+			endTS, err = strconv.ParseInt(end, 10, 64)
+		} else {
+			endTS, err = strconv.ParseInt(inner, 10, 64)
+		}
+		if err != nil {
+			continue // skip files we can't parse
+		}
+
+		oldPath := filepath.Join(commitlogDir, name)
+		newName := fmt.Sprintf("%d.condensed", endTS)
+		newPath := filepath.Join(commitlogDir, newName)
+
+		// Don't clobber an existing condensed file with the same end timestamp.
+		if _, err := l.fs.Stat(newPath); err == nil {
+			l.logger.WithFields(logrus.Fields{
+				"action":   "migrate_compact_v2_sorted",
+				"old_path": oldPath,
+				"new_path": newPath,
+			}).Warn("destination already exists, skipping migration")
+			continue
+		}
+
+		if err := l.fs.Rename(oldPath, newPath); err != nil {
+			return errors.Wrapf(err, "migrate sorted file %s to %s", oldPath, newPath)
+		}
+
+		l.logger.WithFields(logrus.Fields{
+			"action":   "migrate_compact_v2_sorted",
+			"old_path": oldPath,
+			"new_path": newPath,
+		}).Info("migrated compact v2 sorted file to condensed")
+	}
+
+	return nil
+}
+
+// cleanupCompactV2TempFiles removes orphan ".tmp" files left in the commitlog
+// directory by a crashed compact v2 write. Compact v2's SafeFileWriter writes
+// to "{finalPath}.tmp" and atomically renames on commit; if the process died
+// before the rename, the .tmp file persists. v1.37 only handles ".scratch.tmp"
+// and ".combined.tmp" — anything else (e.g. "1500.sorted.tmp") would slip
+// through and break getCommitFiles' timestamp parsing.
+//
+// v1.37 itself never writes ".sorted.tmp" or ".snapshot.tmp" in this directory,
+// so deleting them is safe.
+func (l *hnswCommitLogger) cleanupCompactV2TempFiles() error {
+	commitlogDir := commitLogDirectory(l.rootPath, l.id)
+	entries, err := l.fs.ReadDir(commitlogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrap(err, "read commitlog directory")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".sorted.tmp") && !strings.HasSuffix(name, ".snapshot.tmp") {
+			continue
+		}
+
+		path := filepath.Join(commitlogDir, name)
+		if err := l.fs.Remove(path); err != nil && !os.IsNotExist(err) {
+			return errors.Wrapf(err, "remove orphan temp file %s", path)
+		}
+
+		l.logger.WithFields(logrus.Fields{
+			"action": "cleanup_compact_v2_tmp",
+			"path":   path,
+		}).Info("removed orphan compact v2 temp file")
+	}
+
+	return nil
+}
+
+// migrateFromCompactV2 normalizes any compact v2 on-disk artifacts so the
+// rest of the commit logger only sees v1.37 native formats. Runs once at
+// startup and is a no-op when no compact v2 artifacts are present.
+// Failures are logged but non-fatal: a partial migration leaves some
+// artifacts in place rather than blocking startup.
+func (l *hnswCommitLogger) migrateFromCompactV2() {
+	// .snapshot files in the commitlog dir → snapshot dir.
+	if err := l.migrateCompactV2Snapshot(); err != nil {
+		l.logger.Warnf("failed to migrate compact v2 snapshot: %v", err)
+	}
+
+	// .sorted commit log files → .condensed (a .sorted file is just a
+	// re-ordered WAL, so renaming is enough).
+	if err := l.migrateCompactV2SortedFiles(); err != nil {
+		l.logger.Warnf("failed to migrate compact v2 sorted files: %v", err)
+	}
+
+	// Orphan .tmp leftovers from a crashed compact v2 write.
+	if err := l.cleanupCompactV2TempFiles(); err != nil {
+		l.logger.Warnf("failed to cleanup compact v2 temp files: %v", err)
+	}
+}
+
 func (l *hnswCommitLogger) initSnapshotData() error {
+	l.migrateFromCompactV2()
+
 	dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
 	if ln := len(dirs); ln > 2 {
 		dirs = dirs[ln-2:]
@@ -363,8 +549,23 @@ func (l *hnswCommitLogger) calcCommitlogsSize(commitLogPaths ...string) int64 {
 }
 
 func (l *hnswCommitLogger) snapshotFileName(commitLogFileName string) string {
-	path := strings.TrimSuffix(commitLogFileName, ".condensed") + ".snapshot"
-	return strings.Replace(path, ".hnsw.commitlog.d", snapshotDirSuffix, 1)
+	dir := strings.Replace(filepath.Dir(commitLogFileName), ".hnsw.commitlog.d", snapshotDirSuffix, 1)
+	base := filepath.Base(commitLogFileName)
+
+	// Strip known commit log suffixes so the snapshot name is built from
+	// the bare timestamp(s). ".sorted" is produced by compact v2.
+	for _, suffix := range []string{".condensed", ".sorted"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+
+	// Compact v2 produces range-format files (e.g. "1000_1500"). Use the
+	// end timestamp so the resulting snapshot filename is a single integer
+	// that cleanupSnapshots and the rest of the snapshot machinery can parse.
+	if _, end, ok := strings.Cut(base, "_"); ok {
+		base = end
+	}
+
+	return filepath.Join(dir, base+".snapshot")
 }
 
 // read the directory and find the latest snapshot file

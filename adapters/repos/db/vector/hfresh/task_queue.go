@@ -42,7 +42,7 @@ const (
 
 type TaskQueue struct {
 	// queue for analyze operations
-	analyzeQueue *queue.DiskQueue
+	analyzeQueue *analyzeQueue
 	// queue for split operations
 	splitQueue *queue.DiskQueue
 	// queue for reassign operations
@@ -77,7 +77,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	}
 
 	// create queue for analyze operations
-	tq.analyzeQueue, err = queue.NewDiskQueue(
+	aq, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:               fmt.Sprintf("hfresh_analyze_queue_%s_%s", index.config.ShardName, index.config.ID),
 			Logger:           index.logger,
@@ -91,7 +91,7 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hfresh analyze queue")
 	}
-	err = tq.analyzeQueue.Init()
+	err = aq.Init()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh analyze queue")
 	}
@@ -135,6 +135,8 @@ func NewTaskQueue(index *HFresh, bucket *lsmkv.Bucket) (*TaskQueue, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize hfresh reassign queue")
 	}
+
+	tq.analyzeQueue = &analyzeQueue{DiskQueue: aq, reassignQueue: tq.reassignQueue}
 
 	// create queue for merge operations
 	tq.mergeQueue, err = queue.NewDiskQueue(
@@ -249,7 +251,7 @@ func (tq *TaskQueue) EnqueueAnalyze(postingID uint64) error {
 		return errors.Wrap(err, "failed to push analyze operation to queue")
 	}
 
-	tq.index.metrics.EnqueueAnalyzeTask()
+	tq.index.metrics.SetPendingAnalyzeTasks(tq.analyzeQueue.Size())
 	return nil
 }
 
@@ -263,7 +265,7 @@ func (tq *TaskQueue) EnqueueSplit(postingID uint64) error {
 		return errors.Wrap(err, "failed to push split operation to queue")
 	}
 
-	tq.index.metrics.EnqueueSplitTask()
+	tq.index.metrics.SetPendingSplitTasks(tq.splitQueue.Size())
 
 	return nil
 }
@@ -278,7 +280,7 @@ func (tq *TaskQueue) EnqueueMerge(postingID uint64) error {
 		return errors.Wrap(err, "failed to push merge operation to queue")
 	}
 
-	tq.index.metrics.EnqueueMergeTask()
+	tq.index.metrics.SetPendingMergeTasks(tq.mergeQueue.Size())
 
 	return nil
 }
@@ -293,16 +295,22 @@ func (tq *TaskQueue) EnqueueReassign(postingID uint64, vecID uint64, version Vec
 		return errors.Wrap(err, "failed to push reassign operation to queue")
 	}
 
-	tq.index.metrics.EnqueueReassignTask()
+	tq.index.metrics.SetPendingReassignTasks(tq.reassignQueue.Size())
 
 	return nil
 }
 
-// Flush the vector index after a batch is processed.
+// Flush the vector index after a batch is processed
+// and update pending metrics now that the queue sizes have been decremented.
 func (tq *TaskQueue) OnBatchProcessed() {
 	if err := tq.index.Flush(); err != nil {
 		tq.index.logger.WithError(err).Error("failed to flush vector index")
 	}
+
+	tq.index.metrics.SetPendingAnalyzeTasks(tq.analyzeQueue.Size())
+	tq.index.metrics.SetPendingSplitTasks(tq.splitQueue.Size())
+	tq.index.metrics.SetPendingMergeTasks(tq.mergeQueue.Size())
+	tq.index.metrics.SetPendingReassignTasks(tq.reassignQueue.Size())
 }
 
 func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
@@ -348,6 +356,21 @@ func (tq *TaskQueue) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
+// analyzeQueue wraps the underlying disk queue used for analyze operations.
+type analyzeQueue struct {
+	*queue.DiskQueue
+	reassignQueue *queue.DiskQueue
+}
+
+func (a *analyzeQueue) DequeueBatch() (*queue.Batch, error) {
+	// hold off analyzes while there are pending reassigns,
+	// to prioritize reassigns and reduce the chance of cascade
+	if a.reassignQueue.Size() > 0 {
+		return nil, nil
+	}
+	return a.DiskQueue.DequeueBatch()
+}
+
 type AnalyzeTask struct {
 	id  uint64
 	idx *HFresh
@@ -372,7 +395,6 @@ func (t *AnalyzeTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueAnalyzeTask()
 	t.idx.metrics.IncAnalyzeCount()
 	return nil
 }
@@ -401,7 +423,6 @@ func (t *SplitTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueSplitTask()
 	t.idx.metrics.IncSplitCount()
 	return nil
 }
@@ -431,7 +452,6 @@ func (t *MergeTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueMergeTask()
 	t.idx.metrics.IncMergeCount()
 	return nil
 }
@@ -460,7 +480,6 @@ func (t *ReassignTask) Execute(ctx context.Context) error {
 		return err
 	}
 
-	t.idx.metrics.DequeueReassignTask()
 	t.idx.metrics.IncReassignCount()
 	return nil
 }

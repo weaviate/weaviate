@@ -163,7 +163,7 @@ func (p *GenerateProvider) getProperties(result search.Result,
 				textProperties[property] = p.marshalInput(value)
 			case schema.DataTypeCRef:
 				textProperties[property] = p.marshalInput(value)
-			case schema.DataTypeBlob:
+			case schema.DataTypeBlob, schema.DataTypeBlobHash:
 				v := value.(string)
 				blobProperties[property] = &v
 			default:

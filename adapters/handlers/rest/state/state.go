@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -80,6 +81,7 @@ type State struct {
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
 	ExportParticipant  *exportUsecase.Participant
+	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
@@ -87,9 +89,10 @@ type State struct {
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
-	ClusterService *rCluster.Service
-	TenantActivity *tenantactivity.Handler
-	InternalServer types.ClusterServer
+	ClusterService       *rCluster.Service
+	TenantActivity       *tenantactivity.Handler
+	InternalServer       types.ClusterServer
+	NamespacesController *usecasesNamespaces.Controller
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus
@@ -97,7 +100,10 @@ type State struct {
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
 
+	// GRPCConnManager is a general connection manager for any/all gRPC connections used by the application. It implements retry logic and connection pooling.
 	GRPCConnManager *grpcconn.ConnManager
+	// ReplGRPCConnManager is a separate connection manager that implements retry logic to each RPC call on top of connection pooling, specifically for replication traffic.
+	ReplGRPCConnManager *grpcconn.ConnManager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

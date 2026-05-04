@@ -40,7 +40,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
 		obj.Class = schema.UppercaseClassName(obj.Class)
-		cls, _ := b.resolveAlias(obj.Class)
+		cls, _ := b.resolveNS(principal, obj.Class)
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
@@ -224,6 +224,10 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		for i, err := range errorsPerObj {
 			origIndex := originalIndexPerClass[className][i]
 			batchObjects[origIndex].Err = err
+		}
+		// Convert BlobHash properties from raw base64 to hashes after vectorization.
+		for _, obj := range objectsForClass {
+			schema.HashBlobHashProperties(class.Class, obj)
 		}
 	}
 

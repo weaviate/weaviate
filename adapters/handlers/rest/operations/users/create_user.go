@@ -99,6 +99,9 @@ type CreateUserBody struct {
 
 	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
 	Import *bool `json:"import,omitempty" yaml:"import,omitempty"`
+
+	// Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.
+	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 }
 
 // Validate validates this create user body

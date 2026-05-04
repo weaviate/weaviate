@@ -48,6 +48,7 @@ var (
 	GRPC    EndpointName = "grpc"
 	DEBUG   EndpointName = "debug"
 	CLUSTER EndpointName = "cluster"
+	MCP     EndpointName = "mcp"
 )
 
 type endpoint struct {
@@ -95,6 +96,10 @@ func (d *DockerContainer) GrpcURI() string {
 
 func (d *DockerContainer) DebugURI() string {
 	return d.GetEndpoint(DEBUG)
+}
+
+func (d *DockerContainer) McpURI() string {
+	return d.GetEndpoint(MCP)
 }
 
 func (d *DockerContainer) ClusterURI() string {

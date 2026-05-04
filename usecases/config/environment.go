@@ -228,6 +228,13 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
+	}
+
 	cptParser := newCollectionPropsTenantsParser()
 
 	// variable expects string in format:
@@ -284,6 +291,11 @@ func FromEnv(config *Config) error {
 			skipClientCheck = true
 		}
 
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
 			issuer = v
 		}
@@ -320,6 +332,7 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -545,6 +558,16 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultVectorIndexType := ""
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
+		defaultVectorIndexType = strings.ToLower(v)
+		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
+		if !slices.Contains(validTypes, defaultVectorIndexType) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
+		}
+	}
+	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
 		"DEFAULT_SHARDING_COUNT",
@@ -659,6 +682,8 @@ func FromEnv(config *Config) error {
 	if err := config.parseCORSConfig(); err != nil {
 		return err
 	}
+
+	config.parseExportConfig()
 
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
@@ -935,7 +960,20 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// MCP Server Configuration
+	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+	}
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
+	}
+
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -964,6 +1002,8 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
+
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
 
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
@@ -1543,6 +1583,8 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultAsyncReplicationClusterMaxWorkers   = 15
@@ -1914,4 +1956,24 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultPath == nil {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
 }

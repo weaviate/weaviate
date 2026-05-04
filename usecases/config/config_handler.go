@@ -83,6 +83,11 @@ const (
 	DefaultObjectsTTLConcurrencyFactor   = 1
 	DefaultObjectsTTLPauseEveryNoBatches = 10
 	DefaultObjectsTTLPauseDuration       = time.Minute
+
+	// DefaultExportParallelism is the number of concurrent scan workers per
+	// export. Defaults to 0 which means GOMAXPROCS at runtime. The value is
+	// dynamically configurable via runtime overrides.
+	DefaultExportParallelism = 0
 )
 
 // Flags are input options
@@ -142,6 +147,7 @@ type Config struct {
 	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
 	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`
+	MCP                              MCP                      `json:"mcp" yaml:"mcp"`
 	Profiling                        Profiling                `json:"profiling" yaml:"profiling"`
 	ResourceUsage                    ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
@@ -231,6 +237,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this vector index type instead of HNSW.
+	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
+	DefaultVectorIndexType *runtime.DynamicValue[string] `json:"default_vector_index" yaml:"default_vector_index"`
+
 	// New classes will be created with this shard count instead of the cluster node count.
 	// A value of 0 means use the cluster node count (default behavior).
 	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
@@ -251,6 +261,13 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// Export configures the data export feature and its storage destination.
+	Export Export `json:"export" yaml:"export"`
+
+	// Namespaces configures cluster-level namespace support. Namespaces can
+	// only be enabled on newly bootstrapped clusters (enforced at startup).
+	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -264,6 +281,10 @@ type Config struct {
 	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
 	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// ExportParallelism controls the number of concurrent scan workers per
+	// export. 0 (default) means GOMAXPROCS at runtime.
+	ExportParallelism *runtime.DynamicValue[int] `json:"export_parallelism" yaml:"export_parallelism"`
 
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
@@ -303,6 +324,13 @@ func (c *Config) Validate() error {
 
 	if c.Authentication.AnonymousAccess.Enabled && c.Authorization.Rbac.Enabled {
 		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
+	}
+
+	// Namespaces are incompatible with GraphQL: the GraphQL schema does not
+	// model namespace-qualified class names. On namespace-enabled clusters the
+	// operator must disable GraphQL explicitly via DISABLE_GRAPHQL=true.
+	if c.Namespaces.Enabled && !c.DisableGraphQL {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true: GraphQL is not supported on namespace-enabled clusters")
 	}
 
 	if err := c.Persistence.Validate(); err != nil {
@@ -423,6 +451,12 @@ type GRPC struct {
 	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
 	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
 	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+}
+
+type MCP struct {
+	Enabled            bool   `json:"enabled" yaml:"enabled"`
+	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string `json:"configPath" yaml:"configPath"`
 }
 
 type Profiling struct {
@@ -572,6 +606,37 @@ type CORS struct {
 	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
 	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+// Export holds operator-level configuration for data exports.
+// Both fields support runtime overrides via the runtime config YAML
+// (using flat keys export_enabled / export_default_bucket).
+type Export struct {
+	// Enabled controls whether the export API is available. Defaults to false.
+	// Env: EXPORT_ENABLED, runtime config: export_enabled.
+	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+
+	// DefaultBucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// Not required for backends that do not use buckets (e.g. filesystem).
+	// Env: EXPORT_DEFAULT_BUCKET, runtime config: export_default_bucket.
+	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
+
+	// DefaultPath is the default path prefix within the bucket or filesystem for exports.
+	// Defaults to empty string (no prefix). Each backup module provides a separate
+	// export backend that does not inherit the backup path (e.g. BACKUP_S3_PATH),
+	// so this value is used directly.
+	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
+	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+}
+
+// Namespaces configures cluster-level namespace support.
+//
+// NAMESPACES_ENABLED is a cluster-wide feature flag. Once enabled on a
+// bootstrapping cluster it is the exclusive source of truth for namespace
+// existence (see cluster/namespaces). The flag must not be toggled on an
+// already-populated cluster; startup invariants refuse such configurations.
+type Namespaces struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 
 const (
