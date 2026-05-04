@@ -64,11 +64,22 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	}
 
 	for _, prop := range props {
-		if !inverted.HasAnyInvertedIndex(prop) {
+		propCopy := *prop // prevent loop variable capture
+
+		if _, ok := schema.AsNested(prop.DataType); ok {
+			// TODO aliszka:nested_filtering respect top-level HasAnyInvertedIndex for
+			// nested properties before creating buckets — currently bypassed because
+			// the interaction between top-level and per-nested-property index settings
+			// needs design discussion first (same issue tracked in objects.go).
+			eg.Go(func() error {
+				return s.createNestedPropertyBuckets(ctx, &propCopy, makeBucketOptions)
+			})
 			continue
 		}
 
-		propCopy := *prop // prevent loop variable capture
+		if !inverted.HasAnyInvertedIndex(prop) {
+			continue
+		}
 
 		eg.Go(func() error {
 			if err := s.createPropertyValueIndex(ctx, &propCopy, makeBucketOptions); err != nil {

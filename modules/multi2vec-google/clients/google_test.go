@@ -202,7 +202,7 @@ func TestClient(t *testing.T) {
 func TestGetApiKeyWithGeminiHeaders(t *testing.T) {
 	geminiConfig := ent.VectorizationConfig{
 		ApiEndpoint: "generativelanguage.googleapis.com",
-		Model:       "gemini-embedding-2-preview",
+		Model:       "gemini-embedding-2",
 	}
 
 	tests := []struct {
@@ -296,7 +296,7 @@ func TestGetApiKeyVertexHeadersNotUsedForGemini(t *testing.T) {
 
 	_, err := c.Vectorize(ctx, []string{"hello"}, nil, nil, nil, ent.VectorizationConfig{
 		ApiEndpoint: "generativelanguage.googleapis.com",
-		Model:       "gemini-embedding-2-preview",
+		Model:       "gemini-embedding-2",
 	})
 
 	require.NotNil(t, err)
@@ -404,7 +404,7 @@ func TestGeminiClient(t *testing.T) {
 		res, err := c.Vectorize(context.Background(), nil, nil, nil, []string{"base64-encoded-audio"},
 			ent.VectorizationConfig{
 				ApiEndpoint: "generativelanguage.googleapis.com",
-				Model:       "gemini-embedding-2-preview",
+				Model:       "gemini-embedding-2",
 			})
 
 		assert.Nil(t, err)
@@ -430,7 +430,7 @@ func TestGeminiClient(t *testing.T) {
 		res, err := c.Vectorize(context.Background(), []string{"some text"}, nil, nil, []string{"base64-encoded-audio"},
 			ent.VectorizationConfig{
 				ApiEndpoint: "generativelanguage.googleapis.com",
-				Model:       "gemini-embedding-2-preview",
+				Model:       "gemini-embedding-2",
 			})
 
 		assert.Nil(t, err)

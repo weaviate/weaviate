@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
 var (
@@ -44,21 +45,9 @@ var (
 	ErrNotFound = errors.New("namespace not found")
 )
 
-// Name validation contract (kept tight so the operator API gives
-// predictable results and so name-in-URL round-tripping is unambiguous):
-//
-//   - Must start with a lowercase ASCII letter.
-//   - Subsequent characters are lowercase letters or digits.
-//   - Length in [NameMinLength, NameMaxLength].
-//   - Must not collide with a reserved name (see reservedNames).
-//
-// Reserved names are held back for platform/system use (e.g. a future
-// "default" namespace or routing sentinels) and are refused at Create time.
-const (
-	NameMinLength = 3
-	NameMaxLength = 36
-)
-
+// See entschema.NamespaceMinLength for the full namespace name validation
+// contract. The regex and reserved-name list below are the non-length parts
+// that live in this package.
 var namespaceNameRegex = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 
 // reservedNames are refused at Create time. Kept as a package variable (not a
@@ -217,8 +206,8 @@ func (c *Controller) Restore(snapshot []byte) error {
 // REST handler (for fast 422 rejection without a RAFT round-trip) and from
 // the apply path (as a defense-in-depth check).
 func ValidateName(name string) error {
-	if l := len(name); l < NameMinLength || l > NameMaxLength {
-		return fmt.Errorf("namespace name %q must be %d-%d characters", name, NameMinLength, NameMaxLength)
+	if l := len(name); l < entschema.NamespaceMinLength || l > entschema.NamespaceMaxLength {
+		return fmt.Errorf("namespace name %q must be %d-%d characters", name, entschema.NamespaceMinLength, entschema.NamespaceMaxLength)
 	}
 	if !namespaceNameRegex.MatchString(name) {
 		return fmt.Errorf("namespace name %q must start with a lowercase letter and contain only lowercase letters and digits", name)
