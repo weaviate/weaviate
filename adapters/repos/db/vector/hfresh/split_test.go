@@ -80,7 +80,7 @@ func TestSplitPostingBelowThreshold(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	err = tf.Index.doSplit(t.Context(), postingID, false)
@@ -127,7 +127,7 @@ func TestSplitWithDeletedVectors(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	err = tf.Index.doSplit(t.Context(), postingID, false)
@@ -161,7 +161,7 @@ func TestSplitSuccessfully(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	originalMax := tf.Index.maxPostingSize

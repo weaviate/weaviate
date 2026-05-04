@@ -53,10 +53,10 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
 	}
 
-	// update the posting map in-memory cache and persist the vector IDs
-	err = h.PostingMap.SetVectorIDs(ctx, postingID, p)
+	// update the posting size in-memory cache and persist the size
+	err = h.PostingSizes.Set(ctx, postingID, len(p))
 	if err != nil {
-		return errors.Wrapf(err, "failed to set vector IDs for posting %d", postingID)
+		return errors.Wrapf(err, "failed to set size for posting %d", postingID)
 	}
 
 	markedAsDone = true

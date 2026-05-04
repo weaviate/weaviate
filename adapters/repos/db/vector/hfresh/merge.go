@@ -91,7 +91,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		return h.PostingMap.SetVectorIDs(ctx, postingID, newPosting)
+		return h.PostingSizes.Set(ctx, postingID, len(newPosting))
 	}
 
 	vectorSet := make(map[uint64]struct{})
@@ -127,7 +127,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			return errors.Wrapf(err, "failed to put filtered posting %d", postingID)
 		}
 		// update the size of the posting after successful Persist
-		err = h.PostingMap.SetVectorIDs(ctx, postingID, newPosting)
+		err = h.PostingSizes.Set(ctx, postingID, len(newPosting))
 		if err != nil {
 			return errors.Wrapf(err, "failed to set size of posting %d to %d", postingID, prevLen)
 		}
@@ -206,7 +206,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 			}
 
 			// set the small posting size to 0 and update the large posting size only after successful persist
-			err = h.PostingMap.SetVectorIDs(ctx, smallID, Posting{})
+			err = h.PostingSizes.Set(ctx, smallID, 0)
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to 0", smallID)
 			}
@@ -218,7 +218,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				return errors.Wrapf(err, "failed to put empty posting %d after merge operation", smallID)
 			}
 
-			err = h.PostingMap.SetVectorIDs(ctx, largeID, newPosting)
+			err = h.PostingSizes.Set(ctx, largeID, len(newPosting))
 			if err != nil {
 				return errors.Wrapf(err, "failed to set size of merged posting %d to %d", largeID, len(newPosting))
 			}
@@ -272,7 +272,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 	}
 
 	// if no candidates were found, just persist the gc'ed posting
-	err = h.PostingMap.SetVectorIDs(ctx, postingID, newPosting)
+	err = h.PostingSizes.Set(ctx, postingID, len(newPosting))
 	if err != nil {
 		return errors.Wrapf(err, "failed to set size of filtered posting %d", postingID)
 	}

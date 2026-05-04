@@ -74,7 +74,7 @@ func TestAnalyzeWithInMemoryMetadata(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	err = tf.Index.doAnalyze(t.Context(), postingID)
@@ -113,7 +113,7 @@ func TestAnalyzeEnqueuesSplitWhenNeeded(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	originalMax := tf.Index.maxPostingSize
@@ -154,7 +154,7 @@ func TestAnalyzeDoesNotEnqueueSplitWhenNotNeeded(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	originalMax := tf.Index.maxPostingSize

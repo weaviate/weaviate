@@ -59,7 +59,11 @@ func (p *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error
 }
 
 // Set sets the size of the posting with the given ID. It also persists the new size in the underlying store.
-func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size uint32) error {
+func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) error {
+	if size < 0 {
+		return errors.Errorf("size cannot be negative, got %d", size)
+	}
+
 	page, slot := p.data.EnsurePageFor(postingID)
 
 	oldSize := atomic.LoadUint32(&page[slot])
@@ -69,9 +73,9 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size uint32) e
 		p.count.Add(^uint64(0)) // decrement by 1
 	}
 
-	atomic.StoreUint32(&page[slot], size)
+	atomic.StoreUint32(&page[slot], uint32(size))
 
-	return p.store.Set(ctx, postingID, size)
+	return p.store.Set(ctx, postingID, uint32(size))
 }
 
 // Restore loads all posting sizes from the underlying store into memory. This should be called during startup to populate the in-memory cache.

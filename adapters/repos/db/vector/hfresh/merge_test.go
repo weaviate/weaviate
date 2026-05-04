@@ -91,7 +91,7 @@ func TestMergePostingAboveMinSize(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	originalMin := tf.Index.minPostingSize
@@ -152,7 +152,7 @@ func TestMergeWithDeletedVectors(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	originalMin := tf.Index.minPostingSize
@@ -195,7 +195,7 @@ func TestMergeNoCandidatesFound(t *testing.T) {
 	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
 	require.NoError(t, err)
 
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), postingID, posting)
+	err = tf.Index.PostingSizes.Set(t.Context(), postingID, len(posting))
 	require.NoError(t, err)
 
 	originalMin := tf.Index.minPostingSize
@@ -249,12 +249,12 @@ func TestMergeCandidateTooLarge(t *testing.T) {
 
 	err = tf.Index.PostingStore.Put(t.Context(), smallPostingID, smallPosting)
 	require.NoError(t, err)
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), smallPostingID, smallPosting)
+	err = tf.Index.PostingSizes.Set(t.Context(), smallPostingID, len(smallPosting))
 	require.NoError(t, err)
 
 	err = tf.Index.PostingStore.Put(t.Context(), largePostingID, largePosting)
 	require.NoError(t, err)
-	err = tf.Index.PostingMap.SetVectorIDs(t.Context(), largePostingID, largePosting)
+	err = tf.Index.PostingSizes.Set(t.Context(), largePostingID, len(largePosting))
 	require.NoError(t, err)
 
 	originalMin := tf.Index.minPostingSize
