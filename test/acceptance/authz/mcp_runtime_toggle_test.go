@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-const runtimeOverridePath = "/etc/weaviate/runtime-overrides.yaml"
+const (
+	runtimeOverridePath = "/etc/weaviate/runtime-overrides.yaml"
+	upsertToolName      = "weaviate-objects-upsert"
+	pollTimeout         = 10 * time.Second
+	pollInterval        = 500 * time.Millisecond
+)
 
 // writeRuntimeOverride replaces the runtime override file's contents. Using
 // `sh -c` with a here-string keeps it simple and avoids shell-escaping issues.
@@ -86,17 +92,11 @@ func rawMCPInitializeStatus(t *testing.T, mcpURL, key string) (int, string) {
 	return resp.StatusCode, string(bodyBytes)
 }
 
-// TestMCPRuntimeToggle verifies that the MCP server's Enabled and
-// WriteAccessEnabled flags can be toggled at runtime via the runtime overrides
-// YAML, without restarting the cluster.
-func TestMCPRuntimeToggle(t *testing.T) {
-	mainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	adminUser := "admin-user"
-	adminKey := "admin-key"
-
-	// Pre-create an empty runtime override file so NewConfigManager can load it at startup.
+// startMCPRuntimeToggleCluster boots a single-node cluster with MCP enabled,
+// runtime overrides enabled with a 1s reload interval, and an admin user.
+// Returns the compose and the MCP URL.
+func startMCPRuntimeToggleCluster(t *testing.T, ctx context.Context, adminUser, adminKey string) (*docker.DockerCompose, string) {
+	t.Helper()
 	emptyOverride := testcontainers.ContainerFile{
 		Reader:            strings.NewReader(""),
 		ContainerFilePath: runtimeOverridePath,
@@ -115,17 +115,39 @@ func TestMCPRuntimeToggle(t *testing.T) {
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", runtimeOverridePath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
 		WithWeaviateFiles(emptyOverride).
-		Start(mainCtx)
+		Start(ctx)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(mainCtx))
-	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
+	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
+	return compose, mcpURL
+}
+
+// toggleStep represents a single runtime-toggle scenario: a YAML override to
+// apply, plus a verification function that asserts the resulting state.
+type toggleStep struct {
+	name     string
+	override string
+	verify   func(t *testing.T, mcpURL, key string)
+}
+
+// TestMCPRuntimeToggle verifies that the MCP server's Enabled and
+// WriteAccessEnabled flags can be toggled at runtime via the runtime overrides
+// YAML, without restarting the cluster.
+func TestMCPRuntimeToggle(t *testing.T) {
+	mainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	compose, mcpURL := startMCPRuntimeToggleCluster(t, mainCtx, adminUser, adminKey)
+	defer func() {
+		require.NoError(t, compose.Terminate(mainCtx))
+	}()
 	defer helper.ResetClient()
 
-	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
 	adminAuth := helper.CreateAuth(adminKey)
 
 	// Seed a collection so tools/call has something to operate on.
@@ -142,35 +164,77 @@ func TestMCPRuntimeToggle(t *testing.T) {
 
 	weaviateContainer := compose.GetWeaviateNode(1).Container()
 
+	// Helpers that close over test-level state.
+	expectToolVisibility := func(wantVisible bool, msg string) func(*testing.T, string, string) {
+		return func(t *testing.T, mcpURL, key string) {
+			t.Helper()
+			ctx, c := context.WithTimeout(context.Background(), 15*time.Second)
+			defer c()
+			require.Eventually(t, func() bool {
+				return slices.Contains(listMCPToolNames(ctx, t, mcpURL, key), upsertToolName) == wantVisible
+			}, pollTimeout, pollInterval, msg)
+		}
+	}
+	expectMCPStatus := func(wantStatus int, msg string) func(*testing.T, string, string) {
+		return func(t *testing.T, mcpURL, key string) {
+			t.Helper()
+			require.Eventually(t, func() bool {
+				status, _ := rawMCPInitializeStatus(t, mcpURL, key)
+				return status == wantStatus
+			}, pollTimeout, pollInterval, msg)
+		}
+	}
+
 	t.Run("baseline: MCP enabled, write access enabled", func(t *testing.T) {
-		ctx, c := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, c := context.WithTimeout(context.Background(), pollTimeout)
 		defer c()
 
 		names := listMCPToolNames(ctx, t, mcpURL, adminKey)
-		require.Contains(t, names, "weaviate-objects-upsert", "write tool should be visible when write access enabled")
+		require.Contains(t, names, upsertToolName, "write tool should be visible when write access enabled")
 		require.Contains(t, names, "weaviate-query-hybrid", "read tool should be visible")
 	})
 
-	t.Run("disable write access at runtime → write tool hidden, upsert rejected", func(t *testing.T) {
-		writeRuntimeOverride(t, mainCtx, weaviateContainer, "mcp_server_write_access_enabled: false\n")
+	steps := []toggleStep{
+		{
+			name:     "disable write access → write tool hidden",
+			override: "mcp_server_write_access_enabled: false\n",
+			verify:   expectToolVisibility(false, "write tool should disappear from tools/list"),
+		},
+		{
+			name:     "re-enable write access → write tool visible again",
+			override: "mcp_server_write_access_enabled: true\n",
+			verify:   expectToolVisibility(true, "write tool should reappear in tools/list"),
+		},
+		{
+			name:     "disable MCP entirely → /v1/mcp returns 404",
+			override: "mcp_server_enabled: false\n",
+			verify:   expectMCPStatus(http.StatusNotFound, "MCP endpoint should return 404 when disabled at runtime"),
+		},
+		{
+			name:     "re-enable MCP → /v1/mcp serves again",
+			override: "mcp_server_enabled: true\n",
+			verify:   expectMCPStatus(http.StatusOK, "MCP endpoint should serve 200 when re-enabled"),
+		},
+	}
 
-		// Wait up to ~5s for the override to be picked up (LoadInterval=1s).
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			writeRuntimeOverride(t, mainCtx, weaviateContainer, step.override)
+			step.verify(t, mcpURL, adminKey)
+		})
+	}
+
+	// Beyond the visibility check, also verify that calling the write tool
+	// while disabled returns the explicit "write access is disabled" error.
+	t.Run("write tool call while disabled returns explicit error", func(t *testing.T) {
+		writeRuntimeOverride(t, mainCtx, weaviateContainer, "mcp_server_write_access_enabled: false\n")
+		expectToolVisibility(false, "write tool should be hidden")(t, mcpURL, adminKey)
+
 		ctx, c := context.WithTimeout(context.Background(), 15*time.Second)
 		defer c()
 
-		require.Eventually(t, func() bool {
-			names := listMCPToolNames(ctx, t, mcpURL, adminKey)
-			for _, n := range names {
-				if n == "weaviate-objects-upsert" {
-					return false
-				}
-			}
-			return true
-		}, 10*time.Second, 500*time.Millisecond, "write tool should disappear from tools/list")
-
-		// Calling the write tool should fail with the disabled error.
 		var resp create.UpsertObjectResp
-		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-objects-upsert", adminKey,
+		err := callToolOnceWithAuth(ctx, t, mcpURL, upsertToolName, adminKey,
 			create.UpsertObjectArgs{
 				CollectionName: className,
 				Objects: []create.ObjectToUpsert{
@@ -179,40 +243,5 @@ func TestMCPRuntimeToggle(t *testing.T) {
 			}, &resp)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "write access is disabled")
-	})
-
-	t.Run("re-enable write access at runtime → write tool visible again", func(t *testing.T) {
-		writeRuntimeOverride(t, mainCtx, weaviateContainer, "mcp_server_write_access_enabled: true\n")
-
-		ctx, c := context.WithTimeout(context.Background(), 15*time.Second)
-		defer c()
-
-		require.Eventually(t, func() bool {
-			names := listMCPToolNames(ctx, t, mcpURL, adminKey)
-			for _, n := range names {
-				if n == "weaviate-objects-upsert" {
-					return true
-				}
-			}
-			return false
-		}, 10*time.Second, 500*time.Millisecond, "write tool should reappear in tools/list")
-	})
-
-	t.Run("disable MCP entirely at runtime → /v1/mcp returns 404", func(t *testing.T) {
-		writeRuntimeOverride(t, mainCtx, weaviateContainer, "mcp_server_enabled: false\n")
-
-		require.Eventually(t, func() bool {
-			status, body := rawMCPInitializeStatus(t, mcpURL, adminKey)
-			return status == http.StatusNotFound && strings.Contains(body, "MCP server is not enabled")
-		}, 10*time.Second, 500*time.Millisecond, "MCP endpoint should return 404 when disabled at runtime")
-	})
-
-	t.Run("re-enable MCP at runtime → /v1/mcp serves again", func(t *testing.T) {
-		writeRuntimeOverride(t, mainCtx, weaviateContainer, "mcp_server_enabled: true\n")
-
-		require.Eventually(t, func() bool {
-			status, _ := rawMCPInitializeStatus(t, mcpURL, adminKey)
-			return status == http.StatusOK
-		}, 10*time.Second, 500*time.Millisecond, "MCP endpoint should serve 200 when re-enabled")
 	})
 }
