@@ -437,20 +437,24 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 	// ≥2 constrained buckets at intermediate scope. groupChildrenByArrayIndicesKey
 	// would split these into separate compatibility groups (conflicting indices
 	// at "garages.cars"), so the executor's len(branches)>1 + lcaPath != ""
-	// path is unreachable via production dispatch. This test drives the planner
-	// directly to lock in evalSplit's rootDoc-level AndAll across branches.
+	// path is unreachable via production dispatch when conditions are routed
+	// through compatibility grouping that pairs cars[0]/cars[1] in a single
+	// group. This test drives the planner directly to lock in the wrapping
+	// GROUP + SPLIT execution that enforces same-element semantics at the LCA
+	// above the conflict.
 	//
-	// Plan: SPLIT@"garages.cars" with branches:
+	// Plan: GROUP@"garages" wrapping SPLIT@"garages.cars" with branches:
 	//   idx=0 → GROUP@"garages.cars" here=[make]   (canUseRawAndAll)
 	//   idx=1 → GROUP@"garages.cars" here=[model]  (canUseRawAndAll)
-	// Branch results are MaskLeaf'd raws (rootDoc shape); evalSplit AndAlls at
-	// rootDoc level (no MaskRootLeaf) — same-root semantics enforced by root_idx.
+	// The wrapping GROUP@"garages" iterates _idx.garages[K] and evaluates the
+	// SPLIT inside each garage element, so cars[0] and cars[1] must both match
+	// within the same garage[K] (same-LCA-element semantics).
 	//
 	// docMatch:    countries[1].garages[0].cars[0].make=honda AND
 	//              countries[1].garages[0].cars[1].model=civic → match
 	// docNoMatch1: cars[0].make only — cars[1] branch empty for the doc
 	// docNoMatch2: make in countries[1].cars[0]; model in countries[2].cars[1]
-	//              — different root_idx → AndAll at rootDoc empty
+	//              — different root_idx → no garage[K] holds both → no match
 	// docNoMatch3: make in cars[1] (wrong index) AND model in cars[0] (wrong
 	//              index) — both branches empty (raw leaf misses branchScope)
 	// -----------------------------------------------------------------------
@@ -467,6 +471,15 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 		)
 		mb := newIdxBucket(t)
 
+		// _idx.garages[0]: positions of garage[0] across all docs and countries.
+		// The wrapping GROUP@"garages" iterates this entry to evaluate the SPLIT
+		// inside each garage element.
+		writeIdx(t, mb, "garages", 0, []uint64{
+			enc(1, leafC1G0Cars0, docMatch), enc(1, leafC1G0Cars1, docMatch),
+			enc(1, leafC1G0Cars0, docNoMatch1),
+			enc(1, leafC1G0Cars0, docNoMatch2), enc(2, leafC2G0Cars1, docNoMatch2),
+			enc(1, leafC1G0Cars0, docNoMatch3), enc(1, leafC1G0Cars1, docNoMatch3),
+		})
 		// _idx.garages.cars[0]: cars[0] positions across all garages/countries.
 		writeIdx(t, mb, "garages.cars", 0, []uint64{
 			enc(1, leafC1G0Cars0, docMatch),

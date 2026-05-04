@@ -264,12 +264,13 @@ func TestRecPlanBuilderShape(t *testing.T) {
 			makeCorrelatedPvp(class, "countries", tireWidth, accType, postcode, city))
 	})
 
-	// F13 locks in the ≥2-bucket pure SPLIT shape at intermediate scope. This
-	// shape is unreachable through the production dispatch (groupChildrenByArrayIndicesKey
-	// would split conflicting cars[0]/cars[1] children into separate compatibility
-	// groups) but the planner itself must still produce the correct multi-branch
-	// tree when invoked directly — and the executor's matching path is covered
-	// by F13 in TestRecExecutorFilterExamples.
+	// F13 locks in the ≥2-bucket pure SPLIT shape at intermediate scope, wrapped
+	// in a GROUP at the SPLIT's parent scope. The wrapping GROUP is what
+	// enforces same-element semantics at the LCA above the conflict — its
+	// per-element loop (runIdxLoopRecursive) iterates over each garages[K] and
+	// evaluates the SPLIT inside, so cars[0] and cars[1] must land in the same
+	// garage. Without the wrapping GROUP, the SPLIT combiner ANDs at rootDoc
+	// only, which would lose the same-garage requirement for deeper schemas.
 	t.Run("F13_garages.cars[0].make_AND_garages.cars[1].model_pure_split_intermediate", func(t *testing.T) {
 		idx0cars := filnested.ArrayIndex{RelPath: "garages.cars", Index: 0}
 		idx1cars := filnested.ArrayIndex{RelPath: "garages.cars", Index: 1}
@@ -277,16 +278,19 @@ func TestRecPlanBuilderShape(t *testing.T) {
 		carsMake := makeLeafPvpWithIdx(class, "countries", "garages.cars.make", "honda", idx0cars)
 		carsModel := makeLeafPvpWithIdx(class, "countries", "garages.cars.model", "civic", idx1cars)
 
-		want := `SPLIT lcaPath="garages.cars"
-  branches:
-    index=0
-      GROUP lcaPath="garages.cars"
-        here=[garages.cars.make]
-        subs=[]
-    index=1
-      GROUP lcaPath="garages.cars"
-        here=[garages.cars.model]
-        subs=[]`
+		want := `GROUP lcaPath="garages"
+  here=[]
+  subs:
+    SPLIT lcaPath="garages.cars"
+      branches:
+        index=0
+          GROUP lcaPath="garages.cars"
+            here=[garages.cars.make]
+            subs=[]
+        index=1
+          GROUP lcaPath="garages.cars"
+            here=[garages.cars.model]
+            subs=[]`
 
 		assertShape(t, want,
 			makeCorrelatedPvp(class, "countries", carsMake, carsModel),

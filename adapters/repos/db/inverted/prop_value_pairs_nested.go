@@ -393,15 +393,19 @@ func childArrayIndices(child *propValuePair) arrayIndices {
 	return nil
 }
 
-// compatibleConstraints returns true when arr[N] sets a and b have no conflicting
-// explicit indices at any shared RelPath level.
+// compatibleConstraints returns true when arr[N] sets a and b can be resolved
+// in the same compatibility group. Conflicts at the root RelPath ("") force
+// separate groups (so each root element is resolved independently). Conflicts
+// at intermediate RelPaths are tolerated: the planner builds a SPLIT-at-LCA
+// shape that enforces same-element semantics at the deepest unconstrained
+// ancestor above the conflict.
 func compatibleConstraints(a, b arrayIndices) bool {
 	aMap := make(map[string]int, len(a))
 	for _, ai := range a {
 		aMap[ai.RelPath] = ai.Index
 	}
 	for _, bi := range b {
-		if aIdx, ok := aMap[bi.RelPath]; ok && aIdx != bi.Index {
+		if aIdx, ok := aMap[bi.RelPath]; ok && aIdx != bi.Index && bi.RelPath == "" {
 			return false
 		}
 	}

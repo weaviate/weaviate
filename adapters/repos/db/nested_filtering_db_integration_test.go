@@ -1788,24 +1788,24 @@ func TestNestedFilteringF13CorrelatedAndDifferentCarsSameGarage(t *testing.T) {
 		// Rejection (when applicable) is due to value mismatch only — never due to
 		// missing fields, missing cars, or sparse garages. Filler values (toyota,
 		// kia, bmw, etc.) are guaranteed to never match the filter.
-		idRichMatchG0                  = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
-		idRichMatchG1                  = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
-		idRichMatchG2                  = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
-		idRichNoMatchAllFiller         = strfmt.UUID("00000000-0000-0000-0000-000000000010")
-		idRichNoMatchOnlyMakeMatches   = strfmt.UUID("00000000-0000-0000-0000-000000000011")
-		idRichNoMatchOnlyModelMatches  = strfmt.UUID("00000000-0000-0000-0000-000000000012")
-		idRichNoMatchSplitAcrossGars   = strfmt.UUID("00000000-0000-0000-0000-000000000013")
-		idRichNoMatchSwapped           = strfmt.UUID("00000000-0000-0000-0000-000000000014")
-		idRichNoMatchHondaCivicWrong   = strfmt.UUID("00000000-0000-0000-0000-000000000015")
-		idRichNoMatchCivicOnlyAtCars2  = strfmt.UUID("00000000-0000-0000-0000-000000000016")
-		idAbsentMissingModelField      = strfmt.UUID("00000000-0000-0000-0000-000000000017")
+		idRichMatchG0                 = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
+		idRichMatchG1                 = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
+		idRichMatchG2                 = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
+		idRichNoMatchAllFiller        = strfmt.UUID("00000000-0000-0000-0000-000000000010")
+		idRichNoMatchOnlyMakeMatches  = strfmt.UUID("00000000-0000-0000-0000-000000000011")
+		idRichNoMatchOnlyModelMatches = strfmt.UUID("00000000-0000-0000-0000-000000000012")
+		idRichNoMatchSplitAcrossGars  = strfmt.UUID("00000000-0000-0000-0000-000000000013")
+		idRichNoMatchSwapped          = strfmt.UUID("00000000-0000-0000-0000-000000000014")
+		idRichNoMatchHondaCivicWrong  = strfmt.UUID("00000000-0000-0000-0000-000000000015")
+		idRichNoMatchCivicOnlyAtCars2 = strfmt.UUID("00000000-0000-0000-0000-000000000016")
+		idAbsentMissingModelField     = strfmt.UUID("00000000-0000-0000-0000-000000000017")
 
-		idRichNoMatchCrossConfusion     = strfmt.UUID("00000000-0000-0000-0000-000000000018")
-		idRichMatchHondaAtMultiplePos   = strfmt.UUID("00000000-0000-0000-0000-000000000019")
-		idRichMatchTwoGaragesBoth       = strfmt.UUID("00000000-0000-0000-0000-00000000001a")
-		idAbsentEmptyCarsArray          = strfmt.UUID("00000000-0000-0000-0000-00000000001b")
-		idRichMatchHeterogeneousShapes  = strfmt.UUID("00000000-0000-0000-0000-00000000001c")
-		idRichNoMatchCivicAsMake        = strfmt.UUID("00000000-0000-0000-0000-00000000001d")
+		idRichNoMatchCrossConfusion    = strfmt.UUID("00000000-0000-0000-0000-000000000018")
+		idRichMatchHondaAtMultiplePos  = strfmt.UUID("00000000-0000-0000-0000-000000000019")
+		idRichMatchTwoGaragesBoth      = strfmt.UUID("00000000-0000-0000-0000-00000000001a")
+		idAbsentEmptyCarsArray         = strfmt.UUID("00000000-0000-0000-0000-00000000001b")
+		idRichMatchHeterogeneousShapes = strfmt.UUID("00000000-0000-0000-0000-00000000001c")
+		idRichNoMatchCivicAsMake       = strfmt.UUID("00000000-0000-0000-0000-00000000001d")
 	)
 
 	// fillerGarage builds a 3-car garage that cannot satisfy either condition of
@@ -2640,34 +2640,34 @@ func TestNestedFilteringF16CorrelatedAndDifferentRootGaragesWithSameCarSubs(t *t
 	matchingG1 := func() map[string]any { return garage(matchingG1Car()) }
 
 	const (
-		idMatchMinimal                  = strfmt.UUID("00000000-0000-0000-0000-000000000001")
-		idMatchExtraGarages             = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		idMatchMinimal                        = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		idMatchExtraGarages                   = strfmt.UUID("00000000-0000-0000-0000-000000000002")
 		idMatchMatchingCarSurroundedByFillers = strfmt.UUID("00000000-0000-0000-0000-000000000003")
-		idMatchEveryCarMatchesInBothG   = strfmt.UUID("00000000-0000-0000-0000-000000000004")
-		idMatchHeterogeneousGarages     = strfmt.UUID("00000000-0000-0000-0000-000000000005")
-		idMatchMatchingCarHasManyTires  = strfmt.UUID("00000000-0000-0000-0000-000000000006")
-		idMatchG2AlsoMatchesG0          = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+		idMatchEveryCarMatchesInBothG         = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+		idMatchHeterogeneousGarages           = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+		idMatchMatchingCarHasManyTires        = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+		idMatchG2AlsoMatchesG0                = strfmt.UUID("00000000-0000-0000-0000-000000000007")
 
-		idNoMatchG0SplitMakeAndWidth    = strfmt.UUID("00000000-0000-0000-0000-000000000008")
-		idNoMatchG1SplitMakeAndWidth    = strfmt.UUID("00000000-0000-0000-0000-000000000009")
-		idNoMatchG0AllCarsSplit         = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
+		idNoMatchG0SplitMakeAndWidth = strfmt.UUID("00000000-0000-0000-0000-000000000008")
+		idNoMatchG1SplitMakeAndWidth = strfmt.UUID("00000000-0000-0000-0000-000000000009")
+		idNoMatchG0AllCarsSplit      = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
 
-		idNoMatchSplitAcrossGarages     = strfmt.UUID("00000000-0000-0000-0000-00000000000b")
-		idNoMatchSwappedGarages         = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
-		idNoMatchValuesAtG2Only         = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
-		idNoMatchInvertedAcrossGarages  = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
+		idNoMatchSplitAcrossGarages    = strfmt.UUID("00000000-0000-0000-0000-00000000000b")
+		idNoMatchSwappedGarages        = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
+		idNoMatchValuesAtG2Only        = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
+		idNoMatchInvertedAcrossGarages = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
 
-		idNoMatchAllFiller              = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
-		idNoMatchOnlyMakeInG0           = strfmt.UUID("00000000-0000-0000-0000-000000000010")
-		idNoMatchOnlyWidthInG0          = strfmt.UUID("00000000-0000-0000-0000-000000000011")
-		idNoMatchMixedSplits            = strfmt.UUID("00000000-0000-0000-0000-000000000012")
+		idNoMatchAllFiller     = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
+		idNoMatchOnlyMakeInG0  = strfmt.UUID("00000000-0000-0000-0000-000000000010")
+		idNoMatchOnlyWidthInG0 = strfmt.UUID("00000000-0000-0000-0000-000000000011")
+		idNoMatchMixedSplits   = strfmt.UUID("00000000-0000-0000-0000-000000000012")
 
-		idAbsentNoGarages               = strfmt.UUID("00000000-0000-0000-0000-000000000013")
-		idAbsentOnlyOneGarage           = strfmt.UUID("00000000-0000-0000-0000-000000000014")
-		idAbsentG0EmptyObject           = strfmt.UUID("00000000-0000-0000-0000-000000000015")
-		idAbsentG0NoCarsArray           = strfmt.UUID("00000000-0000-0000-0000-000000000016")
-		idAbsentMatchingCarNoTires      = strfmt.UUID("00000000-0000-0000-0000-000000000017")
-		idAbsentMatchingCarEmptyTires   = strfmt.UUID("00000000-0000-0000-0000-000000000018")
+		idAbsentNoGarages             = strfmt.UUID("00000000-0000-0000-0000-000000000013")
+		idAbsentOnlyOneGarage         = strfmt.UUID("00000000-0000-0000-0000-000000000014")
+		idAbsentG0EmptyObject         = strfmt.UUID("00000000-0000-0000-0000-000000000015")
+		idAbsentG0NoCarsArray         = strfmt.UUID("00000000-0000-0000-0000-000000000016")
+		idAbsentMatchingCarNoTires    = strfmt.UUID("00000000-0000-0000-0000-000000000017")
+		idAbsentMatchingCarEmptyTires = strfmt.UUID("00000000-0000-0000-0000-000000000018")
 
 		idMatchHondaAtAllCarsOneHasWidth = strfmt.UUID("00000000-0000-0000-0000-000000000019")
 		idMatchMultipleSameCarsMatchInG0 = strfmt.UUID("00000000-0000-0000-0000-00000000001a")
@@ -3000,6 +3000,697 @@ func TestNestedFilteringF16CorrelatedAndDifferentRootGaragesWithSameCarSubs(t *t
 		idMatchG2AlsoMatchesG0,
 		idMatchHondaAtAllCarsOneHasWidth,
 		idMatchMultipleSameCarsMatchInG0,
+	}
+	assert.ElementsMatch(t, want, got)
+}
+
+// TestNestedFilteringF17DeeperCorrelatedAndDifferentCarsSameGarage exercises
+// a deeper-schema variant of F13:
+//
+//	countries.garages.cars[0].make = "honda" AND countries.garages.cars[1].model = "civic"
+//
+// By the rule "conditions sharing an unconstrained path prefix apply to the
+// same element at that prefix", this matches docs where the same countries[N]
+// AND the same garages[M] within it have both cars[0].make=honda and
+// cars[1].model=civic. Different garages within the same country must NOT
+// satisfy the filter — the LCA above the conflict is countries.garages, not
+// just countries.
+//
+// Two test groups:
+//
+//   - Cross-garage: F13's full case set wrapped in a single country. Behaviour
+//     must mirror F13 case-for-case — adding a country wrapper above the F13
+//     root must not change which docs match.
+//   - Cross-country: data distributed across multiple countries such that no
+//     single country has both filter conditions satisfied at the same garage.
+func TestNestedFilteringF17DeeperCorrelatedAndDifferentCarsSameGarage(t *testing.T) {
+	const nestedClass = "F17"
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:     "countries",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:     "garages",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+							{
+								Name:     "cars",
+								DataType: schema.DataTypeObjectArray.PropString(),
+								NestedProperties: []*models.NestedProperty{
+									{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+									{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	car := func(props ...string) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i]] = props[i+1]
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		anyCars := make([]any, len(cars))
+		for i, c := range cars {
+			anyCars[i] = c
+		}
+		return map[string]any{"cars": anyCars}
+	}
+	garageWithCity := func(city string) map[string]any {
+		return map[string]any{"city": city}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		anyGarages := make([]any, len(garages))
+		for i, g := range garages {
+			anyGarages[i] = g
+		}
+		return map[string]any{"garages": anyGarages}
+	}
+	fillerGarage := func() map[string]any {
+		return garage(
+			car("make", "toyota", "model", "corolla"),
+			car("make", "kia", "model", "sportage"),
+			car("make", "bmw", "model", "x3"),
+		)
+	}
+	matchingGarage := func() map[string]any {
+		return garage(
+			car("make", "honda", "model", "corolla"),
+			car("make", "kia", "model", "civic"),
+			car("make", "bmw", "model", "x3"),
+		)
+	}
+	fillerCountry := func() map[string]any {
+		return country(fillerGarage(), fillerGarage(), fillerGarage())
+	}
+
+	const (
+		// Cross-garage cases mirror F13 verbatim with a single country wrapper.
+		// Names match F13's so the parallel is explicit.
+		idMatchMinimal                = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		idMatchTwoCarsBoth            = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		idMatchExtraCar               = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+		idMatchSecondGarage           = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+		idNoMatchSplitGarages         = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+		idNoMatchSwapped              = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+		idNoMatchOnlyMakeNoSecondCar  = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+		idNoMatchOnlyMakeWrongModel   = strfmt.UUID("00000000-0000-0000-0000-000000000008")
+		idNoMatchWrongMakeRightModel  = strfmt.UUID("00000000-0000-0000-0000-000000000009")
+		idNoMatchAllWrong             = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
+		idNoMatchNoCars               = strfmt.UUID("00000000-0000-0000-0000-00000000000b")
+		idNoMatchThirdCarMatchesModel = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
+
+		idRichMatchG0                 = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
+		idRichMatchG1                 = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
+		idRichMatchG2                 = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
+		idRichNoMatchAllFiller        = strfmt.UUID("00000000-0000-0000-0000-000000000010")
+		idRichNoMatchOnlyMakeMatches  = strfmt.UUID("00000000-0000-0000-0000-000000000011")
+		idRichNoMatchOnlyModelMatches = strfmt.UUID("00000000-0000-0000-0000-000000000012")
+		idRichNoMatchSplitAcrossGars  = strfmt.UUID("00000000-0000-0000-0000-000000000013")
+		idRichNoMatchSwapped          = strfmt.UUID("00000000-0000-0000-0000-000000000014")
+		idRichNoMatchHondaCivicWrong  = strfmt.UUID("00000000-0000-0000-0000-000000000015")
+		idRichNoMatchCivicOnlyAtCars2 = strfmt.UUID("00000000-0000-0000-0000-000000000016")
+		idAbsentMissingModelField     = strfmt.UUID("00000000-0000-0000-0000-000000000017")
+
+		idRichNoMatchCrossConfusion    = strfmt.UUID("00000000-0000-0000-0000-000000000018")
+		idRichMatchHondaAtMultiplePos  = strfmt.UUID("00000000-0000-0000-0000-000000000019")
+		idRichMatchTwoGaragesBoth      = strfmt.UUID("00000000-0000-0000-0000-00000000001a")
+		idAbsentEmptyCarsArray         = strfmt.UUID("00000000-0000-0000-0000-00000000001b")
+		idRichMatchHeterogeneousShapes = strfmt.UUID("00000000-0000-0000-0000-00000000001c")
+		idRichNoMatchCivicAsMake       = strfmt.UUID("00000000-0000-0000-0000-00000000001d")
+
+		// Cross-country cases: data distributed across countries such that no
+		// single country has both filter conditions satisfied at the same garage.
+		idCntrSplitMinimal          = strfmt.UUID("00000000-0000-0000-0000-00000000001e")
+		idCntrSplitRich             = strfmt.UUID("00000000-0000-0000-0000-00000000001f")
+		idCntrSplitAcrossMany       = strfmt.UUID("00000000-0000-0000-0000-000000000020")
+		idCntrEachHasF13NoMatch     = strfmt.UUID("00000000-0000-0000-0000-000000000021")
+		idCntrValuesAtWrongCarSlots = strfmt.UUID("00000000-0000-0000-0000-000000000022")
+
+		idCntrMatchInC1             = strfmt.UUID("00000000-0000-0000-0000-000000000023")
+		idCntrMatchInC2             = strfmt.UUID("00000000-0000-0000-0000-000000000024")
+		idCntrMatchTwoCountriesBoth = strfmt.UUID("00000000-0000-0000-0000-000000000025")
+		idCntrMatchHeterogeneous    = strfmt.UUID("00000000-0000-0000-0000-000000000026")
+
+		idAbsentNoCountries           = strfmt.UUID("00000000-0000-0000-0000-000000000027")
+		idAbsentCountryNoGaragesField = strfmt.UUID("00000000-0000-0000-0000-000000000028")
+		idAbsentCountryEmptyGarages   = strfmt.UUID("00000000-0000-0000-0000-000000000029")
+	)
+
+	docs := []struct {
+		id        strfmt.UUID
+		countries []any
+		note      string
+	}{
+		// ----- Cross-garage cases: F13 verbatim, wrapped in one country -----
+
+		{
+			id: idMatchMinimal,
+			countries: []any{country(garage(
+				car("make", "honda"),
+				car("model", "civic"),
+			))},
+			note: "minimal same-garage match: cars[0].make=honda, cars[1].model=civic",
+		},
+		{
+			id: idMatchTwoCarsBoth,
+			countries: []any{country(garage(
+				car("make", "honda", "model", "civic"),
+				car("make", "honda", "model", "civic"),
+			))},
+			note: "both cars carry both fields; cars[0].make and cars[1].model still match",
+		},
+		{
+			id: idMatchExtraCar,
+			countries: []any{country(garage(
+				car("make", "honda"),
+				car("model", "civic"),
+				car("make", "kia", "model", "sportage"),
+			))},
+			note: "cars[2] beyond the filter range is irrelevant",
+		},
+		{
+			id: idMatchSecondGarage,
+			countries: []any{country(
+				garage(car("make", "toyota")),
+				garage(car("make", "honda"), car("model", "civic")),
+			)},
+			note: "match satisfied by the second garage element",
+		},
+		{
+			id: idNoMatchSplitGarages,
+			countries: []any{country(
+				garage(car("make", "honda")),
+				garage(car("make", "x"), car("model", "civic")),
+			)},
+			note: "headline regression: cars[0].make in garage[0]; cars[1].model in garage[1] — split must reject",
+		},
+		{
+			id:        idNoMatchSwapped,
+			countries: []any{country(garage(car("model", "civic"), car("make", "honda")))},
+			note:      "values exist but at swapped indices: cars[0].model=civic, cars[1].make=honda",
+		},
+		{
+			id:        idNoMatchOnlyMakeNoSecondCar,
+			countries: []any{country(garage(car("make", "honda")))},
+			note:      "cars[1] absent → cars[1].model group resolves to empty",
+		},
+		{
+			id: idNoMatchOnlyMakeWrongModel,
+			countries: []any{country(garage(
+				car("make", "honda"),
+				car("make", "kia", "model", "sportage"),
+			))},
+			note: "cars[1] exists but with non-matching model — proves we don't accept any cars[1]",
+		},
+		{
+			id: idNoMatchWrongMakeRightModel,
+			countries: []any{country(garage(
+				car("make", "toyota", "model", "corolla"),
+				car("make", "kia", "model", "civic"),
+			))},
+			note: "cars[1].model right; cars[0].make wrong",
+		},
+		{
+			id: idNoMatchAllWrong,
+			countries: []any{country(garage(
+				car("make", "toyota", "model", "corolla"),
+				car("make", "kia", "model", "sportage"),
+			))},
+			note: "both cars exist with non-matching values",
+		},
+		{
+			id:        idNoMatchNoCars,
+			countries: []any{country(garageWithCity("berlin"))},
+			note:      "garage with no cars at all",
+		},
+		{
+			id: idNoMatchThirdCarMatchesModel,
+			countries: []any{country(garage(
+				car("make", "honda"),
+				car("make", "kia", "model", "sportage"),
+				car("model", "civic"),
+			))},
+			note: "cars[2].model=civic but filter targets cars[1] — must not match through cars[2]",
+		},
+
+		// Rich match cases: 3 garages × 3 cars in one country, all cars carry
+		// both fields. One garage matches; the other two are pure filler.
+		{
+			id:        idRichMatchG0,
+			countries: []any{country(matchingGarage(), fillerGarage(), fillerGarage())},
+			note:      "rich: 3×3, match in first garage with surrounding filler",
+		},
+		{
+			id:        idRichMatchG1,
+			countries: []any{country(fillerGarage(), matchingGarage(), fillerGarage())},
+			note:      "rich: 3×3, match in middle garage",
+		},
+		{
+			id:        idRichMatchG2,
+			countries: []any{country(fillerGarage(), fillerGarage(), matchingGarage())},
+			note:      "rich: 3×3, match in last garage",
+		},
+
+		// Rich no-match cases: every garage fully populated; rejection is
+		// purely due to value mismatch at the targeted positions.
+		{
+			id:        idRichNoMatchAllFiller,
+			countries: []any{country(fillerGarage(), fillerGarage(), fillerGarage())},
+			note:      "rich: 3×3 all filler — no honda or civic anywhere",
+		},
+		{
+			id: idRichNoMatchOnlyMakeMatches,
+			countries: []any{country(
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+					car("make", "bmw", "model", "x3"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "rich: cars[0].make=honda satisfied at g0; civic missing entirely",
+		},
+		{
+			id: idRichNoMatchOnlyModelMatches,
+			countries: []any{country(
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "kia", "model", "civic"),
+					car("make", "bmw", "model", "x3"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "rich: cars[1].model=civic satisfied at g0; honda missing entirely",
+		},
+		{
+			id: idRichNoMatchSplitAcrossGars,
+			countries: []any{country(
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+					car("make", "bmw", "model", "x3"),
+				),
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "audi", "model", "civic"),
+					car("make", "ford", "model", "focus"),
+				),
+				fillerGarage(),
+			)},
+			note: "rich: cars[0].make=honda in g0; cars[1].model=civic in g1 — split across garages",
+		},
+		{
+			id: idRichNoMatchSwapped,
+			countries: []any{country(
+				garage(
+					car("make", "toyota", "model", "civic"),
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "rich: g0 has both honda and civic but at swapped indices",
+		},
+		{
+			id: idRichNoMatchHondaCivicWrong,
+			countries: []any{country(
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "honda", "model", "sportage"),
+					car("make", "kia", "model", "civic"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "rich: honda at cars[1], civic at cars[2] — values present but never at filtered positions",
+		},
+		{
+			id: idRichNoMatchCivicOnlyAtCars2,
+			countries: []any{country(
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+					car("make", "toyota", "model", "civic"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "rich: cars[0].make=honda satisfied; civic only at cars[2]",
+		},
+
+		{
+			id: idAbsentMissingModelField,
+			countries: []any{country(garage(
+				map[string]any{"make": "honda"},
+				map[string]any{"make": "kia"},
+				map[string]any{"make": "bmw"},
+			))},
+			note: "absent: 3 cars with make but no model field",
+		},
+
+		{
+			id: idRichNoMatchCrossConfusion,
+			countries: []any{country(
+				garage(
+					car("make", "civic", "model", "honda"),
+					car("make", "civic", "model", "honda"),
+					car("make", "civic", "model", "honda"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "field/value cross-confusion: honda and civic on swapped fields",
+		},
+
+		{
+			id: idRichMatchHondaAtMultiplePos,
+			countries: []any{country(
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "honda", "model", "civic"),
+					car("make", "honda", "model", "x3"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "every car in g0 has make=honda; cars[1].model=civic — match despite extra honda noise",
+		},
+
+		{
+			id:        idRichMatchTwoGaragesBoth,
+			countries: []any{country(matchingGarage(), matchingGarage(), fillerGarage())},
+			note:      "g0 and g1 both satisfy the filter — dedup",
+		},
+
+		{
+			id: idAbsentEmptyCarsArray,
+			countries: []any{country(
+				map[string]any{"cars": []any{}},
+				map[string]any{"cars": []any{}},
+				map[string]any{"cars": []any{}},
+			)},
+			note: "absent: every garage has explicit empty cars array",
+		},
+
+		{
+			id: idRichMatchHeterogeneousShapes,
+			countries: []any{country(
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+				),
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "civic"),
+					car("make", "bmw", "model", "x3"),
+					car("make", "audi", "model", "a4"),
+					car("make", "ford", "model", "focus"),
+				),
+				garage(
+					car("make", "nissan", "model", "sentra"),
+					car("make", "hyundai", "model", "elantra"),
+					car("make", "volvo", "model", "xc60"),
+					car("make", "ford", "model", "focus"),
+				),
+			)},
+			note: "heterogeneous: 2 / 5 / 4 cars per garage; match in middle 5-car garage",
+		},
+
+		{
+			id: idRichNoMatchCivicAsMake,
+			countries: []any{country(
+				garage(
+					car("make", "civic", "model", "civic"),
+					car("make", "civic", "model", "civic"),
+					car("make", "civic", "model", "civic"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			)},
+			note: "civic-as-make: cars[1].model=civic satisfied but cars[0].make=civic ≠ honda",
+		},
+
+		// ----- Cross-country cases: data spread across countries -----
+
+		{
+			id: idCntrSplitMinimal,
+			countries: []any{
+				country(garage(car("make", "honda"))),
+				country(garage(car("make", "x"), car("model", "civic"))),
+			},
+			note: "minimal cross-country split: country[0] only honda, country[1] only civic",
+		},
+		{
+			id: idCntrSplitRich,
+			countries: []any{
+				country(
+					garage(
+						car("make", "honda", "model", "corolla"),
+						car("make", "kia", "model", "sportage"),
+						car("make", "bmw", "model", "x3"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				country(
+					garage(
+						car("make", "toyota", "model", "corolla"),
+						car("make", "kia", "model", "civic"),
+						car("make", "bmw", "model", "x3"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				fillerCountry(),
+			},
+			note: "rich cross-country split: 3×3 per country; honda only in country[0], civic only in country[1]",
+		},
+		{
+			id: idCntrSplitAcrossMany,
+			countries: []any{
+				country(
+					garage(
+						car("make", "honda", "model", "corolla"),
+						car("make", "kia", "model", "sportage"),
+						car("make", "bmw", "model", "x3"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				country(
+					garage(
+						car("make", "toyota", "model", "corolla"),
+						car("make", "kia", "model", "civic"),
+						car("make", "bmw", "model", "x3"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				country(
+					garage(
+						car("make", "audi", "model", "civic"),
+						car("make", "ford", "model", "focus"),
+						car("make", "nissan", "model", "sentra"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+			},
+			note: "honda only in country[0]; civic spread across countries[1] and [2]",
+		},
+		{
+			id: idCntrEachHasF13NoMatch,
+			countries: []any{
+				// country[0]: F13's split-garages no-match shape — make in g0, civic in g1
+				country(
+					garage(
+						car("make", "honda", "model", "corolla"),
+						car("make", "kia", "model", "sportage"),
+						car("make", "bmw", "model", "x3"),
+					),
+					garage(
+						car("make", "toyota", "model", "corolla"),
+						car("make", "audi", "model", "civic"),
+						car("make", "ford", "model", "focus"),
+					),
+					fillerGarage(),
+				),
+				// country[1]: F13's swap no-match shape — cars[0].model=civic, cars[1].make=honda
+				country(
+					garage(
+						car("make", "toyota", "model", "civic"),
+						car("make", "honda", "model", "corolla"),
+						car("make", "kia", "model", "sportage"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				fillerCountry(),
+			},
+			note: "each country independently fails F13: country[0] has F13-split, country[1] has F13-swap",
+		},
+		{
+			id: idCntrValuesAtWrongCarSlots,
+			countries: []any{
+				// country[0]: honda exists but at cars[1] (wrong slot for make)
+				country(
+					garage(
+						car("make", "toyota", "model", "corolla"),
+						car("make", "honda", "model", "sportage"),
+						car("make", "bmw", "model", "x3"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				// country[1]: civic exists but at cars[2] (wrong slot for model)
+				country(
+					garage(
+						car("make", "toyota", "model", "corolla"),
+						car("make", "kia", "model", "sportage"),
+						car("make", "bmw", "model", "civic"),
+					),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				fillerCountry(),
+			},
+			note: "values exist across countries but always at wrong cars[N] slots",
+		},
+
+		// Cross-country match cases: matching garage at non-first country
+		// positions and dedup across multiple matching countries.
+		{
+			id:        idCntrMatchInC1,
+			countries: []any{fillerCountry(), country(matchingGarage(), fillerGarage(), fillerGarage()), fillerCountry()},
+			note:      "match in middle country — engine must check all countries",
+		},
+		{
+			id:        idCntrMatchInC2,
+			countries: []any{fillerCountry(), fillerCountry(), country(matchingGarage(), fillerGarage(), fillerGarage())},
+			note:      "match in last country — engine must check all countries",
+		},
+		{
+			id: idCntrMatchTwoCountriesBoth,
+			countries: []any{
+				country(matchingGarage(), fillerGarage(), fillerGarage()),
+				country(matchingGarage(), fillerGarage(), fillerGarage()),
+				fillerCountry(),
+			},
+			note: "two countries each have a matching garage — result must dedup to single doc",
+		},
+		{
+			id: idCntrMatchHeterogeneous,
+			countries: []any{
+				country(fillerGarage()),
+				country(
+					fillerGarage(),
+					fillerGarage(),
+					matchingGarage(),
+					fillerGarage(),
+					fillerGarage(),
+				),
+				country(fillerGarage(), fillerGarage(), fillerGarage(), fillerGarage()),
+			},
+			note: "heterogeneous: 1 / 5 / 4 garages per country; match in middle country's middle garage",
+		},
+
+		// Country-level absent-data variants.
+		{
+			id:        idAbsentNoCountries,
+			countries: []any{},
+			note:      "absent: empty countries array",
+		},
+		{
+			id: idAbsentCountryNoGaragesField,
+			countries: []any{
+				map[string]any{},
+				map[string]any{},
+			},
+			note: "absent: countries exist but neither has a garages field",
+		},
+		{
+			id: idAbsentCountryEmptyGarages,
+			countries: []any{
+				map[string]any{"garages": []any{}},
+				map[string]any{"garages": []any{}},
+			},
+			note: "absent: countries exist with explicit empty garages arrays",
+		},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	for _, d := range docs {
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: d.id,
+			Properties: map[string]any{"countries": d.countries},
+		}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+	}
+
+	makeFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	filter := andFilter(
+		makeFilter("countries.garages.cars[0].make", "honda"),
+		makeFilter("countries.garages.cars[1].model", "civic"),
+	)
+
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: 100},
+		Filters:    filter,
+	})
+	require.NoError(t, err)
+
+	got := make([]strfmt.UUID, len(res))
+	for i, r := range res {
+		got[i] = r.ID
+	}
+
+	want := []strfmt.UUID{
+		idMatchMinimal,
+		idMatchTwoCarsBoth,
+		idMatchExtraCar,
+		idMatchSecondGarage,
+		idRichMatchG0,
+		idRichMatchG1,
+		idRichMatchG2,
+		idRichMatchHondaAtMultiplePos,
+		idRichMatchTwoGaragesBoth,
+		idRichMatchHeterogeneousShapes,
+		idCntrMatchInC1,
+		idCntrMatchInC2,
+		idCntrMatchTwoCountriesBoth,
+		idCntrMatchHeterogeneous,
 	}
 	assert.ElementsMatch(t, want, got)
 }

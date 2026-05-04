@@ -161,10 +161,31 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 		subs = append(subs, b.buildPlan(subsByPath[p], p))
 	}
 
-	if len(here) == 0 && len(subs) == 1 {
+	if len(here) == 0 && len(subs) == 1 && !needsWrappingGroup(scope, subs[0]) {
 		return subs[0]
 	}
 	return &recGroupNode{lcaPath: scope, here: here, subs: subs}
+}
+
+// needsWrappingGroup reports whether the wrapping GROUP at scope must be kept
+// even when there are no here conditions and only a single sub. The wrapping
+// GROUP's per-element loop (runIdxLoopRecursive at intermediate scope) is what
+// enforces same-element semantics around a multi-branch SPLIT — collapsing it
+// away would let the SPLIT combiner AND branches at rootDoc only, losing the
+// "same element at the LCA above the conflict" guarantee.
+//
+// Returns true iff scope is intermediate (non-root) AND the sub is a
+// multi-branch SPLIT. Single-branch SPLITs simply pin to one index and don't
+// need an outer loop; SPLITs at root scope have nothing to loop over.
+func needsWrappingGroup(scope string, sub recPlanNode) bool {
+	if scope == "" {
+		return false
+	}
+	split, ok := sub.(*recSplitNode)
+	if !ok {
+		return false
+	}
+	return len(split.branches) > 1
 }
 
 // constraintAtScope returns the arr[N] index whose RelPath == scope, if any.
