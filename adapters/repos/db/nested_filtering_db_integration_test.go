@@ -1713,3 +1713,495 @@ func TestNestedFilteringTokenizationCorrelatedAnd(t *testing.T) {
 			[]strfmt.UUID{idMatch, idMatchExtraStoredToken, idMatchDuplicateAddrs})
 	})
 }
+
+// TestNestedFilteringF13CorrelatedAndDifferentCarsSameGarage exercises a
+// correlated AND filter where two conditions target different cars[N] indices
+// inside the same garages array:
+//
+//	garages.cars[0].make = "honda" AND garages.cars[1].model = "civic"
+//
+// Same-garage semantics: a doc matches when SOME garage has cars[0].make="honda"
+// AND that same garage has cars[1].model="civic". The dataset probes the
+// position-precision boundaries — same-garage vs cross-garage, exact index vs
+// neighboring index, value at wrong field — across both sparse and densely
+// populated documents.
+func TestNestedFilteringF13CorrelatedAndDifferentCarsSameGarage(t *testing.T) {
+	const nestedClass = "F13"
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:     "garages",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+					{
+						Name:     "cars",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+							{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// car / garage builders for compact dataset literals.
+	car := func(props ...string) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i]] = props[i+1]
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		anyCars := make([]any, len(cars))
+		for i, c := range cars {
+			anyCars[i] = c
+		}
+		return map[string]any{"cars": anyCars}
+	}
+	garageWithCity := func(city string) map[string]any {
+		return map[string]any{"city": city}
+	}
+
+	const (
+		idMatchMinimal                = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		idMatchTwoCarsBoth            = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		idMatchExtraCar               = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+		idMatchSecondGarage           = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+		idNoMatchSplitGarages         = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+		idNoMatchSwapped              = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+		idNoMatchOnlyMakeNoSecondCar  = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+		idNoMatchOnlyMakeWrongModel   = strfmt.UUID("00000000-0000-0000-0000-000000000008")
+		idNoMatchWrongMakeRightModel  = strfmt.UUID("00000000-0000-0000-0000-000000000009")
+		idNoMatchAllWrong             = strfmt.UUID("00000000-0000-0000-0000-00000000000a")
+		idNoMatchNoCars               = strfmt.UUID("00000000-0000-0000-0000-00000000000b")
+		idNoMatchThirdCarMatchesModel = strfmt.UUID("00000000-0000-0000-0000-00000000000c")
+
+		// Rich variants: every garage has 3 cars with both make and model populated.
+		// Rejection (when applicable) is due to value mismatch only — never due to
+		// missing fields, missing cars, or sparse garages. Filler values (toyota,
+		// kia, bmw, etc.) are guaranteed to never match the filter.
+		idRichMatchG0                  = strfmt.UUID("00000000-0000-0000-0000-00000000000d")
+		idRichMatchG1                  = strfmt.UUID("00000000-0000-0000-0000-00000000000e")
+		idRichMatchG2                  = strfmt.UUID("00000000-0000-0000-0000-00000000000f")
+		idRichNoMatchAllFiller         = strfmt.UUID("00000000-0000-0000-0000-000000000010")
+		idRichNoMatchOnlyMakeMatches   = strfmt.UUID("00000000-0000-0000-0000-000000000011")
+		idRichNoMatchOnlyModelMatches  = strfmt.UUID("00000000-0000-0000-0000-000000000012")
+		idRichNoMatchSplitAcrossGars   = strfmt.UUID("00000000-0000-0000-0000-000000000013")
+		idRichNoMatchSwapped           = strfmt.UUID("00000000-0000-0000-0000-000000000014")
+		idRichNoMatchHondaCivicWrong   = strfmt.UUID("00000000-0000-0000-0000-000000000015")
+		idRichNoMatchCivicOnlyAtCars2  = strfmt.UUID("00000000-0000-0000-0000-000000000016")
+		idAbsentMissingModelField      = strfmt.UUID("00000000-0000-0000-0000-000000000017")
+
+		idRichNoMatchCrossConfusion     = strfmt.UUID("00000000-0000-0000-0000-000000000018")
+		idRichMatchHondaAtMultiplePos   = strfmt.UUID("00000000-0000-0000-0000-000000000019")
+		idRichMatchTwoGaragesBoth       = strfmt.UUID("00000000-0000-0000-0000-00000000001a")
+		idAbsentEmptyCarsArray          = strfmt.UUID("00000000-0000-0000-0000-00000000001b")
+		idRichMatchHeterogeneousShapes  = strfmt.UUID("00000000-0000-0000-0000-00000000001c")
+		idRichNoMatchCivicAsMake        = strfmt.UUID("00000000-0000-0000-0000-00000000001d")
+	)
+
+	// fillerGarage builds a 3-car garage that cannot satisfy either condition of
+	// the filter (no honda, no civic). All cars carry both make and model.
+	fillerGarage := func() map[string]any {
+		return garage(
+			car("make", "toyota", "model", "corolla"),
+			car("make", "kia", "model", "sportage"),
+			car("make", "bmw", "model", "x3"),
+		)
+	}
+	// matchingGarage builds a 3-car garage that satisfies BOTH filter conditions
+	// at the right indices: cars[0].make=honda, cars[1].model=civic. Other slots
+	// (cars[0].model, cars[1].make, cars[2]) carry filler values.
+	matchingGarage := func() map[string]any {
+		return garage(
+			car("make", "honda", "model", "corolla"),
+			car("make", "kia", "model", "civic"),
+			car("make", "bmw", "model", "x3"),
+		)
+	}
+
+	docs := []struct {
+		id      strfmt.UUID
+		garages []any
+		note    string
+	}{
+		{
+			id:      idMatchMinimal,
+			garages: []any{garage(car("make", "honda"), car("model", "civic"))},
+			note:    "minimal same-garage match: cars[0].make=honda, cars[1].model=civic",
+		},
+		{
+			id: idMatchTwoCarsBoth,
+			garages: []any{garage(
+				car("make", "honda", "model", "civic"),
+				car("make", "honda", "model", "civic"),
+			)},
+			note: "both cars carry both fields; cars[0].make and cars[1].model still match",
+		},
+		{
+			id: idMatchExtraCar,
+			garages: []any{garage(
+				car("make", "honda"),
+				car("model", "civic"),
+				car("make", "kia", "model", "sportage"),
+			)},
+			note: "cars[2] beyond the filter range is irrelevant",
+		},
+		{
+			id: idMatchSecondGarage,
+			garages: []any{
+				garage(car("make", "toyota")),
+				garage(car("make", "honda"), car("model", "civic")),
+			},
+			note: "match satisfied by the second garage element",
+		},
+		{
+			id: idNoMatchSplitGarages,
+			garages: []any{
+				garage(car("make", "honda")),
+				garage(car("make", "x"), car("model", "civic")),
+			},
+			note: "headline regression: cars[0].make in garage[0]; cars[1].model in garage[1] — split must reject",
+		},
+		{
+			id:      idNoMatchSwapped,
+			garages: []any{garage(car("model", "civic"), car("make", "honda"))},
+			note:    "values exist but at swapped indices: cars[0].model=civic, cars[1].make=honda",
+		},
+		{
+			id:      idNoMatchOnlyMakeNoSecondCar,
+			garages: []any{garage(car("make", "honda"))},
+			note:    "cars[1] absent → cars[1].model group resolves to empty",
+		},
+		{
+			id: idNoMatchOnlyMakeWrongModel,
+			garages: []any{garage(
+				car("make", "honda"),
+				car("make", "kia", "model", "sportage"),
+			)},
+			note: "cars[1] exists but with non-matching model — proves we don't accept any cars[1]",
+		},
+		{
+			id: idNoMatchWrongMakeRightModel,
+			garages: []any{garage(
+				car("make", "toyota", "model", "corolla"),
+				car("make", "kia", "model", "civic"),
+			)},
+			note: "cars[1].model right; cars[0].make wrong",
+		},
+		{
+			id: idNoMatchAllWrong,
+			garages: []any{garage(
+				car("make", "toyota", "model", "corolla"),
+				car("make", "kia", "model", "sportage"),
+			)},
+			note: "both cars exist with non-matching values",
+		},
+		{
+			id:      idNoMatchNoCars,
+			garages: []any{garageWithCity("berlin")},
+			note:    "garage with no cars at all",
+		},
+		{
+			id: idNoMatchThirdCarMatchesModel,
+			garages: []any{garage(
+				car("make", "honda"),
+				car("make", "kia", "model", "sportage"),
+				car("model", "civic"),
+			)},
+			note: "cars[2].model=civic but filter targets cars[1] — must not match through cars[2]",
+		},
+
+		// Rich match cases: 3 garages × 3 cars, all cars carry both make and model.
+		// One garage matches; the other two are pure filler with non-matching values.
+		{
+			id:      idRichMatchG0,
+			garages: []any{matchingGarage(), fillerGarage(), fillerGarage()},
+			note:    "rich: 3×3, match in first garage with surrounding filler",
+		},
+		{
+			id:      idRichMatchG1,
+			garages: []any{fillerGarage(), matchingGarage(), fillerGarage()},
+			note:    "rich: 3×3, match in middle garage",
+		},
+		{
+			id:      idRichMatchG2,
+			garages: []any{fillerGarage(), fillerGarage(), matchingGarage()},
+			note:    "rich: 3×3, match in last garage — proves dispatch checks all garages",
+		},
+
+		// Rich no-match cases: every garage is fully populated (3 cars with both
+		// fields) so rejection is purely due to value mismatch at the targeted
+		// positions, not due to missing fields, missing cars, or sparse data.
+		{
+			id:      idRichNoMatchAllFiller,
+			garages: []any{fillerGarage(), fillerGarage(), fillerGarage()},
+			note:    "rich: 3×3 all filler — no honda or civic anywhere; pure value mismatch",
+		},
+		{
+			id: idRichNoMatchOnlyMakeMatches,
+			garages: []any{
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+					car("make", "bmw", "model", "x3"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "rich: cars[0].make=honda satisfied at g0; civic missing entirely (every model is filler)",
+		},
+		{
+			id: idRichNoMatchOnlyModelMatches,
+			garages: []any{
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "kia", "model", "civic"),
+					car("make", "bmw", "model", "x3"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "rich: cars[1].model=civic satisfied at g0; honda missing entirely (every make is filler)",
+		},
+		{
+			id: idRichNoMatchSplitAcrossGars,
+			garages: []any{
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+					car("make", "bmw", "model", "x3"),
+				),
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "audi", "model", "civic"),
+					car("make", "ford", "model", "focus"),
+				),
+				fillerGarage(),
+			},
+			note: "rich: cars[0].make=honda in g0; cars[1].model=civic in g1 — split across garages, both fully populated",
+		},
+		{
+			id: idRichNoMatchSwapped,
+			garages: []any{
+				garage(
+					car("make", "toyota", "model", "civic"),
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "rich: g0 has both honda and civic but at swapped indices (cars[0].model=civic, cars[1].make=honda)",
+		},
+		{
+			id: idRichNoMatchHondaCivicWrong,
+			garages: []any{
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "honda", "model", "sportage"),
+					car("make", "kia", "model", "civic"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "rich: honda at cars[1] (wrong slot for make), civic at cars[2] (wrong slot for model) — values present but never at filtered positions",
+		},
+		{
+			id: idRichNoMatchCivicOnlyAtCars2,
+			garages: []any{
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+					car("make", "toyota", "model", "civic"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "rich: cars[0].make=honda satisfied; civic exists but only at cars[2] — must not satisfy cars[1].model",
+		},
+
+		// Absent-data variant: every car has make but no model field at all.
+		// Different code path from idNoMatchOnlyMakeNoSecondCar (which has only
+		// 1 car) and idNoMatchNoCars (no cars array).
+		{
+			id: idAbsentMissingModelField,
+			garages: []any{garage(
+				map[string]any{"make": "honda"},
+				map[string]any{"make": "kia"},
+				map[string]any{"make": "bmw"},
+			)},
+			note: "absent: 3 cars with make but no model field — cars[1].model group resolves empty",
+		},
+
+		// Field/value cross-confusion: every car has the values "honda" and
+		// "civic" present but on the WRONG fields. Filter requires make=honda;
+		// every make is "civic" → reject. Proves the engine binds value to the
+		// correct field, not just any field.
+		{
+			id: idRichNoMatchCrossConfusion,
+			garages: []any{
+				garage(
+					car("make", "civic", "model", "honda"),
+					car("make", "civic", "model", "honda"),
+					car("make", "civic", "model", "honda"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "field/value cross-confusion: honda and civic present everywhere but on swapped fields",
+		},
+
+		// Honda at multiple positions: cars[0], cars[1], cars[2] all have
+		// make=honda. cars[0].make=honda ✓, cars[1].model=civic ✓ → match.
+		// Proves having the make value at multiple positions doesn't break the
+		// cars[1] check.
+		{
+			id: idRichMatchHondaAtMultiplePos,
+			garages: []any{
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "honda", "model", "civic"),
+					car("make", "honda", "model", "x3"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "every car in g0 has make=honda; cars[1].model=civic — match despite extra honda noise",
+		},
+
+		// Two garages both fully match — defensive dedup check. Result must
+		// contain the doc exactly once, not duplicated per matching garage.
+		{
+			id: idRichMatchTwoGaragesBoth,
+			garages: []any{
+				matchingGarage(),
+				matchingGarage(),
+				fillerGarage(),
+			},
+			note: "g0 and g1 both satisfy the filter — result must contain doc exactly once (dedup)",
+		},
+
+		// Empty cars array — distinct from missing field (idAbsentMissingModelField)
+		// and missing array (idNoMatchNoCars). Every garage explicitly carries
+		// cars=[]. cars[1].model group resolves empty.
+		{
+			id: idAbsentEmptyCarsArray,
+			garages: []any{
+				map[string]any{"cars": []any{}},
+				map[string]any{"cars": []any{}},
+				map[string]any{"cars": []any{}},
+			},
+			note: "absent: every garage has explicit empty cars array",
+		},
+
+		// Heterogeneous garage shapes: g0 has 2 cars, g1 has 5 cars
+		// (matching at cars[0]+cars[1] with 3 extra cars), g2 has 4 cars.
+		// Proves the engine handles non-uniform garage sizes and matches in a
+		// 5-car garage exactly the same as in a 3-car garage.
+		{
+			id: idRichMatchHeterogeneousShapes,
+			garages: []any{
+				garage(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "kia", "model", "sportage"),
+				),
+				garage(
+					car("make", "honda", "model", "corolla"),
+					car("make", "kia", "model", "civic"),
+					car("make", "bmw", "model", "x3"),
+					car("make", "audi", "model", "a4"),
+					car("make", "ford", "model", "focus"),
+				),
+				garage(
+					car("make", "nissan", "model", "sentra"),
+					car("make", "hyundai", "model", "elantra"),
+					car("make", "volvo", "model", "xc60"),
+					car("make", "ford", "model", "focus"),
+				),
+			},
+			note: "heterogeneous: 2 / 5 / 4 cars per garage; match in middle 5-car garage",
+		},
+
+		// Civic-as-make value confusion: every car has make="civic" and
+		// model="civic". Filter cars[0].make=honda fails (make is civic, not
+		// honda) — proves the position binding holds even when the filter value
+		// (civic) is repeated across many fields under the wrong field name.
+		{
+			id: idRichNoMatchCivicAsMake,
+			garages: []any{
+				garage(
+					car("make", "civic", "model", "civic"),
+					car("make", "civic", "model", "civic"),
+					car("make", "civic", "model", "civic"),
+				),
+				fillerGarage(),
+				fillerGarage(),
+			},
+			note: "civic-as-make: cars[1].model=civic satisfied but cars[0].make=civic ≠ honda → reject",
+		},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	for _, d := range docs {
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: d.id,
+			Properties: map[string]any{"garages": d.garages},
+		}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+	}
+
+	makeFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	filter := andFilter(
+		makeFilter("garages.cars[0].make", "honda"),
+		makeFilter("garages.cars[1].model", "civic"),
+	)
+
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: 100},
+		Filters:    filter,
+	})
+	require.NoError(t, err)
+
+	got := make([]strfmt.UUID, len(res))
+	for i, r := range res {
+		got[i] = r.ID
+	}
+
+	want := []strfmt.UUID{
+		idMatchMinimal,
+		idMatchTwoCarsBoth,
+		idMatchExtraCar,
+		idMatchSecondGarage,
+		idRichMatchG0,
+		idRichMatchG1,
+		idRichMatchG2,
+		idRichMatchHondaAtMultiplePos,
+		idRichMatchTwoGaragesBoth,
+		idRichMatchHeterogeneousShapes,
+	}
+	assert.ElementsMatch(t, want, got)
+}
