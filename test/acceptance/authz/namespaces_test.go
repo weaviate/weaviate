@@ -271,7 +271,7 @@ func TestAuthzNamespaces(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(role),
 			Permissions: []*models.Permission{
-				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies.*").Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("Movies*").Permission(),
 			},
 		})
 		defer helper.DeleteRole(t, adminKey, role)
