@@ -27,9 +27,6 @@ type Metrics struct {
 	deleteTime       prometheus.Observer
 	postings         prometheus.Gauge
 	postingSize      prometheus.Observer
-	analyzePending   prometheus.Gauge
-	analyze          prometheus.Observer
-	analyzeCount     prometheus.Gauge
 	splitsPending    prometheus.Gauge
 	split            prometheus.Observer
 	splitCount       prometheus.Gauge
@@ -85,10 +82,6 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	postings := prom.VectorIndexPostings.With(baseLabels)
 	postingSize := prom.VectorIndexPostingSize.With(baseLabels)
 
-	analyzePending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("analyze"))
-	analyze := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("analyze"))
-	analyzeCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("analyze"))
-
 	splitsPending := prom.VectorIndexPendingBackgroundOperations.With(opLabels("split"))
 	split := prom.VectorIndexBackgroundOperationsDurations.With(opLabels("split"))
 	splitCount := prom.VectorIndexBackgroundOperationsCount.With(opLabels("split"))
@@ -116,9 +109,6 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		deleteTime:       deleteTime,
 		postings:         postings,
 		postingSize:      postingSize,
-		analyzePending:   analyzePending,
-		analyze:          analyze,
-		analyzeCount:     analyzeCount,
 		splitsPending:    splitsPending,
 		split:            split,
 		splitCount:       splitCount,
@@ -175,30 +165,6 @@ func (m *Metrics) ObservePostingSize(size float64) {
 	}
 
 	m.postingSize.Observe(size)
-}
-
-func (m *Metrics) AnalyzeDuration(start time.Time) {
-	if !m.enabled {
-		return
-	}
-
-	m.analyze.Observe(float64(time.Since(start).Milliseconds()))
-}
-
-func (m *Metrics) IncAnalyzeCount() {
-	if !m.enabled {
-		return
-	}
-
-	m.analyzeCount.Inc()
-}
-
-func (m *Metrics) SetPendingAnalyzeTasks(count int64) {
-	if !m.enabled {
-		return
-	}
-
-	m.analyzePending.Set(float64(count))
 }
 
 func (m *Metrics) SplitDuration(start time.Time) {

@@ -84,10 +84,6 @@ func makeNoopCommitLogger() (hnsw.CommitLogger, error) {
 	return &hnsw.NoopCommitLogger{}, nil
 }
 
-func makeTestMetrics() *Metrics {
-	return NewMetrics(monitoring.GetMetrics(), "n/a", "n/a")
-}
-
 func makeHFreshConfig(t *testing.T) (*Config, ent.UserConfig) {
 	l := logrus.New()
 	tmpDir := t.TempDir()
@@ -219,16 +215,14 @@ func TestHFreshRecall(t *testing.T) {
 		dirs, err := os.ReadDir(cfg.RootPath)
 		require.NoError(t, err)
 		require.Len(t, dirs, 6)
-		require.Equal(t, "analyze.queue.d", dirs[0].Name())
-		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[0].Name())))
-		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[1].Name())
-		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[2].Name())
-		require.Equal(t, "merge.queue.d", dirs[3].Name())
+		require.Equal(t, "centroids.hnsw.commitlog.d", dirs[0].Name())
+		require.Equal(t, "centroids.hnsw.snapshot.d", dirs[1].Name())
+		require.Equal(t, "merge.queue.d", dirs[2].Name())
+		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[2].Name())))
+		require.Equal(t, "reassign.queue.d", dirs[3].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[3].Name())))
-		require.Equal(t, "reassign.queue.d", dirs[4].Name())
+		require.Equal(t, "split.queue.d", dirs[4].Name())
 		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[4].Name())))
-		require.Equal(t, "split.queue.d", dirs[5].Name())
-		require.Equal(t, 0, countFiles(t, filepath.Join(cfg.RootPath, dirs[5].Name())))
 	})
 
 	t.Run("restart and re-test recall", func(t *testing.T) {

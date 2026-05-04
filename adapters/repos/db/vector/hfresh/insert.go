@@ -210,39 +210,20 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 
 	h.postingLocks.Unlock(centroidID)
 
-	if !reassigned {
-		// If the posting is way too big, we need to split it immediately.
-		if count > h.maxPostingSize {
+	// If the posting is too big, it needs to be split.
+	if count > h.maxPostingSize {
+		if !reassigned {
 			err = h.taskQueue.EnqueueSplit(centroidID)
-			if err != nil {
-				return false, err
-			}
-
-			return true, nil
+		} else {
+			// During an insert, we want to split asynchronously
+			// however during a reassign, we want to split immediately.
+			err = h.doSplit(ctx, centroidID, true)
 		}
-
-		// enqueue an analyze operation to persist the changes and update the posting map on disk
-		err = h.taskQueue.EnqueueAnalyze(centroidID)
 		if err != nil {
 			return false, err
 		}
-		return true, nil
-	}
 
-	// If the posting is too big, we need to split it.
-	// During an insert, we want to split asynchronously
-	// however during a reassign, we want to split immediately.
-	max := h.maxPostingSize
-	if count > max {
-		err = h.doSplit(ctx, centroidID, false)
-	} else {
-		// enqueue an analyze operation to persist the changes and update the posting map on disk
-		err = h.taskQueue.EnqueueAnalyze(centroidID)
 	}
-	if err != nil {
-		return false, err
-	}
-
 	return true, nil
 }
 

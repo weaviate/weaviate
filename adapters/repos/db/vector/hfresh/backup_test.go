@@ -77,7 +77,6 @@ func TestHFreshBackupListFiles(t *testing.T) {
 			dirsFound[dir.Name()] = struct{}{}
 		}
 		expectedDirs := []string{
-			"analyze.queue.d",
 			"centroids.hnsw.commitlog.d",
 			"centroids.hnsw.snapshot.d",
 			"merge.queue.d",

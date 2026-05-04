@@ -215,12 +215,10 @@ func (h *HFresh) restoreMetrics() error {
 	splitCount := h.taskQueue.splitQueue.Size()
 	mergeCount := h.taskQueue.mergeQueue.Size()
 	reassignCount := h.taskQueue.reassignQueue.Size()
-	analyzeCount := h.taskQueue.analyzeQueue.Size()
 
 	h.metrics.SetPendingSplitTasks(splitCount)
 	h.metrics.SetPendingMergeTasks(mergeCount)
 	h.metrics.SetPendingReassignTasks(reassignCount)
-	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
 
 	postingsCount := h.PostingSizes.Count()
 	h.Centroids.counter.Store(int32(postingsCount))
