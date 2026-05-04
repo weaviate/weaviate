@@ -13,6 +13,7 @@ package authz
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -530,6 +531,100 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
+			}
+		})
+	}
+}
+
+func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
+	type testCase struct {
+		name              string
+		role              string
+		userID            string
+		namespacesEnabled bool
+		staticAPIKeyUsers []string
+		wantForbidden     bool
+	}
+
+	tests := []testCase{
+		{
+			name:              "namespaces enabled, dynamic DB user, admin role rejected",
+			role:              authorization.Admin,
+			userID:            "namespaced-user",
+			namespacesEnabled: true,
+			wantForbidden:     true,
+		},
+		{
+			name:              "namespaces enabled, dynamic DB user, viewer role rejected",
+			role:              authorization.Viewer,
+			userID:            "namespaced-user",
+			namespacesEnabled: true,
+			wantForbidden:     true,
+		},
+		{
+			name:              "namespaces enabled, dynamic DB user, custom role allowed",
+			role:              "customRole",
+			userID:            "namespaced-user",
+			namespacesEnabled: true,
+		},
+		{
+			name:              "namespaces enabled, static API-key user, admin role allowed",
+			role:              authorization.Admin,
+			userID:            "static-user",
+			namespacesEnabled: true,
+			staticAPIKeyUsers: []string{"static-user"},
+		},
+		{
+			name:              "namespaces disabled, dynamic DB user, admin role allowed",
+			role:              authorization.Admin,
+			userID:            "namespaced-user",
+			namespacesEnabled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			principal := &models.Principal{Username: "admin-user"}
+			params := authz.AssignRoleToUserParams{
+				ID:          tt.userID,
+				HTTPRequest: req,
+				Body: authz.AssignRoleToUserBody{
+					Roles:    []string{tt.role},
+					UserType: models.UserTypeInputDb,
+				},
+			}
+
+			authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.userID)[0]).Return(nil)
+			controller.On("GetRoles", tt.role).Return(map[string][]authorization.Policy{tt.role: {}}, nil)
+			isStatic := slices.Contains(tt.staticAPIKeyUsers, tt.userID)
+			if !isStatic {
+				controller.On("GetUsers", tt.userID).Return(map[string]*apikey.User{tt.userID: {}}, nil)
+			}
+			if !tt.wantForbidden {
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.userID, authentication.AuthTypeDb), params.Body.Roles).Return(nil)
+			}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				apiKeysConfigs:    config.StaticAPIKey{Enabled: true, Users: tt.staticAPIKeyUsers},
+				namespacesEnabled: tt.namespacesEnabled,
+				logger:            logger,
+			}
+			res := h.assignRoleToUser(params, principal)
+			if tt.wantForbidden {
+				parsed, ok := res.(*authz.AssignRoleToUserForbidden)
+				assert.True(t, ok, "expected Forbidden, got %T", res)
+				if ok {
+					assert.Contains(t, parsed.Payload.Error[0].Message, "reserved for global/operator principals")
+				}
+			} else {
+				_, ok := res.(*authz.AssignRoleToUserOK)
+				assert.True(t, ok, "expected OK, got %T", res)
 			}
 		})
 	}
