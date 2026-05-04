@@ -222,6 +222,23 @@ func TestAuthzNamespaces(t *testing.T) {
 	user2Key := helper.CreateUserWithNamespace(t, "u2", ns2, adminKey)
 	defer helper.DeleteUser(t, ns2+":u2", adminKey)
 
+	// Namespaced DB users start with no permissions. Grant both a single
+	// namespace-relative create_collections role; the matcher specializes the
+	// unqualified `*` template per caller, so each user can only create within
+	// their own namespace.
+	const bootstrapRole = "ns-bootstrap-create"
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: String(bootstrapRole),
+		Permissions: []*models.Permission{
+			helper.NewCollectionsPermission().WithAction(authorization.CreateCollections).WithCollection("*").Permission(),
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, bootstrapRole)
+	helper.AssignRoleToUser(t, adminKey, bootstrapRole, ns1+":u1")
+	defer helper.RevokeRoleFromUser(t, adminKey, bootstrapRole, ns1+":u1")
+	helper.AssignRoleToUser(t, adminKey, bootstrapRole, ns2+":u2")
+	defer helper.RevokeRoleFromUser(t, adminKey, bootstrapRole, ns2+":u2")
+
 	helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
 	defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 	helper.CreateClassAuth(t, &models.Class{Class: "MoviesArchive"}, user1Key)
