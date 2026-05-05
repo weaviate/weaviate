@@ -170,22 +170,78 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 // needsWrappingGroup reports whether the wrapping GROUP at scope must be kept
 // even when there are no here conditions and only a single sub. The wrapping
 // GROUP's per-element loop (runIdxLoopRecursive at intermediate scope) is what
-// enforces same-element semantics around a multi-branch SPLIT — collapsing it
-// away would let the SPLIT combiner AND branches at rootDoc only, losing the
-// "same element at the LCA above the conflict" guarantee.
+// enforces same-element semantics around constructs that need an outer scope:
 //
-// Returns true iff scope is intermediate (non-root) AND the sub is a
-// multi-branch SPLIT. Single-branch SPLITs simply pin to one index and don't
-// need an outer loop; SPLITs at root scope have nothing to loop over.
+//   - Multi-branch SPLIT — collapsing the wrapper away would let the SPLIT
+//     combiner AND branches at rootDoc only, losing the "same element at the
+//     LCA above the conflict" guarantee.
+//   - GROUP whose subtree contains a non-root multi-sub GROUP — that deeper
+//     GROUP uses runIdxLoopRecursive (the flat path bails on multi-sub) and
+//     iterates `_idx.{lca}[K]` keys that aggregate across all parents at the
+//     intermediate level. Without the wrapping GROUP at the parent's scope
+//     to provide parentScope, the K bucket conflates physical instances at
+//     the same K under different parents (case-3 same-K-different-parent bug).
+//
+// Returns false at root scope: root-level same-element is handled implicitly
+// by root_idx in the position encoding, no outer loop needed.
 func needsWrappingGroup(scope string, sub recPlanNode) bool {
 	if scope == "" {
 		return false
 	}
-	split, ok := sub.(*recSplitNode)
-	if !ok {
+	switch n := sub.(type) {
+	case *recSplitNode:
+		return len(n.branches) > 1
+	case *recGroupNode:
+		return groupSubtreeNeedsOuterScope(n)
+	}
+	return false
+}
+
+// groupSubtreeNeedsOuterScope reports whether g (or any descendant
+// recGroupNode in g's subtree) will use runIdxLoopRecursive — which requires
+// the immediate ancestor's _idx scope to disambiguate same-K-different-parent
+// physical instances. A non-root recGroupNode uses runIdxLoopRecursive when:
+//
+//   - It has ≥2 subs (the flat raw-AndAll path bails on multi-sub since
+//     sibling sub-arrays produce conditions at distinct leaves with no
+//     inheritance bridge).
+//   - It has duplicate here paths (same-path values land at distinct leaves
+//     per walkScalarArray, so canUseRawAndAll is false and the flat path
+//     bails). Same-element semantics for these requires per-element _idx
+//     iteration scoped by the outer parent.
+func groupSubtreeNeedsOuterScope(g *recGroupNode) bool {
+	if g.lcaPath != "" && (len(g.subs) >= 2 || hasDuplicateHerePaths(g)) {
+		return true
+	}
+	for _, sub := range g.subs {
+		if grp, ok := sub.(*recGroupNode); ok {
+			if groupSubtreeNeedsOuterScope(grp) {
+				return true
+			}
+		}
+		// recSplitNode descendants handle their own scoping at their level
+		// via needsWrappingGroup invocations during their own buildPlan.
+	}
+	return false
+}
+
+// hasDuplicateHerePaths reports whether two or more here entries in g share
+// the same childRelPath. Each text[]/scalar-array value lives at a distinct
+// leaf assigned by walkScalarArray, so duplicate-path filters cannot match
+// at the same leaf via raw AndAll — they need per-element evaluation.
+func hasDuplicateHerePaths(g *recGroupNode) bool {
+	if len(g.here) < 2 {
 		return false
 	}
-	return len(split.branches) > 1
+	seen := make(map[string]struct{}, len(g.here))
+	for _, leaf := range g.here {
+		path := childRelPath(leaf)
+		if _, dup := seen[path]; dup {
+			return true
+		}
+		seen[path] = struct{}{}
+	}
+	return false
 }
 
 // constraintAtScope returns the arr[N] index whose RelPath == scope, if any.

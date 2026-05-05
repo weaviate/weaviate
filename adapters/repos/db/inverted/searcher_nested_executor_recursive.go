@@ -19,6 +19,9 @@ import (
 	"github.com/weaviate/sroar"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // recExclude carries an IsNull=true raw _exists.{path} bitmap together with the
@@ -62,6 +65,12 @@ type recExecutor struct {
 	bitmapOps      *invnested.BitmapOps
 	maxConcurrency int
 	returnMasked   bool
+	// props is the nested schema of the root property the executor operates
+	// on. Used by collectFlatSubtree to identify scalar-array (text[], int[],
+	// …) here paths — those values get distinct leaves per element from
+	// walkScalarArray and break the inheritance bridge that flat raw AndAll
+	// relies on.
+	props []*models.NestedProperty
 }
 
 func newRecExecutor(
@@ -130,6 +139,14 @@ func (e *recExecutor) withRootAnchor(anchor *sroar.Bitmap) *recExecutor {
 // AND multiple groups at root+docID level before stripping root bits.
 func (e *recExecutor) withReturnMasked(returnMasked bool) *recExecutor {
 	e.returnMasked = returnMasked
+	return e
+}
+
+// withProps attaches the root property's nested schema. Required for the
+// flat raw-AndAll path in evalGroup to detect scalar-array (narrow-leaf)
+// here paths.
+func (e *recExecutor) withProps(props []*models.NestedProperty) *recExecutor {
+	e.props = props
 	return e
 }
 
@@ -228,10 +245,20 @@ func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScop
 //     short-circuit (1 here leaf, 0 subs).
 //   - lcaPath == "" (and not raw-AndAll-eligible): AndAllMaskLeaf — root_idx
 //     encodes element identity at root scope, no per-element loop needed.
+//   - flat subtree (no SPLITs, every here path globally unique, ≤1 deeper
+//     group with here, no scalar-array terminals): fold the entire subtree
+//     into one raw AndAll. Same-element semantics is preserved by the
+//     analyzer's scalar inheritance — a scalar at depth d inherits its
+//     parent element's positions, which equal the descendant leaves when
+//     descendants exist, so leaves of conditions on different paths within
+//     the same physical element coincide. Avoids the idx loop, which is
+//     otherwise expensive and (for non-canUseRawAndAll groups at non-root
+//     lcaPath) loses leaf precision when _idx.{lca}[K] lumps multiple
+//     physical instances at the same K under different parents.
 //   - lcaPath != "" with multiple contributors and at least one masked input
-//     (sub plan, or here paths going deeper): per-element idx loop — each
-//     element of lcaPath is a candidate; here MaskLeafAnd and sub plans must
-//     all match within the same element.
+//     (sub plan, or here paths going deeper) AND not flat: per-element idx
+//     loop — each element of lcaPath is a candidate; here MaskLeafAnd and
+//     sub plans must all match within the same element.
 //
 // The here=0, subs=1 case is collapsed away by the planner so it does not
 // reach evalGroup (see buildGroup).
@@ -239,7 +266,154 @@ func (e *recExecutor) evalGroup(ctx context.Context, g *recGroupNode, parentScop
 	if canUseRawAndAll(g) || g.lcaPath == "" {
 		return e.evalGroupRoot(ctx, g, parentScope)
 	}
+	if flat, ok := e.collectFlatSubtree(g); ok {
+		return e.evalFlatRawAndAll(ctx, flat, parentScope)
+	}
 	return e.runIdxLoopRecursive(ctx, g, parentScope)
+}
+
+// flatSubtree summarizes a recGroupNode tree where raw AndAll over the
+// union of all here leaves is guaranteed to enforce same-element semantics
+// correctly. leaves is the union of here leaves; lcaPaths is the set of
+// lcaPaths covered by the subtree's groups (used to match excludes).
+type flatSubtree struct {
+	leaves   []*propValuePair
+	lcaPaths map[string]struct{}
+}
+
+// collectFlatSubtree walks the subtree rooted at g and returns a flatSubtree
+// when every node is a recGroupNode in a single chain (≤1 sub per group),
+// every here path is globally unique, no here targets a scalar-array path,
+// and at most one group below the root carries here conditions. Bails
+// (returns ok=false) on any of:
+//   - empty props (without schema we cannot identify scalar-array paths;
+//     stay on runIdxLoopRecursive)
+//   - recSplitNode anywhere (arr[N] requires per-element evaluation)
+//   - duplicate here paths (each value lives at a distinct leaf — raw AndAll
+//     over duplicates over-rejects, even within the same physical element)
+//   - any group with ≥2 subs (sibling sub-arrays produce conditions at
+//     distinct leaves with no inheritance bridge — raw AndAll fails)
+//   - any here condition on a scalar-array (text[], int[], …) path. These
+//     values are written by walkScalarArray with one leaf per element
+//     (assign.go), so they don't share leaves via Phase-3 inheritance with
+//     other conditions.
+//   - more than one group below the root carrying here conditions. A
+//     deeper-group here may introduce a narrow leaf bitmap; combining two
+//     such narrow leaves at distinct sub-paths fails raw AndAll. (One
+//     deeper group is fine because the root's wide here bitmaps inherit
+//     through to the deeper leaf.)
+func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
+	if len(e.props) == 0 {
+		return nil, false
+	}
+	out := &flatSubtree{lcaPaths: map[string]struct{}{}}
+	seen := map[string]struct{}{}
+	deeperWithHere := 0
+	var walk func(n recPlanNode, isRoot bool) bool
+	walk = func(n recPlanNode, isRoot bool) bool {
+		grp, ok := n.(*recGroupNode)
+		if !ok {
+			return false
+		}
+		if len(grp.subs) > 1 {
+			return false
+		}
+		if !isRoot && len(grp.here) > 0 {
+			deeperWithHere++
+			if deeperWithHere > 1 {
+				return false
+			}
+		}
+		out.lcaPaths[grp.lcaPath] = struct{}{}
+		for _, leaf := range grp.here {
+			path := childRelPath(leaf)
+			if _, dup := seen[path]; dup {
+				return false
+			}
+			seen[path] = struct{}{}
+			if e.pathTerminalIsScalarArray(path) {
+				return false
+			}
+			out.leaves = append(out.leaves, leaf)
+		}
+		for _, sub := range grp.subs {
+			if !walk(sub, false) {
+				return false
+			}
+		}
+		return true
+	}
+	if !walk(g, true) {
+		return nil, false
+	}
+	return out, true
+}
+
+// pathTerminalIsScalarArray reports whether path's terminal property in the
+// nested schema is a scalar-array type (text[], int[], number[], boolean[],
+// date[]).
+func (e *recExecutor) pathTerminalIsScalarArray(path string) bool {
+	if path == "" {
+		return false
+	}
+	segs := filnested.SplitPath(path)
+	props := e.props
+	for i, seg := range segs {
+		np := filnested.FindNestedProp(props, seg)
+		if np == nil {
+			return false
+		}
+		dt := schema.DataType(np.DataType[0])
+		if i == len(segs)-1 {
+			return schema.IsScalarArrayType(dt)
+		}
+		if !schema.IsNested(dt) {
+			return false
+		}
+		props = np.NestedProperties
+	}
+	return false
+}
+
+// evalFlatRawAndAll evaluates a flat subtree by raw-AndAll'ing every here
+// leaf's bitmap together with parentScope. Same-element semantics holds via
+// scalar inheritance — a position survives raw AndAll only when every
+// condition lands on a leaf shared with all the others, which by the
+// analyzer's DFS encoding means they belong to the same physical element.
+//
+// Excludes whose lcaPath is in the subtree's lcaPaths are AndNot'd at raw
+// level (sibling-element semantics, §8.5). Excludes whose lcaPath is outside
+// the subtree's lcaPaths are left for execute()'s rootDoc subtraction.
+func (e *recExecutor) evalFlatRawAndAll(ctx context.Context, flat *flatSubtree, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
+	if err := ctxExpired(ctx); err != nil {
+		return nil, nil, err
+	}
+	bitmaps := make([]*sroar.Bitmap, 0, len(flat.leaves)+1)
+	for _, leaf := range flat.leaves {
+		bm, ok := e.rawsByCond[leaf]
+		if !ok {
+			return nil, nil, fmt.Errorf("evalFlatRawAndAll: no raw bitmap for leaf %q", childRelPath(leaf))
+		}
+		bitmaps = append(bitmaps, bm)
+	}
+	if parentScope != nil {
+		bitmaps = append(bitmaps, parentScope)
+	}
+	if len(bitmaps) == 0 {
+		return nil, nil, fmt.Errorf("evalFlatRawAndAll: no inputs")
+	}
+	anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
+	for _, excl := range e.excludes {
+		if excl.lcaPath == "" {
+			continue
+		}
+		if _, ok := flat.lcaPaths[excl.lcaPath]; ok {
+			anded.AndNotConc(excl.bitmap, e.maxConcurrency)
+		}
+	}
+	result, resultRel := e.bitmapOps.MaskLeaf(anded)
+	andedRel()
+	return result, resultRel, nil
 }
 
 // evalGroupRoot collects raw bitmaps for here conditions and rootDoc bitmaps

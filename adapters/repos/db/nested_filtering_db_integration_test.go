@@ -7518,93 +7518,141 @@ func TestNestedFilteringCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 	// countries.garages.cars.tags = "sport". Two filter conditions on the
 	// same multi-value text[] field with different values.
 	//
-	// Observed behavior: same-element correlation enforces same-car within a
-	// garage, but NOT across garages. Documented as-is — this is the current
-	// behavior of same-path multi-value AND.
+	// Same-element semantics at the LCA (cars): both values must be on the
+	// same physical car's tags array.
+	//
+	// Plan: GROUP@cars { here:[tags=electric, tags=sport], subs:[] }. Has
+	// duplicate here paths → groupSubtreeNeedsOuterScope returns true →
+	// the wrapping outer GROUP@garages is preserved. Hierarchical
+	// runIdxLoopRecursive enforces same-car semantics: outer iterates
+	// _idx.garages[K_g], inner iterates _idx.garages.cars[K_c] AND
+	// parent_scope, evaluating both tag values within each physical car.
 	//
 	//   - same car has both tags                         → match
-	//   - same garage, different cars                    → reject (per-car AND)
-	//   - same country, different garages, one tag each  → match (no per-garage AND)
-	//   - only one tag anywhere                          → reject (each filter must hit)
+	//   - same country, different garages, one tag each  → reject (different cars)
+	//   - same garage, different cars                    → reject (different cars)
+	//   - only one tag anywhere                          → reject
 	t.Run("F_tags_double_value_cars.tags=electric_AND_cars.tags=sport", func(t *testing.T) {
 		idMatch := uuid(1)
-		idMatchSplitGarages := uuid(2)
+		idNoMatchSplitGarages := uuid(2)
 		idNoMatchOnlyOne := uuid(3)
 		idNoMatchSplitCars := uuid(4)
 		docs := []docDef{
 			{id: idMatch, props: map[string]any{"countries": asArr(
 				country(garage(nil, map[string]any{"tags": []any{"electric", "sport"}})),
 			)}, note: "single car has both tags"},
-			{id: idMatchSplitGarages, props: map[string]any{"countries": asArr(
+			{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(
 				country(
 					garage(nil, map[string]any{"tags": []any{"electric"}}),
 					garage(nil, map[string]any{"tags": []any{"sport"}}),
 				),
-			)}, note: "tags split across g[0].cars[0]/g[1].cars[0] — currently matches"},
+			)}, note: "tags split across g[0].cars[0]/g[1].cars[0] — different physical cars"},
 			{id: idNoMatchOnlyOne, props: map[string]any{"countries": asArr(
 				country(garage(nil, map[string]any{"tags": []any{"electric"}})),
-			)}, note: "only one tag in country — fails the second filter"},
+			)}, note: "only one tag in country"},
 			{id: idNoMatchSplitCars, props: map[string]any{"countries": asArr(
 				country(garage(nil,
 					map[string]any{"tags": []any{"electric"}},
 					map[string]any{"tags": []any{"sport"}},
 				)),
-			)}, note: "tags split across cars[0]/cars[1] of same garage — per-car AND rejects"},
+			)}, note: "tags split across cars[0]/cars[1] of same garage"},
 		}
 		parts := []*filters.LocalFilter{
 			valueFilter("countries.garages.cars.tags", "electric"),
 			valueFilter("countries.garages.cars.tags", "sport"),
 		}
-		runOrderings(t, docs, parts, []strfmt.UUID{idMatch, idMatchSplitGarages})
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
 	})
 
-	// SameKDifferentParent_with_subs: documents a confirmed bug in same-element
-	// semantics when the executor takes the runIdxLoopRecursive path
-	// (canUseRawAndAll=false, lcaPath != "").
+	// SameKDifferentParent_with_subs: regression test for the flat-AndAll path
+	// in evalGroup. Filter: cars.make = "honda" AND cars.tires.width = "205".
 	//
-	// Filter: cars.make = "honda" AND cars.tires.width = "205"
-	//   - cars.make sits at GROUP@cars (here)
-	//   - cars.tires.width sits at GROUP@cars.tires (sub)
-	//   - GROUP@cars has 1 here + 1 sub → canUseRawAndAll=false → runIdxLoopRecursive
+	// Plan: GROUP@cars { here:[make], subs:[GROUP@cars.tires { here:[width] }] }
+	// → not canUseRawAndAll (has subs), but the subtree is "flat" (no SPLITs,
+	// all here paths globally unique, no scalar-array terminals, ≤1 deeper
+	// here-group), so the executor uses evalFlatRawAndAll. Raw AndAll
+	// preserves leaf-precise same-element semantics via the analyzer's scalar
+	// inheritance — make on cars[K] inherits cars[K].elementPositions, which
+	// equals the descendant leaves (incl. tires.width's leaf) when descendants
+	// exist. Different physical cars at the same K live at disjoint leaves so
+	// the cross-instance false positive is naturally rejected by raw AndAll.
 	//
-	// Bug: matchElementRecursive uses MaskLeafAnd, which strips leaf bits before
-	// ANDing per-condition bitmaps. When _idx.cars[K] lumps multiple physical
-	// cars (e.g., g[0].cars[0] and g[1].cars[0] both at K=0), MaskLeafAnd loses
-	// the leaf-level distinction that would have rejected cross-physical-instance
-	// matches. The doc with make in g[0].cars[0] and tires in g[1].cars[0]
-	// incorrectly matches.
-	//
-	// Asserts CURRENT (buggy) behavior so a future fix gets caught and the
-	// expected list updated to just {idMatch}.
-	t.Run("SameKDifferentParent_with_subs_make_AND_tires_BUG", func(t *testing.T) {
+	// Discriminating shapes:
+	//   - same physical car has both → match
+	//   - split garages, same K=0 → reject (different physical cars under
+	//     g[0] vs g[1] have disjoint leaves)
+	//   - different K within same garage → reject
+	//   - only one condition → reject
+	t.Run("SameKDifferentParent_with_subs_make_AND_tires", func(t *testing.T) {
 		idMatch := uuid(1)
-		idBuggyMatchSplitGaragesSameK := uuid(2)
+		idNoMatchSplitGaragesSameK := uuid(2)
 		idNoMatchSplitCarsSameGarage := uuid(3)
 		idNoMatchOnlyMake := uuid(4)
 		docs := []docDef{
 			{id: idMatch, props: map[string]any{"countries": asArr(
 				country(garage(nil, map[string]any{"make": "honda", "tires": asArr(tire("205"))})),
-			)}, note: "correct: single car has both"},
-			{id: idBuggyMatchSplitGaragesSameK, props: map[string]any{"countries": asArr(
+			)}, note: "single car has both"},
+			{id: idNoMatchSplitGaragesSameK, props: map[string]any{"countries": asArr(
 				country(
 					garage(nil, map[string]any{"make": "honda"}),
 					garage(nil, map[string]any{"tires": asArr(tire("205"))}),
 				),
-			)}, note: "BUG: make in g[0].cars[0]; tires in g[1].cars[0] — currently matches; should reject"},
+			)}, note: "make in g[0].cars[0]; tires in g[1].cars[0] — same K=0, different garages"},
 			{id: idNoMatchSplitCarsSameGarage, props: map[string]any{"countries": asArr(
 				country(garage(nil,
 					map[string]any{"make": "honda"},
 					map[string]any{"tires": asArr(tire("205"))},
 				)),
-			)}, note: "different K within same garage — correctly rejects"},
+			)}, note: "different K within same garage"},
 			{id: idNoMatchOnlyMake, props: map[string]any{"countries": asArr(
 				country(garage(nil, map[string]any{"make": "honda"})),
-			)}, note: "only one condition — rejects"},
+			)}, note: "only one condition"},
 		}
 		parts := []*filters.LocalFilter{
 			valueFilter("countries.garages.cars.make", "honda"),
 			valueFilter("countries.garages.cars.tires.width", "205"),
 		}
-		runOrderings(t, docs, parts, []strfmt.UUID{idMatch, idBuggyMatchSplitGaragesSameK})
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// SameKDifferentParent_with_two_sub_arrays: regression test for the case-3
+	// fix. Filter: cars.accessories.type AND cars.tires.width — two
+	// sibling sub-arrays under the same cars LCA.
+	//
+	// Plan: GROUP@garages { here:[], subs:[GROUP@garages.cars { here:[],
+	//        subs:[GROUP@accessories here:[type], GROUP@tires here:[width]] }] }
+	// canUseRawAndAll false (multi-sub at GROUP@cars), flat-AndAll bails on
+	// multi-sub → runIdxLoopRecursive. The wrapping GROUP@garages must be
+	// kept (not collapsed away) so its _idx.garages[K_g] iteration provides
+	// per-garage parentScope to the inner GROUP@cars's _idx.cars[K_c]
+	// iteration, disambiguating same-K-different-parent physical cars.
+	//
+	// Discriminating shapes:
+	//   - same physical car has both → match
+	//   - split garages, same K=0 → reject (different physical cars under
+	//     g[0] vs g[1] have disjoint leaves; per-garage parentScope rejects)
+	t.Run("SameKDifferentParent_with_two_sub_arrays_accessories_AND_tires", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitGaragesSameK := uuid(2)
+		accessory := func(typ string) map[string]any { return map[string]any{"type": typ} }
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(nil, map[string]any{
+					"accessories": asArr(accessory("spoiler")),
+					"tires":       asArr(tire("205")),
+				})),
+			)}, note: "single car has both accessories.type and tires.width"},
+			{id: idNoMatchSplitGaragesSameK, props: map[string]any{"countries": asArr(
+				country(
+					garage(nil, map[string]any{"accessories": asArr(accessory("spoiler"))}),
+					garage(nil, map[string]any{"tires": asArr(tire("205"))}),
+				),
+			)}, note: "spoiler in g[0].cars[0]; 205 in g[1].cars[0] — same K=0, different garages"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.cars.accessories.type", "spoiler"),
+			valueFilter("countries.garages.cars.tires.width", "205"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
 	})
 }
