@@ -1098,7 +1098,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
-	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
+	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger, telemetryEnabled(appState))
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {

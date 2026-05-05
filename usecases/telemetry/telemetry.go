@@ -63,7 +63,7 @@ type Telemeter struct {
 
 // New creates a new Telemeter instance
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, telemetryEnabled bool,
 ) *Telemeter {
 	tel := &Telemeter{
 		machineID:         strfmt.UUID(uuid.NewString()),
@@ -73,7 +73,7 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		shutdown:          make(chan struct{}),
 		consumer:          defaultConsumer,
 		pushInterval:      defaultPushInterval,
-		cloudInfoHelper:   newCloudInfoHelper(logger),
+		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
 	}
 	return tel
 }
