@@ -6342,3 +6342,656 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 		})
 	})
 }
+
+// TestNestedFilteringCorrelatedAndFilterExamples ports the G1-G6 / C1-C5
+// "filter examples" coverage to the DB level. Each sub-test exercises a
+// correlated AND of two or three conditions with explicit arr[N] indices
+// and/or unconstrained paths, where same-element semantics must hold at the
+// shared LCA. Each filter is run twice (forward and reversed condition order)
+// to confirm bucketing/dispatch are order-independent.
+//
+// Schema mirrors filterExamplesClass:
+//
+//	garages (object[]): city, make, postcode, cars (object[]): make, model, color
+//	countries (object[]): garages (same shape as above)
+func TestNestedFilteringCorrelatedAndFilterExamples(t *testing.T) {
+	const nestedClass = "FilterExamplesDB"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+	garagesProps := []*models.NestedProperty{
+		{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: garagesProps},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: []*models.NestedProperty{
+				{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: garagesProps},
+			}},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(props ...string) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i]] = props[i+1]
+		}
+		return out
+	}
+	garage := func(fields map[string]any, cars ...map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range fields {
+			out[k] = v
+		}
+		if len(cars) > 0 {
+			out["cars"] = asArr(cars...)
+		}
+		return out
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andClauses := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: operands,
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	// runOrderings runs the filter twice — once with parts in given order,
+	// once reversed — and asserts each yields want.
+	runOrderings := func(t *testing.T, docs []docDef, parts []*filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		for _, ordering := range []string{"forward", "reverse"} {
+			ordered := make([]*filters.LocalFilter, len(parts))
+			if ordering == "forward" {
+				copy(ordered, parts)
+			} else {
+				for i, p := range parts {
+					ordered[len(parts)-1-i] = p
+				}
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  nestedClass,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    andClauses(ordered...),
+			})
+			require.NoError(t, err, "ordering=%s", ordering)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got, "ordering=%s", ordering)
+		}
+	}
+
+	// ----------------------------------------------------------------- G1-G6
+	// Top-level "garages" root.
+
+	// G1: garages[0].city = berlin AND garages[1].make = honda.
+	// Different garage indices → docID-level AND, same-doc enforced.
+	t.Run("G1_garages[0].city_AND_garages[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitDocs := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{"make": "honda"}),
+			)}, note: "g[0].city=berlin AND g[1].make=honda"},
+			{id: idNoMatchSplitDocs, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{"make": "toyota"}),
+			)}, note: "g[1].make wrong"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages[0].city", "berlin"),
+			valueFilter("garages[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G2: garages.city = berlin AND garages[1].make = honda.
+	// Unconstrained city scoped to garages[1] (same-element).
+	t.Run("G2_garages.city_AND_garages[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplit := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "munich"}),
+				garage(map[string]any{"city": "berlin", "make": "honda"}),
+			)}, note: "g[1] has city=berlin AND make=honda"},
+			{id: idNoMatchSplit, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{"make": "honda"}),
+			)}, note: "city in g[0], make in g[1] — same-element fails"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages.city", "berlin"),
+			valueFilter("garages[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G3: garages.cars[1].make = honda AND garages.city = berlin.
+	// Unconstrained city scoped to same garage as the constrained car.
+	t.Run("G3_garages.cars[1].make_AND_garages.city", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplit := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}, car(), car("make", "honda")),
+			)}, note: "same garage has city AND cars[1].make=honda"},
+			{id: idNoMatchSplit, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{}, car(), car("make", "honda")),
+			)}, note: "city in g[0], cars[1].make in g[1] — different garages"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages.cars[1].make", "honda"),
+			valueFilter("garages.city", "berlin"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G4: garages.cars[1].make = honda AND garages.cars.model = civic.
+	// Unconstrained model scoped to same car (cars[1]) via groupAndAll.
+	t.Run("G4_garages.cars[1].make_AND_garages.cars.model", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplit := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(nil, car(), car("make", "honda", "model", "civic")),
+			)}, note: "cars[1] has both"},
+			{id: idNoMatchSplit, props: map[string]any{"garages": asArr(
+				garage(nil, car("model", "civic"), car("make", "honda")),
+			)}, note: "make in cars[1], model in cars[0] — different cars"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages.cars[1].make", "honda"),
+			valueFilter("garages.cars.model", "civic"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G5: garages.cars[1].make = honda AND garages.cars[2].color = red.
+	// Different car indices but root+docID AND enforces same garage.
+	t.Run("G5_garages.cars[1].make_AND_garages.cars[2].color", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitGarages := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(nil, car(), car("make", "honda"), car("color", "red")),
+			)}, note: "g[0] has cars[1].make AND cars[2].color"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"garages": asArr(
+				garage(nil, car(), car("make", "honda")),
+				garage(nil, car(), car(), car("color", "red")),
+			)}, note: "make in g[0].cars[1], color in g[1].cars[2] — different garages"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages.cars[1].make", "honda"),
+			valueFilter("garages.cars[2].color", "red"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G6: garages.city = berlin AND garages.cars.make = honda AND
+	// garages.cars.model = civic. Mixed-depth, no explicit indices.
+	// Same garage AND same car (make+model leaf-precise via groupAndAll).
+	t.Run("G6_garages.city_AND_garages.cars.{make,model}", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitCars := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}, car(), car("make", "honda", "model", "civic")),
+			)}, note: "city + same-car make+model"},
+			{id: idNoMatchSplitCars, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}, car("make", "honda"), car("model", "civic")),
+			)}, note: "make in cars[0], model in cars[1] — different cars same garage"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages.city", "berlin"),
+			valueFilter("garages.cars.make", "honda"),
+			valueFilter("garages.cars.model", "civic"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G7: garages[2].city = berlin AND garages.cars[1].make = honda.
+	// Outer pinned to garages[2]; unconstrained cars[1] scoped to that same
+	// garage via runIdxLoop on garages.
+	t.Run("G7_garages[2].city_AND_garages.cars[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchMakeWrongGarage := uuid(2)
+		idNoMatchCityWrongGarage := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(nil), garage(nil), garage(map[string]any{"city": "berlin"}, car(), car("make", "honda")),
+			)}, note: "g[2] has city AND cars[1].make"},
+			{id: idNoMatchMakeWrongGarage, props: map[string]any{"garages": asArr(
+				garage(nil), garage(nil, car(), car("make", "honda")), garage(map[string]any{"city": "berlin"}),
+			)}, note: "city in g[2], make in g[1] — different garages"},
+			{id: idNoMatchCityWrongGarage, props: map[string]any{"garages": asArr(
+				garage(nil), garage(map[string]any{"city": "berlin"}), garage(nil, car(), car("make", "honda")),
+			)}, note: "city in g[1] (not g[2]); make in g[2]"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages[2].city", "berlin"),
+			valueFilter("garages.cars[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G8: garages.cars.make = honda AND garages.cars.model = civic. Pure
+	// unconstrained correlation at cars level; same-car required via
+	// groupAndAll (no arr[N] anywhere).
+	t.Run("G8_garages.cars.make_AND_garages.cars.model", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitCars := uuid(2)
+		idNoMatchSplitGarages := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(nil, car("make", "honda", "model", "civic")),
+			)}, note: "single car has both"},
+			{id: idNoMatchSplitCars, props: map[string]any{"garages": asArr(
+				garage(nil, car("make", "honda"), car("model", "civic")),
+			)}, note: "make in cars[0], model in cars[1] — different cars same garage"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"garages": asArr(
+				garage(nil, car("make", "honda")),
+				garage(nil, car("model", "civic")),
+			)}, note: "make in g[0].cars, model in g[1].cars — different garages"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages.cars.make", "honda"),
+			valueFilter("garages.cars.model", "civic"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G9: garages[1].city = berlin AND garages[1].make = honda. Same arr[N]
+	// index on both conditions; single-bucket split holds both conditions in
+	// the same bucket.
+	t.Run("G9_garages[1].city_AND_garages[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchAtIdx0 := uuid(2)
+		idNoMatchSplitIndices := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(nil), garage(map[string]any{"city": "berlin", "make": "honda"}),
+			)}, note: "g[1] has both"},
+			{id: idNoMatchAtIdx0, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin", "make": "honda"}),
+			)}, note: "both at g[0] — wrong index"},
+			{id: idNoMatchSplitIndices, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}), garage(map[string]any{"make": "honda"}),
+			)}, note: "city at g[0], make at g[1] — neither index has both"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages[1].city", "berlin"),
+			valueFilter("garages[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// G10: garages[0].city = berlin AND garages[1].make = honda AND
+	// garages[2].postcode = "10115". Three different arr[N] indices →
+	// three-way multi-bucket split at garages.
+	t.Run("G10_garages[0].city_AND_garages[1].make_AND_garages[2].postcode", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchMissingThird := uuid(2)
+		idNoMatchWrongIndex := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{"make": "honda"}),
+				garage(map[string]any{"postcode": "10115"}),
+			)}, note: "all three indices satisfied"},
+			{id: idNoMatchMissingThird, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{"make": "honda"}),
+			)}, note: "g[2] missing"},
+			{id: idNoMatchWrongIndex, props: map[string]any{"garages": asArr(
+				garage(map[string]any{"city": "berlin"}),
+				garage(map[string]any{"make": "honda", "postcode": "10115"}),
+			)}, note: "postcode at g[1] not g[2]"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("garages[0].city", "berlin"),
+			valueFilter("garages[1].make", "honda"),
+			valueFilter("garages[2].postcode", "10115"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// ----------------------------------------------------------------- C1-C10
+	// Top-level "countries" root. Each Cn mirrors Gn one level deeper:
+	// G's "garages" → C's "countries.garages", G's "garages.cars" → C's
+	// "countries.garages.cars".
+
+	// C1 (mirror of G1): countries.garages[0].city = berlin AND
+	// countries.garages[1].make = honda. Different garages within a country →
+	// split at garages enforces same country implicitly via root+docID AND.
+	t.Run("C1_countries.garages[0].city_AND_countries.garages[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitCntr := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"}), garage(map[string]any{"make": "honda"})),
+			)}, note: "country[0]: g[0].city AND g[1].make"},
+			{id: idNoMatchSplitCntr, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"})),
+				country(garage(nil), garage(map[string]any{"make": "honda"})),
+			)}, note: "city in c[0], make in c[1] — different countries"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages[0].city", "berlin"),
+			valueFilter("countries.garages[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C2 (mirror of G2): countries.garages.city = berlin AND
+	// countries.garages[1].make = honda. Unconstrained city scoped to
+	// garages[1] (same-element).
+	t.Run("C2_countries.garages.city_AND_countries.garages[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitGarages := uuid(2)
+		idNoMatchSplitCntr := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "munich"}), garage(map[string]any{"city": "berlin", "make": "honda"})),
+			)}, note: "g[1] has city=berlin AND make=honda"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"}), garage(map[string]any{"make": "honda"})),
+			)}, note: "city in g[0], make in g[1] within same country — same-element fails"},
+			{id: idNoMatchSplitCntr, props: map[string]any{"countries": asArr(
+				country(garage(nil), garage(map[string]any{"city": "berlin"})),
+				country(garage(nil), garage(map[string]any{"make": "honda"})),
+			)}, note: "city in c[0].g[1], make in c[1].g[1] — different countries"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.city", "berlin"),
+			valueFilter("countries.garages[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C3 (mirror of G3): countries.garages.cars[1].make = honda AND
+	// countries.garages.city = berlin. Unconstrained city scoped to same
+	// garage as the constrained car.
+	t.Run("C3_countries.garages.cars[1].make_AND_countries.garages.city", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitGarages := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"}, car(), car("make", "honda"))),
+			)}, note: "same garage has city AND cars[1].make"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(
+				country(
+					garage(map[string]any{"city": "berlin"}),
+					garage(nil, car(), car("make", "honda")),
+				),
+			)}, note: "city in g[0], cars[1].make in g[1] within same country"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.cars[1].make", "honda"),
+			valueFilter("countries.garages.city", "berlin"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C4 (mirror of G4): countries.garages.cars[1].make = honda AND
+	// countries.garages.cars.model = civic. Same car required.
+	t.Run("C4_countries.garages.cars[1].make_AND_countries.garages.cars.model", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitCars := uuid(2)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(nil, car(), car("make", "honda", "model", "civic"))),
+			)}, note: "cars[1] has both"},
+			{id: idNoMatchSplitCars, props: map[string]any{"countries": asArr(
+				country(garage(nil, car("model", "civic"), car("make", "honda"))),
+			)}, note: "make in cars[1], model in cars[0]"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.cars[1].make", "honda"),
+			valueFilter("countries.garages.cars.model", "civic"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C5 (mirror of G5): countries.garages.cars[1].make = honda AND
+	// countries.garages.cars[2].color = red. Different car indices, same
+	// garage required (root+docID AND enforces same country implicitly).
+	t.Run("C5_countries.garages.cars[1].make_AND_countries.garages.cars[2].color", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitGarages := uuid(2)
+		idNoMatchSplitCntr := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(nil, car(), car("make", "honda"), car("color", "red"))),
+			)}, note: "same garage: cars[1].make AND cars[2].color"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(
+				country(
+					garage(nil, car(), car("make", "honda")),
+					garage(nil, car(), car(), car("color", "red")),
+				),
+			)}, note: "make in g[0], color in g[1] within same country — different garages"},
+			{id: idNoMatchSplitCntr, props: map[string]any{"countries": asArr(
+				country(garage(nil, car(), car("make", "honda"))),
+				country(garage(nil, car(), car(), car("color", "red"))),
+			)}, note: "make in c[0], color in c[1] — different countries"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.cars[1].make", "honda"),
+			valueFilter("countries.garages.cars[2].color", "red"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C6 (mirror of G6): countries.garages.city = berlin AND
+	// countries.garages.cars.make = honda AND countries.garages.cars.model = civic.
+	// Mixed depth, no indices. Same garage AND same car required.
+	t.Run("C6_countries.garages.city_AND_countries.garages.cars.{make,model}", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitCars := uuid(2)
+		idNoMatchSplitGarages := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"}, car(), car("make", "honda", "model", "civic"))),
+			)}, note: "city + same-car make+model in same garage"},
+			{id: idNoMatchSplitCars, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"}, car("make", "honda"), car("model", "civic"))),
+			)}, note: "make in cars[0], model in cars[1] — different cars same garage"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(
+				country(
+					garage(map[string]any{"city": "berlin"}),
+					garage(nil, car("make", "honda", "model", "civic")),
+				),
+			)}, note: "city in g[0], same-car make+model in g[1] — different garages"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.city", "berlin"),
+			valueFilter("countries.garages.cars.make", "honda"),
+			valueFilter("countries.garages.cars.model", "civic"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C7 (mirror of G7): countries.garages[2].city = berlin AND
+	// countries.garages.cars[1].make = honda. City pinned to garages[2];
+	// unconstrained make scoped to same garage.
+	t.Run("C7_countries.garages[2].city_AND_countries.garages.cars[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchMakeWrongGarage := uuid(2)
+		idNoMatchCityWrongGarage := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(nil), garage(nil), garage(map[string]any{"city": "berlin"}, car(), car("make", "honda"))),
+			)}, note: "g[2] has city AND cars[1].make"},
+			{id: idNoMatchMakeWrongGarage, props: map[string]any{"countries": asArr(
+				country(
+					garage(nil),
+					garage(nil, car(), car("make", "honda")),
+					garage(map[string]any{"city": "berlin"}),
+				),
+			)}, note: "city in g[2], make in g[1] — different garages"},
+			{id: idNoMatchCityWrongGarage, props: map[string]any{"countries": asArr(
+				country(
+					garage(nil),
+					garage(map[string]any{"city": "berlin"}),
+					garage(nil, car(), car("make", "honda")),
+				),
+			)}, note: "city in g[1] (not g[2]); make in g[2]"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages[2].city", "berlin"),
+			valueFilter("countries.garages.cars[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C8 (mirror of G8): countries.garages.cars.make = honda AND
+	// countries.garages.cars.model = civic. Pure unconstrained correlation at
+	// cars level; same-car required via groupAndAll.
+	t.Run("C8_countries.garages.cars.make_AND_countries.garages.cars.model", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchSplitCars := uuid(2)
+		idNoMatchSplitGarages := uuid(3)
+		idNoMatchSplitCntr := uuid(4)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(nil, car("make", "honda", "model", "civic"))),
+			)}, note: "single car has both"},
+			{id: idNoMatchSplitCars, props: map[string]any{"countries": asArr(
+				country(garage(nil, car("make", "honda"), car("model", "civic"))),
+			)}, note: "make in cars[0], model in cars[1] — different cars"},
+			{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(
+				country(garage(nil, car("make", "honda")), garage(nil, car("model", "civic"))),
+			)}, note: "make in g[0].cars, model in g[1].cars within same country"},
+			{id: idNoMatchSplitCntr, props: map[string]any{"countries": asArr(
+				country(garage(nil, car("make", "honda"))),
+				country(garage(nil, car("model", "civic"))),
+			)}, note: "make in c[0], model in c[1] — different countries"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages.cars.make", "honda"),
+			valueFilter("countries.garages.cars.model", "civic"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C9 (mirror of G9): countries.garages[1].city = berlin AND
+	// countries.garages[1].make = honda. Same arr[N] index on both conditions.
+	t.Run("C9_countries.garages[1].city_AND_countries.garages[1].make", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchAtIdx0 := uuid(2)
+		idNoMatchSplitIndices := uuid(3)
+		idNoMatchSplitCntr := uuid(4)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(garage(nil), garage(map[string]any{"city": "berlin", "make": "honda"})),
+			)}, note: "c[0].g[1] has both"},
+			{id: idNoMatchAtIdx0, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin", "make": "honda"})),
+			)}, note: "both at g[0] — wrong index"},
+			{id: idNoMatchSplitIndices, props: map[string]any{"countries": asArr(
+				country(garage(map[string]any{"city": "berlin"}), garage(map[string]any{"make": "honda"})),
+			)}, note: "city at g[0], make at g[1] — neither index has both"},
+			{id: idNoMatchSplitCntr, props: map[string]any{"countries": asArr(
+				country(garage(nil), garage(map[string]any{"city": "berlin"})),
+				country(garage(nil), garage(map[string]any{"make": "honda"})),
+			)}, note: "city in c[0].g[1], make in c[1].g[1] — different countries"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages[1].city", "berlin"),
+			valueFilter("countries.garages[1].make", "honda"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+
+	// C10 (mirror of G10): countries.garages[0].city = berlin AND
+	// countries.garages[1].make = honda AND countries.garages[2].postcode =
+	// "10115". Three-way multi-bucket split at garages within a country.
+	t.Run("C10_countries.garages[0].city_AND_countries.garages[1].make_AND_countries.garages[2].postcode", func(t *testing.T) {
+		idMatch := uuid(1)
+		idNoMatchMissingThird := uuid(2)
+		idNoMatchSplitCntr := uuid(3)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"countries": asArr(
+				country(
+					garage(map[string]any{"city": "berlin"}),
+					garage(map[string]any{"make": "honda"}),
+					garage(map[string]any{"postcode": "10115"}),
+				),
+			)}, note: "all three indices satisfied within same country"},
+			{id: idNoMatchMissingThird, props: map[string]any{"countries": asArr(
+				country(
+					garage(map[string]any{"city": "berlin"}),
+					garage(map[string]any{"make": "honda"}),
+				),
+			)}, note: "g[2] missing"},
+			{id: idNoMatchSplitCntr, props: map[string]any{"countries": asArr(
+				country(
+					garage(map[string]any{"city": "berlin"}),
+					garage(map[string]any{"make": "honda"}),
+				),
+				country(
+					garage(nil), garage(nil),
+					garage(map[string]any{"postcode": "10115"}),
+				),
+			)}, note: "city+make in c[0], postcode in c[1] — different countries"},
+		}
+		parts := []*filters.LocalFilter{
+			valueFilter("countries.garages[0].city", "berlin"),
+			valueFilter("countries.garages[1].make", "honda"),
+			valueFilter("countries.garages[2].postcode", "10115"),
+		}
+		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
+	})
+}
