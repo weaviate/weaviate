@@ -8,28 +8,6 @@
 //
 //  CONTACT: hello@weaviate.io
 //
-//
-// Mock OIDC server used by acceptance tests.
-//
-// Two HTTP listeners:
-//
-//   - :48001 — the OIDC server itself (auth, token, jwks, userinfo).
-//   - :48002 — a tiny admin endpoint exposing POST /queue?subject=<name>,
-//     which drains and replaces the user/code queues with the named user.
-//     Used by the helper to make per-token user selection deterministic
-//     when the test needs a specific claim shape.
-//
-// The MOCK_OIDC_PRESEED env var picks the user set:
-//
-//   - unset or "default": legacy [admin-user, custom-user] only.
-//   - "namespaces":       users that pass OIDC classification
-//                         (namespaced or global-principal). For
-//                         namespace-aware acceptance tests.
-//
-// Classification rejection paths are exercised by unit tests in
-// usecases/auth/authentication/oidc/middleware_test.go using a fake
-// namespaces.Exister, so the harness deliberately does not preseed users
-// that would fail classification.
 
 package main
 
