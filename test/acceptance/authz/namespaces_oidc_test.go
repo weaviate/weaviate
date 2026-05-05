@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	clauthz "github.com/weaviate/weaviate/client/authz"
 	clnamespaces "github.com/weaviate/weaviate/client/namespaces"
-	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -56,8 +56,9 @@ func TestNamespacesOIDC(t *testing.T) {
 		WithWeaviate().
 		WithApiKey().
 		WithUserApiKey(adminUser, adminKey).
+		WithDbUsers().
 		WithRBAC().
-		WithRbacRoots(adminUser).
+		WithRbacRoots(adminUser, "oidc-global").
 		WithMockOIDC().
 		WithMockOIDCNamespacedUsers().
 		WithNamespaces().
@@ -117,8 +118,8 @@ func TestNamespacesOIDC(t *testing.T) {
 	})
 
 	t.Run("narrowed admin: namespaced OIDC user has the right shape", func(t *testing.T) {
-		// Assign admin to the namespaced OIDC user. After commit 1's gate
-		// deletion this is allowed even on NS-enabled clusters.
+		// Narrowed admin is API-assignable to namespaced OIDC users on
+		// NS-enabled clusters.
 		oidcUserID := "customer1:oidc-namespaced-customer1"
 		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
 		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, oidcUserID)
@@ -129,12 +130,7 @@ func TestNamespacesOIDC(t *testing.T) {
 		// The matcher specializes the policy resource path to the
 		// principal's namespace, so the user creates "Movies" which
 		// becomes "customer1:Movies" cluster-side.
-		class := &models.Class{Class: "Movies"}
-		_, err := helper.Client(t).Schema.SchemaObjectsCreate(
-			clschema.NewSchemaObjectsCreateParams().WithObjectClass(class),
-			helper.CreateAuth(token),
-		)
-		require.NoError(t, err, "narrowed admin should be able to create collections in own namespace")
+		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, token)
 		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
 
 		// Verify the class landed under the namespace-qualified name by
@@ -145,12 +141,210 @@ func TestNamespacesOIDC(t *testing.T) {
 
 		// Narrowed admin → DENIED on namespace management (cluster-only,
 		// not in tenantSafeAdminPermissions).
-		_, err = helper.Client(t).Namespaces.DeleteNamespace(
+		_, err := helper.Client(t).Namespaces.DeleteNamespace(
 			clnamespaces.NewDeleteNamespaceParams().WithNamespaceID("customer1"),
 			helper.CreateAuth(token),
 		)
 		require.Error(t, err, "narrowed admin must not be able to delete namespaces")
 		var nsForbidden *clnamespaces.DeleteNamespaceForbidden
 		assert.True(t, errors.As(err, &nsForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
+	})
+
+	// Global operator via OIDC: oidc-global is bootstrapped as a Root
+	// user via WithRbacRoots, so the OIDC token must wield full
+	// operator privileges. The narrowed-admin subtests assert the
+	// negative side of the operator-vs-tenant boundary; this one
+	// asserts the positive side: cluster-only operations
+	// (manage_namespaces) and cross-namespace visibility.
+	t.Run("global operator via OIDC has cluster-only privileges", func(t *testing.T) {
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-global")
+
+		// Create a namespace as the global OIDC operator —
+		// manage_namespaces is gated on Root and not in the narrowed
+		// admin shape.
+		const ns = "globalops"
+		helper.CreateNamespace(t, ns, token)
+		defer helper.DeleteNamespace(t, ns, token)
+
+		// A namespaced DB user populates a collection; the operator
+		// must then be able to read it back under the qualified name
+		// (operator sees raw stored names, no namespace specialization).
+		const tenantSubject = "tenant-user"
+		tenantID := ns + ":" + tenantSubject
+		tenantKey := helper.CreateUserWithNamespace(t, tenantSubject, ns, token)
+		defer helper.DeleteUser(t, tenantID, token)
+		helper.AssignRoleToUser(t, token, authorization.Admin, tenantID)
+		defer helper.RevokeRoleFromUser(t, token, authorization.Admin, tenantID)
+
+		helper.CreateClassAuth(t, &models.Class{Class: "Reports"}, tenantKey)
+		defer helper.DeleteClassAuth(t, ns+":Reports", token)
+
+		stored := helper.GetClassAuth(t, ns+":Reports", token)
+		assert.Equal(t, ns+":Reports", stored.Class)
+	})
+
+	// End-to-end exercise on the same compose: namespaced DB user
+	// creation, dual-auth convergence (OIDC and API key produce the
+	// same principal username), tenant-safe admin from the DB-user
+	// side, and namespace-management deny via narrowed admin. The
+	// OIDC-only narrowed admin path is covered by the preceding
+	// subtest; this one exercises the parallel DB path and the
+	// convergence between them.
+	t.Run("end-to-end: namespaced DB user, dual auth path, narrowed admin", func(t *testing.T) {
+		// customer2 is created so the cluster has more than one
+		// namespace at probe time, putting the narrowed admin's
+		// namespace deny under realistic conditions.
+		helper.CreateNamespace(t, "customer2", adminKey)
+		defer helper.DeleteNamespace(t, "customer2", adminKey)
+
+		// One short subject reused across both namespaces. Same logical
+		// userId, but the qualified storage paths customer1:user and
+		// customer2:user keep the two principals distinct. The OIDC
+		// preseed ships a "user" subject in customer1; pairing it with
+		// a DB user of the same subject lets us probe both auth paths.
+		const sharedSubject = "user"
+		const customer1ID = "customer1:" + sharedSubject
+
+		customer1Key := helper.CreateUserWithNamespace(t, sharedSubject, "customer1", adminKey)
+		defer helper.DeleteUser(t, customer1ID, adminKey)
+
+		// Assign admin on both userTypes — the DB and OIDC paths each
+		// resolve to a distinct Casbin user key that needs its own row.
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, customer1ID)
+		defer helper.RevokeRoleFromUser(t, adminKey, authorization.Admin, customer1ID)
+		helper.AssignRoleToUserOIDC(t, adminKey, authorization.Admin, customer1ID)
+		defer helper.RevokeRoleFromUserOIDC(t, adminKey, authorization.Admin, customer1ID)
+
+		customer1OIDCToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, sharedSubject)
+
+		// Both auth paths produce the same principal username: the OIDC
+		// classifier's namespace-prefix on the token's subject lines up
+		// with the namespace-prefix the user-creation API stores.
+		dbInfo := helper.GetInfoForOwnUser(t, customer1Key)
+		require.NotNil(t, dbInfo.Username)
+		assert.Equal(t, customer1ID, *dbInfo.Username)
+
+		oidcInfo := helper.GetInfoForOwnUser(t, customer1OIDCToken)
+		require.NotNil(t, oidcInfo.Username)
+		assert.Equal(t, customer1ID, *oidcInfo.Username)
+
+		// customer1's user creates a collection via the DB API key. The
+		// matcher specializes the request to their namespace, so it
+		// lands as customer1:Books. The title property is defined
+		// upfront so later object inserts are typed.
+		helper.CreateClassAuth(t, &models.Class{
+			Class: "Books",
+			Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+			},
+		}, customer1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Books", adminKey)
+
+		// Operator (admin static API key, global) sees the qualified name.
+		stored := helper.GetClassAuth(t, "customer1:Books", adminKey)
+		assert.Equal(t, "customer1:Books", stored.Class)
+
+		// customer1's user via OIDC reads the same class through the
+		// resolver: requests "Books"; the resolver prefixes to
+		// customer1:Books. Confirms OIDC and DB paths share the matcher
+		// specialization.
+		viaOIDC := helper.GetClassAuth(t, "Books", customer1OIDCToken)
+		assert.Equal(t, "customer1:Books", viaOIDC.Class)
+
+		// Narrowed admin → DENIED on namespace management (cluster-only).
+		// Same property exercised on the OIDC path in the preceding
+		// subtest; here we assert it on the DB path too.
+		_, err = helper.Client(t).Namespaces.DeleteNamespace(
+			clnamespaces.NewDeleteNamespaceParams().WithNamespaceID("customer2"),
+			helper.CreateAuth(customer1Key),
+		)
+		require.Error(t, err, "narrowed admin must not be able to delete namespaces via DB key")
+		var nsForbidden *clnamespaces.DeleteNamespaceForbidden
+		assert.True(t, errors.As(err, &nsForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
+
+		// Cross-namespace isolation: spin up a parallel user in
+		// customer2 with the *same* short subject. Different namespace
+		// prefixes keep the two storage keys (customer1:user vs
+		// customer2:user) distinct so the userId can be reused by
+		// tenants without collision.
+		customer2ID := "customer2:" + sharedSubject
+		customer2Key := helper.CreateUserWithNamespace(t, sharedSubject, "customer2", adminKey)
+		defer helper.DeleteUser(t, customer2ID, adminKey)
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, customer2ID)
+		defer helper.RevokeRoleFromUser(t, adminKey, authorization.Admin, customer2ID)
+
+		// API keys differ even though the short subjects match — proves
+		// credentials are keyed by qualified id, not short id.
+		assert.NotEqual(t, customer1Key, customer2Key, "shared short subject must not produce the same API key across namespaces")
+
+		// customer2's user creates a collection in customer2.
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      "Books",
+			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		}, customer2Key)
+		defer helper.DeleteClassAuth(t, "customer2:Magazines", adminKey)
+
+		// Both tenants insert an object with the *same* UUID. The
+		// qualified storage paths customer1:Books vs customer2:Books
+		// keep them distinct.
+		const sharedID strfmt.UUID = "11111111-2222-3333-4444-555555555555"
+
+		customer1Obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID:         sharedID,
+			Class:      "Books",
+			Properties: map[string]interface{}{"title": "customer1-book"},
+		}, customer1Key)
+		require.NoError(t, err)
+		customer2Obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID:         sharedID,
+			Class:      "Books",
+			Properties: map[string]interface{}{"title": "customer2-book"},
+		}, customer2Key)
+		require.NoError(t, err)
+		assert.Equal(t, sharedID, customer1Obj.ID)
+		assert.Equal(t, sharedID, customer2Obj.ID)
+
+		// Operator sees both qualified classes side-by-side.
+		assert.Equal(t, "customer1:Books", helper.GetClassAuth(t, "customer1:Books", adminKey).Class)
+		assert.Equal(t, "customer2:Books", helper.GetClassAuth(t, "customer2:Books", adminKey).Class)
+
+		// Object-level isolation: each tenant fetches their own object
+		// via the short class name (resolver specializes to their
+		// namespace) — same UUID, distinct payload, no collision.
+		got1, err := helper.GetObjectAuth(t, "Books", sharedID, customer1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "customer1-book", got1.Properties.(map[string]interface{})["title"])
+		got2, err := helper.GetObjectAuth(t, "Books", sharedID, customer2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "customer2-book", got2.Properties.(map[string]interface{})["title"])
+	})
+
+	// Group binding does not carry a namespace at the API layer — the
+	// matcher specializes the bound role to the principal's namespace at
+	// enforce time. Bob has no direct user-level role; he inherits admin
+	// only because his OIDC token's groups claim places him in AllUsers.
+	t.Run("narrowed admin via OIDC group binding", func(t *testing.T) {
+		const groupName = "AllUsers"
+		const bobSubject = "oidc-customer1-group-member"
+		const bobUsername = "customer1:" + bobSubject
+
+		helper.AssignRoleToGroup(t, adminKey, authorization.Admin, groupName)
+		defer helper.RevokeRoleFromGroup(t, adminKey, authorization.Admin, groupName)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, bobSubject)
+
+		info := helper.GetInfoForOwnUser(t, token)
+		require.NotNil(t, info.Username)
+		assert.Equal(t, bobUsername, *info.Username)
+		assert.Contains(t, info.Groups, groupName, "OIDC token must carry the group claim")
+
+		// Bob has no direct admin assignment. If group binding works,
+		// the matcher specializes admin to customer1 via his group
+		// membership and the schema create succeeds.
+		helper.CreateClassAuth(t, &models.Class{Class: "Albums"}, token)
+		defer helper.DeleteClassAuth(t, "customer1:Albums", adminKey)
+
+		stored := helper.GetClassAuth(t, "customer1:Albums", adminKey)
+		assert.Equal(t, "customer1:Albums", stored.Class)
 	})
 }

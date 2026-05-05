@@ -124,6 +124,21 @@ var namespacePreseedUsers = []mockoidc.User{
 		MockUser:        mockoidc.MockUser{Subject: "oidc-global"},
 		GlobalPrincipal: boolPtr(true),
 	},
+	// Member of the AllUsers OIDC group; used for testing group-based
+	// role assignments. The cluster matcher specializes a group-bound
+	// role to the principal's namespace at enforce time, so this user
+	// inherits whatever role is assigned to "AllUsers" inside customer1.
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "oidc-customer1-group-member", Groups: []string{"AllUsers"}},
+		Namespace: "customer1",
+	},
+	// A neutral subject reused across tenants. Tests pair this with a
+	// DB user of the same short id to prove that the qualified storage
+	// path keeps tenants' identities distinct.
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "user"},
+		Namespace: "customer1",
+	},
 }
 
 // pickPreseedUsers selects the active preseed list from the
