@@ -772,7 +772,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
 		obj, err := storobj.FromBinaryWithClassName(val, bucket.ClassName())
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
+			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}
 
 		out[i] = obj
