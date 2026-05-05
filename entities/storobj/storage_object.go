@@ -371,40 +371,42 @@ func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
 type bucket interface {
 	GetBySecondary(context.Context, int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
+	// ClassName returns the canonical class name attached to the bucket, used
+	// to stamp Object.Class on every decoded payload. Returns "" for buckets
+	// that have no class context (test fakes, non-objects buckets); decoders
+	// then fall back to the on-disk value.
+	ClassName() string
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
-	className string,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false, className)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
 	}
 
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false, className)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
 }
 
 func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
-	className string,
 ) ([]*Object, error) {
 	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
-		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true, className)
+		return objectsByDocIDSequentialInner(bucket, ids, additional, properties, true)
 	}
 
-	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true, className)
+	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, true)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
-	className string,
 ) ([]*Object, error) {
-	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false, className)
+	return objectsByDocIDParallelInner(bucket, ids, addProp, properties, logger, false)
 }
 
 func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 	addProp additional.Properties, properties []string, logger logrus.FieldLogger,
-	includeEmpty bool, className string,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	parallel := 2 * runtime.GOMAXPROCS(0)
 
@@ -430,7 +432,7 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 		}
 
 		eg.Go(func() error {
-			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty, className)
+			objs, err := objectsByDocIDSequentialInner(bucket, ids[start:end], addProp, properties, includeEmpty)
 			if err != nil {
 				return err
 			}
@@ -462,14 +464,13 @@ func objectsByDocIDParallelInner(bucket bucket, ids []uint64,
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
-	className string,
 ) ([]*Object, error) {
-	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false, className)
+	return objectsByDocIDSequentialInner(bucket, ids, additional, properties, false)
 }
 
 func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string,
-	includeEmpty bool, className string,
+	includeEmpty bool,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -521,7 +522,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptionalWithClassName(res, className, additional, props)
+		unmarshalled, err := FromBinaryOptionalWithClassName(res, bucket.ClassName(), additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}

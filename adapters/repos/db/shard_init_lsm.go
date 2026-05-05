@@ -151,6 +151,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithKeepTombstones(true),
 		lsmkv.WithCalcCountNetAdditions(true),
 		lsmkv.WithLazySegmentLoading(false), // always load
+		lsmkv.WithClassName(s.index.Config.ClassName.String()),
 	)
 
 	if s.metrics != nil && !s.metrics.grouped {

@@ -109,9 +109,9 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	method := "blockmaxwand"
 	start := time.Now()
 	if useWand {
-		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional, className)
+		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	} else {
-		objs, scores, useWand, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional, className)
+		objs, scores, useWand, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	}
 
 	if useWand {
@@ -311,7 +311,6 @@ func asciiTokenizationKey(tokenization string) string {
 
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
-	className schema.ClassName,
 ) ([]*storobj.Object, []float32, error) {
 	start := time.Now()
 
@@ -428,7 +427,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	start = time.Now()
-	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional, className)
+	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 
 	fetchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
@@ -437,7 +436,7 @@ func (b *BM25Searcher) wand(
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
-	allRequests []string, additional additional.Properties, className schema.ClassName,
+	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	scores := make([]float32, 0, topKHeap.Len())
@@ -450,7 +449,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids, additional, nil, b.logger, className.String())
+	objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids, additional, nil, b.logger)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}

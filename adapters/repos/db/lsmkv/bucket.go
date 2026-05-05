@@ -158,6 +158,14 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
+	// Optional canonical class name carried by the bucket. Set on the objects
+	// bucket via WithClassName at creation time so that storobj decoders can
+	// stamp the canonical class on every decoded object instead of trusting the
+	// (no longer authoritative) on-disk className field. Empty for buckets that
+	// do not hold storobj payloads (inverted, prop-length, etc.) — those still
+	// fall back to whatever is on disk via the storobj decoders.
+	className string
+
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
 	// without discontinuities in segment levels.
@@ -387,14 +395,14 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 	return b.flushCallbackCtrl
 }
 
-func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error, className string) error {
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	cursor := b.Cursor()
 	defer cursor.Close()
 
 	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinaryWithClassName(v, className)
+		obj, err := storobj.FromBinaryWithClassName(v, b.className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -1968,6 +1976,14 @@ func (b *Bucket) Strategy() string {
 
 func (b *Bucket) DesiredStrategy() string {
 	return b.desiredStrategy
+}
+
+// ClassName returns the canonical class name supplied at bucket creation via
+// WithClassName, or "" for buckets that do not hold storobj payloads. Storobj
+// decoders use this value as the authoritative class name and fall back to the
+// on-disk value only when this returns "".
+func (b *Bucket) ClassName() string {
+	return b.className
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

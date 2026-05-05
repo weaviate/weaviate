@@ -1226,7 +1226,8 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 	mdCh := make(chan *migrationData)
 
 	enterrors.GoWrapper(func() {
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+		cursor := objectsBucket.CursorOnDisk()
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
@@ -1245,7 +1246,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 
 		for ; k != nil; k, v = cursor.Next() {
 			ik := keyParse(k)
-			obj, err := storobj.FromBinaryOptionalWithClassName(v, shard.Index().Config.ClassName.String(), addProps, propExtraction)
+			obj, err := storobj.FromBinaryOptionalWithClassName(v, objectsBucket.ClassName(), addProps, propExtraction)
 			if err != nil {
 				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object '%s': %w", ik.String(), err)}
 				break

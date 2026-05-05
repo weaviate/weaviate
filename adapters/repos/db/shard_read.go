@@ -79,7 +79,8 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +89,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinaryWithClassName(bytes, s.index.Config.ClassName.String())
+	obj, err := storobj.FromBinaryWithClassName(bytes, bucket.ClassName())
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -121,7 +122,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinaryWithClassName(bytes, s.index.Config.ClassName.String())
+		obj, err := storobj.FromBinaryWithClassName(bytes, bucket.ClassName())
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -245,8 +246,8 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(ctx, 0, keyBuf)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bytes, err := bucket.GetBySecondary(ctx, 0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +257,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinaryWithClassName(bytes, s.index.Config.ClassName.String())
+	obj, err := storobj.FromBinaryWithClassName(bytes, bucket.ClassName())
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -659,7 +660,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger, s.index.Config.ClassName.String())
+	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -684,7 +685,7 @@ func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Sele
 		addProps = additional.Properties{Vectors: []string{targetVector}}
 	}
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger, s.index.Config.ClassName.String())
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
 	}
@@ -733,7 +734,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			took := time.Since(beforeObjects)
 			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 		}()
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger, className.String())
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
 	}
 
 	if cursor == nil {
@@ -746,7 +747,8 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	cursor := bucket.Cursor()
 	defer cursor.Close()
 
 	var key, val []byte
@@ -768,7 +770,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinaryWithClassName(val, s.index.Config.ClassName.String())
+		obj, err := storobj.FromBinaryWithClassName(val, bucket.ClassName())
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}

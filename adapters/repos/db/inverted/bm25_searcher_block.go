@@ -44,7 +44,7 @@ func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList
 }
 
 func (b *BM25Searcher) wandBlock(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties, className schema.ClassName,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, bool, error) {
 	start := time.Now()
 	defer func() {
@@ -69,7 +69,7 @@ func (b *BM25Searcher) wandBlock(
 
 	// fallback to the old search process if not all buckets are inverted
 	if !allBucketsAreInverted {
-		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional, className)
+		objects, scores, err := b.wand(ctx, filterDocIds, class, params, limit, additional)
 		return objects, scores, true, err
 	}
 
@@ -253,7 +253,7 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
-	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit, className)
+	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
 
 	combineTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
@@ -262,7 +262,7 @@ func (b *BM25Searcher) wandBlock(
 	return objects, scores, false, nil
 }
 
-func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int, className schema.ClassName) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
 	// combine all results
 	combinedIds := make([]uint64, 0, limit*len(allIds))
 	combinedScores := make([]float32, 0, limit*len(allIds))
@@ -275,7 +275,7 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 		singlePropScores := slices.Concat(allScores[i]...)
 		singlePropExplanation := slices.Concat(allExplanation[i]...)
 		// Choose the highest score for each object if it appears in multiple segments
-		combinedIdsProp, combinedScoresProp, combinedExplanationProp := b.combineResultsForMultiProp(singlePropIds, singlePropScores, singlePropExplanation, func(a, b float32) float32 { return b }, true, className)
+		combinedIdsProp, combinedScoresProp, combinedExplanationProp := b.combineResultsForMultiProp(singlePropIds, singlePropScores, singlePropExplanation, func(a, b float32) float32 { return b }, true)
 		combinedIds = append(combinedIds, combinedIdsProp...)
 		combinedScores = append(combinedScores, combinedScoresProp...)
 		combinedExplanations = append(combinedExplanations, combinedExplanationProp...)
@@ -283,13 +283,13 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 	}
 
 	// Choose the sum of the scores for each object if it appears in multiple properties
-	combinedIds, combinedScores, combinedExplanations = b.combineResultsForMultiProp(combinedIds, combinedScores, combinedExplanations, func(a, b float32) float32 { return a + b }, false, className)
+	combinedIds, combinedScores, combinedExplanations = b.combineResultsForMultiProp(combinedIds, combinedScores, combinedExplanations, func(a, b float32) float32 { return a + b }, false)
 
 	combinedIds, combinedScores, combinedExplanations = b.sortResultsByScore(combinedIds, combinedScores, combinedExplanations)
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
-	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit, className)
+	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
 	if err != nil {
 		return nil, nil
 	}
@@ -298,7 +298,7 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 type aggregate func(float32, float32) float32
 
-func (b *BM25Searcher) combineResultsForMultiProp(allIds []uint64, allScores []float32, allExplanation [][]*terms.DocPointerWithScore, aggregateFn aggregate, singleProp bool, className schema.ClassName) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
+func (b *BM25Searcher) combineResultsForMultiProp(allIds []uint64, allScores []float32, allExplanation [][]*terms.DocPointerWithScore, aggregateFn aggregate, singleProp bool) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
 	// if ids are the same, sum the scores
 	combinedScores := make(map[uint64]float32)
 	combinedExplanations := make(map[uint64][]*terms.DocPointerWithScore)
@@ -355,7 +355,7 @@ func (b *BM25Searcher) sortResultsByExternalId(objects []*storobj.Object, scores
 	return sorter.objects, sorter.scores
 }
 
-func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int, className schema.ClassName) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
 	// reverse arrays to start with the highest score
 	slices.Reverse(ids)
 	slices.Reverse(scores)
@@ -374,7 +374,7 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 	// try to get docs up to the limit
 	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
-		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger, className.String())
+		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
 		if err != nil {
 			return objs, nil, errors.Errorf("objects loading")
 		}
