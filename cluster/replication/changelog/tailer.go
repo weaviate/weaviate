@@ -56,30 +56,32 @@ func (l *ChangeLog) NewTailer(fromLSN uint64) (*Tailer, error) {
 func (t *Tailer) Next(ctx context.Context) (*Entry, error) {
 	l := t.log
 	for {
-		l.mu.Lock()
-		if l.deactivated {
-			l.mu.Unlock()
-			return nil, ErrLogDeactivated
-		}
-		if t.lastLSN < l.lsn {
-			offset := l.offsetIndex[t.lastLSN]
-			l.mu.Unlock()
-			if _, err := t.file.Seek(offset, io.SeekStart); err != nil {
-				return nil, fmt.Errorf("changelog: tailer seek: %w", err)
+		if entry, err := func() (*Entry, error) {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			if l.deactivated {
+				return nil, ErrLogDeactivated
 			}
-			entry, err := DecodeFrame(t.file)
-			if err != nil {
-				return nil, err
+			if t.lastLSN < l.lsn {
+				offset := l.offsetIndex[t.lastLSN]
+				if _, err := t.file.Seek(offset, io.SeekStart); err != nil {
+					return nil, fmt.Errorf("changelog: tailer seek: %w", err)
+				}
+				entry, err := DecodeFrame(t.file)
+				if err != nil {
+					return nil, err
+				}
+				t.lastLSN = entry.LSN
+				return entry, nil
 			}
-			t.lastLSN = entry.LSN
-			return entry, nil
-		}
-		if l.finalized && t.lastLSN >= l.finalLSN {
-			l.mu.Unlock()
-			return nil, io.EOF
+			if l.finalized && t.lastLSN >= l.finalLSN {
+				return nil, io.EOF
+			}
+			return nil, nil
+		}(); entry != nil || err != nil {
+			return entry, err
 		}
 		wait := l.notify
-		l.mu.Unlock()
 
 		select {
 		case <-wait:
