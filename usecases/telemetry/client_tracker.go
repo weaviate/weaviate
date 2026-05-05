@@ -38,6 +38,14 @@ const (
 // Used for map preallocation.
 const knownClientTypeCount = 7
 
+// maxIntegrationKeys caps the number of distinct integration names tracked per period.
+// maxIntegrationVersions caps the number of distinct versions per integration name.
+// Both limits bound memory growth from user-controlled header values.
+const (
+	maxIntegrationKeys     = 256
+	maxIntegrationVersions = 64
+)
+
 // integrationHeaderKey is the HTTP header used to identify the client integration.
 const integrationHeaderKey = "X-Weaviate-Client-Integration"
 
@@ -57,24 +65,28 @@ type trackEvent[K comparable] struct {
 // A single background goroutine owns the counts map, eliminating lock contention on
 // the hot path. Both ClientTracker and IntegrationTracker delegate to this type.
 type mapTracker[K comparable] struct {
-	trackChan chan trackEvent[K]               // Buffered, for non-blocking sends
-	getChan   chan chan map[K]map[string]int64 // Request/response for Get()
-	resetChan chan chan map[K]map[string]int64 // Request/response for GetAndReset()
-	stopChan  chan struct{}                    // Signal to stop goroutine
-	stopOnce  sync.Once                        // Ensures stop() is safe to call multiple times
-	initCap   int                              // Initial map capacity hint
+	trackChan   chan trackEvent[K]               // Buffered, for non-blocking sends
+	getChan     chan chan map[K]map[string]int64 // Request/response for Get()
+	resetChan   chan chan map[K]map[string]int64 // Request/response for GetAndReset()
+	stopChan    chan struct{}                    // Signal to stop goroutine
+	stopOnce    sync.Once                       // Ensures stop() is safe to call multiple times
+	initCap     int                             // Initial map capacity hint
+	maxKeys     int                             // Max distinct keys; 0 = unlimited
+	maxVersions int                             // Max distinct versions per key; 0 = unlimited
 }
 
-func newMapTracker[K comparable](logger logrus.FieldLogger, initCap int) *mapTracker[K] {
+func newMapTracker[K comparable](logger logrus.FieldLogger, initCap, maxKeys, maxVersions int) *mapTracker[K] {
 	t := &mapTracker[K]{
 		// Buffered for 1024 pending events. This is a somewhat arbitrary number that
 		// should be enough to handle most cases without blocking, and only requires
 		// ~32KB of memory.
-		trackChan: make(chan trackEvent[K], 1024),
-		getChan:   make(chan chan map[K]map[string]int64),
-		resetChan: make(chan chan map[K]map[string]int64),
-		stopChan:  make(chan struct{}),
-		initCap:   initCap,
+		trackChan:   make(chan trackEvent[K], 1024),
+		getChan:     make(chan chan map[K]map[string]int64),
+		resetChan:   make(chan chan map[K]map[string]int64),
+		stopChan:    make(chan struct{}),
+		initCap:     initCap,
+		maxKeys:     maxKeys,
+		maxVersions: maxVersions,
 	}
 	errors.GoWrapper(t.run, logger)
 	return t
@@ -118,12 +130,18 @@ func (t *mapTracker[K]) run() {
 }
 
 func (t *mapTracker[K]) processEvent(counts map[K]map[string]int64, ev trackEvent[K]) {
+	if t.maxKeys > 0 && counts[ev.key] == nil && len(counts) >= t.maxKeys {
+		return
+	}
 	if counts[ev.key] == nil {
 		counts[ev.key] = make(map[string]int64)
 	}
 	version := ev.version
 	if version == "" {
 		version = "unknown"
+	}
+	if t.maxVersions > 0 && counts[ev.key][version] == 0 && len(counts[ev.key]) >= t.maxVersions {
+		return
 	}
 	counts[ev.key][version]++
 }
@@ -153,7 +171,12 @@ func (t *mapTracker[K]) get() map[K]map[string]int64 {
 	respChan := make(chan map[K]map[string]int64, 1)
 	select {
 	case t.getChan <- respChan:
-		return <-respChan
+	case <-t.stopChan:
+		return nil
+	}
+	select {
+	case result := <-respChan:
+		return result
 	case <-t.stopChan:
 		return nil
 	}
@@ -163,7 +186,12 @@ func (t *mapTracker[K]) getAndReset() map[K]map[string]int64 {
 	respChan := make(chan map[K]map[string]int64, 1)
 	select {
 	case t.resetChan <- respChan:
-		return <-respChan
+	case <-t.stopChan:
+		return nil
+	}
+	select {
+	case result := <-respChan:
+		return result
 	case <-t.stopChan:
 		return nil
 	}
@@ -183,7 +211,7 @@ type ClientTracker struct {
 
 // NewClientTracker creates a new client tracker and starts its background goroutine.
 func NewClientTracker(logger logrus.FieldLogger) *ClientTracker {
-	return &ClientTracker{inner: newMapTracker[ClientType](logger, knownClientTypeCount)}
+	return &ClientTracker{inner: newMapTracker[ClientType](logger, knownClientTypeCount, 0, 0)}
 }
 
 // Track records a client request. This is non-blocking and safe to call
@@ -297,7 +325,7 @@ type IntegrationTracker struct {
 
 // NewIntegrationTracker creates a new integration tracker and starts its background goroutine.
 func NewIntegrationTracker(logger logrus.FieldLogger) *IntegrationTracker {
-	return &IntegrationTracker{inner: newMapTracker[string](logger, 0)}
+	return &IntegrationTracker{inner: newMapTracker[string](logger, 0, maxIntegrationKeys, maxIntegrationVersions)}
 }
 
 // Track records a client integration request. This is non-blocking and safe to call
@@ -333,8 +361,10 @@ func (it *IntegrationTracker) Stop() {
 // the integration name and version. The header format is: {name}/{version}
 // Any non-empty name is accepted — there is no predefined list of known integrations.
 // Returns ("", "") if the header is absent or empty.
+// The header is length-capped via SanitizeClientHeader before parsing to prevent
+// arbitrarily large strings from reaching the tracker map or the telemetry payload.
 func identifyIntegration(r *http.Request) (name, version string) {
-	header := strings.TrimSpace(r.Header.Get(integrationHeaderKey))
+	header := SanitizeClientHeader(strings.TrimSpace(r.Header.Get(integrationHeaderKey)))
 	if header == "" {
 		return "", ""
 	}
