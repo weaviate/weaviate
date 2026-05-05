@@ -282,7 +282,7 @@ func TestNamespacesOIDC(t *testing.T) {
 			Class:      "Books",
 			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
 		}, customer2Key)
-		defer helper.DeleteClassAuth(t, "customer2:Magazines", adminKey)
+		defer helper.DeleteClassAuth(t, "customer2:Books", adminKey)
 
 		// Both tenants insert an object with the *same* UUID. The
 		// qualified storage paths customer1:Books vs customer2:Books

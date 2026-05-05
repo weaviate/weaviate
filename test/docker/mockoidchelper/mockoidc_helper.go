@@ -41,8 +41,8 @@ type Response struct {
 }
 
 type tokensHandler struct {
-	client                                    *http.Client
-	authEndpoint, tokenEndpoint, queueEndoint string
+	client                                     *http.Client
+	authEndpoint, tokenEndpoint, queueEndpoint string
 }
 
 func newTokensHandler() (*tokensHandler, error) {
@@ -99,7 +99,7 @@ func newTokensHandler() (*tokensHandler, error) {
 	return &tokensHandler{
 		authEndpoint:  authEndpoint,
 		tokenEndpoint: tokenEndpoint,
-		queueEndoint:  queueEndpoint,
+		queueEndpoint: queueEndpoint,
 		client:        client,
 	}, nil
 }
@@ -137,7 +137,7 @@ func (t *tokensHandler) handler(w http.ResponseWriter, r *http.Request) {
 // the next /tokens dance dequeues exactly the requested user, regardless
 // of any FIFO state from prior calls.
 func (t *tokensHandler) queueSubject(subject string) error {
-	u, err := url.Parse(t.queueEndoint)
+	u, err := url.Parse(t.queueEndpoint)
 	if err != nil {
 		return fmt.Errorf("parse queue endpoint: %w", err)
 	}

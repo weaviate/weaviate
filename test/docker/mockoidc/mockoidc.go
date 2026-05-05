@@ -172,6 +172,11 @@ func queueUser(m *mockoidc.MockOIDC, u mockoidc.User) {
 // requested subject. The replace-not-append behaviour keeps the operation
 // order-independent: any pre-seeded entry from FIFO drift gets discarded,
 // and the next /tokens call dequeues exactly the requested user.
+//
+// Not safe for parallel use: two callers racing /queue + /tokens against
+// the same mock instance can interleave and dequeue the wrong user.
+// Acceptance tests that pin a subject must serialize the queue+token
+// pair (no t.Parallel between subtests sharing the mock).
 func adminQueueHandler(m *mockoidc.MockOIDC, index map[string]mockoidc.User) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

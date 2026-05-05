@@ -575,3 +575,102 @@ func TestClassifyPrincipal(t *testing.T) {
 		})
 	}
 }
+
+// TestClassifyPrincipal_NoGroupNamespaceInference is the explicit
+// regression guard against future "clever" group→namespace inference.
+// The classifier reads only the configured namespace and global-principal
+// claims; group memberships are an authentication-side attribute used for
+// role lookup and must never supply or override the namespace.
+//
+// The matrix below carries claims that would *look like* a namespace if
+// groups were ever consulted (e.g. groups: ["customer1"] on an
+// NS-enabled cluster where "customer1" is a real namespace), and asserts
+// they are rejected exactly the same as the "neither claim" case.
+func TestClassifyPrincipal_NoGroupNamespaceInference(t *testing.T) {
+	const (
+		nsClaimKey     = "weaviate_namespace"
+		globalClaimKey = "weaviate_global_principal"
+		groupsClaimKey = "groups"
+	)
+
+	tests := []struct {
+		name   string
+		claims map[string]any
+	}{
+		{
+			name:   "groups names an existing namespace, no namespace claim",
+			claims: map[string]any{groupsClaimKey: []string{"customer1"}},
+		},
+		{
+			name:   "groups names an existing namespace, global=false present",
+			claims: map[string]any{groupsClaimKey: []string{"customer1"}, globalClaimKey: false},
+		},
+		{
+			name:   "single-group claim shape, no namespace claim",
+			claims: map[string]any{groupsClaimKey: "customer1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{
+				Config: config.OIDC{
+					NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
+					GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
+				},
+				nsExister:         newFakeExister("customer1"),
+				namespacesEnabled: true,
+			}
+
+			_, _, err := c.classifyPrincipal(tt.claims, "alice")
+			require.Error(t, err, "groups must never substitute for the namespace claim")
+			var apiErr errors.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, int32(401), apiErr.Code())
+			assert.Contains(t, err.Error(), "must carry either",
+				"rejection must hit the same path as missing-claim, not a groups-derived path")
+		})
+	}
+}
+
+// TestClassifyPrincipal_SameGroupDifferentNamespaces locks the rule that
+// a namespace belongs to the principal, not to the group: two tokens
+// sharing a group but carrying different namespace claims must resolve
+// to different namespaces. Catches any future regression where the
+// classifier accidentally caches or shares scope across group members.
+func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
+	const (
+		nsClaimKey     = "weaviate_namespace"
+		globalClaimKey = "weaviate_global_principal"
+		groupsClaimKey = "groups"
+		sharedGroup    = "AllUsers"
+	)
+
+	c := &Client{
+		Config: config.OIDC{
+			NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
+			GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
+		},
+		nsExister:         newFakeExister("customer1", "customer2"),
+		namespacesEnabled: true,
+	}
+
+	ns1, isGlobal1, err := c.classifyPrincipal(map[string]any{
+		nsClaimKey:     "customer1",
+		groupsClaimKey: []string{sharedGroup},
+	}, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, "customer1", ns1)
+	assert.False(t, isGlobal1)
+
+	ns2, isGlobal2, err := c.classifyPrincipal(map[string]any{
+		nsClaimKey:     "customer2",
+		groupsClaimKey: []string{sharedGroup},
+	}, "bob")
+	require.NoError(t, err)
+	assert.Equal(t, "customer2", ns2)
+	assert.False(t, isGlobal2)
+
+	assert.NotEqual(t, ns1, ns2,
+		"shared group membership must not collapse two namespace claims into one scope")
+}
