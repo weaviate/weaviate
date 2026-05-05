@@ -167,12 +167,8 @@ func FromBinaryUUIDOnlyWithClassName(data []byte, className string) (*Object, er
 	// When the caller supplies a non-empty className it wins and the on-disk
 	// bytes are skipped; an empty argument falls back to the on-disk value
 	// (callers without a canonical class to supply, e.g. wire-receive paths).
-	if className == "" {
-		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-		if err != nil {
-			return nil, errors.Wrap(err, "Could not copy className")
-		}
-		className = string(classNameBytes)
+	if className == "" && classNameLength > 0 {
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
 	} else {
 		rw.MoveBufferPositionForward(classNameLength)
 	}
@@ -240,12 +236,8 @@ func FromBinaryOptionalWithClassName(data []byte, className string,
 	// bytes are skipped; an empty argument falls back to the on-disk value
 	// (callers without a canonical class to supply, e.g. wire-receive paths).
 	classNameLength := uint64(rw.ReadUint16())
-	if className == "" {
-		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-		if err != nil {
-			return nil, errors.Wrap(err, "Could not copy className")
-		}
-		className = string(classNameBytes)
+	if className == "" && classNameLength > 0 {
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
 	} else {
 		rw.MoveBufferPositionForward(classNameLength)
 	}
@@ -1319,7 +1311,7 @@ func (ko *Object) UnmarshalBinaryWithClassName(data []byte, className string) er
 	// the value is discarded: the canonical class name is the caller-supplied
 	// `className` argument.
 	classNameLength := uint64(rw.ReadUint16())
-	if className == "" {
+	if className == "" && classNameLength > 0 {
 		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
 		if err != nil {
 			return errors.Wrap(err, "Could not copy className")
