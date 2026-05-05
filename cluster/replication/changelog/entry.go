@@ -24,6 +24,7 @@ const (
 	flagDelete uint8 = 1 << 0
 
 	// On-disk frame:
+	//	 [8B  Version		   big-endian, currently 0]
 	//   [8B  LSN              big-endian]
 	//   [1B  flags]                         bit 0 = isDelete
 	//   [8B  updateTimeMillis little-endian]
@@ -31,7 +32,7 @@ const (
 	//   [4B  payloadLen       little-endian]
 	//   [N   payload bytes]
 	//   [4B  CRC32(IEEE) little-endian, over all preceding bytes]
-	headerSize  = 8 + 1 + 8 + 16 + 4
+	headerSize  = 8 + 8 + 1 + 8 + 16 + 4
 	trailerSize = 4
 )
 
@@ -39,6 +40,7 @@ const (
 // to the source shard. Payload is opaque to this package; Phase 2 wires
 // VObject V2 bytes into it.
 type Entry struct {
+	Version          uint64
 	LSN              uint64
 	IsDelete         bool
 	UpdateTimeMillis int64
@@ -58,10 +60,13 @@ func Encode(dst []byte, e *Entry) []byte {
 		dst = dst[:total]
 	}
 
-	// LSN is big-endian per the spec; byteops is little-endian only.
-	binary.BigEndian.PutUint64(dst[0:8], e.LSN)
+	// Version is currently unused but reserved for future schema changes; always set to 0 for now.
+	binary.BigEndian.PutUint64(dst[0:8], 0)
 
-	rw := byteops.NewReadWriterWithOps(dst, byteops.WithPosition(8))
+	// LSN is big-endian per the spec; byteops is little-endian only.
+	binary.BigEndian.PutUint64(dst[8:16], e.LSN)
+
+	rw := byteops.NewReadWriterWithOps(dst, byteops.WithPosition(16))
 	var flags uint8
 	if e.IsDelete {
 		flags |= flagDelete
@@ -97,12 +102,13 @@ func DecodeFrame(r io.Reader) (*Entry, error) {
 		return nil, err
 	}
 
-	lsn := binary.BigEndian.Uint64(header[0:8])
-	flags := header[8]
-	ts := int64(binary.LittleEndian.Uint64(header[9:17]))
+	version := binary.BigEndian.Uint64(header[0:8])
+	lsn := binary.BigEndian.Uint64(header[8:16])
+	flags := header[16]
+	ts := int64(binary.LittleEndian.Uint64(header[17:25]))
 	var id [16]byte
-	copy(id[:], header[17:33])
-	payloadLen := binary.LittleEndian.Uint32(header[33:37])
+	copy(id[:], header[25:41])
+	payloadLen := binary.LittleEndian.Uint32(header[41:45])
 
 	body := make([]byte, int(payloadLen)+trailerSize)
 	if _, err := io.ReadFull(r, body); err != nil {
@@ -131,6 +137,7 @@ func DecodeFrame(r io.Reader) (*Entry, error) {
 	}
 
 	return &Entry{
+		Version:          version,
 		LSN:              lsn,
 		IsDelete:         flags&flagDelete != 0,
 		UpdateTimeMillis: ts,
