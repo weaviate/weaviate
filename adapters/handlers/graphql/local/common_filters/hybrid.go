@@ -172,6 +172,13 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 
+	if v, ok := source["highlightMaxFragments"]; ok && v != nil {
+		args.HighlightMaxFragments = v.(int)
+	}
+	if v, ok := source["highlightFragmentSize"]; ok && v != nil {
+		args.HighlightFragmentSize = v.(int)
+	}
+
 	args.Type = "hybrid"
 
 	if args.NearTextParams != nil && args.NearVectorParams != nil {

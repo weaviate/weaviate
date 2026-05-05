@@ -709,6 +709,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							additionalProps.IsConsistent = true
 							continue
 						}
+						if additionalProperty == "highlight" {
+							additionalProps.Highlight = true
+							continue
+						}
 						if additionalProperty == "group" {
 							additionalProps.Group = true
 							var err error

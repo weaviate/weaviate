@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -56,6 +55,9 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		params.KeywordRanking.MinimumOrTokensMatch = params.HybridSearch.MinimumOrTokensMatch
 	}
 
+	params.KeywordRanking.HighlightMaxFragments = params.HybridSearch.HighlightMaxFragments
+	params.KeywordRanking.HighlightFragmentSize = params.HybridSearch.HighlightFragmentSize
+
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 	if err != nil {
 		return nil, "", err
@@ -74,7 +76,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	out := make([]*search.Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
+		sr := obj.SearchResultWithScore(params.AdditionalProperties, scores[i])
 		sr.SecondarySortValue = sr.Score
 		out[i] = &sr
 	}

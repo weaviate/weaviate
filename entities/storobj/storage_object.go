@@ -573,6 +573,11 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		if additional.Group {
 			additionalProperties["group"] = ko.AdditionalProperties()["group"]
 		}
+		if additional.Highlight {
+			if h := ko.AdditionalProperties()["highlight"]; h != nil {
+				additionalProperties["highlight"] = h
+			}
+		}
 	}
 	if ko.ExplainScore() != "" {
 		additionalProperties["explainScore"] = ko.ExplainScore()

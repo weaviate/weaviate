@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
@@ -39,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	nearText "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -463,7 +466,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			normalizedResultDist := res.Dist / 2
 
 			certainty := ExtractCertaintyFromParams(params)
-			if 1-(normalizedResultDist) < float32(certainty) && 1-normalizedResultDist >= 0 {
+			if 1-normalizedResultDist < float32(certainty) && 1-normalizedResultDist >= 0 {
 				// TODO: Clean this up. The >= check is so that this logic does not run
 				// non-cosine distance.
 				continue
@@ -526,6 +529,19 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		if replEnabled {
 			additionalProperties["isConsistent"] = res.IsConsistent
+		}
+
+		// For non-BM25 searches (nearText, Ask) the BM25 searcher never ran, so
+		// highlight is not yet in additionalProperties. Compute it here as a fallback.
+		if params.AdditionalProperties.Highlight && additionalProperties["highlight"] == nil {
+			if terms := extractHighlightTerms(params); len(terms) > 0 {
+				if schema, ok := res.Schema.(map[string]interface{}); ok {
+					props := schemaTextPropNames(schema)
+					if h := dbinverted.GenerateHighlights(schema, props, terms, 0, 0); h != nil {
+						additionalProperties["highlight"] = h
+					}
+				}
+			}
 		}
 
 		if len(additionalProperties) > 0 {
@@ -735,7 +751,8 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	paramName string, paramValue interface{},
 ) ([]float32, string, error) {
 	if e.modulesProvider != nil {
-		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
+		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(
+			ctx,
 			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
@@ -965,6 +982,52 @@ func (e *Explorer) usageOperationFromGetParams(params dto.GetParams) string {
 	}
 
 	return "n/a"
+}
+
+// extractHighlightTerms returns individual search terms for the explorer-level
+// highlight fallback (nearText, Ask). BM25/hybrid results already carry
+// highlights from the BM25 searcher, so this is only invoked when those paths
+// produced nothing.
+func extractHighlightTerms(params dto.GetParams) []string {
+	var raw []string
+
+	if params.KeywordRanking != nil && params.KeywordRanking.Query != "" {
+		raw = append(raw, strings.Fields(params.KeywordRanking.Query)...)
+	}
+	if params.HybridSearch != nil && params.HybridSearch.Query != "" {
+		raw = append(raw, strings.Fields(params.HybridSearch.Query)...)
+	}
+	if nt, ok := params.ModuleParams["nearText"]; ok {
+		if ntp, ok := nt.(*nearText.NearTextParams); ok {
+			for _, v := range ntp.Values {
+				raw = append(raw, strings.Fields(v)...)
+			}
+		}
+	}
+
+	seen := make(map[string]struct{}, len(raw))
+	out := raw[:0]
+	for _, t := range raw {
+		if _, dup := seen[t]; !dup && t != "" {
+			seen[t] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// schemaTextPropNames returns the keys in a schema map whose values are
+// string-typed — used to choose which properties to highlight for vector
+// searches where no explicit property list was provided.
+func schemaTextPropNames(schema map[string]interface{}) []string {
+	names := make([]string, 0, len(schema))
+	for k, v := range schema {
+		switch v.(type) {
+		case string, []string, []interface{}:
+			names = append(names, k)
+		}
+	}
+	return names
 }
 
 func (e *Explorer) trackUsageExplore(res search.Results, params ExploreParams) {

@@ -118,7 +118,7 @@ func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum)
 func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: b.getClassObjectName(class.Class),
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
@@ -187,6 +187,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
+	additionalProperties["highlight"] = b.additionalHighlightField(class.Class)
 	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
@@ -203,6 +204,18 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 			Name:   fmt.Sprintf("%sAdditional", class.Class),
 			Fields: additionalProperties,
 		}),
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(className string) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", className),
+			Fields: graphql.Fields{
+				"property":  &graphql.Field{Type: graphql.String},
+				"fragments": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
 	}
 }
 

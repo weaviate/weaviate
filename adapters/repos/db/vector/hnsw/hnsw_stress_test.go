@@ -9,15 +9,15 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build hnswStress
+
 package hnsw
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"runtime/pprof"
@@ -56,25 +56,6 @@ func idVector(ctx context.Context, id uint64) ([]float32, error) {
 	return vector, nil
 }
 
-func idVectorSize(size int) func(ctx context.Context, id uint64) ([]float32, error) {
-	return func(ctx context.Context, id uint64) ([]float32, error) {
-		vector := make([]float32, size)
-		for i := 0; i < size; i++ {
-			vector[i] = float32(id)
-		}
-		return vector, nil
-	}
-}
-
-func float32FromBytes(bytes []byte) float32 {
-	bits := binary.LittleEndian.Uint32(bytes)
-	float := math.Float32frombits(bits)
-	return float
-}
-
-func int32FromBytes(bytes []byte) int {
-	return int(binary.LittleEndian.Uint32(bytes))
-}
 
 func BenchmarkConcurrentSearch(b *testing.B) {
 	ctx := context.Background()

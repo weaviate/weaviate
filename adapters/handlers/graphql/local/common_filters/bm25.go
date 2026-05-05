@@ -87,5 +87,12 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 		}
 	}
 
+	if v, ok := source["highlightMaxFragments"]; ok && v != nil {
+		args.HighlightMaxFragments = v.(int)
+	}
+	if v, ok := source["highlightFragmentSize"]; ok && v != nil {
+		args.HighlightFragmentSize = v.(int)
+	}
+
 	return args
 }
