@@ -42,9 +42,8 @@ const (
 var (
 	indexMetadataBucketPrefix  = []byte{sharedBucketVersionV1, 0}
 	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
-	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
+	postingSizesBucketPrefix   = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
-	postingSizesBucketPrefix   = []byte{sharedBucketVersionV1, 4}
 )
 
 // reassignBucketKey is used to track vectors that need to be reassigned to new postings.
