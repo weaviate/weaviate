@@ -4977,3 +4977,1368 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 		})
 	})
 }
+
+// TestNestedFilteringIsNullInCorrelatedAnd exercises IsNull / IsNotNull
+// combined with a positive condition (or another IsNull) inside a correlated
+// AND, end-to-end through the production write+search pipeline. Coverage is
+// duplicated under both DataTypeObject (top-level "country") and
+// DataTypeObjectArray (top-level "countries") root properties, and across
+// three nesting depths: root-level fields, L1 (garages) fields, and L2 (cars)
+// fields. At each depth we test:
+//
+//   - value + IsNull=false (positive value AND sibling property present)
+//   - value + IsNull=true  (positive value AND sibling property absent)
+//
+// At L2 we also test:
+//
+//   - dual IsNull (one IS NOT NULL + one IS NULL, no positive value)
+//   - tokenization compound + IsNull
+//   - direct contradiction on the same property (always empty)
+//
+// Same-element correlation requires both conditions in correlated AND to be
+// satisfied at the same array element of the deepest unconstrained ancestor —
+// "same root" for root-level conditions, "same garage" for L1, "same car"
+// for L2.
+func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
+	const nestedClass = "IsNullCorr"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	// Both top-level prop variants share the same nested schema:
+	// {name, capital} + garages [{city, postcode} + cars [{make, model}]].
+	rootProps := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "capital", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name:     "garages",
+			DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name:     "cars",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						// Word-tokenized so multi-token tests work for sub-test 8.
+						{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+						{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: models.NestedPropertyTokenizationWord, IndexFilterable: &vTrue},
+						{Name: "year", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+						{
+							Name:     "tires",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "width", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(props ...string) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i]] = props[i+1]
+		}
+		return out
+	}
+
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+	andFilterN := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: operands,
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id,
+				Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	// ---------- DataTypeObject (top-level "country") ----------
+	t.Run("country_object", func(t *testing.T) {
+		// Sub-test 1: country.name = "germany" AND country.capital IS NOT NULL
+		t.Run("root_value_isNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchExtraFields := uuid(2)
+			idNoMatchNoCapital := uuid(3)
+			idNoMatchWrongName := uuid(4)
+			idNoMatchEmptyCountry := uuid(5)
+			idNoMatchNoCountryProp := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"name": "germany", "capital": "berlin"}}, note: "name=germany, capital=berlin"},
+				{id: idMatchExtraFields, props: map[string]any{"country": map[string]any{"name": "germany", "capital": "berlin", "garages": asArr(map[string]any{"city": "munich"})}}, note: "extra fields don't break the match"},
+				{id: idNoMatchNoCapital, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "name=germany but capital absent"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "capital": "paris"}}, note: "wrong name"},
+				{id: idNoMatchEmptyCountry, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+				{id: idNoMatchNoCountryProp, props: map[string]any{}, note: "no country prop"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.capital", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraFields})
+		})
+
+		// Sub-test 2: country.name = "germany" AND country.capital IS NULL
+		t.Run("root_value_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchWithGarages := uuid(2)
+			idNoMatchCapitalPresent := uuid(3)
+			idNoMatchWrongName := uuid(4)
+			idNoMatchNoName := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "name=germany, no capital"},
+				{id: idMatchWithGarages, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "munich"})}}, note: "name=germany, no capital but has garages"},
+				{id: idNoMatchCapitalPresent, props: map[string]any{"country": map[string]any{"name": "germany", "capital": "berlin"}}, note: "capital present → no match"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france"}}, note: "wrong name"},
+				{id: idNoMatchNoName, props: map[string]any{"country": map[string]any{"capital": "berlin"}}, note: "no name → no match"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.capital", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchWithGarages})
+		})
+
+		// Sub-test 3: country.garages.city = "berlin" AND country.garages.postcode IS NOT NULL
+		t.Run("L1_value_isNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchSecondGarage := uuid(2)
+			idMatchExtraGarages := uuid(3)
+			idNoMatchSplit := uuid(4)
+			idNoMatchWrongCity := uuid(5)
+			idNoMatchNoPostcode := uuid(6)
+			idNoMatchNoGarages := uuid(7)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "postcode": "10115"})}}, note: "garage with city=berlin, postcode present"},
+				{id: idMatchSecondGarage, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "munich"},
+					map[string]any{"city": "berlin", "postcode": "10115"},
+				)}}, note: "match in second garage"},
+				{id: idMatchExtraGarages, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin", "postcode": "10115"},
+					map[string]any{"city": "paris", "postcode": "75000"},
+					map[string]any{"city": "munich"},
+				)}}, note: "first garage matches; others irrelevant"},
+				{id: idNoMatchSplit, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "postcode": "80331"},
+				)}}, note: "berlin in g0; postcode in g1 — different garages"},
+				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich", "postcode": "80331"})}}, note: "wrong city"},
+				{id: idNoMatchNoPostcode, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin"})}}, note: "berlin but no postcode"},
+				{id: idNoMatchNoGarages, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "no garages"},
+			}
+			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.postcode", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondGarage, idMatchExtraGarages})
+		})
+
+		// Sub-test 4: country.garages.city = "berlin" AND country.garages.postcode IS NULL
+		t.Run("L1_value_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchWithCars := uuid(2)
+			idNoMatchPostcodePresent := uuid(3)
+			idNoMatchWrongCity := uuid(4)
+			idNoMatchSplit := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin"})}}, note: "garage with city=berlin, no postcode"},
+				{id: idMatchWithCars, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})}}, note: "city=berlin, no postcode, has cars"},
+				{id: idNoMatchPostcodePresent, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "postcode": "10115"})}}, note: "city=berlin AND postcode → no match"},
+				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
+				{id: idNoMatchSplit, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin", "postcode": "10115"},
+					map[string]any{"city": "munich"},
+				)}}, note: "g0 has berlin+postcode; g1 has no postcode but wrong city — no garage satisfies"},
+			}
+			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.postcode", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchWithCars})
+		})
+
+		// Sub-test 5: country.garages.cars.make = "honda" AND country.garages.cars.model IS NOT NULL
+		t.Run("L2_value_isNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchSecondCar := uuid(2)
+			idNoMatchSplit := uuid(3)
+			idNoMatchWrongMake := uuid(4)
+			idNoMatchNoModel := uuid(5)
+			idNoMatchSplitGarages := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "honda+civic at same car"},
+				{id: idMatchSecondCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "honda", "model", "civic"),
+				)})}}, note: "second car satisfies"},
+				{id: idNoMatchSplit, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					car("model", "civic"),
+				)})}}, note: "honda in c0, model in c1 — different cars"},
+				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla"))})}}, note: "wrong make"},
+				{id: idNoMatchNoModel, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "honda but no model"},
+				{id: idNoMatchSplitGarages, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"cars": asArr(car("make", "honda"))},
+					map[string]any{"cars": asArr(car("model", "civic"))},
+				)}}, note: "honda in g0.cars; model in g1.cars — different cars across garages"},
+			}
+			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.cars.model", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar})
+		})
+
+		// Sub-test 6: country.garages.cars.make = "honda" AND country.garages.cars.model IS NULL
+		t.Run("L2_value_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchExtraCar := uuid(2)
+			idNoMatchModelPresent := uuid(3)
+			idNoMatchSplit := uuid(4)
+			idNoMatchWrongMake := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "honda, no model"},
+				{id: idMatchExtraCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					car("make", "toyota", "model", "corolla"),
+				)})}}, note: "first car satisfies (honda, no model)"},
+				{id: idNoMatchModelPresent, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "honda but model present"},
+				{id: idNoMatchSplit, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda", "model", "civic"),
+					car("make", "toyota"),
+				)})}}, note: "honda in c0 has model; honda absent in c1"},
+				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraCar})
+		})
+
+		// Sub-test 7: dual IsNull at L2 — make IS NOT NULL AND model IS NULL
+		t.Run("L2_dual_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchExtraCar := uuid(2)
+			idNoMatchModelPresent := uuid(3)
+			idNoMatchNoMake := uuid(4)
+			idNoMatchEveryCarHasModel := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "make present, no model"},
+				{id: idMatchExtraCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "kia", "model", "sportage"),
+					car("make", "toyota"),
+				)})}}, note: "second car has make but no model"},
+				{id: idNoMatchModelPresent, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "single car has both"},
+				{id: idNoMatchNoMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("model", "civic"))})}}, note: "model only, no make"},
+				{id: idNoMatchEveryCarHasModel, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda", "model", "civic"),
+					car("make", "toyota", "model", "corolla"),
+				)})}}, note: "every car has both"},
+			}
+			filter := andFilter(isNullFilter("country.garages.cars.make", false), isNullFilter("country.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraCar})
+		})
+
+		// Sub-test 8: tokenization + IsNull at L2
+		// make = "honda civic" (tokenizes to [honda, civic]) AND model IS NULL
+		t.Run("L2_tokenization_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idNoMatchModelPresent := uuid(2)
+			idNoMatchTokensSplit := uuid(3)
+			idNoMatchOneTokenMissing := uuid(4)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda civic"))})}}, note: "make='honda civic' tokens at same leaf, no model"},
+				{id: idNoMatchModelPresent, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda civic", "model", "anything"))})}}, note: "tokens align but model present"},
+				{id: idNoMatchTokensSplit, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					car("make", "civic"),
+				)})}}, note: "tokens split across cars — AndAll fails"},
+				{id: idNoMatchOneTokenMissing, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "only one token; civic missing"},
+			}
+			filter := andFilter(valueFilter("country.garages.cars.make", "honda civic"), isNullFilter("country.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+
+		// Sub-test 9: contradiction — IS NULL AND IS NOT NULL on same property
+		t.Run("L2_contradiction", func(t *testing.T) {
+			idDoc := uuid(1)
+			docs := []docDef{
+				{id: idDoc, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "any doc; filter is contradictory"},
+			}
+			filter := andFilter(
+				isNullFilter("country.garages.cars.model", true),
+				isNullFilter("country.garages.cars.model", false),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{})
+		})
+
+		// Sub-test 10 (cross-level): country.name = "germany" AND country.garages.cars.model IS NULL
+		// Value condition at root scope; IsNull at deeper L2. Under universal
+		// semantics the IsNull exclude is applied at rootDoc level — "no model
+		// anywhere within this country."
+		t.Run("crossLevel_root_value_isNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchEmpty := uuid(2)
+			idMatchNoCarsAtAll := uuid(3)
+			idNoMatchModelExists := uuid(4)
+			idNoMatchModelInOtherGarage := uuid(5)
+			idNoMatchWrongName := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})}}, note: "germany; cars have only make, no model anywhere"},
+				{id: idMatchEmpty, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "germany; no garages → vacuous match (universal)"},
+				{id: idMatchNoCarsAtAll, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})}}, note: "germany; garage has no cars"},
+				{id: idNoMatchModelExists, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})}}, note: "germany has model"},
+				{id: idNoMatchModelInOtherGarage, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(
+					map[string]any{"cars": asArr(car("make", "x"))},
+					map[string]any{"cars": asArr(car("model", "y"))},
+				)}}, note: "germany has model in second garage's car"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})}}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmpty, idMatchNoCarsAtAll})
+		})
+
+		// Sub-test 11 (cross-level): country.name = "germany" AND country.garages.cars.model IS NOT NULL
+		// Existential reading is natural here — model exists somewhere within country.
+		t.Run("crossLevel_root_value_isNotNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchModelInDeepCar := uuid(2)
+			idNoMatchNoModel := uuid(3)
+			idNoMatchWrongName := uuid(4)
+			idNoMatchNoCars := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})}}, note: "germany has model in cars"},
+				{id: idMatchModelInDeepCar, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(
+					map[string]any{"cars": asArr(car("make", "x"))},
+					map[string]any{"cars": asArr(car("make", "y"), car("model", "z"))},
+				)}}, note: "model exists in g1.cars[1]"},
+				{id: idNoMatchNoModel, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})}}, note: "germany; no model anywhere"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})}}, note: "wrong name"},
+				{id: idNoMatchNoCars, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "germany; no cars at all → no model"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars.model", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInDeepCar})
+		})
+
+		// Sub-test 12 (cross-level): country.garages.city = "berlin" AND country.garages.cars.make IS NULL
+		// Value at L1 (garages); IsNull on L2 descendant. Under current universal
+		// semantics the IsNull exclude is applied at rootDoc level (country
+		// scope). The country with city=berlin somewhere must have NO cars.make
+		// anywhere within it — even in a different garage. The existential
+		// rewrite would change this to per-garage scope.
+		t.Run("crossLevel_L1_value_isNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchEmptyCars := uuid(2)
+			idNoMatchMakeInOtherGarage := uuid(3)
+			idNoMatchMakeInBerlinGarage := uuid(4)
+			idNoMatchWrongCity := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin"})}}, note: "berlin garage; no cars anywhere in country"},
+				{id: idMatchEmptyCars, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": []any{}})}}, note: "berlin garage with empty cars array; no cars.make anywhere"},
+				{id: idNoMatchMakeInOtherGarage, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "cars": asArr(car("make", "honda"))},
+				)}}, note: "make exists in country (other garage) — universal exclude rejects (existential would match)"},
+				{id: idNoMatchMakeInBerlinGarage, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})}}, note: "berlin garage has cars.make"},
+				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.make", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars})
+		})
+
+		// Sub-test 13 (no-positive / rootAnchor path):
+		// country.garages.cars.make IS NULL AND country.garages.cars.model IS NULL
+		// No positive leaf to seed the plan — resolver uses the rootAnchor
+		// (_exists.""). Result: docs with at least one position not in either
+		// excluded _exists set. Note: under the analyzer's DFS leaf encoding,
+		// scalar fields at intermediate levels share the leaf positions of their
+		// descendants — so a country with both name and a make-only car shares
+		// the make's leaf for both, and the AndNot of make removes that shared
+		// leaf, leaving no surviving position.
+		t.Run("L2_all_isNull_no_positive", func(t *testing.T) {
+			idMatchCarWithNeither := uuid(1)
+			idMatchMixedCars := uuid(2)
+			idMatchOtherFieldSurvives := uuid(3)
+			idNoMatchSharedLeafExcluded := uuid(4)
+			idNoMatchOnlyCarsWithMake := uuid(5)
+			idNoMatchOnlyCarsWithBoth := uuid(6)
+			docs := []docDef{
+				{id: idMatchCarWithNeither, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{})})}}, note: "single car with neither make nor model"},
+				{id: idMatchMixedCars, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"), map[string]any{})})}}, note: "second car has neither field — fresh leaf survives"},
+				{id: idMatchOtherFieldSurvives, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "name has fresh leaf (no descendants to share with) — survives"},
+				{id: idNoMatchSharedLeafExcluded, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "name shares its leaf with the cars descendants under DFS encoding; the make exclude removes the shared leaf"},
+				{id: idNoMatchOnlyCarsWithMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "only leaf is the make leaf — excluded"},
+				{id: idNoMatchOnlyCarsWithBoth, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "every leaf in cars.make or cars.model"},
+			}
+			filter := andFilter(isNullFilter("country.garages.cars.make", true), isNullFilter("country.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNeither, idMatchMixedCars, idMatchOtherFieldSurvives})
+		})
+
+		// Sub-test 14 (3-condition AND):
+		// country.garages.cars.make = "honda" AND country.garages.cars.model IS NOT NULL
+		// AND country.garages.cars.year IS NULL
+		// Same-car correlation: same car has make=honda AND model present AND year absent.
+		t.Run("L2_three_condition", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchSecondCar := uuid(2)
+			idNoMatchYearPresent := uuid(3)
+			idNoMatchNoModel := uuid(4)
+			idNoMatchSplit := uuid(5)
+			idNoMatchWrongMake := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "honda + model + no year"},
+				{id: idMatchSecondCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "toyota", "model", "corolla", "year", "2020"),
+					car("make", "honda", "model", "civic"),
+				)})}}, note: "second car satisfies all three"},
+				{id: idNoMatchYearPresent, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic", "year", "2020"))})}}, note: "year present"},
+				{id: idNoMatchNoModel, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "no model"},
+				{id: idNoMatchSplit, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda", "year", "2020"),
+					car("model", "civic"),
+				)})}}, note: "honda+year in c0; model in c1 — split across cars"},
+				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla"))})}}, note: "wrong make"},
+			}
+			filter := andFilterN(
+				valueFilter("country.garages.cars.make", "honda"),
+				isNullFilter("country.garages.cars.model", false),
+				isNullFilter("country.garages.cars.year", true),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar})
+		})
+
+		// Sub-test 15: country.name = "germany" AND country.garages IS NOT NULL
+		// Array-prop IsNotNull at root, paired with a sibling root scalar.
+		t.Run("root_value_arrayIsNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchMultiple := uuid(2)
+			idNoMatchNoGarages := uuid(3)
+			idNoMatchWrongName := uuid(4)
+			idNoMatchEmpty := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})}}, note: "germany with one garage"},
+				{id: idMatchMultiple, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "munich"}, map[string]any{"city": "berlin"})}}, note: "germany with multiple garages"},
+				{id: idNoMatchNoGarages, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "germany but no garages prop"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "garages": asArr(map[string]any{"city": "paris"})}}, note: "wrong name"},
+				{id: idNoMatchEmpty, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultiple})
+		})
+
+		// Sub-test 16: country.name = "germany" AND country.garages IS NULL
+		// Array-prop IsNull at root — distinct code path from leaf-IsNull (no
+		// synthetic IS NOT NULL rewrite).
+		t.Run("root_value_arrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchOtherFields := uuid(2)
+			idNoMatchHasGarages := uuid(3)
+			idNoMatchWrongName := uuid(4)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "germany with no garages"},
+				{id: idMatchOtherFields, props: map[string]any{"country": map[string]any{"name": "germany", "capital": "berlin"}}, note: "germany with capital but no garages"},
+				{id: idNoMatchHasGarages, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})}}, note: "germany has garages"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france"}}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchOtherFields})
+		})
+
+		// Sub-test 17 (cross-level): country.name = "germany" AND country.garages.cars IS NULL
+		// Root scalar + L1 intermediate-array IsNull. Universal at country
+		// scope: no cars anywhere within country.
+		t.Run("crossLevel_root_value_intermediateArrayIsNull", func(t *testing.T) {
+			idMatchNoCarsAnywhere := uuid(1)
+			idMatchNoGarages := uuid(2)
+			idMatchAllGaragesNoCars := uuid(3)
+			idNoMatchHasCars := uuid(4)
+			idNoMatchCarsInOtherGarage := uuid(5)
+			idNoMatchWrongName := uuid(6)
+			docs := []docDef{
+				{id: idMatchNoCarsAnywhere, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})}}, note: "garage with no cars"},
+				{id: idMatchNoGarages, props: map[string]any{"country": map[string]any{"name": "germany"}}, note: "germany; no garages → vacuous match"},
+				{id: idMatchAllGaragesNoCars, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"}, map[string]any{"city": "munich"})}}, note: "multiple garages, none with cars"},
+				{id: idNoMatchHasCars, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "garage has cars"},
+				{id: idNoMatchCarsInOtherGarage, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"}, map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "cars exist in another garage"},
+				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france"}}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchNoGarages, idMatchAllGaragesNoCars})
+		})
+
+		// Sub-test 18 (inverse cross-level): country.garages.cars.make = "honda"
+		// AND country.name IS NULL. Deep value + shallower leaf IsNull.
+		t.Run("inverseCrossLevel_L2_value_root_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idNoMatchNameSet := uuid(2)
+			idNoMatchWrongMake := uuid(3)
+			idNoMatchNoCars := uuid(4)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "honda exists; no name"},
+				{id: idNoMatchNameSet, props: map[string]any{"country": map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "honda exists but name is set"},
+				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make; no name"},
+				{id: idNoMatchNoCars, props: map[string]any{"country": map[string]any{"capital": "berlin"}}, note: "no cars; no name"},
+			}
+			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.name", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+
+		// Sub-test 19 (mixed): country.garages.cars.make = "honda" AND
+		// country.garages.postcode IS NULL. L2 value + L1 leaf IsNull. Under
+		// current universal IsNull semantics, "postcode IS NULL" applies at
+		// country scope: the country must have no postcode anywhere AND honda
+		// must exist in some car. Same-garage correlation is not enforced
+		// across mixed L1/L2 conditions.
+		t.Run("mixed_L2_value_L1_leafIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchHondaInSecondGarage := uuid(2)
+			idNoMatchPostcodePresent := uuid(3)
+			idNoMatchPostcodeInOtherGarage := uuid(4)
+			idNoMatchWrongMake := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "garage with honda, no postcode"},
+				{id: idMatchHondaInSecondGarage, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"cars": asArr(car("make", "toyota"))},
+					map[string]any{"cars": asArr(car("make", "honda"))},
+				)}}, note: "honda exists in g1; no postcode anywhere"},
+				{id: idNoMatchPostcodePresent, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"postcode": "10115", "cars": asArr(car("make", "honda"))})}}, note: "honda garage has postcode"},
+				{id: idNoMatchPostcodeInOtherGarage, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"cars": asArr(car("make", "honda"))},
+					map[string]any{"postcode": "10115"},
+				)}}, note: "honda in g0 (no postcode), but postcode in g1 — universal at country rejects"},
+				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.postcode", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchHondaInSecondGarage})
+		})
+
+		// Sub-test 20 (no-positive / rootAnchor with three excludes):
+		// country.garages.cars.make IS NULL AND country.garages.cars.model IS NULL
+		// AND country.garages.cars.year IS NULL. Stress-tests rootAnchor with 3 excludes.
+		t.Run("L2_three_isNull_no_positive", func(t *testing.T) {
+			idMatchCarWithNothing := uuid(1)
+			idMatchOtherFieldSurvives := uuid(2)
+			idNoMatchHasMake := uuid(3)
+			idNoMatchHasYear := uuid(4)
+			idNoMatchAllSet := uuid(5)
+			docs := []docDef{
+				{id: idMatchCarWithNothing, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{})})}}, note: "single car with no fields"},
+				{id: idMatchOtherFieldSurvives, props: map[string]any{"country": map[string]any{"capital": "berlin"}}, note: "capital has fresh leaf (no descendants)"},
+				{id: idNoMatchHasMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "only leaf in cars.make exclude"},
+				{id: idNoMatchHasYear, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("year", "2020"))})}}, note: "only leaf in cars.year exclude"},
+				{id: idNoMatchAllSet, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic", "year", "2020"))})}}, note: "every leaf in some exclude"},
+			}
+			filter := andFilterN(
+				isNullFilter("country.garages.cars.make", true),
+				isNullFilter("country.garages.cars.model", true),
+				isNullFilter("country.garages.cars.year", true),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNothing, idMatchOtherFieldSurvives})
+		})
+
+		// Sub-test 21: country.garages.city = "berlin" AND country.garages.cars IS NULL.
+		// L1 leaf + L1 intermediate-array IsNull. Array-prop IsNull is universal
+		// at country scope (no synthetic rewrite for array-prop IsNull) — the
+		// country containing a berlin garage must have no cars anywhere. Within
+		// a single country, same-garage correlation does not apply.
+		t.Run("L1_value_intermediateArrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchMultipleGarages := uuid(2)
+			idNoMatchHasCarsSameGarage := uuid(3)
+			idNoMatchHasCarsOtherGarage := uuid(4)
+			idNoMatchWrongCity := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin"})}}, note: "berlin garage, no cars anywhere"},
+				{id: idMatchMultipleGarages, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "munich"},
+					map[string]any{"city": "berlin"},
+				)}}, note: "berlin in g1; no cars in any garage"},
+				{id: idNoMatchHasCarsSameGarage, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})}}, note: "berlin garage has cars"},
+				{id: idNoMatchHasCarsOtherGarage, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "cars": asArr(car("make", "honda"))},
+				)}}, note: "berlin garage has no cars but other garage does — universal at country rejects"},
+				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages})
+		})
+
+		// Sub-test 22: country.garages.cars.make = "honda" AND
+		// country.garages.cars.tires IS NULL. L2 leaf + L2 intermediate-array
+		// IsNull. Array-prop IsNull is universal at country scope: the country
+		// must have no tires anywhere AND honda must exist in some car. Within
+		// a single country, same-car correlation does not apply.
+		t.Run("L2_value_intermediateArrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchMultipleCars := uuid(2)
+			idNoMatchHasTiresSameCar := uuid(3)
+			idNoMatchHasTiresOtherCar := uuid(4)
+			idNoMatchWrongMake := uuid(5)
+			tire := func(width string) map[string]any { return map[string]any{"width": width} }
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})}}, note: "honda car, no tires anywhere"},
+				{id: idMatchMultipleCars, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "toyota"),
+					car("make", "honda"),
+				)})}}, note: "honda in c1; no tires anywhere"},
+				{id: idNoMatchHasTiresSameCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})})}}, note: "honda car has tires"},
+				{id: idNoMatchHasTiresOtherCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					map[string]any{"make": "toyota", "tires": asArr(tire("205"))},
+				)})}}, note: "honda car has no tires but other car does — universal at country rejects"},
+				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.cars.tires", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars})
+		})
+
+		// Sub-test 23 (cross-level L1+L2): country.garages.city = "berlin" AND
+		// country.garages.cars.tires IS NULL. L1 leaf + L2 intermediate-array
+		// IsNull. Universal at country scope: berlin garage exists somewhere
+		// AND no tires anywhere in the country.
+		t.Run("crossLevel_L1_value_intermediateArrayIsNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchCarsNoTires := uuid(2)
+			idNoMatchTiresInBerlinCar := uuid(3)
+			idNoMatchTiresInOtherGarage := uuid(4)
+			idNoMatchWrongCity := uuid(5)
+			tire := func(width string) map[string]any { return map[string]any{"width": width} }
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin"})}}, note: "berlin garage, no tires anywhere"},
+				{id: idMatchCarsNoTires, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})}}, note: "berlin garage with cars but cars have no tires"},
+				{id: idNoMatchTiresInBerlinCar, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})})}}, note: "tires in berlin garage's car"},
+				{id: idNoMatchTiresInOtherGarage, props: map[string]any{"country": map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})},
+				)}}, note: "tires in other garage — universal at country scope rejects"},
+				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.tires", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires})
+		})
+	})
+
+	// ---------- DataTypeObjectArray (top-level "countries") ----------
+	t.Run("countries_array", func(t *testing.T) {
+		// Sub-test 1: countries.name = "germany" AND countries.capital IS NOT NULL
+		t.Run("root_value_isNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchExtraFields := uuid(2)
+			idMatchSecondCountry := uuid(3)
+			idMatchExtraCountries := uuid(4)
+			idNoMatchSplit := uuid(5)
+			idNoMatchWrongName := uuid(6)
+			idNoMatchNoCapital := uuid(7)
+			idNoMatchEmptyCountries := uuid(8)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "capital": "berlin"})}, note: "single country: germany+berlin"},
+				{id: idMatchExtraFields, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "capital": "berlin", "garages": asArr(map[string]any{"city": "munich"})})}, note: "germany country with extra populated fields"},
+				{id: idMatchSecondCountry, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "france", "capital": "paris"},
+					map[string]any{"name": "germany", "capital": "berlin"},
+				)}, note: "second country satisfies"},
+				{id: idMatchExtraCountries, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "capital": "berlin"},
+					map[string]any{"name": "france"},
+					map[string]any{"name": "italy", "capital": "rome"},
+				)}, note: "first country matches; others irrelevant"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany"},
+					map[string]any{"capital": "berlin"},
+				)}, note: "name and capital in different countries — same-element fails"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france", "capital": "paris"})}, note: "wrong name"},
+				{id: idNoMatchNoCapital, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "no capital"},
+				{id: idNoMatchEmptyCountries, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.capital", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraFields, idMatchSecondCountry, idMatchExtraCountries})
+		})
+
+		// Sub-test 2: countries.name = "germany" AND countries.capital IS NULL
+		t.Run("root_value_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchWithGarages := uuid(2)
+			idMatchInSecondPos := uuid(3)
+			idNoMatchCapitalPresent := uuid(4)
+			idNoMatchSplitCapitalElsewhere := uuid(5)
+			idNoMatchWrongName := uuid(6)
+			idNoMatchNoName := uuid(7)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "single country: germany, no capital"},
+				{id: idMatchWithGarages, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "munich"})})}, note: "germany, no capital but has garages"},
+				{id: idMatchInSecondPos, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "france", "capital": "paris"},
+					map[string]any{"name": "germany"},
+				)}, note: "germany in [1] without capital"},
+				{id: idNoMatchCapitalPresent, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "capital": "berlin"})}, note: "germany has capital"},
+				{id: idNoMatchSplitCapitalElsewhere, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "capital": "berlin"},
+					map[string]any{"name": "france"},
+				)}, note: "germany country has capital — same-element rejects"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
+				{id: idNoMatchNoName, props: map[string]any{"countries": asArr(map[string]any{"capital": "berlin"})}, note: "country has capital but no name"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.capital", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchWithGarages, idMatchInSecondPos})
+		})
+
+		// Sub-test 3: countries.garages.city = "berlin" AND countries.garages.postcode IS NOT NULL
+		t.Run("L1_value_isNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchSecondGarage := uuid(2)
+			idMatchExtraGarages := uuid(3)
+			idMatchInSecondCountry := uuid(4)
+			idNoMatchSplitWithinCountry := uuid(5)
+			idNoMatchSplitAcrossCountries := uuid(6)
+			idNoMatchWrongCity := uuid(7)
+			idNoMatchNoPostcode := uuid(8)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "postcode": "10115"})})}, note: "single country, garage with both fields"},
+				{id: idMatchSecondGarage, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "munich"},
+					map[string]any{"city": "berlin", "postcode": "10115"},
+				)})}, note: "single country; second garage satisfies"},
+				{id: idMatchExtraGarages, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin", "postcode": "10115"},
+					map[string]any{"city": "paris", "postcode": "75000"},
+					map[string]any{"city": "munich"},
+				)})}, note: "first garage matches; others irrelevant"},
+				{id: idMatchInSecondCountry, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "munich"})},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin", "postcode": "10115"})},
+				)}, note: "second country has matching garage"},
+				{id: idNoMatchSplitWithinCountry, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "postcode": "80331"},
+				)})}, note: "berlin in g0; postcode in g1 — different garages within same country"},
+				{id: idNoMatchSplitAcrossCountries, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+					map[string]any{"garages": asArr(map[string]any{"city": "munich", "postcode": "80331"})},
+				)}, note: "berlin and postcode in different countries"},
+				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich", "postcode": "80331"})})}, note: "wrong city"},
+				{id: idNoMatchNoPostcode, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin"})})}, note: "berlin but no postcode"},
+			}
+			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.postcode", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondGarage, idMatchExtraGarages, idMatchInSecondCountry})
+		})
+
+		// Sub-test 4: countries.garages.city = "berlin" AND countries.garages.postcode IS NULL
+		t.Run("L1_value_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchWithCars := uuid(2)
+			idMatchInSecondCountry := uuid(3)
+			idNoMatchPostcodePresent := uuid(4)
+			idNoMatchSplit := uuid(5)
+			idNoMatchWrongCity := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin"})})}, note: "garage city=berlin, no postcode"},
+				{id: idMatchWithCars, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})})}, note: "city=berlin, no postcode, has cars"},
+				{id: idMatchInSecondCountry, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "munich", "postcode": "80331"})},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "second country has matching garage"},
+				{id: idNoMatchPostcodePresent, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "postcode": "10115"})})}, note: "city=berlin but postcode present"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin", "postcode": "10115"},
+					map[string]any{"city": "munich"},
+				)})}, note: "g0 has berlin+postcode; g1 has wrong city — no garage satisfies both"},
+				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.postcode", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchWithCars, idMatchInSecondCountry})
+		})
+
+		// Sub-test 5: countries.garages.cars.make = "honda" AND countries.garages.cars.model IS NOT NULL
+		t.Run("L2_value_isNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchSecondCar := uuid(2)
+			idMatchInSecondCountry := uuid(3)
+			idNoMatchSplitCars := uuid(4)
+			idNoMatchSplitGarages := uuid(5)
+			idNoMatchSplitAcrossCountries := uuid(6)
+			idNoMatchWrongMake := uuid(7)
+			idNoMatchNoModel := uuid(8)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "single car with both"},
+				{id: idMatchSecondCar, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "toyota", "model", "corolla"),
+					car("make", "honda", "model", "civic"),
+				)})})}, note: "second car satisfies"},
+				{id: idMatchInSecondCountry, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})},
+				)}, note: "second country has matching car"},
+				{id: idNoMatchSplitCars, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					car("model", "civic"),
+				)})})}, note: "honda in cars[0], model in cars[1] — different cars"},
+				{id: idNoMatchSplitGarages, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"cars": asArr(car("make", "honda"))},
+					map[string]any{"cars": asArr(car("model", "civic"))},
+				)})}, note: "honda in g0.cars; model in g1.cars — different cars across garages within country"},
+				{id: idNoMatchSplitAcrossCountries, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("model", "civic"))})},
+				)}, note: "honda and model in different countries"},
+				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla"))})})}, note: "wrong make"},
+				{id: idNoMatchNoModel, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "honda but no model"},
+			}
+			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.garages.cars.model", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar, idMatchInSecondCountry})
+		})
+
+		// Sub-test 6: countries.garages.cars.make = "honda" AND countries.garages.cars.model IS NULL
+		t.Run("L2_value_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchExtraCar := uuid(2)
+			idMatchInSecondCountry := uuid(3)
+			idNoMatchModelPresent := uuid(4)
+			idNoMatchSplit := uuid(5)
+			idNoMatchWrongMake := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "single car: make=honda, no model"},
+				{id: idMatchExtraCar, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					car("make", "toyota", "model", "corolla"),
+				)})})}, note: "first car satisfies; extra car irrelevant"},
+				{id: idMatchInSecondCountry, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+				)}, note: "second country has matching car"},
+				{id: idNoMatchModelPresent, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "honda has model"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda", "model", "civic"),
+					car("make", "toyota"),
+				)})})}, note: "honda has model in cars[0]; cars[1] has no make"},
+				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})})}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraCar, idMatchInSecondCountry})
+		})
+
+		// Sub-test 7: dual IsNull at L2
+		t.Run("L2_dual_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchExtraCar := uuid(2)
+			idMatchAcrossCountries := uuid(3)
+			idNoMatchModelPresent := uuid(4)
+			idNoMatchNoMake := uuid(5)
+			idNoMatchEveryCarHasModel := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "make present, no model"},
+				{id: idMatchExtraCar, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "kia", "model", "sportage"),
+					car("make", "toyota"),
+				)})})}, note: "second car has make but no model"},
+				{id: idMatchAcrossCountries, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("model", "civic"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "kia"))})},
+				)}, note: "second country has car satisfying same-element"},
+				{id: idNoMatchModelPresent, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "single car has both"},
+				{id: idNoMatchNoMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("model", "civic"))})})}, note: "no make"},
+				{id: idNoMatchEveryCarHasModel, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda", "model", "civic"),
+					car("make", "toyota", "model", "corolla"),
+				)})})}, note: "every car has both → no satisfying car"},
+			}
+			filter := andFilter(isNullFilter("countries.garages.cars.make", false), isNullFilter("countries.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraCar, idMatchAcrossCountries})
+		})
+
+		// Sub-test 8: tokenization + IsNull at L2
+		t.Run("L2_tokenization_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondCountry := uuid(2)
+			idNoMatchModelPresent := uuid(3)
+			idNoMatchTokensSplit := uuid(4)
+			idNoMatchOneTokenMissing := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda civic"))})})}, note: "tokens at same leaf, no model"},
+				{id: idMatchInSecondCountry, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota corolla"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda civic"))})},
+				)}, note: "second country satisfies"},
+				{id: idNoMatchModelPresent, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda civic", "model", "anything"))})})}, note: "tokens align but model present"},
+				{id: idNoMatchTokensSplit, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					car("make", "civic"),
+				)})})}, note: "tokens split across cars"},
+				{id: idNoMatchOneTokenMissing, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "only one token (honda); civic missing"},
+			}
+			filter := andFilter(valueFilter("countries.garages.cars.make", "honda civic"), isNullFilter("countries.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondCountry})
+		})
+
+		// Sub-test 9: contradiction
+		t.Run("L2_contradiction", func(t *testing.T) {
+			idDoc := uuid(1)
+			docs := []docDef{
+				{id: idDoc, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "any doc; filter is contradictory"},
+			}
+			filter := andFilter(
+				isNullFilter("countries.garages.cars.model", true),
+				isNullFilter("countries.garages.cars.model", false),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{})
+		})
+
+		// Sub-test 10 (cross-level): countries.name = "germany" AND countries.garages.cars.model IS NULL
+		// Same-element correlation at root (countries) — the country with
+		// name=germany must have no model anywhere within (universal at country scope).
+		t.Run("crossLevel_root_value_isNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchModelInOtherCntr := uuid(2)
+			idMatchEmptyCntr := uuid(3)
+			idMatchNoCarsAtAll := uuid(4)
+			idNoMatchModelInGermany := uuid(5)
+			idNoMatchModelInDeepCar := uuid(6)
+			idNoMatchSplitNameAndCntr := uuid(7)
+			idNoMatchWrongName := uuid(8)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})})}, note: "germany; no model"},
+				{id: idMatchModelInOtherCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany"},
+					map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("model", "y"))})},
+				)}, note: "germany has no model; model is in france country"},
+				{id: idMatchEmptyCntr, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "germany; no garages → vacuous match"},
+				{id: idMatchNoCarsAtAll, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})})}, note: "germany; garage with no cars"},
+				{id: idNoMatchModelInGermany, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})})}, note: "germany has model"},
+				{id: idNoMatchModelInDeepCar, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(
+					map[string]any{"cars": asArr(car("make", "x"))},
+					map[string]any{"cars": asArr(car("model", "y"))},
+				)})}, note: "germany has model in second garage"},
+				{id: idNoMatchSplitNameAndCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})},
+					map[string]any{"name": "france"},
+				)}, note: "germany country has model — fails despite france country having no model"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInOtherCntr, idMatchEmptyCntr, idMatchNoCarsAtAll})
+		})
+
+		// Sub-test 11 (cross-level): countries.name = "germany" AND countries.garages.cars.model IS NOT NULL
+		t.Run("crossLevel_root_value_isNotNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchSecondCntr := uuid(2)
+			idNoMatchModelInOtherCntr := uuid(3)
+			idNoMatchNoModel := uuid(4)
+			idNoMatchWrongName := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})})}, note: "germany has model"},
+				{id: idMatchSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})},
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "z", "model", "y"))})},
+				)}, note: "germany country in second position satisfies"},
+				{id: idNoMatchModelInOtherCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})},
+					map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("model", "y"))})},
+				)}, note: "model only in france; germany has no model"},
+				{id: idNoMatchNoModel, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "no model anywhere"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x", "model", "y"))})})}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars.model", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCntr})
+		})
+
+		// Sub-test 12 (cross-level): countries.garages.city = "berlin" AND countries.garages.cars.make IS NULL
+		// Value at L1; IsNull on L2 descendant. Under current universal semantics
+		// the IsNull exclude is applied at root (countries) level — the country
+		// containing the berlin garage must have NO cars.make ANYWHERE within
+		// (any of its garages). Existential rewrite would change this to
+		// per-garage scope.
+		t.Run("crossLevel_L1_value_isNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchEmptyCars := uuid(2)
+			idMatchInSecondCntr := uuid(3)
+			idMatchSplitAcrossCountries := uuid(4)
+			idNoMatchMakeInOtherGarageSameCntr := uuid(5)
+			idNoMatchMakeInBerlinGarage := uuid(6)
+			idNoMatchWrongCity := uuid(7)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin"})})}, note: "berlin garage; no make anywhere"},
+				{id: idMatchEmptyCars, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": []any{}})})}, note: "berlin garage with empty cars array; no cars.make anywhere"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "munich", "cars": asArr(car("make", "honda"))})},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "second country has berlin garage with no make; first country (with make) is independent"},
+				{id: idMatchSplitAcrossCountries, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "second country has berlin garage with no make — independently satisfies"},
+				{id: idNoMatchMakeInOtherGarageSameCntr, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "cars": asArr(car("make", "honda"))},
+				)})}, note: "country has make in munich garage — universal at country scope rejects (existential would match via berlin garage)"},
+				{id: idNoMatchMakeInBerlinGarage, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})})}, note: "berlin garage has cars.make"},
+				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.make", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idMatchInSecondCntr, idMatchSplitAcrossCountries})
+		})
+
+		// Sub-test 13 (no-positive / rootAnchor path):
+		// countries.garages.cars.make IS NULL AND countries.garages.cars.model IS NULL
+		t.Run("L2_all_isNull_no_positive", func(t *testing.T) {
+			idMatchCarWithNeither := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idMatchOtherFieldSurvives := uuid(3)
+			idNoMatchAllCarsWithMake := uuid(4)
+			idNoMatchSharedLeafExcluded := uuid(5)
+			idNoMatchOnlyCarsWithBoth := uuid(6)
+			docs := []docDef{
+				{id: idMatchCarWithNeither, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{})})})}, note: "single car with neither field"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{})})},
+				)}, note: "second country has a car with neither field"},
+				{id: idMatchOtherFieldSurvives, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "name has fresh leaf (no descendants to share with) — survives"},
+				{id: idNoMatchAllCarsWithMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "only leaf is in cars.make exclude"},
+				{id: idNoMatchSharedLeafExcluded, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "name shares its leaf with the cars descendants under DFS encoding; the make exclude removes the shared leaf"},
+				{id: idNoMatchOnlyCarsWithBoth, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "every leaf in cars.make or cars.model"},
+			}
+			filter := andFilter(isNullFilter("countries.garages.cars.make", true), isNullFilter("countries.garages.cars.model", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNeither, idMatchInSecondCntr, idMatchOtherFieldSurvives})
+		})
+
+		// Sub-test 14 (3-condition AND):
+		// countries.garages.cars.make = "honda" AND countries.garages.cars.model IS NOT NULL
+		// AND countries.garages.cars.year IS NULL
+		t.Run("L2_three_condition", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idNoMatchYearPresent := uuid(3)
+			idNoMatchNoModel := uuid(4)
+			idNoMatchSplit := uuid(5)
+			idNoMatchWrongMake := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "honda + model + no year"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla", "year", "2020"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})},
+				)}, note: "second country has matching car"},
+				{id: idNoMatchYearPresent, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic", "year", "2020"))})})}, note: "year present"},
+				{id: idNoMatchNoModel, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "no model"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda", "year", "2020"),
+					car("model", "civic"),
+				)})})}, note: "honda+year in c0, model in c1 — split"},
+				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota", "model", "corolla"))})})}, note: "wrong make"},
+			}
+			filter := andFilterN(
+				valueFilter("countries.garages.cars.make", "honda"),
+				isNullFilter("countries.garages.cars.model", false),
+				isNullFilter("countries.garages.cars.year", true),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondCntr})
+		})
+
+		// Sub-test 15: countries.name = "germany" AND countries.garages IS NOT NULL
+		// Same-element correlation: a country named germany that has at least one garage.
+		t.Run("root_value_arrayIsNotNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idNoMatchSplit := uuid(3)
+			idNoMatchNoGarages := uuid(4)
+			idNoMatchWrongName := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})})}, note: "single country with garages"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "france", "garages": asArr(map[string]any{"city": "paris"})},
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "second country satisfies"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany"},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "name and garages in different countries"},
+				{id: idNoMatchNoGarages, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "germany without garages"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france", "garages": asArr(map[string]any{"city": "paris"})})}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages", false))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondCntr})
+		})
+
+		// Sub-test 16: countries.name = "germany" AND countries.garages IS NULL
+		// Same-element correlation: a country named germany that has no garages.
+		t.Run("root_value_arrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idNoMatchHasGarages := uuid(3)
+			idNoMatchSplit := uuid(4)
+			idNoMatchWrongName := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "germany no garages"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "france", "garages": asArr(map[string]any{"city": "paris"})},
+					map[string]any{"name": "germany"},
+				)}, note: "germany country in [1] without garages"},
+				{id: idNoMatchHasGarages, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})})}, note: "germany has garages"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})},
+					map[string]any{"name": "france"},
+				)}, note: "germany country has garages — same-element fails"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondCntr})
+		})
+
+		// Sub-test 17 (cross-level): countries.name = "germany" AND countries.garages.cars IS NULL
+		// Universal at countries (root) scope: the germany country must have no
+		// cars anywhere within its garages.
+		t.Run("crossLevel_root_value_intermediateArrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchNoGarages := uuid(2)
+			idMatchCarsInOtherCntr := uuid(3)
+			idNoMatchHasCars := uuid(4)
+			idNoMatchCarsInOtherGarage := uuid(5)
+			idNoMatchWrongName := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})})}, note: "germany; garage with no cars"},
+				{id: idMatchNoGarages, props: map[string]any{"countries": asArr(map[string]any{"name": "germany"})}, note: "germany; no garages → vacuous match"},
+				{id: idMatchCarsInOtherCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"city": "berlin"})},
+					map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+				)}, note: "germany has no cars; cars in france"},
+				{id: idNoMatchHasCars, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "germany has cars"},
+				{id: idNoMatchCarsInOtherGarage, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"cars": asArr(car("make", "honda"))},
+				)})}, note: "cars exist in germany country (other garage)"},
+				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
+			}
+			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchCarsInOtherCntr})
+		})
+
+		// Sub-test 18 (inverse cross-level): countries.garages.cars.make = "honda"
+		// AND countries.name IS NULL. Same-element correlation: a country with
+		// cars containing honda AND no name on that same country.
+		t.Run("inverseCrossLevel_L2_value_root_isNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idNoMatchNameSet := uuid(3)
+			idNoMatchSplit := uuid(4)
+			idNoMatchWrongMake := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "country with honda and no name"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "france"},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+				)}, note: "second country: honda, no name"},
+				{id: idNoMatchNameSet, props: map[string]any{"countries": asArr(map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "honda but name is set"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(
+					map[string]any{"name": "germany", "garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+					map[string]any{"capital": "paris"},
+				)}, note: "honda in named country; nameless country has no honda"},
+				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})})}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.name", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondCntr})
+		})
+
+		// Sub-test 19 (mixed): countries.garages.cars.make = "honda" AND
+		// countries.garages.postcode IS NULL. Same-garage correlation.
+		t.Run("mixed_L2_value_L1_leafIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idNoMatchPostcodePresent := uuid(3)
+			idNoMatchSplit := uuid(4)
+			idNoMatchWrongMake := uuid(5)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "garage with honda, no postcode"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"postcode": "10115", "cars": asArr(car("make", "toyota"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+				)}, note: "second country has satisfying garage"},
+				{id: idNoMatchPostcodePresent, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"postcode": "10115", "cars": asArr(car("make", "honda"))})})}, note: "honda garage has postcode"},
+				{id: idNoMatchSplit, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"postcode": "10115", "cars": asArr(car("make", "honda"))},
+					map[string]any{"cars": asArr(car("make", "toyota"))},
+				)})}, note: "honda+postcode in g0; no-postcode+wrong-make in g1"},
+				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})})}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.garages.postcode", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondCntr})
+		})
+
+		// Sub-test 20 (no-positive / rootAnchor with three excludes).
+		t.Run("L2_three_isNull_no_positive", func(t *testing.T) {
+			idMatchCarWithNothing := uuid(1)
+			idMatchInSecondCntr := uuid(2)
+			idMatchOtherFieldSurvives := uuid(3)
+			idNoMatchHasMake := uuid(4)
+			idNoMatchHasYear := uuid(5)
+			idNoMatchAllSet := uuid(6)
+			docs := []docDef{
+				{id: idMatchCarWithNothing, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{})})})}, note: "single car with no fields"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic", "year", "2020"))})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{})})},
+				)}, note: "second country has a car with no fields"},
+				{id: idMatchOtherFieldSurvives, props: map[string]any{"countries": asArr(map[string]any{"capital": "berlin"})}, note: "capital has fresh leaf"},
+				{id: idNoMatchHasMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "only leaf in cars.make exclude"},
+				{id: idNoMatchHasYear, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("year", "2020"))})})}, note: "only leaf in cars.year exclude"},
+				{id: idNoMatchAllSet, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic", "year", "2020"))})})}, note: "every leaf in some exclude"},
+			}
+			filter := andFilterN(
+				isNullFilter("countries.garages.cars.make", true),
+				isNullFilter("countries.garages.cars.model", true),
+				isNullFilter("countries.garages.cars.year", true),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNothing, idMatchInSecondCntr, idMatchOtherFieldSurvives})
+		})
+
+		// Sub-test 21: countries.garages.city = "berlin" AND
+		// countries.garages.cars IS NULL. Per-country correlation: each country
+		// is evaluated independently for same-element. Within a single country,
+		// the array-prop IsNull is universal — no cars anywhere within the
+		// country containing the berlin garage.
+		t.Run("L1_value_intermediateArrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchMultipleGarages := uuid(2)
+			idMatchInSecondCntr := uuid(3)
+			idNoMatchHasCarsSameGarage := uuid(4)
+			idNoMatchHasCarsOtherGarageSameCntr := uuid(5)
+			idNoMatchWrongCity := uuid(6)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin"})})}, note: "berlin garage, no cars"},
+				{id: idMatchMultipleGarages, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "munich"},
+					map[string]any{"city": "berlin"},
+				)})}, note: "berlin in g1; no cars in country"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "munich", "cars": asArr(car("make", "honda"))})},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "second country independently satisfies (berlin, no cars in that country)"},
+				{id: idNoMatchHasCarsSameGarage, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})})}, note: "berlin garage has cars"},
+				{id: idNoMatchHasCarsOtherGarageSameCntr, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "cars": asArr(car("make", "honda"))},
+				)})}, note: "single country: berlin garage has no cars but other garage does — universal at country rejects"},
+				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idMatchInSecondCntr})
+		})
+
+		// Sub-test 22: countries.garages.cars.make = "honda" AND
+		// countries.garages.cars.tires IS NULL. Per-country correlation; within
+		// a single country, array-prop IsNull is universal — no tires anywhere
+		// in the country that has honda.
+		t.Run("L2_value_intermediateArrayIsNull", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchMultipleCars := uuid(2)
+			idMatchInSecondCntr := uuid(3)
+			idNoMatchHasTiresSameCar := uuid(4)
+			idNoMatchHasTiresOtherCarSameCntr := uuid(5)
+			idNoMatchWrongMake := uuid(6)
+			tire := func(width string) map[string]any { return map[string]any{"width": width} }
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})})}, note: "honda car, no tires"},
+				{id: idMatchMultipleCars, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "toyota"),
+					car("make", "honda"),
+				)})})}, note: "honda in c1; no tires in country"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{"make": "toyota", "tires": asArr(tire("205"))})})},
+					map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda"))})},
+				)}, note: "second country independently satisfies"},
+				{id: idNoMatchHasTiresSameCar, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})})})}, note: "honda car has tires"},
+				{id: idNoMatchHasTiresOtherCarSameCntr, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(
+					car("make", "honda"),
+					map[string]any{"make": "toyota", "tires": asArr(tire("205"))},
+				)})})}, note: "single country: honda car has no tires but other car does — universal at country rejects"},
+				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})})}, note: "wrong make"},
+			}
+			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.garages.cars.tires", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idMatchInSecondCntr})
+		})
+
+		// Sub-test 23 (cross-level L1+L2): countries.garages.city = "berlin" AND
+		// countries.garages.cars.tires IS NULL. Universal at country scope:
+		// the country containing the berlin garage must have no tires anywhere
+		// within it.
+		t.Run("crossLevel_L1_value_intermediateArrayIsNull_at_L2", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchCarsNoTires := uuid(2)
+			idMatchInSecondCntr := uuid(3)
+			idNoMatchTiresInBerlinCar := uuid(4)
+			idNoMatchTiresInOtherGarageSameCntr := uuid(5)
+			idNoMatchWrongCity := uuid(6)
+			tire := func(width string) map[string]any { return map[string]any{"width": width} }
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin"})})}, note: "berlin garage, no tires anywhere"},
+				{id: idMatchCarsNoTires, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})})}, note: "cars but no tires"},
+				{id: idMatchInSecondCntr, props: map[string]any{"countries": asArr(
+					map[string]any{"garages": asArr(map[string]any{"city": "munich", "cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})})},
+					map[string]any{"garages": asArr(map[string]any{"city": "berlin"})},
+				)}, note: "second country has berlin garage, no tires; first country independent"},
+				{id: idNoMatchTiresInBerlinCar, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})})})}, note: "tires in berlin garage car"},
+				{id: idNoMatchTiresInOtherGarageSameCntr, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(
+					map[string]any{"city": "berlin"},
+					map[string]any{"city": "munich", "cars": asArr(map[string]any{"make": "honda", "tires": asArr(tire("205"))})},
+				)})}, note: "tires in other garage of same country — universal at country scope rejects"},
+				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
+			}
+			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.tires", true))
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idMatchInSecondCntr})
+		})
+	})
+}
