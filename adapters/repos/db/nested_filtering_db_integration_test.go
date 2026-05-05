@@ -4644,3 +4644,336 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 		runScenario(t, docs, filter, []strfmt.UUID{idMatchMakeOnly, idMatchMakeAtCars1})
 	})
 }
+
+// TestNestedFilteringIsNullStandalone exercises IS NULL / IS NOT NULL filters
+// outside of correlated AND, end-to-end through the production write+search
+// pipeline.
+//
+// Coverage:
+//   - For both DataTypeObject (top-level "nested") and DataTypeObjectArray
+//     (top-level "nestedArray") root properties.
+//   - IsNull on the top-level nested property itself (e.g. "nested" or
+//     "nestedArray") — checks whether the nested object/array exists at all.
+//   - IsNull on a direct nested-array property of the root (e.g. "nested.addresses")
+//     — checks whether that array exists.
+//   - IsNull on a scalar leaf inside a nested array (e.g. "nested.addresses.city")
+//     — universal semantics under the current resolver.
+//   - IsNull on a scalar-array leaf (e.g. "nested.addresses.tags") — same
+//     universal semantics, but exercises a different write-path code branch
+//     (walkScalarArray instead of walkObject).
+//   - For nestedArray: aggregation across multiple top-level array elements.
+//   - Docs that don't set the top-level nested property at all.
+//
+// This documents the current universal IsNull-on-deep-path behaviour. The
+// existential-semantics plan (memory: plan_isnull_existential_semantics.md)
+// would change some of these assertions before release.
+func TestNestedFilteringIsNullStandalone(t *testing.T) {
+	const nestedClass = "Article"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	addressesProps := []*models.NestedProperty{
+		{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+	rootProps := []*models.NestedProperty{
+		{
+			Name:             "addresses",
+			DataType:         schema.DataTypeObjectArray.PropString(),
+			NestedProperties: addressesProps,
+		},
+	}
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "nested", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "nestedArray", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	addrCity := func(city string) map[string]any { return map[string]any{"city": city} }
+	addrTags := func(tags ...string) map[string]any {
+		anyTags := make([]any, len(tags))
+		for i, t := range tags {
+			anyTags[i] = t
+		}
+		return map[string]any{"tags": anyTags}
+	}
+	addrCityAndTags := func(city string, tags ...string) map[string]any {
+		anyTags := make([]any, len(tags))
+		for i, t := range tags {
+			anyTags[i] = t
+		}
+		return map[string]any{"city": city, "tags": anyTags}
+	}
+	addrEmpty := func() map[string]any { return map[string]any{} }
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id,
+				Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	// ----- DataTypeObject (top-level "nested") -----
+	t.Run("nested_object", func(t *testing.T) {
+		idAddrWithCity := uuid(1)
+		idAddrNoCity := uuid(2)
+		idMixedCities := uuid(3)
+		idEmptyAddresses := uuid(4)
+		idNoAddresses := uuid(5)
+		idNoNestedProp := uuid(6)
+		idAddrWithTags := uuid(7)
+		idAddrCityAndTags := uuid(8)
+		idMixedTagsAndCities := uuid(9)
+
+		docs := []docDef{
+			{id: idAddrWithCity, props: map[string]any{
+				"nested": map[string]any{"addresses": asArr(addrCity("berlin"))},
+			}, note: "nested.addresses=[{city:berlin}]"},
+			{id: idAddrNoCity, props: map[string]any{
+				"nested": map[string]any{"addresses": asArr(addrEmpty())},
+			}, note: "nested.addresses=[{}] — no city, no tags"},
+			{id: idMixedCities, props: map[string]any{
+				"nested": map[string]any{"addresses": asArr(addrCity("munich"), addrEmpty(), addrCity("paris"))},
+			}, note: "mixed addresses with city, no tags"},
+			{id: idEmptyAddresses, props: map[string]any{
+				"nested": map[string]any{"addresses": []any{}},
+			}, note: "nested.addresses=[]"},
+			{id: idNoAddresses, props: map[string]any{
+				"nested": map[string]any{},
+			}, note: "nested={} — no addresses field"},
+			{id: idNoNestedProp, props: map[string]any{}, note: "props={} — no nested prop at all"},
+			{id: idAddrWithTags, props: map[string]any{
+				"nested": map[string]any{"addresses": asArr(addrTags("foo", "bar"))},
+			}, note: "addresses=[{tags:[foo,bar]}] — tags present, no city"},
+			{id: idAddrCityAndTags, props: map[string]any{
+				"nested": map[string]any{"addresses": asArr(addrCityAndTags("madrid", "x"))},
+			}, note: "addresses=[{city:madrid, tags:[x]}] — both present"},
+			{id: idMixedTagsAndCities, props: map[string]any{
+				"nested": map[string]any{"addresses": asArr(addrCity("munich"), addrTags("a"), addrEmpty())},
+			}, note: "mixed: city in [0], tags in [1], empty in [2]"},
+		}
+
+		t.Run("nested_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nested", false),
+				[]strfmt.UUID{
+					idAddrWithCity, idAddrNoCity, idMixedCities,
+					idEmptyAddresses, idNoAddresses,
+					idAddrWithTags, idAddrCityAndTags, idMixedTagsAndCities,
+				})
+		})
+
+		t.Run("nested_is_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nested", true),
+				[]strfmt.UUID{idNoNestedProp})
+		})
+
+		t.Run("addresses_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nested.addresses", false),
+				[]strfmt.UUID{
+					idAddrWithCity, idAddrNoCity, idMixedCities,
+					idAddrWithTags, idAddrCityAndTags, idMixedTagsAndCities,
+				})
+		})
+
+		t.Run("addresses_is_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nested.addresses", true),
+				[]strfmt.UUID{idEmptyAddresses, idNoAddresses, idNoNestedProp})
+		})
+
+		t.Run("addresses_city_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nested.addresses.city", false),
+				[]strfmt.UUID{
+					idAddrWithCity, idMixedCities,
+					idAddrCityAndTags, idMixedTagsAndCities,
+				})
+		})
+
+		t.Run("addresses_city_is_null_universal", func(t *testing.T) {
+			// Universal: matches docs where city is absent everywhere within
+			// nested.addresses. idMixedCities and idMixedTagsAndCities both have
+			// at least one address with city, so they are NOT returned — the
+			// existential plan would change this.
+			runScenario(t, docs, isNullFilter("nested.addresses.city", true),
+				[]strfmt.UUID{
+					idAddrNoCity, idEmptyAddresses, idNoAddresses, idNoNestedProp,
+					idAddrWithTags,
+				})
+		})
+
+		t.Run("addresses_tags_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nested.addresses.tags", false),
+				[]strfmt.UUID{idAddrWithTags, idAddrCityAndTags, idMixedTagsAndCities})
+		})
+
+		t.Run("addresses_tags_is_null_universal", func(t *testing.T) {
+			// Universal: matches docs with no tags anywhere. idMixedTagsAndCities
+			// has tags in one address, so NOT returned (existential would).
+			runScenario(t, docs, isNullFilter("nested.addresses.tags", true),
+				[]strfmt.UUID{
+					idAddrWithCity, idAddrNoCity, idMixedCities,
+					idEmptyAddresses, idNoAddresses, idNoNestedProp,
+				})
+		})
+	})
+
+	// ----- DataTypeObjectArray (top-level "nestedArray") -----
+	t.Run("nested_array", func(t *testing.T) {
+		idArrAddrWithCity := uuid(1)
+		idArrAddrNoCity := uuid(2)
+		idArrMixedAcrossElems := uuid(3)
+		idArrCityInSecondElem := uuid(4)
+		idArrEmptyAddresses := uuid(5)
+		idArrNoAddresses := uuid(6)
+		idArrEmptyTopLevel := uuid(7)
+		idArrNoNestedArrayProp := uuid(8)
+		idArrAddrWithTags := uuid(9)
+		idArrAddrCityAndTags := uuid(10)
+		idArrTagsInSecondElem := uuid(11)
+
+		docs := []docDef{
+			{id: idArrAddrWithCity, props: map[string]any{
+				"nestedArray": asArr(map[string]any{"addresses": asArr(addrCity("berlin"))}),
+			}, note: "single root with addresses+city"},
+			{id: idArrAddrNoCity, props: map[string]any{
+				"nestedArray": asArr(map[string]any{"addresses": asArr(addrEmpty())}),
+			}, note: "single root with addresses (no city, no tags)"},
+			{id: idArrMixedAcrossElems, props: map[string]any{
+				"nestedArray": asArr(
+					map[string]any{"addresses": asArr(addrCity("paris"))},
+					map[string]any{"addresses": asArr(addrEmpty())},
+				),
+			}, note: "two roots: first with city, second without"},
+			{id: idArrCityInSecondElem, props: map[string]any{
+				"nestedArray": asArr(
+					map[string]any{},
+					map[string]any{"addresses": asArr(addrCity("madrid"))},
+				),
+			}, note: "city in nestedArray[1] only — cross-root-element aggregation"},
+			{id: idArrEmptyAddresses, props: map[string]any{
+				"nestedArray": asArr(map[string]any{"addresses": []any{}}),
+			}, note: "single root with addresses=[]"},
+			{id: idArrNoAddresses, props: map[string]any{
+				"nestedArray": asArr(map[string]any{}),
+			}, note: "single root without addresses field"},
+			{id: idArrEmptyTopLevel, props: map[string]any{
+				"nestedArray": []any{},
+			}, note: "nestedArray=[] — empty top-level array"},
+			{id: idArrNoNestedArrayProp, props: map[string]any{}, note: "props={} — no nestedArray prop"},
+			{id: idArrAddrWithTags, props: map[string]any{
+				"nestedArray": asArr(map[string]any{"addresses": asArr(addrTags("foo"))}),
+			}, note: "addresses=[{tags:[foo]}] — tags only"},
+			{id: idArrAddrCityAndTags, props: map[string]any{
+				"nestedArray": asArr(map[string]any{"addresses": asArr(addrCityAndTags("oslo", "y"))}),
+			}, note: "addresses=[{city:oslo, tags:[y]}]"},
+			{id: idArrTagsInSecondElem, props: map[string]any{
+				"nestedArray": asArr(
+					map[string]any{},
+					map[string]any{"addresses": asArr(addrTags("z"))},
+				),
+			}, note: "tags only in nestedArray[1] — cross-root-element"},
+		}
+
+		t.Run("nestedArray_is_not_null", func(t *testing.T) {
+			// Empty top-level array and missing prop produce no _exists positions
+			// for "nestedArray" so they don't show up here.
+			runScenario(t, docs, isNullFilter("nestedArray", false),
+				[]strfmt.UUID{
+					idArrAddrWithCity, idArrAddrNoCity, idArrMixedAcrossElems, idArrCityInSecondElem,
+					idArrEmptyAddresses, idArrNoAddresses,
+					idArrAddrWithTags, idArrAddrCityAndTags, idArrTagsInSecondElem,
+				})
+		})
+
+		t.Run("nestedArray_is_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray", true),
+				[]strfmt.UUID{idArrEmptyTopLevel, idArrNoNestedArrayProp})
+		})
+
+		t.Run("addresses_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray.addresses", false),
+				[]strfmt.UUID{
+					idArrAddrWithCity, idArrAddrNoCity, idArrMixedAcrossElems, idArrCityInSecondElem,
+					idArrAddrWithTags, idArrAddrCityAndTags, idArrTagsInSecondElem,
+				})
+		})
+
+		t.Run("addresses_is_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray.addresses", true),
+				[]strfmt.UUID{idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp})
+		})
+
+		t.Run("addresses_city_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray.addresses.city", false),
+				[]strfmt.UUID{
+					idArrAddrWithCity, idArrMixedAcrossElems, idArrCityInSecondElem,
+					idArrAddrCityAndTags,
+				})
+		})
+
+		t.Run("addresses_city_is_null_universal", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray.addresses.city", true),
+				[]strfmt.UUID{
+					idArrAddrNoCity, idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp,
+					idArrAddrWithTags, idArrTagsInSecondElem,
+				})
+		})
+
+		t.Run("addresses_tags_is_not_null", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray.addresses.tags", false),
+				[]strfmt.UUID{idArrAddrWithTags, idArrAddrCityAndTags, idArrTagsInSecondElem})
+		})
+
+		t.Run("addresses_tags_is_null_universal", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("nestedArray.addresses.tags", true),
+				[]strfmt.UUID{
+					idArrAddrWithCity, idArrAddrNoCity, idArrMixedAcrossElems, idArrCityInSecondElem,
+					idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp,
+				})
+		})
+	})
+}
