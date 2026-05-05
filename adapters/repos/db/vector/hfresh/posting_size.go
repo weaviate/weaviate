@@ -51,16 +51,16 @@ func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32,
 	return newSize, nil
 }
 
-// Get returns the size of the posting with the given ID. If the posting is not found, it returns ErrPostingNotFound.
+// Get returns the size of the posting with the given ID. If the posting does not exist, it returns 0.
 func (p *PostingSizes) Get(ctx context.Context, postingID uint64) (uint32, error) {
 	page, slot := p.data.GetPageFor(postingID)
 	if page == nil {
-		return 0, ErrPostingNotFound
+		return 0, nil
 	}
 
 	size := atomic.LoadUint32(&page[slot])
 	if size == 0 {
-		return 0, ErrPostingNotFound
+		return 0, nil
 	}
 
 	return size, nil

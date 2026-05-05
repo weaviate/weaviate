@@ -48,17 +48,17 @@ func TestPostingSizes(t *testing.T) {
 		ps := makePostingSizes(t)
 
 		size, err := ps.Get(ctx, 42)
-		require.ErrorIs(t, err, ErrPostingNotFound)
+		require.NoError(t, err)
 		require.EqualValues(t, 0, size)
 
 		require.EqualValues(t, 0, ps.Count())
 	})
 
-	t.Run("Get on a high posting ID returns ErrPostingNotFound", func(t *testing.T) {
+	t.Run("Get on a high posting ID returns zero", func(t *testing.T) {
 		ps := makePostingSizes(t)
 
 		size, err := ps.Get(ctx, 1_000_000)
-		require.ErrorIs(t, err, ErrPostingNotFound)
+		require.NoError(t, err)
 		require.EqualValues(t, 0, size)
 	})
 
@@ -162,9 +162,10 @@ func TestPostingSizes(t *testing.T) {
 		err = ps.Set(ctx, 42, 0)
 		require.NoError(t, err)
 
-		// after setting to 0, Get should report ErrPostingNotFound
-		_, err = ps.Get(ctx, 42)
-		require.ErrorIs(t, err, ErrPostingNotFound)
+		// after setting to 0, Get should report size 0
+		got, err := ps.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 0, got)
 
 		require.EqualValues(t, 1, ps.Count())
 	})
@@ -175,8 +176,9 @@ func TestPostingSizes(t *testing.T) {
 		err := ps.Set(ctx, 42, 0)
 		require.NoError(t, err)
 
-		_, err = ps.Get(ctx, 42)
-		require.ErrorIs(t, err, ErrPostingNotFound)
+		got, err := ps.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 0, got)
 
 		require.EqualValues(t, 0, ps.Count())
 	})
@@ -221,8 +223,9 @@ func TestPostingSizes(t *testing.T) {
 
 		require.EqualValues(t, 0, ps.Count())
 
-		_, err = ps.Get(ctx, 42)
-		require.ErrorIs(t, err, ErrPostingNotFound)
+		got, err := ps.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 0, got)
 	})
 
 	t.Run("Set negative size on existing posting does not change state", func(t *testing.T) {
@@ -332,8 +335,9 @@ func TestPostingSizes(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 5, s)
 
-		_, err = fresh.Get(ctx, 2)
-		require.ErrorIs(t, err, ErrPostingNotFound)
+		s, err = fresh.Get(ctx, 2)
+		require.NoError(t, err)
+		require.EqualValues(t, 0, s)
 
 		s, err = fresh.Get(ctx, 3)
 		require.NoError(t, err)
@@ -502,11 +506,8 @@ func TestPostingSizesConcurrency(t *testing.T) {
 		for range readers {
 			readersWg.Go(func() {
 				for !stop.Load() {
-					// the posting may not exist yet, both outcomes are valid
 					_, err := ps.Get(ctx, 42)
-					if err != nil {
-						require.ErrorIs(t, err, ErrPostingNotFound)
-					}
+					require.NoError(t, err)
 				}
 			})
 		}
