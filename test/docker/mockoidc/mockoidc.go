@@ -8,6 +8,28 @@
 //
 //  CONTACT: hello@weaviate.io
 //
+//
+// Mock OIDC server used by acceptance tests.
+//
+// Two HTTP listeners:
+//
+//   - :48001 — the OIDC server itself (auth, token, jwks, userinfo).
+//   - :48002 — a tiny admin endpoint exposing POST /queue?subject=<name>,
+//     which drains and replaces the user/code queues with the named user.
+//     Used by the helper to make per-token user selection deterministic
+//     when the test needs a specific claim shape.
+//
+// The MOCK_OIDC_PRESEED env var picks the user set:
+//
+//   - unset or "default": legacy [admin-user, custom-user] only.
+//   - "namespaces":       users that pass OIDC classification
+//                         (namespaced or global-principal). For
+//                         namespace-aware acceptance tests.
+//
+// Classification rejection paths are exercised by unit tests in
+// usecases/auth/authentication/oidc/middleware_test.go using a fake
+// namespaces.Exister, so the harness deliberately does not preseed users
+// that would fail classification.
 
 package main
 
@@ -17,14 +39,17 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/weaviate/mockoidc"
 )
 
@@ -34,11 +59,133 @@ const (
 	clientID     = "mock-oidc-test"
 )
 
-// This starts a mock OIDC server listening on 48001.
-// All codes to authenticate are hardcoded and the server returns tokens for two custom users:
-// - admin-user
-// - custom-user
-// afterwards the mockoidc default user is returned
+// namespacedUser is a custom mockoidc.User that emits the namespace and
+// global-principal claims alongside the MockUser baseline. Either extra
+// claim is omitted when its corresponding zero value is set (empty
+// Namespace, nil GlobalPrincipal).
+type namespacedUser struct {
+	mockoidc.MockUser
+	Namespace       string
+	GlobalPrincipal *bool
+}
+
+// namespacedClaims embeds *mockoidc.IDTokenClaims (concrete pointer, not
+// the jwt.Claims interface) so JSON marshalling flattens the standard
+// claims (sub, iss, exp, …) alongside the WS-specific extras. Embedding
+// the interface instead would nest everything under a single "Claims"
+// field and break the wire format.
+//
+// Both extras use omitempty/pointer-omitempty so an unset value never
+// appears on the wire — the OIDC classifier treats missing-key and
+// empty-string namespace as equivalent, but having an empty key in the
+// JSON would still be surprising and make test debugging harder.
+type namespacedClaims struct {
+	*mockoidc.IDTokenClaims
+	Groups          []string `json:"groups,omitempty"`
+	Namespace       string   `json:"weaviate_namespace,omitempty"`
+	GlobalPrincipal *bool    `json:"weaviate_global_principal,omitempty"`
+}
+
+func (u *namespacedUser) Claims(scope []string, c *mockoidc.IDTokenClaims) (jwt.Claims, error) {
+	return &namespacedClaims{
+		IDTokenClaims:   c,
+		Groups:          u.Groups,
+		Namespace:       u.Namespace,
+		GlobalPrincipal: u.GlobalPrincipal,
+	}, nil
+}
+
+// boolPtr is a small helper to construct *bool values inline.
+func boolPtr(b bool) *bool { return &b }
+
+// legacyPreseedUsers is the FIFO queue used by tests that pre-date the
+// namespaces work. The order (admin first, custom second) is load-bearing:
+// existing tests pull the admin token then the custom token by FIFO order
+// and depend on this contract.
+var legacyPreseedUsers = []mockoidc.User{
+	&mockoidc.MockUser{Subject: "admin-user"},
+	&mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}},
+}
+
+// namespacePreseedUsers contains only OIDC users that pass classification:
+// valid namespaced principals (assuming the cluster has those namespaces)
+// and an explicit global operator. Tests that just need to act as a
+// namespaced or global user pull from here.
+var namespacePreseedUsers = []mockoidc.User{
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "oidc-namespaced-customer1"},
+		Namespace: "customer1",
+	},
+	&namespacedUser{
+		MockUser:  mockoidc.MockUser{Subject: "oidc-namespaced-customer2"},
+		Namespace: "customer2",
+	},
+	&namespacedUser{
+		MockUser:        mockoidc.MockUser{Subject: "oidc-global"},
+		GlobalPrincipal: boolPtr(true),
+	},
+}
+
+// pickPreseedUsers selects the active preseed list from the
+// MOCK_OIDC_PRESEED env var.
+func pickPreseedUsers() []mockoidc.User {
+	switch os.Getenv("MOCK_OIDC_PRESEED") {
+	case "namespaces":
+		return namespacePreseedUsers
+	default:
+		return legacyPreseedUsers
+	}
+}
+
+// userBySubject indexes the active preseed list by Subject for the /queue
+// admin endpoint.
+func userBySubject(users []mockoidc.User) map[string]mockoidc.User {
+	out := make(map[string]mockoidc.User, len(users))
+	for _, u := range users {
+		out[u.ID()] = u
+	}
+	return out
+}
+
+// queueUser appends a user + matching auth code to the FIFO queues.
+func queueUser(m *mockoidc.MockOIDC, u mockoidc.User) {
+	m.QueueUser(u)
+	m.QueueCode(authCode)
+}
+
+// adminQueueHandler drains and replaces the user/code queues with the
+// requested subject. The replace-not-append behaviour keeps the operation
+// order-independent: any pre-seeded entry from FIFO drift gets discarded,
+// and the next /tokens call dequeues exactly the requested user.
+func adminQueueHandler(m *mockoidc.MockOIDC, index map[string]mockoidc.User) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		subject := r.URL.Query().Get("subject")
+		if subject == "" {
+			http.Error(w, "missing subject query parameter", http.StatusBadRequest)
+			return
+		}
+		user, ok := index[subject]
+		if !ok {
+			http.Error(w, fmt.Sprintf("unknown subject %q", subject), http.StatusNotFound)
+			return
+		}
+
+		m.UserQueue.Lock()
+		m.UserQueue.Queue = []mockoidc.User{user}
+		m.UserQueue.Unlock()
+
+		m.SessionStore.CodeQueue.Lock()
+		m.SessionStore.CodeQueue.Queue = []string{authCode}
+		m.SessionStore.CodeQueue.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"queued": subject})
+	}
+}
 
 func main() {
 	getTLSConfig := func() *tls.Config {
@@ -94,13 +241,26 @@ func main() {
 	m.Start(ln, tlsConfig)
 	defer m.Shutdown()
 
-	admin := &mockoidc.MockUser{Subject: "admin-user"}
-	m.QueueUser(admin)
-	m.QueueCode(authCode)
+	preseedUsers := pickPreseedUsers()
+	for _, u := range preseedUsers {
+		queueUser(m, u)
+	}
 
-	custom := &mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}}
-	m.QueueUser(custom)
-	m.QueueCode(authCode)
+	// Admin server on :48002 — exposes POST /queue?subject=<name>.
+	adminMux := http.NewServeMux()
+	adminMux.HandleFunc("/queue", adminQueueHandler(m, userBySubject(preseedUsers)))
+	adminAddr := "0.0.0.0:48002"
+	if hostname != "" {
+		adminAddr = fmt.Sprintf("%s:48002", hostname)
+	}
+	adminServer := &http.Server{Addr: adminAddr, Handler: adminMux}
+	go func() {
+		log.Printf("admin endpoint listening on %s", adminAddr)
+		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("admin server failed: %v", err)
+		}
+	}()
+	defer adminServer.Close()
 
 	log.Printf("issuer: %v\n", m.Issuer())
 	log.Printf("discovery endpoint: %v\n", m.DiscoveryEndpoint())
