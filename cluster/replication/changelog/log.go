@@ -164,21 +164,26 @@ func (l *ChangeLog) Finalize() (uint64, error) {
 // delete any files there — V1 doesn't restart-resume movements, so any
 // file present at startup is guaranteed to be orphaned.
 func (l *ChangeLog) Deactivate() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	if err := func() error {
+		l.mu.Lock()
+		defer l.mu.Unlock()
 
-	if l.deactivated {
+		if l.deactivated {
+			return nil
+		}
+		l.deactivated = true
+		l.wakeTailersLocked()
+
+		// Best-effort flush+close; errors are logged but don't prevent cleanup.
+		if err := l.w.Flush(); err != nil {
+			l.logger.Errorf("changelog: flush during deactivate: %v", err)
+		}
+		if err := l.file.Close(); err != nil {
+			l.logger.Errorf("changelog: close during deactivate: %v", err)
+		}
 		return nil
-	}
-	l.deactivated = true
-	l.wakeTailersLocked()
-
-	// Best-effort flush+close; errors are logged but don't prevent cleanup.
-	if err := l.w.Flush(); err != nil {
-		l.logger.Errorf("changelog: flush during deactivate: %v", err)
-	}
-	if err := l.file.Close(); err != nil {
-		l.logger.Errorf("changelog: close during deactivate: %v", err)
+	}(); err != nil {
+		return err
 	}
 	if err := os.Remove(l.path); err != nil && !os.IsNotExist(err) {
 		l.logger.Errorf("changelog: remove during deactivate: %v", err)
