@@ -124,3 +124,70 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 		})
 	}
 }
+
+// TestPortability_EmptyOnDiskClassName covers the inverse of the fallback
+// case: when the on-disk class-name bytes are empty (length 0), a non-empty
+// caller-supplied className must be used to populate Object.Class. This is
+// the shape produced when a writer marshals a storobj with Object.Class == ""
+// (e.g. wire-receive paths that don't have a class to stamp at marshal time);
+// the decoder must accept the caller's value rather than producing an empty
+// Class.
+func TestPortability_EmptyOnDiskClassName(t *testing.T) {
+	before := FromObject(
+		&models.Object{
+			Class:              "", // intentionally empty on-disk
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{
+				"title": "The Matrix",
+			},
+		},
+		[]float32{1, 2, 3},
+		nil,
+		nil,
+	)
+	before.DocID = 7
+
+	data, err := before.MarshalBinary()
+	require.NoError(t, err)
+
+	cases := []struct {
+		name      string
+		className string
+	}{
+		{name: "plain class name", className: "Movies"},
+		{name: "namespace-qualified class name", className: "my_ns:Movies"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("FromBinaryWithClassName", func(t *testing.T) {
+				after, err := FromBinaryWithClassName(data, tc.className)
+				require.NoError(t, err)
+				assert.Equal(t, tc.className, after.Object.Class,
+					"caller-supplied className must populate Object.Class when on-disk bytes are empty")
+				assert.Equal(t, before.ID(), after.ID())
+				assert.Equal(t, before.DocID, after.DocID)
+				assert.Equal(t, before.Vector, after.Vector)
+				assert.Equal(t, before.Properties(), after.Properties())
+			})
+
+			t.Run("FromBinaryOptionalWithClassName", func(t *testing.T) {
+				after, err := FromBinaryOptionalWithClassName(data, tc.className,
+					additional.Properties{Vector: true}, nil)
+				require.NoError(t, err)
+				assert.Equal(t, tc.className, after.Object.Class)
+				assert.Equal(t, before.ID(), after.ID())
+				assert.Equal(t, before.Vector, after.Vector)
+			})
+
+			t.Run("FromBinaryUUIDOnlyWithClassName", func(t *testing.T) {
+				after, err := FromBinaryUUIDOnlyWithClassName(data, tc.className)
+				require.NoError(t, err)
+				assert.Equal(t, tc.className, after.Object.Class)
+				assert.Equal(t, before.ID(), after.ID())
+			})
+		})
+	}
+}
