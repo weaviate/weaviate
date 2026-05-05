@@ -978,7 +978,7 @@ func TestIntegrationTracker(t *testing.T) {
 		assert.Empty(t, counts4)
 	})
 
-	t.Run("accepts arbitrary integration names without validation", func(t *testing.T) {
+	t.Run("accepts arbitrary integration names", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		tracker := NewIntegrationTracker(logger)
 		defer tracker.Stop()
@@ -989,6 +989,40 @@ func TestIntegrationTracker(t *testing.T) {
 
 		counts := tracker.Get()
 		assert.Equal(t, int64(1), counts["anydatahere"]["0.3.0"])
+	})
+
+	t.Run("drops events beyond maxIntegrationKeys distinct names", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		for i := 0; i < maxIntegrationKeys+10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			req.Header.Set(integrationHeaderKey, fmt.Sprintf("integration-%d/1.0.0", i))
+			tracker.Track(req)
+		}
+
+		assert.Eventually(t, func() bool {
+			counts := tracker.Get()
+			return len(counts) == maxIntegrationKeys
+		}, time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("drops events beyond maxIntegrationVersions per name", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		tracker := NewIntegrationTracker(logger)
+		defer tracker.Stop()
+
+		for i := 0; i < maxIntegrationVersions+10; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+			req.Header.Set(integrationHeaderKey, fmt.Sprintf("langchain/%d.0.0", i))
+			tracker.Track(req)
+		}
+
+		assert.Eventually(t, func() bool {
+			counts := tracker.Get()
+			return len(counts["langchain"]) == maxIntegrationVersions
+		}, time.Second, 10*time.Millisecond)
 	})
 
 	t.Run("skips empty header", func(t *testing.T) {
@@ -1065,6 +1099,12 @@ func TestIdentifyIntegration(t *testing.T) {
 		{
 			name:   "whitespace only",
 			header: "   ",
+		},
+		{
+			name:            "header exceeding max length is truncated",
+			header:          strings.Repeat("a", maxClientHeaderLen+10) + "/1.0.0",
+			expectedName:    strings.Repeat("a", maxClientHeaderLen),
+			expectedVersion: "",
 		},
 	}
 
