@@ -69,10 +69,10 @@ type mapTracker[K comparable] struct {
 	getChan     chan chan map[K]map[string]int64 // Request/response for Get()
 	resetChan   chan chan map[K]map[string]int64 // Request/response for GetAndReset()
 	stopChan    chan struct{}                    // Signal to stop goroutine
-	stopOnce    sync.Once                       // Ensures stop() is safe to call multiple times
-	initCap     int                             // Initial map capacity hint
-	maxKeys     int                             // Max distinct keys; 0 = unlimited
-	maxVersions int                             // Max distinct versions per key; 0 = unlimited
+	stopOnce    sync.Once                        // Ensures stop() is safe to call multiple times
+	initCap     int                              // Initial map capacity hint
+	maxKeys     int                              // Max distinct keys; 0 = unlimited
+	maxVersions int                              // Max distinct versions per key; 0 = unlimited
 }
 
 func newMapTracker[K comparable](logger logrus.FieldLogger, initCap, maxKeys, maxVersions int) *mapTracker[K] {
