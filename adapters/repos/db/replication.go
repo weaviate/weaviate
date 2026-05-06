@@ -495,7 +495,7 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 }
 
 func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("incoming start change capture: get shard %q: %w", shardName, err)
 	}
@@ -513,7 +513,7 @@ func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID 
 // owns Close; the tailer has its own file handle and outlives the shard pin.
 // untilLSN is the inclusive upper bound on emitted LSNs.
 func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("incoming get change log: get shard %q: %w", shardName, err)
 	}
@@ -531,7 +531,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 // IncomingSnapshotChangeLogLSN returns the current LSN under the same
 // quiesce as Finalize, but without sealing the log.
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return 0, fmt.Errorf("incoming snapshot change-log LSN: get shard %q: %w", shardName, err)
 	}
@@ -547,7 +547,7 @@ func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opI
 }
 
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return 0, fmt.Errorf("incoming finalize change log: get shard %q: %w", shardName, err)
 	}
@@ -563,7 +563,7 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 }
 
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
-	shard, release, err := i.GetShard(ctx, shardName)
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("incoming stop change capture: get shard %q: %w", shardName, err)
 	}
@@ -828,7 +828,7 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		return nil
 	}
 
-	s, release, err := idx.GetShard(ctx, shard)
+	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
 		return fmt.Errorf("shard %q not found locally", shard)
 	}
