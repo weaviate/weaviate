@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -35,7 +36,14 @@ var changelogRetryBackoffs = []time.Duration{1 * time.Millisecond, 5 * time.Mill
 // ActivateChangeLog opens a fresh log for opID and registers it. It first
 // sweeps any .log files whose op-id is not registered — the safety net for
 // orphans left by prior failed movements on a long-lived shard.
-func (s *Shard) ActivateChangeLog(opID string) (*changelog.ChangeLog, error) {
+//
+// The keep-snapshot, sweep, O_EXCL Open, and Register run under
+// changeLogsActivateMu so two concurrent activates can't each snapshot a
+// stale registered set and sweep the other's freshly-opened .log file.
+func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
+	s.changeLogsActivateMu.Lock()
+	defer s.changeLogsActivateMu.Unlock()
+
 	dir := s.changelogDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("shard %q: create changelog dir: %w", s.ID(), err)
@@ -58,7 +66,7 @@ func (s *Shard) ActivateChangeLog(opID string) (*changelog.ChangeLog, error) {
 
 // FinalizeChangeLog briefly takes quiesceMux.Lock so the returned LSN is a
 // true upper bound on writes that already passed the bucket-write boundary.
-func (s *Shard) FinalizeChangeLog(opID string) (uint64, error) {
+func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
@@ -71,7 +79,7 @@ func (s *Shard) FinalizeChangeLog(opID string) (uint64, error) {
 // SnapshotChangeLogLSN returns the highest LSN under the same brief quiesce
 // as FinalizeChangeLog, but does not seal — the log keeps accepting writes.
 // Pairs with a capped tailer to drain a phase boundary mid-movement.
-func (s *Shard) SnapshotChangeLogLSN(opID string) (uint64, error) {
+func (s *Shard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
@@ -81,7 +89,7 @@ func (s *Shard) SnapshotChangeLogLSN(opID string) (uint64, error) {
 	return log.LSN(), nil
 }
 
-func (s *Shard) StopChangeCapture(opID string) error {
+func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return nil
@@ -90,7 +98,7 @@ func (s *Shard) StopChangeCapture(opID string) error {
 	return log.Deactivate()
 }
 
-func (s *Shard) GetChangeLog(opID string) (*changelog.ChangeLog, bool) {
+func (s *Shard) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
 	set := s.changeLogs.Load()
 	if set == nil {
 		return nil, false

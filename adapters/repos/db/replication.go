@@ -503,7 +503,7 @@ func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID 
 	if shard == nil {
 		return fmt.Errorf("incoming start change capture: shard %q not found", shardName)
 	}
-	if _, err := shard.ActivateChangeLog(opID); err != nil {
+	if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
 		return fmt.Errorf("incoming start change capture: activate op %q: %w", opID, err)
 	}
 	return nil
@@ -521,7 +521,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 	if shard == nil {
 		return nil, fmt.Errorf("incoming get change log: shard %q not found", shardName)
 	}
-	log, ok := shard.GetChangeLog(opID)
+	log, ok := shard.GetChangeLog(ctx, opID)
 	if !ok {
 		return nil, fmt.Errorf("incoming get change log: no active log for op %q on shard %q", opID, shardName)
 	}
@@ -539,7 +539,7 @@ func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opI
 	if shard == nil {
 		return 0, fmt.Errorf("incoming snapshot change-log LSN: shard %q not found", shardName)
 	}
-	lsn, err := shard.SnapshotChangeLogLSN(opID)
+	lsn, err := shard.SnapshotChangeLogLSN(ctx, opID)
 	if err != nil {
 		return 0, fmt.Errorf("incoming snapshot change-log LSN: op %q: %w", opID, err)
 	}
@@ -555,7 +555,7 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 	if shard == nil {
 		return 0, fmt.Errorf("incoming finalize change log: shard %q not found", shardName)
 	}
-	finalLSN, err := shard.FinalizeChangeLog(opID)
+	finalLSN, err := shard.FinalizeChangeLog(ctx, opID)
 	if err != nil {
 		return 0, fmt.Errorf("incoming finalize change log: op %q: %w", opID, err)
 	}
@@ -571,7 +571,7 @@ func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID s
 	if shard == nil {
 		return fmt.Errorf("incoming stop change capture: shard %q not found", shardName)
 	}
-	if err := shard.StopChangeCapture(opID); err != nil {
+	if err := shard.StopChangeCapture(ctx, opID); err != nil {
 		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
 	}
 	return nil

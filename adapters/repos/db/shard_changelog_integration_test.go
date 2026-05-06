@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -117,7 +118,7 @@ func TestShard_ChangeLog_AllWritePaths_Roundtrip(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
 
-	log, err := shard.ActivateChangeLog("op-roundtrip")
+	log, err := shard.ActivateChangeLog(ctx, "op-roundtrip")
 	require.NoError(t, err)
 
 	// Site 1: PUT.
@@ -155,7 +156,7 @@ func TestShard_ChangeLog_AllWritePaths_Roundtrip(t *testing.T) {
 		require.NoError(t, r.Err)
 	}
 
-	finalLSN, err := shard.FinalizeChangeLog("op-roundtrip")
+	finalLSN, err := shard.FinalizeChangeLog(ctx, "op-roundtrip")
 	require.NoError(t, err)
 	require.Equal(t, uint64(6), finalLSN, "expected 6 entries across the 5 tee sites")
 
@@ -189,7 +190,7 @@ func TestShard_ChangeLog_AllWritePaths_Roundtrip(t *testing.T) {
 		require.Equalf(t, want[i].uuid, decoded.ID(), "entry %d wrong UUID in storobj", i)
 	}
 
-	require.NoError(t, shard.StopChangeCapture("op-roundtrip"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-roundtrip"))
 }
 
 // Pins the three skip-gate branches the plan calls out: skipUpsert=true skips,
@@ -199,7 +200,7 @@ func TestShard_ChangeLog_SkipPaths_NoEntry(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
 
-	log, err := shard.ActivateChangeLog("op-skips")
+	log, err := shard.ActivateChangeLog(ctx, "op-skips")
 	require.NoError(t, err)
 
 	id := uuid.NewString()
@@ -214,7 +215,7 @@ func TestShard_ChangeLog_SkipPaths_NoEntry(t *testing.T) {
 	// Case 3: DELETE on nonexistent UUID → existing==nil early-return → no tee.
 	require.NoError(t, shard.DeleteObject(ctx, strfmt.UUID(uuid.NewString()), time.UnixMilli(200)))
 
-	finalLSN, err := shard.FinalizeChangeLog("op-skips")
+	finalLSN, err := shard.FinalizeChangeLog(ctx, "op-skips")
 	require.NoError(t, err)
 	require.Equal(t, uint64(2), finalLSN)
 
@@ -223,7 +224,7 @@ func TestShard_ChangeLog_SkipPaths_NoEntry(t *testing.T) {
 	require.False(t, entries[0].IsDelete)
 	require.False(t, entries[1].IsDelete, "docIDPreserved PUT must appear as entry 2")
 
-	require.NoError(t, shard.StopChangeCapture("op-skips"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-skips"))
 }
 
 // Hangs on lock-order regression. The only assertion is the 10s timeout —
@@ -232,7 +233,7 @@ func TestShard_ChangeLog_LockOrder_NoDeadlock(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
 
-	_, err := shard.ActivateChangeLog("op-lockorder")
+	_, err := shard.ActivateChangeLog(ctx, "op-lockorder")
 	require.NoError(t, err)
 
 	const writers = 8
@@ -261,7 +262,7 @@ func TestShard_ChangeLog_LockOrder_NoDeadlock(t *testing.T) {
 
 	// Let writers enter the lock stack so Finalize actually contends.
 	time.Sleep(1 * time.Millisecond)
-	_, err = shard.FinalizeChangeLog("op-lockorder")
+	_, err = shard.FinalizeChangeLog(ctx, "op-lockorder")
 	require.NoError(t, err)
 
 	done := make(chan struct{})
@@ -275,7 +276,7 @@ func TestShard_ChangeLog_LockOrder_NoDeadlock(t *testing.T) {
 		t.Fatal("deadlock: writers did not complete within 10s — lock order regression likely")
 	}
 
-	require.NoError(t, shard.StopChangeCapture("op-lockorder"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-lockorder"))
 }
 
 // Pins the "tee is free in production steady state" invariant that the whole
@@ -314,7 +315,7 @@ func TestShard_ChangeLog_ActivateSweepsOrphans(t *testing.T) {
 	dir := filepath.Join(shard.path(), "changelog")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 
-	_, err := shard.ActivateChangeLog("op-live")
+	_, err := shard.ActivateChangeLog(ctx, "op-live")
 	require.NoError(t, err)
 	livePath := filepath.Join(dir, "op-live.log")
 
@@ -325,7 +326,7 @@ func TestShard_ChangeLog_ActivateSweepsOrphans(t *testing.T) {
 	require.NoError(t, os.WriteFile(orphan2, []byte("o2"), 0o600))
 	require.NoError(t, os.WriteFile(keepNonLog, []byte("k"), 0o600))
 
-	_, err = shard.ActivateChangeLog("op-new")
+	_, err = shard.ActivateChangeLog(ctx, "op-new")
 	require.NoError(t, err)
 
 	_, err = os.Stat(orphan1)
@@ -337,8 +338,51 @@ func TestShard_ChangeLog_ActivateSweepsOrphans(t *testing.T) {
 	_, err = os.Stat(keepNonLog)
 	require.NoError(t, err, "non-.log files must not be swept")
 
-	require.NoError(t, shard.StopChangeCapture("op-live"))
-	require.NoError(t, shard.StopChangeCapture("op-new"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-live"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-new"))
+}
+
+// Two concurrent activates must each leave their own .log file on disk.
+// Without changeLogsActivateMu, the second caller's keep-snapshot can miss
+// the first caller's pending op and sweep its freshly-opened file.
+func TestShard_ChangeLog_ConcurrentActivate_NoCrossSweep(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+
+	dir := filepath.Join(shard.path(), "changelog")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+
+	const N = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, N)
+	wg.Add(N)
+	start := make(chan struct{})
+	for i := range N {
+		opID := "op-concurrent-" + strconv.Itoa(i)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
+				errs <- err
+			}
+		}, shard.index.logger)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	for i := range N {
+		opID := "op-concurrent-" + strconv.Itoa(i)
+		_, err := os.Stat(filepath.Join(dir, opID+".log"))
+		require.NoError(t, err, "op %q file must survive concurrent activates", opID)
+	}
+
+	for i := range N {
+		require.NoError(t, shard.StopChangeCapture(ctx, "op-concurrent-"+strconv.Itoa(i)))
+	}
 }
 
 // SnapshotChangeLogLSN must reflect every committed append AND keep the log
@@ -348,7 +392,7 @@ func TestShard_SnapshotChangeLogLSN_ReflectsAppendsAndStaysWritable(t *testing.T
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
 
-	_, err := shard.ActivateChangeLog("op-snapshot")
+	_, err := shard.ActivateChangeLog(ctx, "op-snapshot")
 	require.NoError(t, err)
 
 	const before = 4
@@ -357,18 +401,18 @@ func TestShard_SnapshotChangeLogLSN_ReflectsAppendsAndStaysWritable(t *testing.T
 			changelogTestObject(uuid.NewString(), "x", int64(1_000+i))))
 	}
 
-	snap, err := shard.SnapshotChangeLogLSN("op-snapshot")
+	snap, err := shard.SnapshotChangeLogLSN(ctx, "op-snapshot")
 	require.NoError(t, err)
 	require.Equal(t, uint64(before), snap, "snapshot must reflect all committed appends")
 
 	// Log is still writable: subsequent appends get LSNs > snap.
 	require.NoError(t, shard.PutObject(ctx,
 		changelogTestObject(uuid.NewString(), "after-snap", 9_999)))
-	finalLSN, err := shard.FinalizeChangeLog("op-snapshot")
+	finalLSN, err := shard.FinalizeChangeLog(ctx, "op-snapshot")
 	require.NoError(t, err)
 	require.Equal(t, uint64(before+1), finalLSN, "writes after snapshot must keep advancing the LSN")
 
-	require.NoError(t, shard.StopChangeCapture("op-snapshot"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-snapshot"))
 }
 
 // Unknown op-id must error rather than return zero — otherwise a typo from
@@ -377,7 +421,7 @@ func TestShard_SnapshotChangeLogLSN_NoSuchLog(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
 
-	_, err := shard.SnapshotChangeLogLSN("op-never-activated")
+	_, err := shard.SnapshotChangeLogLSN(ctx, "op-never-activated")
 	require.Error(t, err)
 	require.ErrorIs(t, err, errNoSuchChangeLog)
 }
@@ -388,7 +432,7 @@ func TestShard_SnapshotChangeLogLSN_AfterFinalize(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
 
-	_, err := shard.ActivateChangeLog("op-after-final")
+	_, err := shard.ActivateChangeLog(ctx, "op-after-final")
 	require.NoError(t, err)
 
 	const k = 3
@@ -396,18 +440,18 @@ func TestShard_SnapshotChangeLogLSN_AfterFinalize(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx,
 			changelogTestObject(uuid.NewString(), "x", int64(i+1))))
 	}
-	finalLSN, err := shard.FinalizeChangeLog("op-after-final")
+	finalLSN, err := shard.FinalizeChangeLog(ctx, "op-after-final")
 	require.NoError(t, err)
 	require.Equal(t, uint64(k), finalLSN)
 
-	snap, err := shard.SnapshotChangeLogLSN("op-after-final")
+	snap, err := shard.SnapshotChangeLogLSN(ctx, "op-after-final")
 	require.NoError(t, err)
 	require.Equal(t, finalLSN, snap)
 
 	// And again, to confirm it is purely a read.
-	snap2, err := shard.SnapshotChangeLogLSN("op-after-final")
+	snap2, err := shard.SnapshotChangeLogLSN(ctx, "op-after-final")
 	require.NoError(t, err)
 	require.Equal(t, finalLSN, snap2)
 
-	require.NoError(t, shard.StopChangeCapture("op-after-final"))
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-after-final"))
 }

@@ -324,39 +324,39 @@ func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.
 	return l.shard.getAsyncReplicationStats(ctx)
 }
 
-func (l *LazyLoadShard) ActivateChangeLog(opID string) (*changelog.ChangeLog, error) {
-	if err := l.Load(context.Background()); err != nil {
+func (l *LazyLoadShard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
+	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.ActivateChangeLog(opID)
+	return l.shard.ActivateChangeLog(ctx, opID)
 }
 
-func (l *LazyLoadShard) SnapshotChangeLogLSN(opID string) (uint64, error) {
-	if err := l.Load(context.Background()); err != nil {
+func (l *LazyLoadShard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
+	if err := l.Load(ctx); err != nil {
 		return 0, err
 	}
-	return l.shard.SnapshotChangeLogLSN(opID)
+	return l.shard.SnapshotChangeLogLSN(ctx, opID)
 }
 
-func (l *LazyLoadShard) FinalizeChangeLog(opID string) (uint64, error) {
-	if err := l.Load(context.Background()); err != nil {
+func (l *LazyLoadShard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
+	if err := l.Load(ctx); err != nil {
 		return 0, err
 	}
-	return l.shard.FinalizeChangeLog(opID)
+	return l.shard.FinalizeChangeLog(ctx, opID)
 }
 
-func (l *LazyLoadShard) StopChangeCapture(opID string) error {
-	if err := l.Load(context.Background()); err != nil {
+func (l *LazyLoadShard) StopChangeCapture(ctx context.Context, opID string) error {
+	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.StopChangeCapture(opID)
+	return l.shard.StopChangeCapture(ctx, opID)
 }
 
-func (l *LazyLoadShard) GetChangeLog(opID string) (*changelog.ChangeLog, bool) {
-	if err := l.Load(context.Background()); err != nil {
+func (l *LazyLoadShard) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
+	if err := l.Load(ctx); err != nil {
 		return nil, false
 	}
-	return l.shard.GetChangeLog(opID)
+	return l.shard.GetChangeLog(ctx, opID)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {

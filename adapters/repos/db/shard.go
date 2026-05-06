@@ -184,15 +184,15 @@ type ShardLike interface {
 
 	// ActivateChangeLog registers a change-capture log under opID and returns
 	// it for in-process callers.
-	ActivateChangeLog(opID string) (*changelog.ChangeLog, error)
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
 	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
-	SnapshotChangeLogLSN(opID string) (uint64, error)
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
 	// FinalizeChangeLog freezes the log and returns its final LSN.
-	FinalizeChangeLog(opID string) (uint64, error)
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
 	// StopChangeCapture unregisters and deactivates the log, removing its file.
-	StopChangeCapture(opID string) error
+	StopChangeCapture(ctx context.Context, opID string) error
 	// GetChangeLog returns the active log for opID, or (nil, false) if none.
-	GetChangeLog(opID string) (*changelog.ChangeLog, bool)
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
 
 	Metrics() *Metrics
 
@@ -250,7 +250,14 @@ type Shard struct {
 	// Lock order, outermost → innermost:
 	//   Index.backupLock.RLock(shard) > quiesceMux > asyncReplicationRWMux > docIdLock[poolId].
 	changeLogs atomic.Pointer[changelog.Set]
-	quiesceMux sync.RWMutex
+	// changeLogsActivateMu serializes ActivateChangeLog so the keep-snapshot,
+	// orphan sweep, O_EXCL Open, and Register form one atomic step. Without
+	// it, two concurrent activates can each snapshot a registered set that
+	// excludes the other's pending op, then sweep the other's freshly-opened
+	// .log file. Leaf lock — held only across activate, never under any
+	// other shard mutex and never on the write-path tee.
+	changeLogsActivateMu sync.Mutex
+	quiesceMux           sync.RWMutex
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
