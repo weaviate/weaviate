@@ -123,9 +123,6 @@ func FromBinaryNetwork(data []byte) (*Object, error) {
 // FromBinaryNetwork for the on-disk-fallback path used by wire-receive callers
 // that have no canonical class to supply.
 func FromBinaryDisk(data []byte, className string) (*Object, error) {
-	if className == "" {
-		return nil, errors.New("className is required for FromBinaryDisk; use FromBinaryNetwork to fall back to the on-disk value")
-	}
 	ko := &Object{}
 	if err := ko.UnmarshalBinaryDisk(data, className); err != nil {
 		return nil, err
