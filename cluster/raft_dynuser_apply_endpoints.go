@@ -21,13 +21,14 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
+func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
 	req := cmd.CreateUsersRequest{
 		UserId:             userId,
 		SecureHash:         secureHash,
 		UserIdentifier:     userIdentifier,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
+		Namespace:          namespace,
 		Version:            cmd.DynUserLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)

@@ -251,6 +251,14 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	PrepareForBackup(bool) error
+	// ActiveFilePath returns the absolute path of the file the writer would
+	// append to right now. The lookup happens under the commit-logger mutex,
+	// so it reflects the live append target at the moment of the call. The
+	// backup path uses this to exclude the active file by identity rather
+	// than by transient state (size==0): once any worker write hits the new
+	// file between PrepareForBackup and ListFiles, size==0 stops being a
+	// reliable witness that "this file is the writer's append target".
+	ActiveFilePath() string
 	AddPQCompression(compression.PQData) error
 	AddSQCompression(compression.SQData) error
 	AddMuvera(multivector.MuveraData) error
@@ -403,11 +411,11 @@ func New(cfg Config, uc ent.UserConfig,
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector())
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err

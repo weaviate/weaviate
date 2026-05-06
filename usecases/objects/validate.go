@@ -31,11 +31,10 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	className := schema.UppercaseClassName(obj.Class)
-	className, _ = m.resolveAlias(className)
+	className, _ = m.resolveNS(principal, className)
 	obj.Class = className
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
-	if err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID)); err != nil {
 		return err
 	}
 

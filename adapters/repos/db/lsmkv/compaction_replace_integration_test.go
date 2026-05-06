@@ -760,3 +760,214 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 		})
 	}
 }
+
+// compactionReplaceStrategy_MismatchedSecondaryIndexCount is a regression test
+// for a panic (index out of range) that occurred when compacting two segments
+// with different secondary index counts. Before the fix, accumulateIndexSizes
+// would panic when iterating SecondaryKeys from a segment that had more
+// secondary indices than the compactor expected.
+//
+// The test opens a bucket with 1 secondary index, writes and flushes a segment,
+// then reopens the same directory with 2 secondary indices, writes and flushes
+// a second segment, and finally reopens with 1 secondary index and compacts. It verifies that
+// compaction succeeds without panicking and that lookups via the first (shared)
+// secondary index still work after compaction.
+func compactionReplaceStrategy_MismatchedSecondaryIndexCount(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+
+	// --- Step 1: create bucket with 1 secondary index, write data, flush, close ---
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(1))...,
+	)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+
+	require.NoError(t, b.Put([]byte("key-00"), []byte("value-00-seg1"),
+		WithSecondaryKey(0, []byte("sec0-key-00"))))
+	require.NoError(t, b.Put([]byte("key-01"), []byte("value-01-seg1"),
+		WithSecondaryKey(0, []byte("sec0-key-01"))))
+
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	// --- Step 2: reopen the same directory with 2 secondary indices, write, flush, close ---
+	// This produces a second segment whose header declares secondaryIndexCount=2,
+	// while the first segment on disk has secondaryIndexCount=1.
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(2))...,
+	)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+
+	// key-01 overlaps with segment 1 so compaction must resolve the conflict
+	// (segment 2 wins as the newer one).
+	require.NoError(t, b.Put([]byte("key-01"), []byte("value-01-seg2"),
+		WithSecondaryKey(0, []byte("sec0-key-01")),
+		WithSecondaryKey(1, []byte("sec1-key-01")),
+	))
+	require.NoError(t, b.Put([]byte("key-02"), []byte("value-02-seg2"),
+		WithSecondaryKey(0, []byte("sec0-key-02")),
+		WithSecondaryKey(1, []byte("sec1-key-02")),
+	))
+
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	// --- Step 3: reopen with 1 secondary index (matching the older segment) ---
+	// The compactor takes secondaryIndexCount from the left (older) segment,
+	// so secIndexSizes has length 1. Entries from the right segment have 2
+	// secondary keys — this panicked before the fix.
+	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(1))...,
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, bucket.Shutdown(ctx)) }()
+
+	// Verify pre-compaction lookups via secondary index 0.
+	res, err := bucket.GetBySecondary(ctx, 0, []byte("sec0-key-00"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-00-seg1"), res)
+
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-01"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-01-seg2"), res)
+
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-02"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-02-seg2"), res)
+
+	// --- Step 4: compact — this panicked before the fix ---
+	var compacted bool
+	for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+	}
+	require.NoError(t, err)
+
+	// --- Step 5: verify lookups still work after compaction ---
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-00"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-00-seg1"), res, "secondary lookup for key-00 after compaction")
+
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-01"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-01-seg2"), res, "secondary lookup for key-01 after compaction (newer segment wins)")
+
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-02"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-02-seg2"), res, "secondary lookup for key-02 after compaction")
+
+	// Primary key lookups should also work.
+	res, err = bucket.Get([]byte("key-00"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-00-seg1"), res)
+
+	res, err = bucket.Get([]byte("key-01"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-01-seg2"), res)
+
+	res, err = bucket.Get([]byte("key-02"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-02-seg2"), res)
+}
+
+// compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight is
+// the reverse of compactionReplaceStrategy_MismatchedSecondaryIndexCount: the
+// left (older) segment has 2 secondary indices while the right (newer) has 1.
+// The compactor uses the left segment's count to size secIndexSizes, so entries
+// from the right segment have fewer SecondaryKeys than expected. This exercises
+// the path in writeIndividualNode/keyIndexAndWriteToWithBuf that writes
+// zero-length secondary keys for missing positions.
+func compactionReplaceStrategy_MismatchedSecondaryIndexCount_LeftMoreThanRight(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+
+	// --- Step 1: create bucket with 2 secondary indices, write data, flush, close ---
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(2))...,
+	)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+
+	require.NoError(t, b.Put([]byte("key-00"), []byte("value-00-seg1"),
+		WithSecondaryKey(0, []byte("sec0-key-00")),
+		WithSecondaryKey(1, []byte("sec1-key-00")),
+	))
+	require.NoError(t, b.Put([]byte("key-01"), []byte("value-01-seg1"),
+		WithSecondaryKey(0, []byte("sec0-key-01")),
+		WithSecondaryKey(1, []byte("sec1-key-01")),
+	))
+
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	// --- Step 2: reopen with 1 secondary index, write, flush, close ---
+	// This produces a second segment whose header declares secondaryIndexCount=1,
+	// while the first segment on disk has secondaryIndexCount=2.
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(1))...,
+	)
+	require.NoError(t, err)
+	b.SetMemtableThreshold(1e9)
+
+	// key-01 overlaps with segment 1 so compaction must resolve the conflict.
+	require.NoError(t, b.Put([]byte("key-01"), []byte("value-01-seg2"),
+		WithSecondaryKey(0, []byte("sec0-key-01"))))
+	require.NoError(t, b.Put([]byte("key-02"), []byte("value-02-seg2"),
+		WithSecondaryKey(0, []byte("sec0-key-02"))))
+
+	require.NoError(t, b.FlushAndSwitch())
+	require.NoError(t, b.Shutdown(ctx))
+
+	// --- Step 3: reopen with 2 secondary indices (matching the older segment) ---
+	// The compactor uses secondaryIndexCount=2 from the left segment. Entries
+	// from the right segment only have 1 secondary key, so the serialization
+	// must handle the missing second key gracefully.
+	bucket, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		append(opts, WithStrategy(StrategyReplace), WithSecondaryIndices(2))...,
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, bucket.Shutdown(ctx)) }()
+
+	// --- Step 4: compact ---
+	var compacted bool
+	for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+	}
+	require.NoError(t, err)
+
+	// --- Step 5: verify lookups after compaction ---
+	// Secondary index 0 should work for all keys.
+	res, err := bucket.GetBySecondary(ctx, 0, []byte("sec0-key-00"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-00-seg1"), res, "secondary[0] lookup for key-00")
+
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-01"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-01-seg2"), res, "secondary[0] lookup for key-01 (newer segment wins)")
+
+	res, err = bucket.GetBySecondary(ctx, 0, []byte("sec0-key-02"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-02-seg2"), res, "secondary[0] lookup for key-02")
+
+	// Secondary index 1: key-00 came from segment 1 (which had 2 secondary keys),
+	// so it should still be findable via secondary index 1 after compaction.
+	res, err = bucket.GetBySecondary(ctx, 1, []byte("sec1-key-00"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-00-seg1"), res, "secondary[1] lookup for key-00 (from older segment)")
+
+	// Primary key lookups.
+	res, err = bucket.Get([]byte("key-00"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-00-seg1"), res)
+
+	res, err = bucket.Get([]byte("key-01"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-01-seg2"), res)
+
+	res, err = bucket.Get([]byte("key-02"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("value-02-seg2"), res)
+}

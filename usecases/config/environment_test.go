@@ -1538,54 +1538,46 @@ func TestEnvironmentExportDefaultPath(t *testing.T) {
 		envValue []string
 		// preset simulates a value coming from the startup config file
 		// (YAML/JSON), which is parsed into Config before FromEnv runs.
-		preset    *string
-		expected  string
-		expectSet bool
+		preset   *string
+		expected string
 	}{
 		{
-			name:      "env set",
-			envValue:  []string{"custom/prefix"},
-			expected:  "custom/prefix",
-			expectSet: true,
+			name:     "env set",
+			envValue: []string{"custom/prefix"},
+			expected: "custom/prefix",
 		},
 		{
-			name:      "env set with whitespace trimmed",
-			envValue:  []string{"  some/path  "},
-			expected:  "some/path",
-			expectSet: true,
+			name:     "env set with whitespace trimmed",
+			envValue: []string{"  some/path  "},
+			expected: "some/path",
 		},
 		{
-			name:      "env set to empty string is still considered set",
-			envValue:  []string{""},
-			expected:  "",
-			expectSet: true,
+			name:     "env set to empty string",
+			envValue: []string{""},
+			expected: "",
 		},
 		{
-			name:      "not set defaults to empty and unset",
-			envValue:  []string{},
-			expected:  "",
-			expectSet: false,
+			name:     "not set defaults to empty",
+			envValue: []string{},
+			expected: "",
 		},
 		{
-			name:      "preset via startup config is considered set",
-			envValue:  []string{},
-			preset:    stringPtr("from/config/file"),
-			expected:  "from/config/file",
-			expectSet: true,
+			name:     "preset via startup config is preserved",
+			envValue: []string{},
+			preset:   stringPtr("from/config/file"),
+			expected: "from/config/file",
 		},
 		{
-			name:      "preset via startup config with empty string is considered set",
-			envValue:  []string{},
-			preset:    stringPtr(""),
-			expected:  "",
-			expectSet: true,
+			name:     "preset via startup config with empty string is preserved",
+			envValue: []string{},
+			preset:   stringPtr(""),
+			expected: "",
 		},
 		{
-			name:      "env overrides preset from startup config",
-			envValue:  []string{"from/env"},
-			preset:    stringPtr("from/config/file"),
-			expected:  "from/env",
-			expectSet: true,
+			name:     "env overrides preset from startup config",
+			envValue: []string{"from/env"},
+			preset:   stringPtr("from/config/file"),
+			expected: "from/env",
 		},
 	}
 	for _, tt := range tests {
@@ -1600,7 +1592,6 @@ func TestEnvironmentExportDefaultPath(t *testing.T) {
 			err := FromEnv(&conf)
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.Export.DefaultPath.Get())
-			require.Equal(t, tt.expectSet, conf.Export.IsDefaultPathSet.Load())
 		})
 	}
 }
@@ -1638,6 +1629,41 @@ func TestEnvironmentExportDefaultBucket(t *testing.T) {
 			err := FromEnv(&conf)
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.Export.DefaultBucket.Get())
+		})
+	}
+}
+
+func TestEnvironmentDefaultVectorIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    string
+		expectedErr string
+	}{
+		{"not set", "", "", ""},
+		{"hnsw", "hnsw", "hnsw", ""},
+		{"flat", "flat", "flat", ""},
+		{"dynamic", "dynamic", "dynamic", ""},
+		{"hfresh", "hfresh", "hfresh", ""},
+		{"uppercase FLAT", "FLAT", "flat", ""},
+		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
+		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.value != "" {
+				t.Setenv("DEFAULT_VECTOR_INDEX", tt.value)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.DefaultVectorIndexType.Get())
+			}
 		})
 	}
 }

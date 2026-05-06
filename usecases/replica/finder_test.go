@@ -335,9 +335,14 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 				digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 			)
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
 
+			// Use a short deadline so the retry worker exits quickly instead of
+			// waiting the full 20s hardcoded in finder.GetOne. workerCtx inherits
+			// the deadline from ctx, so it also expires in ~500ms.
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelQuorum, shard, id, proj, adds)
 			assert.ErrorIs(t, err, replica.ErrRead)
 			f.assertLogErrorContains(t, errAny.Error())
@@ -417,10 +422,13 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 			// - Worker 1: DigestObjects on nodes[1] (fullRead=false) - fails
 			// Worker 1 will retry from retry queue (nodes[2] is in retry queue), but it will also fail
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny)
+			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
 			// Worker 1 retries from retry queue (nodes[2])
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).Return(digestR, errAny).Maybe()
 
+			// Short deadline so the retry worker exits quickly (same reasoning as AllButOne).
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelQuorum, shard, id, proj, adds)
 
 			assert.ErrorIs(t, err, replica.ErrRead)
@@ -441,11 +449,14 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 			// - Worker 0: FetchObject on nodes[0] (fullRead=true) - fails
 			// - Worker 1: DigestObjects on nodes[1] (fullRead=false) - succeeds
 			// Worker 0 will retry from retry queue (nodes[2] is in retry queue), but it will also fail
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, errAny)
+			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, errAny).Maybe()
 			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).Return(digestR, nil)
 			// Worker 0 retries from retry queue (nodes[2])
 			f.RClient.EXPECT().FetchObject(anyVal, nodes[2], cls, shard, id, proj, adds, 0).Return(item, errAny).Maybe()
 
+			// Short deadline so the retry worker exits quickly (same reasoning as AllButOne).
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
 			got, err := finder.GetOne(ctx, types.ConsistencyLevelQuorum, shard, id, proj, adds)
 
 			assert.ErrorIs(t, err, replica.ErrRead)

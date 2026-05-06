@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -175,6 +176,154 @@ func TestMigrator_SaveStateAtomicity(t *testing.T) {
 	// State file should now exist
 	_, err = os.Stat(statePath)
 	require.NoError(t, err, "state file should exist after successful save")
+}
+
+// TestMigrator_RecoveryAfterStateSaveFailurePostConversion verifies recovery when
+// state persistence fails after a successful file conversion.
+func TestMigrator_RecoveryAfterStateSaveFailurePostConversion(t *testing.T) {
+	dir := t.TempDir()
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	condensedPath := filepath.Join(dir, "1000.condensed")
+	createTestWALFile(t, condensedPath, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(0, 0))
+	})
+
+	initialMigrator := NewMigrator(dir, logger)
+	require.NoError(t, initialMigrator.SaveState(&MigrationState{
+		CondensedConverted: []string{},
+		CondensedPending:   []string{condensedPath},
+	}))
+
+	fs := common.NewTestFS()
+	renameCount := atomic.Int32{}
+	fs.OnRename = func(oldpath, newpath string) error {
+		// 1st rename: sorted temp -> sorted (conversion commit)
+		// 2nd rename: state temp -> state (SaveState), force failure here
+		if renameCount.Add(1) == 2 {
+			return os.ErrPermission
+		}
+		return os.Rename(oldpath, newpath)
+	}
+
+	failingMigrator := NewMigratorWithFS(dir, logger, fs)
+	err := failingMigrator.Migrate(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "save state after conversion")
+
+	sortedPath := filepath.Join(dir, "1000.sorted")
+	_, err = os.Stat(sortedPath)
+	require.NoError(t, err, "sorted file should exist after converted file save-state failure")
+
+	_, err = os.Stat(condensedPath)
+	assert.True(t, os.IsNotExist(err), "condensed file should be removed after successful conversion")
+
+	loadedState, err := initialMigrator.LoadState()
+	require.NoError(t, err)
+	require.NotNil(t, loadedState)
+	assert.Empty(t, loadedState.CondensedConverted, "state should still reflect pre-conversion data")
+	assert.Equal(t, []string{condensedPath}, loadedState.CondensedPending)
+
+	err = initialMigrator.Migrate(context.Background())
+	require.NoError(t, err, "rerun should recover and complete")
+	assert.True(t, initialMigrator.IsMigrationComplete(), "migration should complete on rerun")
+}
+
+type failSentinelWriteFS struct {
+	common.FS
+	sentinelPath string
+	failedOnce   atomic.Bool
+}
+
+func (f *failSentinelWriteFS) WriteFile(name string, data []byte, perm os.FileMode) error {
+	if name == f.sentinelPath && !f.failedOnce.Swap(true) {
+		return os.ErrPermission
+	}
+	return f.FS.WriteFile(name, data, perm)
+}
+
+// TestMigrator_RecoveryAfterMarkMigrationCompleteFailure verifies that a failure
+// writing the sentinel can be recovered by rerunning migration.
+func TestMigrator_RecoveryAfterMarkMigrationCompleteFailure(t *testing.T) {
+	dir := t.TempDir()
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	condensedPath := filepath.Join(dir, "1000.condensed")
+	createTestWALFile(t, condensedPath, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(0, 0))
+	})
+
+	sentinelPath := filepath.Join(dir, migrationSentinelFile)
+	fs := &failSentinelWriteFS{
+		FS:           common.NewOSFS(),
+		sentinelPath: sentinelPath,
+	}
+
+	failingMigrator := NewMigratorWithFS(dir, logger, fs)
+	err := failingMigrator.Migrate(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mark migration complete")
+
+	_, err = os.Stat(filepath.Join(dir, "1000.sorted"))
+	require.NoError(t, err, "sorted file should exist")
+	_, err = os.Stat(condensedPath)
+	assert.True(t, os.IsNotExist(err), "condensed file should be removed")
+	_, err = os.Stat(sentinelPath)
+	assert.True(t, os.IsNotExist(err), "sentinel should not exist after failed mark complete")
+
+	resumeMigrator := NewMigrator(dir, logger)
+	err = resumeMigrator.Migrate(context.Background())
+	require.NoError(t, err, "rerun should create sentinel and finish cleanly")
+	assert.True(t, resumeMigrator.IsMigrationComplete())
+}
+
+// TestMigrator_ContextCancellationMidFlight verifies interruption after partial
+// progress and successful resume on next run.
+func TestMigrator_ContextCancellationMidFlight(t *testing.T) {
+	dir := t.TempDir()
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+
+	condensed1 := filepath.Join(dir, "1000.condensed")
+	createTestWALFile(t, condensed1, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(0, 0))
+	})
+	condensed2 := filepath.Join(dir, "2000.condensed")
+	createTestWALFile(t, condensed2, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(1, 0))
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	fs := common.NewTestFS()
+	sortedRenameCount := atomic.Int32{}
+	fs.OnRename = func(oldpath, newpath string) error {
+		if filepath.Ext(newpath) == suffixSorted && sortedRenameCount.Add(1) == 1 {
+			cancel()
+		}
+		return os.Rename(oldpath, newpath)
+	}
+
+	migrator := NewMigratorWithFS(dir, logger, fs)
+	err := migrator.Migrate(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
+
+	_, err = os.Stat(filepath.Join(dir, "1000.sorted"))
+	require.NoError(t, err, "first file should be converted before cancellation")
+	_, err = os.Stat(condensed1)
+	assert.True(t, os.IsNotExist(err), "first condensed file should be removed")
+
+	_, err = os.Stat(condensed2)
+	require.NoError(t, err, "second condensed file should remain for resume")
+
+	resumeMigrator := NewMigrator(dir, logger)
+	err = resumeMigrator.Migrate(context.Background())
+	require.NoError(t, err)
+	assert.True(t, resumeMigrator.IsMigrationComplete())
+	_, err = os.Stat(filepath.Join(dir, "2000.sorted"))
+	require.NoError(t, err, "second file should convert on rerun")
 }
 
 // writeV3Snapshot creates a minimal V3 snapshot for testing.

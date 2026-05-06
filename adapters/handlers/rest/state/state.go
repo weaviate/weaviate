@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -88,9 +89,10 @@ type State struct {
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
-	ClusterService *rCluster.Service
-	TenantActivity *tenantactivity.Handler
-	InternalServer types.ClusterServer
+	ClusterService       *rCluster.Service
+	TenantActivity       *tenantactivity.Handler
+	InternalServer       types.ClusterServer
+	NamespacesController *usecasesNamespaces.Controller
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus

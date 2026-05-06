@@ -37,6 +37,8 @@ func TestAuthzDeleteClassPropertyIndex(t *testing.T) {
 		nil,
 		false,
 		map[string]string{"ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT": "true"},
+		false,
+		false,
 	)
 	defer down()
 

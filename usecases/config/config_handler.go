@@ -18,7 +18,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/swag"
@@ -238,6 +237,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this vector index type instead of HNSW.
+	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
+	DefaultVectorIndexType *runtime.DynamicValue[string] `json:"default_vector_index" yaml:"default_vector_index"`
+
 	// New classes will be created with this shard count instead of the cluster node count.
 	// A value of 0 means use the cluster node count (default behavior).
 	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
@@ -260,6 +263,10 @@ type Config struct {
 
 	// Export configures the data export feature and its storage destination.
 	Export Export `json:"export" yaml:"export"`
+
+	// Namespaces configures cluster-level namespace support. Namespaces can
+	// only be enabled on newly bootstrapped clusters (enforced at startup).
+	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
@@ -317,6 +324,13 @@ func (c *Config) Validate() error {
 
 	if c.Authentication.AnonymousAccess.Enabled && c.Authorization.Rbac.Enabled {
 		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
+	}
+
+	// Namespaces are incompatible with GraphQL: the GraphQL schema does not
+	// model namespace-qualified class names. On namespace-enabled clusters the
+	// operator must disable GraphQL explicitly via DISABLE_GRAPHQL=true.
+	if c.Namespaces.Enabled && !c.DisableGraphQL {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true: GraphQL is not supported on namespace-enabled clusters")
 	}
 
 	if err := c.Persistence.Validate(); err != nil {
@@ -606,37 +620,21 @@ type Export struct {
 	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
 
 	// DefaultPath is the default path prefix within the bucket or filesystem for exports.
+	// Defaults to empty string (no prefix). Each backup module provides a separate
+	// export backend that does not inherit the backup path (e.g. BACKUP_S3_PATH),
+	// so this value is used directly.
 	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
 	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+}
 
-	// IsDefaultPathSet tracks whether DefaultPath was explicitly configured by the
-	// operator (vs. implicitly defaulted to the empty string). It is used to
-	// require an explicit path decision at export time — where an empty string
-	// is a valid, conscious choice (no prefix), but a missing value is not.
-	//
-	// This is a derived internal flag, not a user-facing knob: it is set
-	// automatically when DefaultPath is provided via EXPORT_DEFAULT_PATH, via
-	// the startup config file, or via a runtime override. It is intentionally
-	// a plain *atomic.Bool rather than a DynamicValue and is absent from
-	// WeaviateRuntimeConfig, so an operator cannot flip it independently of
-	// DefaultPath.
-	//
-	// Sources that flip it:
-	//  - parseExportConfig (environment.go): sets true if EXPORT_DEFAULT_PATH is
-	//    present or if the startup YAML/JSON config pre-populated DefaultPath.
-	//  - postInitRuntimeOverrides (configure_api.go): after runtime config
-	//    hook registration, syncs the flag if runtime config loaded a
-	//    non-empty DefaultPath (the initial load inside NewConfigManager
-	//    runs before hooks are registered — see the manual sync there).
-	//  - "ExportDefaultPath" hook (configure_api.go): flips it on subsequent
-	//    runtime config reloads when DefaultPath actually changes.
-	//
-	// Known limitation: an operator with no env/YAML config who sets
-	// `export_default_path: ""` only via the runtime config file at startup
-	// will not flip the flag, because the hook fires only on value changes
-	// and "" equals the startup default. Any non-empty value works, or set
-	// EXPORT_DEFAULT_PATH="" at startup.
-	IsDefaultPathSet *atomic.Bool `json:"-" yaml:"-"`
+// Namespaces configures cluster-level namespace support.
+//
+// NAMESPACES_ENABLED is a cluster-wide feature flag. Once enabled on a
+// bootstrapping cluster it is the exclusive source of truth for namespace
+// existence (see cluster/namespaces). The flag must not be toggled on an
+// already-populated cluster; startup invariants refuse such configurations.
+type Namespaces struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 
 const (

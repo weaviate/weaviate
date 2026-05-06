@@ -298,76 +298,107 @@ func TestExportBackend_WithExportClient(t *testing.T) {
 	assert.True(t, eb.IsExternal())
 }
 
-func TestExportBackend_WithoutExportClient(t *testing.T) {
+func TestExportBackend_AlwaysReturnsExportClient(t *testing.T) {
 	setEnvVars(t, map[string]string{
 		"AWS_ACCESS_KEY_ID":     "test-key",
 		"AWS_SECRET_ACCESS_KEY": "test-secret",
 	})
 
-	backupCfg := newConfig("s3.amazonaws.com", "my-bucket", "", true)
+	backupCfg := newConfig("s3.amazonaws.com", "my-bucket", "backup-path", true)
 	backupClient, err := newClient(backupCfg, nil, "/tmp")
 	require.NoError(t, err)
 
+	exportCfg := newConfig("s3.amazonaws.com", "my-bucket", "", true)
+	exportClient, err := newClient(exportCfg, nil, "/tmp")
+	require.NoError(t, err)
+
 	m := &Module{
-		s3Client: backupClient,
+		s3Client:     backupClient,
+		exportClient: exportClient,
 	}
 
 	eb := m.ExportBackend()
-	// Should return the module itself when no export client is configured
-	assert.Equal(t, m, eb)
+	// Should return the export client, not the module itself
+	assert.NotEqual(t, m, eb)
+	assert.Equal(t, Name, eb.Name())
+	assert.True(t, eb.IsExternal())
+
+	// Export backend must NOT inherit the backup path
+	exportBackend := eb.(*exportS3Backend)
+	assert.Empty(t, exportBackend.config.BackupPath, "export backend should have empty BackupPath")
 }
 
 func TestBucketAndPath(t *testing.T) {
-	client := &s3Client{config: &clientConfig{Bucket: "default-bucket", BackupPath: "default-path"}}
-
 	tests := []struct {
 		name           string
-		backupID       string
-		key            string
+		configBucket   string
+		configPath     string
 		overrideBucket string
 		overridePath   string
 		wantBucket     string
 		wantObject     string
+		wantErr        string
 	}{
 		{
-			name:       "no overrides",
-			backupID:   "backup-1",
-			key:        "file.db",
-			wantBucket: "default-bucket",
-			wantObject: "default-path/backup-1/file.db",
+			name:         "no overrides",
+			configBucket: "default-bucket",
+			configPath:   "default-path",
+			wantBucket:   "default-bucket",
+			wantObject:   "default-path/backup-1/file.db",
 		},
 		{
 			name:           "override bucket only",
-			backupID:       "backup-1",
-			key:            "file.db",
+			configBucket:   "default-bucket",
+			configPath:     "default-path",
 			overrideBucket: "export-bucket",
 			wantBucket:     "export-bucket",
 			wantObject:     "default-path/backup-1/file.db",
 		},
 		{
 			name:         "override path only",
-			backupID:     "backup-1",
-			key:          "file.db",
+			configBucket: "default-bucket",
+			configPath:   "default-path",
 			overridePath: "export-path",
 			wantBucket:   "default-bucket",
 			wantObject:   "export-path/backup-1/file.db",
 		},
 		{
 			name:           "override both",
-			backupID:       "backup-1",
-			key:            "file.db",
+			configBucket:   "default-bucket",
+			configPath:     "default-path",
 			overrideBucket: "export-bucket",
 			overridePath:   "export-path",
 			wantBucket:     "export-bucket",
 			wantObject:     "export-path/backup-1/file.db",
 		},
+		{
+			name:         "empty config bucket without override returns error",
+			configBucket: "",
+			configPath:   "path",
+			wantErr:      "bucket must not be empty",
+		},
+		{
+			name:           "empty config bucket with override succeeds",
+			configBucket:   "",
+			configPath:     "path",
+			overrideBucket: "override-bucket",
+			wantBucket:     "override-bucket",
+			wantObject:     "path/backup-1/file.db",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bucket, objectName := client.bucketAndPath(tt.backupID, tt.key, tt.overrideBucket, tt.overridePath)
-			assert.Equal(t, tt.wantBucket, bucket)
-			assert.Equal(t, tt.wantObject, objectName)
+			client := &s3Client{config: &clientConfig{Bucket: tt.configBucket, BackupPath: tt.configPath}}
+			bucket, objectName, err := client.bucketAndPath("backup-1", "file.db", tt.overrideBucket, tt.overridePath)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantBucket, bucket)
+				assert.Equal(t, tt.wantObject, objectName)
+			}
 		})
 	}
 }

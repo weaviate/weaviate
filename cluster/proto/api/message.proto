@@ -72,6 +72,9 @@ message ApplyRequest {
     TYPE_ACTIVATE_USER = 84;
     TYPE_CREATE_USER_WITH_KEY = 85;
 
+    TYPE_ADD_NAMESPACE = 90;
+    TYPE_DELETE_NAMESPACE = 91;
+
     // originally was rolling back schema before raft
     reserved 99;
 
@@ -134,6 +137,8 @@ message QueryRequest {
     
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
+
+    TYPE_GET_NAMESPACES = 63;
 
     TYPE_RESOLVE_ALIAS = 100;
     TYPE_GET_ALIASES = 101;

@@ -56,6 +56,7 @@ import (
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
+	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -76,6 +77,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -156,6 +158,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -382,7 +385,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	restReplicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	restReplicationClient, err := clients.NewReplicationClient(appState.ClusterHttpClient)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").Fatalf("failed to create replication client: %v", err)
+	}
 
 	// Set up gRPC connection manager (needed for both file replication and replication gRPC client)
 	grpcConfig := appState.ServerConfig.Config.GRPC
@@ -604,6 +610,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, nodeSelector,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
 
+	namespacesController := usecasesNamespaces.NewController(appState.Logger)
+	appState.NamespacesController = namespacesController
+
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                          nodeName,
@@ -636,6 +645,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
 		DynamicUserController:           appState.APIKey.Dynamic,
+		NamespacesController:            namespacesController,
+		NamespacesEnabled:               appState.ServerConfig.Config.Namespaces.Enabled,
 		ReplicaCopier:                   replicaCopier,
 		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers:     appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
@@ -797,6 +808,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
+
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
@@ -804,7 +818,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		l.Info("Configuring crons")
-		appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator)
+		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator); err != nil {
+			l.WithError(err).Fatal("Configuring crons failed")
+		}
+	}, appState.Logger)
+
+	// Namespace startup invariant: verify the NAMESPACES_ENABLED flag is
+	// compatible with cluster state (schema classes + namespace entities).
+	// Runs after the meta store is ready so both sources are authoritative;
+	// placed in a goroutine to avoid blocking other init work that does not
+	// depend on the meta store. Fatals on mismatch — a misconfigured cluster
+	// must not come up.
+	enterrors.GoWrapper(func() {
+		l := appState.Logger.WithField("action", "startup")
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			l.WithError(err).Fatal("meta store failed to become ready; cannot verify namespace startup invariants")
+		}
+		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
+		var classNames []string
+		if schemaSnapshot.Objects != nil {
+			for _, c := range schemaSnapshot.Objects.Classes {
+				classNames = append(classNames, c.Class)
+			}
+		}
+		if err := enforceNamespaceStartupInvariants(
+			appState.ServerConfig.Config.Namespaces.Enabled,
+			classNames,
+			appState.ClusterService.NamespaceCount(),
+		); err != nil {
+			l.Fatal(err)
+		}
 	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
@@ -904,6 +947,43 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	return reindexer
 }
 
+// enforceNamespaceStartupInvariants decides whether the current cluster state
+// is compatible with the NAMESPACES_ENABLED flag. It is a pure function so the
+// decision logic can be unit-tested without fighting os.Exit; the caller wires
+// a non-nil return to logrus.Fatal.
+//
+// A class name is considered namespace-qualified iff it contains
+// entschema.NamespaceSeparator (":"), which is forbidden in plain class names
+// by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
+func enforceNamespaceStartupInvariants(enabled bool, classNames []string, nsCount int) error {
+	var nonNamespacedCount, namespacedCount int
+	var nonNamespacedExample, namespacedExample string
+	for _, name := range classNames {
+		if strings.Contains(name, entschema.NamespaceSeparator) {
+			if namespacedCount == 0 {
+				namespacedExample = name
+			}
+			namespacedCount++
+		} else {
+			if nonNamespacedCount == 0 {
+				nonNamespacedExample = name
+			}
+			nonNamespacedCount++
+		}
+	}
+
+	switch {
+	case enabled && nonNamespacedCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
+	case !enabled && nsCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d existing namespace entities; this is not supported", nsCount)
+	case !enabled && namespacedCount > 0:
+		// Guards against disabling namespaces on a namespaced cluster.
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
+	}
+	return nil
+}
+
 type metaStoreReady struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -995,6 +1075,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authentication.OIDC,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Namespaces.Enabled,
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
@@ -1002,9 +1083,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
-		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
+	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.Logger)
@@ -2183,6 +2263,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
@@ -2198,9 +2279,6 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
 		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
 		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
-		// Note: Export.IsDefaultPathSet is intentionally not exposed as a runtime
-		// override — it is a derived internal flag, flipped via the
-		// "ExportDefaultPath" hook registered in postInitRuntimeOverrides.
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2254,17 +2332,6 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			hooks["OIDC"] = appState.OIDC.Init
 		}
-		// Flip Export.IsDefaultPathSet whenever ExportDefaultPath is updated via
-		// a runtime override. IsDefaultPathSet is a derived internal flag (not
-		// exposed in WeaviateRuntimeConfig) but it must track "has the path
-		// been explicitly configured?" across runtime reloads too, not just at
-		// startup. Without this, an operator configuring exports for the
-		// first time via the runtime config file would update DefaultPath but
-		// the path-set check in the scheduler would still reject requests.
-		hooks["ExportDefaultPath"] = func() error {
-			appState.ServerConfig.Config.Export.IsDefaultPathSet.Store(true)
-			return nil
-		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
@@ -2272,18 +2339,6 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		// reload current overrides file to take into account additional settings
 		if err := cm.ReloadConfig(); err != nil {
 			appState.Logger.WithField("action", "startup").Errorf("could not reload config: %v", err)
-		}
-		// Manual sync for Export.IsDefaultPathSet: the initial loadConfig inside
-		// NewConfigManager runs before hooks are registered, and the forced
-		// ReloadConfig above sees oldV == newV (it's re-applying the same
-		// values), so the "ExportDefaultPath" hook cannot have fired yet for
-		// the startup runtime config. If the runtime config did set a
-		// non-empty export_default_path, sync the flag now so the scheduler
-		// accepts requests. The empty-string-via-runtime-config case at
-		// startup is a documented limitation — operators who want the empty
-		// prefix should set EXPORT_DEFAULT_PATH="" at startup instead.
-		if appState.ServerConfig.Config.Export.DefaultPath.Get() != "" {
-			appState.ServerConfig.Config.Export.IsDefaultPathSet.Store(true)
 		}
 		// start runtime config background check
 		enterrors.GoWrapper(func() {

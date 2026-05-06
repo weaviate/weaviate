@@ -274,6 +274,91 @@ func TestWorkerLoop(t *testing.T) {
 		require.Empty(t, processingQueue, "Expected processing queue to be empty after processing")
 	})
 
+	t.Run("worker exits cleanly when streamCtx cancels mid-process and remains available", func(t *testing.T) {
+		mockBatcher := mocks.NewMockbatcher(t)
+
+		reportingQueues := NewReportingQueues()
+		reportingQueues.Make(StreamId)
+		processingQueue := NewProcessingQueue()
+
+		// Closed inside the mock so the test can cancel only after the worker is mid-call,
+		// not mid-setup (sendObjects short-circuits if ctx is already cancelled on entry).
+		batchObjectsAStarted := make(chan struct{})
+
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			close(batchObjectsAStarted)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(5 * time.Second):
+				return &pb.BatchObjectsReply{Took: 1}, nil
+			}
+		}).Once()
+		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+			return &pb.BatchObjectsReply{Took: 1}, nil
+		}).Once()
+
+		var wg sync.WaitGroup
+		StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
+
+		collection := "TestCollection"
+		uuidA := uuid.New().String()
+		uuidB := uuid.New().String()
+		objA := &pb.BatchObject{Collection: collection, Uuid: uuidA}
+		objB := &pb.BatchObject{Collection: collection, Uuid: uuidB}
+
+		streamCtxA, cancelA := context.WithCancel(t.Context())
+		completedA := make(chan struct{})
+
+		streamCtxB := t.Context()
+		completedB := make(chan struct{})
+
+		wg.Add(2)
+
+		go func() {
+			processingQueue <- &processRequest{
+				objects:                       []*pb.BatchObject{objA},
+				streamId:                      StreamId,
+				streamCtx:                     streamCtxA,
+				usesVectorisationByCollection: map[string]bool{collection: false},
+				onStart:                       func() {},
+				onComplete:                    func() { close(completedA); wg.Done() },
+			}
+		}()
+
+		<-batchObjectsAStarted
+		cancelA()
+
+		select {
+		case <-completedA:
+		case <-time.After(PER_PROCESS_TIMEOUT + time.Second):
+			t.Fatal("worker did not complete after streamCtx cancel")
+		}
+
+		go func() {
+			processingQueue <- &processRequest{
+				objects:                       []*pb.BatchObject{objB},
+				streamId:                      StreamId,
+				streamCtx:                     streamCtxB,
+				usesVectorisationByCollection: map[string]bool{collection: false},
+				onStart:                       func() {},
+				onComplete:                    func() { close(completedB); wg.Done() },
+			}
+		}()
+
+		rq, ok := reportingQueues.Get(StreamId)
+		require.True(t, ok)
+		report := <-rq
+		require.Len(t, report.Successes, 1)
+		require.Equal(t, uuidB, report.Successes[0].GetUuid())
+
+		<-completedB
+
+		close(processingQueue)
+		wg.Wait()
+		require.Empty(t, processingQueue)
+	})
+
 	t.Run("should fanout if request uses vectorisation returning errors correctly", func(t *testing.T) {
 		mockBatcher := mocks.NewMockbatcher(t)
 

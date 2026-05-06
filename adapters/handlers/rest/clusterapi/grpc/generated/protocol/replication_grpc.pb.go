@@ -8,7 +8,6 @@ package protocol
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -270,63 +269,48 @@ type UnimplementedReplicationServiceServer struct{}
 func (UnimplementedReplicationServiceServer) PutObject(context.Context, *PutObjectRequest) (*PutObjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PutObject not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) PutObjects(context.Context, *PutObjectsRequest) (*PutObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PutObjects not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) MergeObject(context.Context, *MergeObjectRequest) (*MergeObjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MergeObject not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) DeleteObject(context.Context, *DeleteObjectRequest) (*DeleteObjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteObject not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) DeleteObjects(context.Context, *DeleteObjectsRequest) (*DeleteObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteObjects not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) AddReferences(context.Context, *AddReferencesRequest) (*AddReferencesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddReferences not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) Commit(context.Context, *CommitRequest) (*CommitResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Commit not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) Abort(context.Context, *AbortRequest) (*AbortResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Abort not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) FetchObject(context.Context, *FetchObjectRequest) (*FetchObjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FetchObject not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) FetchObjects(context.Context, *FetchObjectsRequest) (*FetchObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FetchObjects not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) DigestObjects(context.Context, *DigestObjectsRequest) (*DigestObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DigestObjects not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) DigestObjectsInRange(context.Context, *DigestObjectsInRangeRequest) (*DigestObjectsInRangeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DigestObjectsInRange not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) OverwriteObjects(context.Context, *OverwriteObjectsRequest) (*OverwriteObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OverwriteObjects not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) FindUUIDs(context.Context, *FindUUIDsRequest) (*FindUUIDsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FindUUIDs not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) HashTreeLevel(context.Context, *HashTreeLevelRequest) (*HashTreeLevelResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method HashTreeLevel not implemented")
 }
-
 func (UnimplementedReplicationServiceServer) CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CountObjects not implemented")
 }

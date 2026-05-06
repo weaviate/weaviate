@@ -117,6 +117,18 @@ func (h *HFresh) distToNode(ctx context.Context, node uint64, vecB []float32) (f
 			"got a nil or zero-length vector as search vector")
 	}
 
+	// With ASYNC_INDEXING the HFRESH distancer is populated lazily as
+	// index init completes. A filtered near_vector issued in the brief
+	// window between the insert's ack and init finishing otherwise lands
+	// here with h.distancer still nil and dereferences through the inner
+	// .distancer field. Return a typed error so the caller surfaces
+	// "index not yet initialized" instead of the recovered runtime panic
+	// and the user can retry once the async pipeline catches up.
+	if h.distancer == nil {
+		return 0, fmt.Errorf("HFRESH distancer is not yet initialized")
+	}
+
+	vecA = h.normalizeVec(vecA)
 	return h.distancer.distancer.SingleDist(vecA, vecB)
 }
 

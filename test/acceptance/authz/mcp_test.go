@@ -97,8 +97,7 @@ func TestMCPServerAuthZ(t *testing.T) {
 		Name: &roleName,
 		Permissions: []*models.Permission{
 			{
-				Action: &authorization.ManageMcp,
-				Mcp:    make(map[string]any),
+				Action: &authorization.ReadMcp,
 			},
 			{
 				Action: &authorization.ReadCollections,
@@ -175,15 +174,20 @@ func TestMCPServerCollectionLevelAuthZ(t *testing.T) {
 		}, adminKey))
 	}
 
-	// Create a role with MCP permission + data permissions scoped to AllowedCollection only
+	// Create a role with MCP read + update permissions + data permissions scoped to AllowedCollection only
 	roleName := "collection-scoped-mcp-role"
 	helper.DeleteRole(t, adminKey, roleName)
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name: &roleName,
 		Permissions: []*models.Permission{
 			{
-				Action: &authorization.ManageMcp,
-				Mcp:    make(map[string]any),
+				Action: &authorization.CreateMcp,
+			},
+			{
+				Action: &authorization.ReadMcp,
+			},
+			{
+				Action: &authorization.UpdateMcp,
 			},
 			{
 				Action: &authorization.ReadCollections,
@@ -301,5 +305,151 @@ func TestMCPServerCollectionLevelAuthZ(t *testing.T) {
 			require.NotEqual(t, forbiddenClass, c.Class,
 				"user should not see ForbiddenCollection in unfiltered get-config response")
 		}
+	})
+}
+
+// TestMCPPermissionSeparation verifies that read_mcp and update_mcp permissions
+// are enforced independently: a read-only user cannot upsert, and a write-only
+// user cannot search or list collections.
+func TestMCPPermissionSeparation(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	readUser := "read-user"
+	readKey := "read-key"
+	writeUser := "write-user"
+	writeKey := "write-key"
+
+	compose, down := composeUpWithMCP(t,
+		map[string]string{adminUser: adminKey},
+		map[string]string{readUser: readKey, writeUser: writeKey},
+		nil, true)
+	defer down()
+
+	mcpURL := fmt.Sprintf("http://%s", compose.GetWeaviate().McpURI())
+	adminAuth := helper.CreateAuth(adminKey)
+
+	// Create a test collection
+	className := "PermTestCollection"
+	helper.DeleteClassWithAuthz(t, className, adminAuth)
+	helper.CreateClassAuth(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "content", DataType: schema.DataTypeText.PropString()},
+		},
+		Vectorizer: "none",
+	}, adminKey)
+	defer helper.DeleteClassWithAuthz(t, className, adminAuth)
+
+	// Insert test data as admin
+	require.NoError(t, helper.CreateObjectAuth(t, &models.Object{
+		Class:      className,
+		Properties: map[string]interface{}{"content": "test content"},
+	}, adminKey))
+
+	// Create read-only role: read_mcp + read_collections + read_data
+	readRole := "mcp-read-only-role"
+	helper.DeleteRole(t, adminKey, readRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &readRole,
+		Permissions: []*models.Permission{
+			{Action: &authorization.ReadMcp},
+			{Action: &authorization.ReadCollections, Collections: &models.PermissionCollections{Collection: &className}},
+			{Action: &authorization.ReadData, Data: &models.PermissionData{Collection: &className}},
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, readRole)
+	helper.AssignRoleToUser(t, adminKey, readRole, readUser)
+	defer helper.RevokeRoleFromUser(t, adminKey, readRole, readUser)
+
+	// Create write-only role: update_mcp + create_data + update_data
+	writeRole := "mcp-write-only-role"
+	helper.DeleteRole(t, adminKey, writeRole)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &writeRole,
+		Permissions: []*models.Permission{
+			{Action: &authorization.CreateMcp},
+			{Action: &authorization.UpdateMcp},
+			{Action: &authorization.CreateData, Data: &models.PermissionData{Collection: &className}},
+			{Action: &authorization.UpdateData, Data: &models.PermissionData{Collection: &className}},
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, writeRole)
+	helper.AssignRoleToUser(t, adminKey, writeRole, writeUser)
+	defer helper.RevokeRoleFromUser(t, adminKey, writeRole, writeUser)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pureKeyword := float64(0)
+
+	// --- Read-only user tests ---
+
+	t.Run("read user can call get-config", func(t *testing.T) {
+		var resp read.GetCollectionConfigResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-get-config", readKey,
+			read.GetCollectionConfigArgs{CollectionName: className}, &resp)
+		require.NoError(t, err)
+		require.Len(t, resp.Collections, 1)
+	})
+
+	t.Run("read user can call hybrid search", func(t *testing.T) {
+		var resp search.QueryHybridResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-query-hybrid", readKey,
+			search.QueryHybridArgs{
+				Query:          "test",
+				CollectionName: className,
+				Alpha:          &pureKeyword,
+			}, &resp)
+		require.NoError(t, err)
+	})
+
+	t.Run("read user cannot call upsert", func(t *testing.T) {
+		var resp create.UpsertObjectResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-objects-upsert", readKey,
+			create.UpsertObjectArgs{
+				CollectionName: className,
+				Objects: []create.ObjectToUpsert{
+					{Properties: map[string]any{"content": "should fail"}},
+				},
+			}, &resp)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "forbidden")
+	})
+
+	// --- Write-only user tests ---
+
+	t.Run("write user cannot call get-config", func(t *testing.T) {
+		var resp read.GetCollectionConfigResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-collections-get-config", writeKey,
+			read.GetCollectionConfigArgs{CollectionName: className}, &resp)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "forbidden")
+	})
+
+	t.Run("write user cannot call hybrid search", func(t *testing.T) {
+		var resp search.QueryHybridResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-query-hybrid", writeKey,
+			search.QueryHybridArgs{
+				Query:          "test",
+				CollectionName: className,
+				Alpha:          &pureKeyword,
+			}, &resp)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "forbidden")
+	})
+
+	t.Run("write user can call upsert", func(t *testing.T) {
+		var resp create.UpsertObjectResp
+		err := callToolOnceWithAuth(ctx, t, mcpURL, "weaviate-objects-upsert", writeKey,
+			create.UpsertObjectArgs{
+				CollectionName: className,
+				Objects: []create.ObjectToUpsert{
+					{Properties: map[string]any{"content": "write user object"}},
+				},
+			}, &resp)
+		require.NoError(t, err)
+		require.Len(t, resp.Results, 1)
+		require.Empty(t, resp.Results[0].Error)
+		require.NotEmpty(t, resp.Results[0].ID)
 	})
 }

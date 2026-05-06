@@ -371,7 +371,7 @@ func (w *worker) process(req *processRequest) {
 	}
 
 	stats := newWorkersStats(time.Since(start))
-	if ok := w.reportingQueues.send(req.streamId, successes, errors, stats); !ok {
-		w.logger.WithField("streamId", req.streamId).Warn("timed out sending a worker report to the reporting queue, maybe the client disconnected?")
+	if err := w.reportingQueues.send(req.streamCtx, req.streamId, successes, errors, stats); err != nil {
+		w.logger.WithField("streamId", req.streamId).Warnf("failed to send report to reporting queue: %s", err)
 	}
 }

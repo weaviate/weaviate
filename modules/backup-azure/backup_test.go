@@ -155,6 +155,55 @@ func TestUploadParams(t *testing.T) {
 	})
 }
 
+func TestResolveContainer(t *testing.T) {
+	tests := []struct {
+		name            string
+		configContainer string
+		override        string
+		wantContainer   string
+		wantErr         string
+	}{
+		{
+			name:            "uses config container when no override",
+			configContainer: "my-container",
+			override:        "",
+			wantContainer:   "my-container",
+		},
+		{
+			name:            "override replaces config container",
+			configContainer: "my-container",
+			override:        "other-container",
+			wantContainer:   "other-container",
+		},
+		{
+			name:            "empty config container without override returns error",
+			configContainer: "",
+			override:        "",
+			wantErr:         "container must not be empty",
+		},
+		{
+			name:            "empty config container with override succeeds",
+			configContainer: "",
+			override:        "override-container",
+			wantContainer:   "override-container",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &azureClient{config: clientConfig{Container: tt.configContainer}}
+			container, err := client.resolveContainer(tt.override)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantContainer, container)
+			}
+		})
+	}
+}
+
 type fakeStorageProvider struct {
 	dataPath string
 }

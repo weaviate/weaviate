@@ -188,6 +188,9 @@ func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*sto
 	if bucketOverride != "" {
 		b = bucketOverride
 	}
+	if b == "" {
+		return nil, fmt.Errorf("bucket must not be empty")
+	}
 	bucket := g.client.Bucket(b)
 
 	if _, err := bucket.Attrs(ctx); err != nil {

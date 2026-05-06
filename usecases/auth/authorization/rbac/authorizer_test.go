@@ -175,6 +175,84 @@ func TestAuthorize(t *testing.T) {
 				return nil
 			},
 		},
+		{
+			name: "namespaced principal allowed in own namespace",
+			principal: &models.Principal{
+				Username:  "ns-user",
+				UserType:  models.UserTypeInputDb,
+				Namespace: "customer1",
+			},
+			verb:      authorization.READ,
+			resources: authorization.CollectionsMetadata("customer1:Movies"),
+			setupPolicies: func(m *Manager) error {
+				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns-role"),
+					authorization.CollectionsMetadata("Movies")[0], authorization.READ, authorization.SchemaDomain); err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("ns-user", authentication.AuthTypeDb),
+					conv.PrefixRoleName("ns-role"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for user")
+				}
+				return nil
+			},
+		},
+		{
+			name: "namespaced principal denied for matching name in another namespace",
+			principal: &models.Principal{
+				Username:  "ns-user-2",
+				UserType:  models.UserTypeInputDb,
+				Namespace: "customer1",
+			},
+			verb:      authorization.READ,
+			resources: authorization.CollectionsMetadata("customer2:Movies"),
+			setupPolicies: func(m *Manager) error {
+				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns-role-2"),
+					authorization.CollectionsMetadata("Movies")[0], authorization.READ, authorization.SchemaDomain); err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("ns-user-2", authentication.AuthTypeDb),
+					conv.PrefixRoleName("ns-role-2"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for user")
+				}
+				return nil
+			},
+			wantErr:     true,
+			errContains: "forbidden",
+		},
+		{
+			name: "namespaced group inherits role and is scoped to its namespace",
+			principal: &models.Principal{
+				Username:  "ns-group-user",
+				Groups:    []string{"customer1-group"},
+				UserType:  models.UserTypeInputDb,
+				Namespace: "customer1",
+			},
+			verb:      authorization.READ,
+			resources: authorization.CollectionsMetadata("customer1:Movies"),
+			setupPolicies: func(m *Manager) error {
+				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns-group-role"),
+					authorization.CollectionsMetadata("Movies")[0], authorization.READ, authorization.SchemaDomain); err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.PrefixGroupName("customer1-group"),
+					conv.PrefixRoleName("ns-group-role"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for group")
+				}
+				return nil
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -375,6 +453,36 @@ func TestFilterAuthorizedResources(t *testing.T) {
 				return nil
 			},
 			wantResources: authorization.CollectionsMetadata("Test1", "Test2"),
+		},
+		{
+			name: "namespaced principal filters by both namespace and collection scope",
+			principal: &models.Principal{
+				Username:  "ns-filter-user",
+				UserType:  models.UserTypeInputDb,
+				Namespace: "customer1",
+			},
+			verb: authorization.READ,
+			resources: append(append(append(
+				authorization.CollectionsMetadata("customer1:Movies1"),
+				authorization.CollectionsMetadata("customer1:Movies2")...),
+				authorization.CollectionsMetadata("customer1:Films")...),
+				authorization.CollectionsMetadata("customer2:Movies1")...),
+			setupPolicies: func(m *Manager) error {
+				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("ns-filter-role"),
+					authorization.CollectionsMetadata("Movies.*")[0], authorization.READ, authorization.SchemaDomain); err != nil {
+					return err
+				}
+				ok, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("ns-filter-user", authentication.AuthTypeDb),
+					conv.PrefixRoleName("ns-filter-role"))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("failed to add role for user")
+				}
+				return nil
+			},
+			wantResources: authorization.CollectionsMetadata("customer1:Movies1", "customer1:Movies2"),
 		},
 	}
 

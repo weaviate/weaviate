@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-rc.1"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -2830,6 +2830,206 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "List namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "get": {
+        "description": "Retrieve details about a specific namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Get a namespace",
+        "operationId": "getNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new cluster-level namespace with the given name. Names must start with a lowercase letter, contain only lowercase letters and digits, be 3-36 characters long, and must not be a reserved name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Create a new namespace",
+        "operationId": "createNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Hard-delete a namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Delete a namespace",
+        "operationId": "deleteNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/nodes": {
@@ -6162,6 +6362,10 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
+                },
+                "namespace": {
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
+                  "type": "string"
                 }
               }
             }
@@ -7448,6 +7652,10 @@ func init() {
           ],
           "format": "date-time"
         },
+        "namespace": {
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.",
+          "type": "string"
+        },
         "roles": {
           "description": "The roles associated with the user.",
           "type": "array",
@@ -7901,7 +8109,7 @@ func init() {
           "type": "boolean"
         },
         "stopwordPresets": {
-          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings.",
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -8001,6 +8209,23 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
+      }
+    },
+    "Namespace": {
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must start with a lowercase letter, contain only lowercase letters and digits, be 3-36 characters long, and must not be a reserved name.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
       }
     },
     "NestedProperty": {
@@ -8409,7 +8634,10 @@ func init() {
             "delete_aliases",
             "assign_and_revoke_groups",
             "read_groups",
-            "manage_mcp"
+            "create_mcp",
+            "read_mcp",
+            "update_mcp",
+            "manage_namespaces"
           ]
         },
         "aliases": {
@@ -8485,9 +8713,16 @@ func init() {
             }
           }
         },
-        "mcp": {
-          "description": "resources applicable for MCP actions",
-          "type": "object"
+        "namespaces": {
+          "description": "Resources applicable for namespace actions.",
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -8616,6 +8851,14 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isGlobalOperator": {
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
+          "type": "boolean"
+        },
+        "namespace": {
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys).",
+          "type": "string"
         },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
@@ -9598,7 +9841,7 @@ func init() {
       }
     },
     "TextAnalyzerConfig": {
-      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
         "asciiFold": {
@@ -9606,7 +9849,7 @@ func init() {
           "type": "boolean"
         },
         "asciiFoldIgnore": {
-          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
           "type": "array",
           "items": {
             "type": "string"
@@ -9634,12 +9877,19 @@ func init() {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "stopwordPresets": {
-          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/StopwordConfig"
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -9663,13 +9913,9 @@ func init() {
       }
     },
     "TokenizeResponse": {
-      "description": "Response from the tokenize endpoint.",
+      "description": "Response from the tokenize endpoints. Returns ` + "`" + `indexed` + "`" + ` text and text used at ` + "`" + `query` + "`" + ` time",
       "type": "object",
       "properties": {
-        "analyzerConfig": {
-          "description": "The text analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyzerConfig"
-        },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
           "type": "array",
@@ -9683,14 +9929,6 @@ func init() {
           "items": {
             "type": "string"
           }
-        },
-        "stopwordConfig": {
-          "description": "The stopword configuration that was used, if any.",
-          "$ref": "#/definitions/StopwordConfig"
-        },
-        "tokenization": {
-          "description": "The tokenization method that was applied.",
-          "type": "string"
         }
       }
     },
@@ -10122,6 +10360,10 @@ func init() {
     {
       "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
       "name": "mcp"
+    },
+    {
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "name": "namespaces"
     }
   ],
   "externalDocs": {
@@ -10148,7 +10390,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.0-rc.1"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -12918,6 +13160,206 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "List namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "get": {
+        "description": "Retrieve details about a specific namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Get a namespace",
+        "operationId": "getNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new cluster-level namespace with the given name. Names must start with a lowercase letter, contain only lowercase letters and digits, be 3-36 characters long, and must not be a reserved name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Create a new namespace",
+        "operationId": "createNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Hard-delete a namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Delete a namespace",
+        "operationId": "deleteNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/nodes": {
@@ -16360,6 +16802,10 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
+                },
+                "namespace": {
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
+                  "type": "string"
                 }
               }
             }
@@ -17795,6 +18241,10 @@ func init() {
           ],
           "format": "date-time"
         },
+        "namespace": {
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.",
+          "type": "string"
+        },
         "roles": {
           "description": "The roles associated with the user.",
           "type": "array",
@@ -18284,7 +18734,7 @@ func init() {
           "type": "boolean"
         },
         "stopwordPresets": {
-          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings.",
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -18384,6 +18834,23 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
+      }
+    },
+    "Namespace": {
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must start with a lowercase letter, contain only lowercase letters and digits, be 3-36 characters long, and must not be a reserved name.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
       }
     },
     "NestedProperty": {
@@ -18809,7 +19276,10 @@ func init() {
             "delete_aliases",
             "assign_and_revoke_groups",
             "read_groups",
-            "manage_mcp"
+            "create_mcp",
+            "read_mcp",
+            "update_mcp",
+            "manage_namespaces"
           ]
         },
         "aliases": {
@@ -18885,9 +19355,16 @@ func init() {
             }
           }
         },
-        "mcp": {
-          "description": "resources applicable for MCP actions",
-          "type": "object"
+        "namespaces": {
+          "description": "Resources applicable for namespace actions.",
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "nodes": {
           "description": "Resources applicable for cluster actions.",
@@ -19047,6 +19524,17 @@ func init() {
         }
       }
     },
+    "PermissionNamespaces": {
+      "description": "Resources applicable for namespace actions.",
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
     "PermissionNodes": {
       "description": "Resources applicable for cluster actions.",
       "type": "object",
@@ -19172,6 +19660,14 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isGlobalOperator": {
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
+          "type": "boolean"
+        },
+        "namespace": {
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys).",
+          "type": "string"
         },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
@@ -20157,7 +20653,7 @@ func init() {
       }
     },
     "TextAnalyzerConfig": {
-      "description": "Text analysis options for a property. The asciiFold setting is immutable after creation, while the asciiFoldIgnore list can be updated later; changes to asciiFoldIgnore only affect newly indexed data and do not retroactively re-index existing data. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
       "type": "object",
       "properties": {
         "asciiFold": {
@@ -20165,7 +20661,7 @@ func init() {
           "type": "boolean"
         },
         "asciiFoldIgnore": {
-          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list can be updated after the property is created, but updates only affect documents indexed after the change.",
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20193,12 +20689,19 @@ func init() {
           "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "stopwordPresets": {
-          "description": "Optional named stopword configurations. Each key is a preset name that can be referenced by analyzerConfig.stopwordPreset. Each value is a StopwordConfig (with optional preset, additions, and removals).",
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/definitions/StopwordConfig"
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
+          "$ref": "#/definitions/StopwordConfig"
         },
         "text": {
           "description": "The text to tokenize.",
@@ -20222,13 +20725,9 @@ func init() {
       }
     },
     "TokenizeResponse": {
-      "description": "Response from the tokenize endpoint.",
+      "description": "Response from the tokenize endpoints. Returns ` + "`" + `indexed` + "`" + ` text and text used at ` + "`" + `query` + "`" + ` time",
       "type": "object",
       "properties": {
-        "analyzerConfig": {
-          "description": "The text analyzer configuration that was used, if any.",
-          "$ref": "#/definitions/TextAnalyzerConfig"
-        },
         "indexed": {
           "description": "The tokens as they would be stored in the inverted index.",
           "type": "array",
@@ -20242,14 +20741,6 @@ func init() {
           "items": {
             "type": "string"
           }
-        },
-        "stopwordConfig": {
-          "description": "The stopword configuration that was used, if any.",
-          "$ref": "#/definitions/StopwordConfig"
-        },
-        "tokenization": {
-          "description": "The tokenization method that was applied.",
-          "type": "string"
         }
       }
     },
@@ -20693,6 +21184,10 @@ func init() {
     {
       "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
       "name": "mcp"
+    },
+    {
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "name": "namespaces"
     }
   ],
   "externalDocs": {

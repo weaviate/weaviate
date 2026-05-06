@@ -12,9 +12,17 @@
 package db
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	esync "github.com/weaviate/weaviate/entities/sync"
 )
 
 func TestAssignShardsToNodes(t *testing.T) {
@@ -98,5 +106,92 @@ func TestAssignShardsToNodes(t *testing.T) {
 			result := assignShardsToNodes(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+func newTestIndexForSnapshot(t *testing.T, className string) *Index {
+	t.Helper()
+	return &Index{
+		Config: IndexConfig{
+			RootPath:  t.TempDir(),
+			ClassName: schema.ClassName(className),
+		},
+		getSchema: &fakeSchemaGetter{
+			schema: schema.Schema{
+				Objects: &models.Schema{
+					Classes: []*models.Class{{Class: className}},
+				},
+			},
+		},
+		logger:           logrus.New(),
+		shardCreateLocks: esync.NewKeyRWLocker(),
+	}
+}
+
+// TestSnapshotShardsForExport_EmptyShardNames asserts that passing an empty
+// shardNames slice returns immediately with no results and no error. Without
+// the early return, the dispatch loop blocks forever on a select with an empty
+// retry channel and a done channel that nobody closes.
+func TestSnapshotShardsForExport_EmptyShardNames(t *testing.T) {
+	idx := newTestIndexForSnapshot(t, "TestClass")
+
+	done := make(chan error, 1)
+	go func() {
+		res, err := idx.snapshotShardsForExport(context.Background(), nil, "export-id")
+		assert.Empty(t, res)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("snapshotShardsForExport hung on empty shardNames — dispatch loop deadlock")
+	}
+}
+
+// TestSnapshotShardsForExport_CancelUnblocksLockedShard asserts that a
+// write-locked shard doesn't prevent context cancellation from unblocking
+// snapshotShardsForExport. The worker polls TryRLock with a select on
+// egCtx.Done(), so when the parent ctx is cancelled the function must
+// return within a short interval regardless of lock state.
+func TestSnapshotShardsForExport_CancelUnblocksLockedShard(t *testing.T) {
+	idx := newTestIndexForSnapshot(t, "TestClass")
+
+	// Write-lock the shard so TryRLock always fails.
+	shardName := "shard-0"
+	idx.shardCreateLocks.Lock(shardName)
+	defer idx.shardCreateLocks.Unlock(shardName)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		_, err := idx.snapshotShardsForExport(ctx, []string{shardName}, "export-id")
+		done <- err
+	}()
+	<-started
+
+	// Confirm the function is actually blocking (worker is in the polling
+	// loop) before cancelling — otherwise we could end up testing the
+	// dispatcher-exit path instead of the polling-loop-exit path. A few
+	// poll intervals are plenty to enter the select on the ticker; if the
+	// function returns during this window the test setup is broken.
+	select {
+	case err := <-done:
+		t.Fatalf("snapshotShardsForExport returned before cancellation (lock not actually contended): %v", err)
+	case <-time.After(4 * lockPollInterval):
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("snapshotShardsForExport did not respect context cancellation while holding a contended lock")
 	}
 }

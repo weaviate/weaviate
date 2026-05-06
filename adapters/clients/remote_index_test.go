@@ -229,7 +229,12 @@ func TestRemoteIndexPutFile(t *testing.T) {
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
 	ri := NewRemoteIndex(httpClient)
 	ri.minBackOff = time.Millisecond * 1
-	ri.maxBackOff = time.Millisecond * 10
+	// maxBackOff drives MaxElapsedTime = n*maxBackOff in the retryer.
+	// A small value like 10ms makes MaxElapsedTime=90ms, which a single
+	// slow CI round-trip can exhaust before retries complete. 500ms gives
+	// MaxElapsedTime=4.5s — still fast in practice (actual backoff starts
+	// at minBackOff=1ms) but resilient to CI scheduling jitter.
+	ri.maxBackOff = time.Millisecond * 500
 	ri.timeoutUnit = time.Millisecond * 20
 	return ri
 }

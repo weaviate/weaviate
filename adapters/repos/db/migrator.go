@@ -551,13 +551,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	tenantName := ""
-	if idx.partitioningEnabled {
-		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
-		// otherwise the tenant name is expected to be empty.
-		tenantName = shardName
-	}
-	return idx.updateShardStatus(ctx, tenantName, shardName, targetStatus, schemaVersion)
+	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
 // NewTenants creates new partitions
@@ -964,7 +958,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.AnalyzeObject(object)
+			props, _, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil

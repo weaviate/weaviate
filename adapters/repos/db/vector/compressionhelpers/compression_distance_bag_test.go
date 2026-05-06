@@ -25,7 +25,7 @@ import (
 )
 
 func Test_NoRaceQuantizedDistanceBag(t *testing.T) {
-	compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), lsmkv.MakeNoopBucketOptions, nil, "name")
+	compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), lsmkv.MakeNoopBucketOptions, nil, "name", nil)
 	assert.Nil(t, err)
 	compressor.Preload(1, []float32{-0.5, 0.5})
 	compressor.Preload(2, []float32{0.25, 0.7})

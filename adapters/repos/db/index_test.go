@@ -168,7 +168,11 @@ func TestIndex_aggregateCount(t *testing.T) {
 						router,
 						cluster.NewMockNodeResolver(t),
 						"node-1",
-						clients.NewReplicationClient(&http.Client{}),
+						func() replica.Client {
+							c, err := clients.NewReplicationClient(&http.Client{})
+							require.NoError(t, err)
+							return c
+						}(),
 						replicaMetrics,
 						logger,
 						func() string { return "Delete" }),

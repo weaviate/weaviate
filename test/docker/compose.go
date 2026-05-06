@@ -139,6 +139,7 @@ type Compose struct {
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
+	withWeaviateNamespaces         bool
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
@@ -652,6 +653,13 @@ func (d *Compose) WithDbUsers() *Compose {
 	return d
 }
 
+// WithNamespaces enables NAMESPACES_ENABLED on the Weaviate container and
+// disables GraphQL, which Config.Validate requires whenever namespaces are on.
+func (d *Compose) WithNamespaces() *Compose {
+	d.withWeaviateNamespaces = true
+	return d
+}
+
 func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
@@ -1058,6 +1066,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 
 	if d.withWeaviateDbUsers {
 		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
+	}
+
+	if d.withWeaviateNamespaces {
+		settings["NAMESPACES_ENABLED"] = "true"
+		settings["DISABLE_GRAPHQL"] = "true"
 	}
 
 	if d.withAutoschema {

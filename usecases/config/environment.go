@@ -20,7 +20,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -549,6 +548,16 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultVectorIndexType := ""
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
+		defaultVectorIndexType = strings.ToLower(v)
+		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
+		if !slices.Contains(validTypes, defaultVectorIndexType) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
+		}
+	}
+	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
 		"DEFAULT_SHARDING_COUNT",
@@ -953,6 +962,8 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -1950,18 +1961,9 @@ func (c *Config) parseExportConfig() {
 		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
 	}
 
-	c.Export.IsDefaultPathSet = new(atomic.Bool)
 	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
-		c.Export.IsDefaultPathSet.Store(true)
-	} else if c.Export.DefaultPath != nil {
-		// Came from the startup config file — an explicit decision by the
-		// operator, even if the value is empty. IsDefaultPathSet is not
-		// user-settable (see config.Export), so we derive it here. It may
-		// also be flipped to true at runtime by the "ExportDefaultPath" hook
-		// registered against the runtime config manager.
-		c.Export.IsDefaultPathSet.Store(true)
-	} else {
+	} else if c.Export.DefaultPath == nil {
 		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
 	}
 }

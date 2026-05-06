@@ -347,6 +347,8 @@ func ParseDefaultQuantization(vectorIndexConfig config.VectorIndexConfig, compre
 		return hnswConfig, nil
 	}
 	switch compression {
+	case "", "none":
+		return hnswConfig, nil
 	case "pq":
 		hnswConfig.PQ.Enabled = true
 	case "sq":

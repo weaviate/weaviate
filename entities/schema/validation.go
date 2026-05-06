@@ -25,9 +25,10 @@ var (
 )
 
 const (
-	// Restricted by max length allowed for dir name (255 chars)
-	// As dir containing class data is named after class, 255 chars are allowed
-	classNameMaxLength = 255
+	// ClassNameMaxLength is restricted by the max length allowed for a
+	// directory name (255 chars). As the dir containing class data is named
+	// after the class, 255 chars are allowed.
+	ClassNameMaxLength = 255
 	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]{0,254}`
 	// ClassNameRegexAllowRegex allowed chars in class name including regex patterns, 255 chars are allowed
 	ClassNameRegexAllowRegex = `^(\*|[A-Z][_0-9A-Za-z\-.*+?^$()|{}\[\]\\]{0,254})$`
@@ -51,6 +52,35 @@ const (
 	// Target vector names must be GraphQL compliant names no longer then 230 characters
 	TargetVectorNameMaxLength = 230
 	TargetVectorNameRegex     = `[_A-Za-z][_0-9A-Za-z]{0,229}`
+
+	// NamespaceSeparator is the reserved character used to qualify class names
+	// with their owning namespace ("<namespace>:<ClassName>"). Plain class names
+	// must NOT contain this character — the ClassNameRegexCore character class
+	// [_0-9A-Za-z] excludes it, so any name passing ValidateClassName cannot
+	// contain one.
+	//
+	// The namespace startup invariant and the name resolver both depend on
+	// this contract. If ClassNameRegexCore is ever loosened to allow ":",
+	// audit all consumers of NamespaceSeparator and update them atomically.
+	// TestValidateClassName_RejectsNamespaceSeparator locks the contract.
+	NamespaceSeparator = ":"
+
+	// Namespace name validation contract (kept tight so the operator API gives
+	// predictable results and so name-in-URL round-tripping is unambiguous):
+	//
+	//   - Must start with a lowercase ASCII letter.
+	//   - Subsequent characters are lowercase letters or digits.
+	//   - Length in [NamespaceMinLength, NamespaceMaxLength].
+	//   - Must not collide with a reserved name.
+	//
+	// The regex and reserved-name list live in usecases/namespaces alongside
+	// ValidateName; only the length bounds are shared here so both the
+	// namespace controller and the syntactic qualification helpers
+	// (usecases/schema/namespacing) read from a single source of truth.
+	// Reserved names are held back for platform/system use (e.g. a future
+	// "default" namespace or routing sentinels) and are refused at Create time.
+	NamespaceMinLength = 3
+	NamespaceMaxLength = 36
 )
 
 // ValidateClassName validates that this string is a valid class name (format wise)
@@ -69,9 +99,9 @@ func ValidateAliasName(name string) (string, error) {
 // ValidateClassNameIncludesRegex validates that this string is a valid class name (format wise)
 // can include regex pattern
 func ValidateClassNameIncludesRegex(name string) (ClassName, error) {
-	if len(name) > classNameMaxLength {
+	if len(name) > ClassNameMaxLength {
 		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
-			name, classNameMaxLength)
+			name, ClassNameMaxLength)
 	}
 	if !regexp.MustCompile(ClassNameRegexAllowRegex).MatchString(name) {
 		return "", fmt.Errorf("'%s' is not a valid class name", name)
@@ -85,9 +115,9 @@ func validateClassOrAliasName(name string, isAlias bool) (string, error) {
 		typ = "alias"
 	}
 
-	if len(name) > classNameMaxLength {
+	if len(name) > ClassNameMaxLength {
 		return "", fmt.Errorf("'%s' is not a valid %s name. Name should not be longer than %d characters",
-			name, typ, classNameMaxLength)
+			name, typ, ClassNameMaxLength)
 	}
 	if !validateClassNameRegex.MatchString(name) {
 		return "", fmt.Errorf("'%s' is not a valid %s name", name, typ)

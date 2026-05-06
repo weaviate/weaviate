@@ -50,7 +50,7 @@ const (
 
 type Module struct {
 	*s3Client              // embedded — handles backup (all BackupBackend methods auto-promoted)
-	exportClient *s3Client // only set when EXPORT_S3_ROLE_ARN is configured
+	exportClient *s3Client // export-only client: no default bucket or path; the scheduler supplies both
 	logger       logrus.FieldLogger
 	dataPath     string
 }
@@ -94,9 +94,12 @@ func (m *Module) Init(ctx context.Context,
 	}
 	m.s3Client = client
 
-	// Create a separate export client with STS AssumeRole if configured.
+	// Create a separate export client with no default bucket or path.
+	// The export scheduler supplies both via EXPORT_DEFAULT_BUCKET and
+	// EXPORT_DEFAULT_PATH. When EXPORT_S3_ROLE_ARN is set the export
+	// client additionally uses STS AssumeRole for cross-account access.
+	exportCfg := newConfig(os.Getenv(s3Endpoint), "", "", useSSL)
 	if exportRoleARN := os.Getenv(exportS3RoleARN); exportRoleARN != "" {
-		exportCfg := newConfig(os.Getenv(s3Endpoint), bucket, os.Getenv(s3Path), useSSL)
 		exportCfg.RoleARN = exportRoleARN
 		exportCfg.ExternalID = os.Getenv(exportS3ExternalID)
 		exportCfg.STSEndpoint = os.Getenv(exportS3STSEndpoint)
@@ -104,23 +107,21 @@ func (m *Module) Init(ctx context.Context,
 		if exportCfg.RoleSessionName == "" {
 			exportCfg.RoleSessionName = "weaviate-export-s3"
 		}
-		exportClient, err := newClient(exportCfg, m.logger, m.dataPath)
-		if err != nil {
-			return errors.Wrap(err, "initialize S3 export client")
-		}
-		m.exportClient = exportClient
 	}
+	exportClient, err := newClient(exportCfg, m.logger, m.dataPath)
+	if err != nil {
+		return errors.Wrap(err, "initialize S3 export client")
+	}
+	m.exportClient = exportClient
 
 	return nil
 }
 
-// ExportBackend returns the export-specific backend when configured,
-// otherwise falls back to the default backup backend.
+// ExportBackend returns the export-specific backend. It has no default
+// bucket or path; the export scheduler supplies both via
+// EXPORT_DEFAULT_BUCKET and EXPORT_DEFAULT_PATH.
 func (m *Module) ExportBackend() modulecapabilities.BackupBackend {
-	if m.exportClient != nil {
-		return &exportS3Backend{m.exportClient}
-	}
-	return m
+	return &exportS3Backend{m.exportClient}
 }
 
 // exportS3Backend wraps an s3Client to satisfy the full BackupBackend

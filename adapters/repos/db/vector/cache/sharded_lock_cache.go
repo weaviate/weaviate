@@ -138,7 +138,8 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	s.shardedLocks.RLock(id)
 	if int(id) >= len(s.cache) {
 		s.shardedLocks.RUnlock(id)
-		return nil, errors.Errorf("id %d is out of bounds", id)
+		s.Grow(id)
+		return s.handleCacheMiss(ctx, id)
 	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
@@ -447,6 +448,8 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
 	vectorDocID            []CacheKeys
+	// Only used by multi vector caches
+	fetchByNodeID bool
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -520,6 +523,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
+		fetchByNodeID:       true,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -553,6 +557,7 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
+		fetchByNodeID:       true,
 	}
 
 	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
@@ -588,7 +593,9 @@ func (s *shardedMultipleLockCache[T]) Get(ctx context.Context, id uint64) ([]T, 
 	s.shardedLocks.RLock(id)
 	if int(id) >= len(s.cache) {
 		s.shardedLocks.RUnlock(id)
-		return nil, errors.Errorf("id %d is out of bounds", id)
+		s.Grow(id)
+		docID, relativeID := s.GetKeys(id)
+		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
@@ -664,7 +671,11 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 		}
 	}
 
-	vec, err := s.multipleVectorForID(ctx, docID, relativeID)
+	fetchID := docID
+	if s.fetchByNodeID {
+		fetchID = id
+	}
+	vec, err := s.multipleVectorForID(ctx, fetchID, relativeID)
 	if err != nil {
 		return nil, err
 	}

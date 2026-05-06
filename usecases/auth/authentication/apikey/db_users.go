@@ -28,6 +28,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const (
@@ -37,8 +38,23 @@ const (
 	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
 
+// MakeUserKey returns the internal storage key for a user. Namespaced users
+// are stored under "namespace<sep>userId" so two namespaces can host the same
+// short id without collision; unnamespaced users keep the bare id for
+// backward compatibility with pre-namespace data.
+//
+// The separator is the cluster-wide schema.NamespaceSeparator (also used to
+// qualify class names): ":" is excluded from UserNameRegexCore, so a
+// user-supplied id can never contain it and the split-back is unambiguous.
+func MakeUserKey(userId, namespace string) string {
+	if namespace == "" {
+		return userId
+	}
+	return namespace + schema.NamespaceSeparator + userId
+}
+
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
+	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
 	CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
@@ -57,6 +73,7 @@ type User struct {
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
 	ImportedWithKey    bool
+	Namespace          string
 }
 
 type DBUser struct {
@@ -176,7 +193,7 @@ func restoreAllFields(data dbUserdata) dbUserdata {
 	return data
 }
 
-func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -187,7 +204,14 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	c.data.SecureKeyStorageById[userId] = secureHash
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
-	c.data.Users[userId] = &User{Id: userId, Active: true, InternalIdentifier: userIdentifier, CreatedAt: createdAt, ApiKeyFirstLetters: apiKeyFirstLetters}
+	c.data.Users[userId] = &User{
+		Id:                 userId,
+		Active:             true,
+		InternalIdentifier: userIdentifier,
+		CreatedAt:          createdAt,
+		ApiKeyFirstLetters: apiKeyFirstLetters,
+		Namespace:          namespace,
+	}
 	return c.storeToFile()
 }
 
@@ -348,6 +372,11 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			return nil, fmt.Errorf("key is revoked")
 		}
 
+		// imported keys are always without a namespace, something is seriously wrong here
+		if c.data.Users[userId].Namespace != "" {
+			return nil, fmt.Errorf("imported key with namespace %v", c.data.Users[userId].Namespace)
+		}
+
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
 		if c.data.Users[userId].TryLock() {
@@ -355,7 +384,12 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 			c.data.Users[userId].Unlock()
 		}
 
-		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+		return &models.Principal{
+			Username:         userId,
+			UserType:         models.UserTypeInputDb,
+			Namespace:        "",
+			IsGlobalOperator: false,
+		}, nil
 	}
 
 	return nil, nil
@@ -414,7 +448,12 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		c.data.Users[userId].Unlock()
 	}
 
-	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+	return &models.Principal{
+		Username:         userId,
+		UserType:         models.UserTypeInputDb,
+		Namespace:        c.data.Users[userId].Namespace,
+		IsGlobalOperator: false,
+	}, nil
 }
 
 func (c *DBUser) validateWeakHash(key []byte, weakHash [32]byte) error {

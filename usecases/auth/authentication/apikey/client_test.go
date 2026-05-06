@@ -88,6 +88,8 @@ func Test_APIKeyClient(t *testing.T) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
 				assert.Equal(t, "mrRoboto", p.Username)
+				assert.True(t, p.IsGlobalOperator, "static API keys must be global operators")
+				assert.Empty(t, p.Namespace)
 
 				_, err = c.ValidateAndExtract("", nil)
 				require.NotNil(t, err)

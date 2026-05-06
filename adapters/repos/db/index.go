@@ -40,6 +40,8 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -64,6 +66,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -2201,6 +2204,37 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
+	// For multi-shard MMR: skip per-shard selection, include vectors so the
+	// coordinator can run one global MMR pass after merging all shard results.
+	shardSelection := selection
+	shardAdditionalProps := additionalProps
+	var stripVector string // tracks vector name we added ("" = default, empty if none)
+	var needStrip bool
+	if selection != nil {
+		shardSelection = nil
+		targetVec := ""
+		if len(targetVectors) > 0 {
+			targetVec = targetVectors[0]
+		}
+		if targetVec == "" && !additionalProps.Vector {
+			needStrip = true
+			shardAdditionalProps.Vector = true
+		} else if targetVec != "" {
+			found := false
+			for _, v := range additionalProps.Vectors {
+				if v == targetVec {
+					found = true
+					break
+				}
+			}
+			if !found {
+				needStrip = true
+				stripVector = targetVec
+				shardAdditionalProps.Vectors = append(append([]string{}, additionalProps.Vectors...), targetVec)
+			}
+		}
+	}
+
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
@@ -2228,7 +2262,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	remoteSearch := func(shardName string) error {
 		// If we have no local shard or if we force the query to reach all replicas
-		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 		if err2 != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err2)
@@ -2248,7 +2282,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		defer release()
 
 		if shard != nil {
-			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 			if err1 != nil {
 				return fmt.Errorf(
 					"local shard object search %s: %w", shard.ID(), err1)
@@ -2306,11 +2340,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if selection != nil {
-		limit = int(selection.MMR.Limit)
-	}
-
-	if len(readPlan.Shards()) == 1 {
+	if len(readPlan.Shards()) == 1 && selection == nil {
 		return out, dists, nil
 	}
 
@@ -2328,6 +2358,29 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
+	// Apply one global MMR pass on the merged candidate pool.
+	if selection != nil {
+		out, dists, err = i.applySelectionOnObjects(ctx, selection, targetVectors, out, dists)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Strip vectors that were added solely for MMR computation.
+		if needStrip {
+			for _, obj := range out {
+				if obj == nil {
+					continue
+				}
+				if stripVector == "" {
+					obj.Vector = nil
+					obj.Object.Vector = nil
+				} else {
+					delete(obj.Vectors, stripVector)
+					delete(obj.Object.Vectors, stripVector)
+				}
+			}
+		}
+	}
+
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
 		err = i.replicator.CheckConsistency(ctx, cl, out)
 		if err != nil {
@@ -2337,6 +2390,80 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	return out, dists, nil
+}
+
+// distancerForConfig returns the distancer.Provider matching the given vector
+// index configuration. Used by both shard-level and coordinator-level MMR.
+func distancerForConfig(cfg schemaConfig.VectorIndexConfig) distancer.Provider {
+	if cfg != nil {
+		switch cfg.DistanceName() {
+		case vectorIndexCommon.DistanceDot:
+			return distancer.NewDotProductProvider()
+		case vectorIndexCommon.DistanceL2Squared:
+			return distancer.NewL2SquaredProvider()
+		case vectorIndexCommon.DistanceManhattan:
+			return distancer.NewManhattanProvider()
+		case vectorIndexCommon.DistanceHamming:
+			return distancer.NewHammingProvider()
+		}
+	}
+	return distancer.NewCosineDistanceProvider()
+}
+
+// applySelectionOnObjects runs a coordinator-level MMR pass on already-fetched
+// objects, using vectors present on each object for diversity computation.
+func (i *Index) applySelectionOnObjects(
+	ctx context.Context,
+	selection *searchparams.Selection,
+	targetVectors []string,
+	objects []*storobj.Object,
+	queryDists []float32,
+) ([]*storobj.Object, []float32, error) {
+	if selection == nil || selection.MMR == nil || len(objects) == 0 {
+		return objects, queryDists, nil
+	}
+
+	targetVector := ""
+	if len(targetVectors) > 0 {
+		targetVector = targetVectors[0]
+	}
+
+	distProv := distancerForConfig(i.GetVectorIndexConfig(targetVector))
+
+	// Extract vectors from objects into a flat slice for direct index access.
+	vectors := make([][]float32, len(objects))
+	ids := make([]uint64, len(objects))
+	for idx, obj := range objects {
+		ids[idx] = uint64(idx)
+		if obj != nil {
+			if targetVector == "" {
+				vectors[idx] = obj.Vector
+			} else {
+				vectors[idx] = obj.Vectors[targetVector]
+			}
+		}
+	}
+
+	sel, err := selector.New(selection, distProv.SingleDist, func(_ context.Context, id uint64) ([]float32, error) {
+		return vectors[id], nil
+	}, len(objects))
+	if err != nil {
+		return nil, nil, fmt.Errorf("coordinator mmr: %w", err)
+	}
+	if sel == nil {
+		return objects, queryDists, nil
+	}
+
+	selectedIDs, selectedDists, err := sel.Select(ctx, ids, queryDists)
+	if err != nil {
+		return nil, nil, fmt.Errorf("coordinator mmr: %w", err)
+	}
+
+	result := make([]*storobj.Object, len(selectedIDs))
+	for j, id := range selectedIDs {
+		result[j] = objects[id]
+	}
+	return result, selectedDists, nil
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
@@ -3117,14 +3244,24 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	return shard.GetStatus().String(), nil
 }
 
-func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
-	if err != nil {
+func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	isOwner := false
+	if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state != nil {
+			isOwner = state.IsLocalShard(shardName)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
+	if !isOwner {
+		return nil
+	}
+
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	defer release()
-	if shard == nil {
-		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
+	if err != nil {
+		return err
 	}
 	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }

@@ -47,6 +47,9 @@ func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig) [
 		mcp.WithDescription(internal.GetDescription(configs, toolName,
 			"Performs hybrid search (vector + keyword) for data in a collection.")),
 		mcp.WithInputSchema[QueryHybridArgs](),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
 	return []server.ServerTool{

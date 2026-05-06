@@ -894,7 +894,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyInverted))
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

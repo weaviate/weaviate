@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func TestCreateUnprocessableEntity(t *testing.T) {
@@ -84,7 +85,7 @@ func TestCreateInternalServerError(t *testing.T) {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
 			}
 			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
-				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
+				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
 			h := dynUserHandler{
@@ -144,7 +145,7 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -283,4 +284,140 @@ func TestCreateNoDynamic(t *testing.T) {
 	res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
+}
+
+func TestCreateUser_Namespaces(t *testing.T) {
+	const userID = "user"
+	tp := true
+
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		known             []string
+		body              users.CreateUserBody
+		isGlobalOperator  bool
+		wantStatus        any
+	}{
+		{
+			name:              "ns-disabled + namespace set rejects",
+			namespacesEnabled: false,
+			body:              users.CreateUserBody{Namespace: "ns1"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "ns-enabled + missing namespace rejects",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "ns-enabled + unknown namespace rejects",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Namespace: "ns404"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "ns-enabled + import rejects",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Import: &tp, Namespace: "ns1"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "namespace set by non-operator forbidden",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Namespace: "ns1"},
+			isGlobalOperator:  false,
+			wantStatus:        &users.CreateUserForbidden{},
+		},
+		{
+			name:              "ns-enabled + valid namespace + operator succeeds",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Namespace: "ns1"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserCreated{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			if _, ok := tt.wantStatus.(*users.CreateUserCreated); ok {
+				expectedKey := apikey.MakeUserKey(userID, tt.body.Namespace)
+				dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+				dynUser.On("CreateUser", expectedKey, mock.Anything, mock.Anything, mock.Anything, tt.body.Namespace, mock.Anything).Return(nil)
+			}
+
+			ns := namespaces.NewMockExister(t)
+			known := map[string]struct{}{}
+			for _, n := range tt.known {
+				known[n] = struct{}{}
+			}
+			ns.On("Exists", mock.AnythingOfType("string")).Return(func(name string) bool {
+				_, ok := known[name]
+				return ok
+			}).Maybe()
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: tt.namespacesEnabled,
+				namespaces:        ns,
+			}
+
+			res := h.createUser(users.CreateUserParams{UserID: userID, HTTPRequest: req, Body: tt.body}, principal)
+			assert.IsType(t, tt.wantStatus, res)
+		})
+	}
+}
+
+func TestListAndGetUser_NamespaceVisibility(t *testing.T) {
+	const userID = "u1"
+	storedUser := &apikey.User{Id: userID, Namespace: "ns1", Active: true, ApiKeyFirstLetters: "abc"}
+
+	tests := []struct {
+		name             string
+		isGlobalOperator bool
+		wantNamespace    string
+	}{
+		{name: "operator sees namespace", isGlobalOperator: true, wantNamespace: "ns1"},
+		{name: "non-operator does not see namespace", isGlobalOperator: false, wantNamespace: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: storedUser}, nil)
+			dynUser.On("GetRolesForUserOrGroup", userID, mock.Anything, false).Return(map[string][]authorization.Policy{}, nil)
+
+			h := dynUserHandler{
+				dbUsers:       dynUser,
+				authorizer:    authorizer,
+				dbUserEnabled: true,
+			}
+
+			res := h.getUser(users.GetUserInfoParams{UserID: userID, HTTPRequest: req}, principal)
+			parsed, ok := res.(*users.GetUserInfoOK)
+			assert.True(t, ok)
+			assert.Equal(t, tt.wantNamespace, parsed.Payload.Namespace)
+		})
+	}
 }

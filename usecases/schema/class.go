@@ -40,10 +40,12 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -65,9 +67,8 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
 	name = schema.UppercaseClassName(name)
-	if rname := h.schemaReader.ResolveAlias(name); rname != "" {
-		name = rname
-	}
+	resolved, _ := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	name = resolved
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
@@ -112,8 +113,23 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
+	// originalClassName must be passed to validateCanAddClass below: the
+	// qualified form ("<ns>:<Class>") fails ValidateClassName because
+	// ClassNameRegexCore forbids ":". Removing this capture would reject
+	// every legitimate namespaced create. Both the rejection of
+	// caller-supplied ":" and the success of the namespaced-create flow are
+	// covered by test/acceptance/namespace/collection_alias_test.go.
+	originalClassName := cls.Class
+	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class)
+	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
+		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
+	}
 	if err != nil {
+		return nil, 0, err
+	}
+	cls.Class = qualified
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -134,7 +150,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, true); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, originalClassName, classGetterWithAuth, true); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -254,7 +270,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateClassInvariants(ctx, class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -459,7 +475,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 		}
 
 		if class.VectorIndexType == "" {
-			class.VectorIndexType = vectorindex.DefaultVectorIndexType
+			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+				class.VectorIndexType = v
+			} else {
+				class.VectorIndexType = vectorindex.DefaultVectorIndexType
+			}
 		}
 
 		if h.config.DefaultVectorDistanceMetric != "" {
@@ -767,7 +787,10 @@ func setInvertedConfigDefaults(class *models.Class) {
 	}
 }
 
-func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+// validateCanAddClass runs heavy creation-time validation. originalName is
+// the raw user-supplied short class name; ValidateClassName must see it
+// rather than the qualified form because ClassNameRegexCore forbids ":".
+func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
@@ -784,14 +807,14 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 		}
 	}
 
-	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
+	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
 }
 
 func (h *Handler) validateClassInvariants(
-	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
-	if _, err := schema.ValidateClassName(class.Class); err != nil {
+	if _, err := schema.ValidateClassName(originalName); err != nil {
 		return err
 	}
 
