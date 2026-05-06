@@ -463,8 +463,18 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 }
 
 func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	action, err := l.compactor.RunCycle()
-	if err != nil {
+	action, err := l.compactor.RunCycle(shouldAbort)
+	switch {
+	case errors.Is(err, compact.ErrCompactionAborted):
+		// A pending Drop or Shutdown asked the cycle to yield; the on-disk
+		// state is left clean by the SafeFileWriter pattern. This is
+		// expected, not an error, so we don't surface it as one.
+		l.logger.
+			WithField("action", "hnsw_commit_log_compaction").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
+			Debug("hnsw commit log maintenance (compaction) aborted at caller's request")
+	case err != nil:
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_compaction").
 			WithField("file", l.rootPath).

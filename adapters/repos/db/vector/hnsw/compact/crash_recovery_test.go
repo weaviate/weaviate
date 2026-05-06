@@ -152,7 +152,7 @@ func TestCrashRecovery_OverlapAfterMerge(t *testing.T) {
 	}
 	compactor := NewCompactor(config, logger)
 
-	action, err := compactor.RunCycle()
+	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err) // remove failures are warnings, not errors
 	assert.NotEqual(t, ActionNone, action)
 
@@ -167,7 +167,7 @@ func TestCrashRecovery_OverlapAfterMerge(t *testing.T) {
 	config.FS = common.NewOSFS()
 	compactor2 := NewCompactor(config, logger)
 
-	_, err = compactor2.RunCycle()
+	_, err = compactor2.RunCycle(nil)
 	require.NoError(t, err)
 
 	state, err = discovery.Scan()
@@ -383,7 +383,7 @@ func TestCrashRecovery_ConvertToSorted_RawPreserved(t *testing.T) {
 	}
 
 	compactor := NewCompactor(config, logger)
-	_, err := compactor.RunCycle()
+	_, err := compactor.RunCycle(nil)
 	require.Error(t, err, "should fail due to rename")
 
 	// Raw file should still exist
@@ -396,7 +396,7 @@ func TestCrashRecovery_ConvertToSorted_RawPreserved(t *testing.T) {
 	// Retry with working FS
 	config.FS = common.NewOSFS()
 	compactor2 := NewCompactor(config, logger)
-	_, err = compactor2.RunCycle()
+	_, err = compactor2.RunCycle(nil)
 	require.NoError(t, err)
 
 	// Verify data is loadable after recovery
@@ -575,7 +575,7 @@ func TestCrashRecovery_MergeWithReadFailure(t *testing.T) {
 	}
 
 	compactor := NewCompactor(config, logger)
-	_, err := compactor.RunCycle()
+	_, err := compactor.RunCycle(nil)
 	require.Error(t, err, "merge should fail due to read error")
 
 	// Clean up any temp files

@@ -74,6 +74,12 @@ type SnapshotWriter struct {
 
 	// Muvera encoder data (can be set alongside compression)
 	muveraData *multivector.MuveraData
+
+	// shouldAbort, if non-nil, is polled at coarse intervals during
+	// WriteFromMerger so an in-progress snapshot can yield to a Drop or
+	// Shutdown without running the merger to exhaustion. See
+	// ErrCompactionAborted for the contract.
+	shouldAbort func() bool
 }
 
 // nodeState represents the absolute state of a single node.
@@ -105,6 +111,15 @@ func NewSnapshotWriterWithBlockSize(w io.Writer, blockSize int64) *SnapshotWrite
 // encountered during compaction are logged before being skipped.
 func (s *SnapshotWriter) WithLogger(logger logrus.FieldLogger) *SnapshotWriter {
 	s.logger = logger
+	return s
+}
+
+// WithAbort installs a poll callback that WriteFromMerger consults before
+// reading each merged node. If the callback returns true the writer
+// returns ErrCompactionAborted and leaves no committed file behind (the
+// caller's SafeFileWriter Abort() runs via defer).
+func (s *SnapshotWriter) WithAbort(shouldAbort func() bool) *SnapshotWriter {
+	s.shouldAbort = shouldAbort
 	return s
 }
 
@@ -595,6 +610,9 @@ func (s *SnapshotWriter) WriteFromMerger(merger *NWayMerger) error {
 
 	// Process all nodes from the merger
 	for {
+		if s.shouldAbort != nil && s.shouldAbort() {
+			return ErrCompactionAborted
+		}
 		nodeCommits, err := merger.Next()
 		if err != nil {
 			return errors.Wrap(err, "read next node from merger")
