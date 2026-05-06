@@ -110,7 +110,7 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 // have a className in scope.
 func FromBinaryNetwork(data []byte) (*Object, error) {
 	ko := &Object{}
-	if err := ko.UnmarshalBinaryDisk(data, ""); err != nil {
+	if err := ko.UnmarshalBinaryNetwork(data); err != nil {
 		return nil, err
 	}
 
@@ -376,6 +376,11 @@ type bucket interface {
 	ClassName() (string, error)
 }
 
+// ObjectsByDocID resolves a batch of doc IDs against the given bucket and
+// returns the decoded objects, dropping entries whose payload is missing.
+// Object.Class on each decoded object is stamped from bucket.ClassName(); the
+// bucket must have been opened with lsmkv.WithClassName, otherwise
+// bucket.ClassName() returns an error and the call fails.
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
@@ -386,6 +391,10 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 	return objectsByDocIDParallelInner(bucket, ids, additional, properties, logger, false)
 }
 
+// ObjectsByDocIDWithEmpty is like ObjectsByDocID but preserves nil entries at
+// positions where a doc ID has no payload, so the returned slice always has
+// the same length as ids. Object.Class is stamped from bucket.ClassName() —
+// see ObjectsByDocID for the bucket-resolution contract.
 func ObjectsByDocIDWithEmpty(bucket bucket, ids []uint64,
 	additional additional.Properties, properties []string, logger logrus.FieldLogger,
 ) ([]*Object, error) {
@@ -1276,16 +1285,23 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 // className in scope. The method name does not satisfy
 // encoding.BinaryUnmarshaler.
 func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
-	return ko.UnmarshalBinaryDisk(data, "")
+	return ko.unmarshalInternal(data, "")
 }
 
-// UnmarshalBinaryDisk is the versioned way to unmarshal a kind object from
-// binary. A non-empty className takes precedence over the on-disk class name
-// and the on-disk class-name bytes are skipped. An empty className falls back
-// to the on-disk value — that fallback path is what UnmarshalBinaryNetwork
-// uses; direct callers with a canonical class to supply should pass it
+// UnmarshalBinaryDisk decodes onto ko and stamps the supplied className on
+// Object.Class, skipping the on-disk class-name bytes. className must be
 // non-empty.
 func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
+	if className == "" {
+		return errors.New("className is required for UnmarshalBinaryDisk; use UnmarshalBinaryNetwork to fall back to the on-disk value")
+	}
+	return ko.unmarshalInternal(data, className)
+}
+
+// unmarshalInternal is the shared decoder behind UnmarshalBinaryDisk and
+// UnmarshalBinaryNetwork. A non-empty className stamps Object.Class; an empty
+// className falls back to the on-disk value.
+func (ko *Object) unmarshalInternal(data []byte, className string) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
