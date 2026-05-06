@@ -18,18 +18,15 @@ import (
 )
 
 // LocalObjectCount sums async object counts across all locally-loaded
-// shards on this node. Implements usagelimits.ObjectCounter for the
-// Free-Tier guardrails.
+// shards on this node. Implements usagelimits.ObjectCounter; see
+// docs/usage_limits.md.
 //
-// Uses the async path (ObjectCountAsync) — the count excludes the
-// in-memory memtable, so during fast bulk imports it lags slightly
-// behind the on-disk state. This bounded overshoot is documented in the
-// RFC's "Accepted imperfections" and self-corrects on the next flush.
+// Uses ObjectCountAsync — the count excludes the in-memory memtable, so
+// during fast bulk imports it lags on-disk state. The bounded overshoot
+// self-corrects on the next flush.
 //
 // Cold (unloaded lazy) shards are skipped: counting them would force a
-// load, which is expensive and undermines lazy-load semantics. For the
-// Free-Tier use case (single-node, RF=1, typically one or few hot
-// shards) this matches the intended scope=node accounting.
+// load, which is expensive and undermines lazy-load semantics.
 func (db *DB) LocalObjectCount(ctx context.Context) (int64, error) {
 	db.indexLock.RLock()
 	indices := make([]*Index, 0, len(db.indices))

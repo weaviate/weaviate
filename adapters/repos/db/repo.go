@@ -120,11 +120,9 @@ type DB struct {
 
 	tenantsManager schemaUC.TenantsActivityManager
 
-	// usageLimits is the Free-Tier guardrail gate, propagated to each
-	// Index when it is created so Shard.PutObject{,Batch} can call
-	// CheckObjects on the write path. nil disables the check (used in
-	// tests / older deployments where the guardrails are not wired).
-	// See docs/usage_limits.md for the full design.
+	// usageLimits is propagated to each Index when it is created, so
+	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
+	// nil disables the check. See docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
 }
 

@@ -152,26 +152,25 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		// Return a typed *usagelimits.LimitExceededError so the REST/gRPC
-		// layer can map it to the canonical 429 / RESOURCE_EXHAUSTED
-		// response with the operator-overridable error message template.
-		// Pre-RFC, this same condition surfaced as a free-text error
-		// mapped to HTTP 422 — see RFC `Backward compatibility`.
-		return nil, 0, h.usageLimits.NewLimitExceededError(usagelimits.LimitCollections, int64(limit))
+		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+		// in the usage-limits work; see docs/usage_limits.md for the wire
+		// contract.
+		return nil, 0, usagelimits.NewLimitExceededError(
+			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
 	}
 
-	// Free-Tier guardrail: per-collection shard cap. Config-time check
-	// only — shard count comes straight from the create request, no live
-	// state to consult. Multi-tenant collections set DesiredCount=0
-	// (shards are created per-tenant on demand) so the cap is naturally
-	// satisfied for those; the check meaningfully constrains
-	// single-tenant configurations only.
+	// Per-collection shard cap. Config-time check only — shard count comes
+	// straight from the create request, no live state to consult.
+	// Multi-tenant collections set DesiredCount=0 (shards are created
+	// per-tenant on demand) so the cap is naturally satisfied for those;
+	// the check meaningfully constrains single-tenant configurations only.
 	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
 		shardCap := dv.Get()
 		if shardCap >= 0 {
 			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
 			if int64(requested) > int64(shardCap) {
-				return nil, 0, h.usageLimits.NewLimitExceededError(usagelimits.LimitShards, int64(shardCap))
+				return nil, 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
 			}
 		}
 	}

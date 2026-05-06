@@ -235,18 +235,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState := startupRoutine(ctx, serverShutdownCtx, options)
 
-	// Construct the usage-limits Manager early so consumers downstream
-	// (schema manager, batch manager, tenant create path) can hold a
-	// reference to it. Counters are wired in via Set*Counter once their
-	// dependencies (schema state, DB) are constructed below.
-	appState.UsageLimits = usagelimits.NewManager(usagelimits.Config{
-		ErrorMessage:            appState.ServerConfig.Config.UsageLimits.ErrorMessage,
-		MaxObjectsCount:         appState.ServerConfig.Config.UsageLimits.MaxObjectsCount,
-		MaxCollectionsCount:     appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
-		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
-		MaxShardsPerCollection:  appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection,
-	}, nil, nil, nil)
-
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
 		appState.Logger.
@@ -558,13 +546,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
-	// Now that the DB is constructed, install it as the ObjectCounter on
-	// the usage-limits Manager so the runtime CheckObjects path has a
-	// real counter to query — and install the Manager on the DB so each
-	// Index inherits it when it is loaded (init.go) or created at
-	// runtime (migrator.go). Both must happen *before* WaitForStartup
-	// loads the existing indices. See docs/usage_limits.md.
-	appState.UsageLimits.SetObjectCounter(repo)
+	// Construct the usage-limits Manager now that its ObjectCounter (the
+	// DB) exists, then install it on the DB so each Index inherits it
+	// when loaded (init.go) or created at runtime (migrator.go). Both
+	// must happen *before* WaitForStartup loads the existing indices.
+	// See docs/usage_limits.md.
+	appState.UsageLimits = usagelimits.NewManager(usagelimits.Config{
+		ErrorMessage:    appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		MaxObjectsCount: appState.ServerConfig.Config.UsageLimits.MaxObjectsCount,
+	}, repo)
 	repo.SetUsageLimits(appState.UsageLimits)
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
@@ -707,7 +697,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Modules, appState.Cluster,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
-		appState.UsageLimits,
 	)
 	if err != nil {
 		appState.Logger.

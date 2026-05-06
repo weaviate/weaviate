@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var (
@@ -156,13 +155,16 @@ type Handler struct {
 	classGetter *ClassGetter
 
 	asyncIndexingEnabled bool
+}
 
-	// usageLimits is the cross-cutting policy gate for the Free-Tier
-	// guardrails. The schema Handler counts collections itself (via the
-	// schemaManager) and uses the Manager only for consistent error
-	// rendering of *LimitExceededError. Phases 5/6 will additionally use
-	// it for tenant- and shard-count enforcement.
-	usageLimits *usagelimits.Manager
+// errorMessageTemplate returns the operator-overridable usage-limit
+// message template, or "" when unset (in which case the usagelimits
+// package falls back to its built-in default). See docs/usage_limits.md.
+func (h *Handler) errorMessageTemplate() string {
+	if dv := h.config.UsageLimits.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
 }
 
 // NewHandler creates a new handler
@@ -177,7 +179,6 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
-	usageLimits *usagelimits.Manager,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -195,7 +196,6 @@ func NewHandler(
 		clusterState:            clusterState,
 		cloud:                   cloud,
 		classGetter:             classGetter,
-		usageLimits:             usageLimits,
 
 		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}

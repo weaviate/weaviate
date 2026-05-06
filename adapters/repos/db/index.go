@@ -313,11 +313,9 @@ type Index struct {
 	bitmapBufPool  roaringset.BitmapBufPool
 	tenantsManager schemaUC.TenantsActivityManager
 
-	// usageLimits is the Free-Tier guardrail gate; inherited from the
-	// owning DB at construction time. Read by Shards on the write path
-	// via s.index.usageLimits. nil means no enforcement (tests, or
-	// deployments that haven't set MAXIMUM_ALLOWED_OBJECTS_COUNT).
-	// See docs/usage_limits.md.
+	// usageLimits is inherited from the owning DB at index creation; nil
+	// means no enforcement. Read by Shards on the write path. See
+	// docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
 }
 

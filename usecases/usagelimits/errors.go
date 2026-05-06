@@ -33,8 +33,8 @@ const (
 // rather than on free-text messages.
 const ErrorCode = "USAGE_LIMIT_EXCEEDED"
 
-// LimitExceededError is returned by Manager.Check* when an operation would
-// exceed a configured limit. The HTTP layer maps this to 429 Too Many
+// LimitExceededError is the typed error returned when an operation would
+// exceed a configured usage limit. The HTTP layer maps it to 429 Too Many
 // Requests with body
 //
 //	{"errorCode":"USAGE_LIMIT_EXCEEDED","limit":"...","value":N,"message":"..."}
@@ -73,4 +73,18 @@ func AsLimitExceeded(err error) (*LimitExceededError, bool) {
 		return e, true
 	}
 	return nil, false
+}
+
+// NewLimitExceededError builds a *LimitExceededError with its message
+// rendered from the given template via RenderTemplate. Pass an empty
+// template to fall back to the default. This is a free function (not a
+// Manager method) so callers that already hold the cap and the template
+// — for example the schema Handler, which counts collections inline —
+// don't need to depend on the Manager type.
+func NewLimitExceededError(template string, limit LimitName, value int64) *LimitExceededError {
+	return &LimitExceededError{
+		Limit:           limit,
+		Value:           value,
+		RenderedMessage: RenderTemplate(template, limit, value),
+	}
 }

@@ -9,12 +9,21 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package usagelimits enforces server-side usage limits (objects,
-// collections, tenants, shards) configured via env vars and runtime
-// overrides. The object-count check fires at the storage chokepoint
-// (Shard.PutObject{,Batch}); the schema-side checks fire at their
-// respective use-case entry points. See docs/usage_limits.md for the
-// full design.
+// Package usagelimits enforces server-side usage limits configured via env
+// vars and runtime overrides.
+//
+// Object enforcement lives here: Manager.CheckObjects sums per-shard async
+// counts via an injected ObjectCounter and returns a *LimitExceededError if
+// the next write would push the live total past MAXIMUM_ALLOWED_OBJECTS_COUNT.
+// The check is invoked from the storage chokepoint (Shard.PutObject{,Batch}
+// in adapters/repos/db/) so it covers both local and forwarded writes for
+// RF=1.
+//
+// Schema-side limits (collections, tenants, shards) do their own counting
+// inline in usecases/schema/ and only reach into this package for the typed
+// error and the operator-overridable message template via NewLimitExceededError.
+//
+// See docs/usage_limits.md for the full design.
 package usagelimits
 
 import (
@@ -25,144 +34,46 @@ import (
 )
 
 // ObjectCounter sums object counts across all locally-owned shards. The
-// Manager calls this on the runtime path of every CheckObjects(); the
 // implementation must use the async (CountAsync) path because synchronous
 // counting on every write is unacceptable on hot paths. Brief overshoot
-// during fast bulk imports is documented and accepted; it self-corrects
-// on the next memtable flush.
+// during fast bulk imports is documented and accepted; it self-corrects on
+// the next memtable flush.
 type ObjectCounter interface {
 	LocalObjectCount(ctx context.Context) (int64, error)
 }
 
-// CollectionCounter returns the current collection count. Counts the same
-// set of classes the existing MaximumAllowedCollectionsCount check counts —
-// implemented over the schema reader / RAFT-backed schema state.
-type CollectionCounter interface {
-	LocalCollectionCount(ctx context.Context) (int64, error)
-}
-
-// TenantCounter returns the current tenant count for the named class.
-// Implementations read from the schema state; tenants are checked at create
-// time only, not on subsequent multi-tenancy config changes (this is a
-// guardrail, not a security boundary).
-type TenantCounter interface {
-	LocalTenantCount(ctx context.Context, class string) (int64, error)
-}
-
 // Config is the read-only view of usage-limit configuration the Manager
-// needs. All values are runtime-overrideable; the Manager re-reads them
-// (via DynamicValue.Get()) on every check, so SIGHUP / file-watcher
-// updates take effect without restart.
-//
-// A nil DynamicValue is treated as "unlimited" so the Manager remains
-// usable in tests and during early bootstrap before configuration is
-// fully wired.
+// needs. Values are runtime-overrideable; the Manager re-reads them via
+// DynamicValue.Get() on every check, so SIGHUP / file-watcher updates take
+// effect without restart. A nil DynamicValue is treated as "unlimited".
 type Config struct {
-	// ErrorMessage is the operator-overridable template for the user-facing
-	// error message rendered into LimitExceededError.RenderedMessage.
+	// ErrorMessage is the operator-overridable template used to render the
+	// user-facing error message (see RenderTemplate).
 	ErrorMessage *runtime.DynamicValue[string]
-
-	// MaxObjectsCount caps per-instance live object count. <0 (incl. the
-	// default -1) means unlimited.
+	// MaxObjectsCount caps per-instance live object count. <0 means unlimited.
 	MaxObjectsCount *runtime.DynamicValue[int]
-	// MaxCollectionsCount caps the number of collections (classes). Mirrors
-	// the existing MaximumAllowedCollectionsCount semantics.
-	MaxCollectionsCount *runtime.DynamicValue[int]
-	// MaxTenantsPerCollection caps tenants per multi-tenant class.
-	MaxTenantsPerCollection *runtime.DynamicValue[int]
-	// MaxShardsPerCollection caps shards in a class create request.
-	MaxShardsPerCollection *runtime.DynamicValue[int]
 }
 
-// Manager is the cross-cutting policy gate for usage limits. Consumed from
-// usecases/objects and usecases/schema after authorization and before
-// replication, on the coordinator only. Returns *LimitExceededError on a
-// miss, or nil otherwise. Wire-protocol mapping (to HTTP 429 / gRPC
-// RESOURCE_EXHAUSTED) lives in adapters/handlers/*.
+// Manager is the policy gate for the object-count limit. Constructed once
+// at startup; the wire-protocol mapping (HTTP 429 / gRPC RESOURCE_EXHAUSTED)
+// lives in adapters/handlers/*.
 type Manager struct {
-	cfg               Config
-	objectCounter     ObjectCounter
-	collectionCounter CollectionCounter
-	tenantCounter     TenantCounter
+	cfg     Config
+	counter ObjectCounter
 }
 
-// NewManager constructs a Manager. Counters may be nil for paths the
-// caller does not exercise (e.g. tests that only check shard limits) —
-// but a nil counter combined with a configured limit on its corresponding
-// Check* call returns an error rather than silently passing through, so
-// misconfiguration is loud rather than silent.
-//
-// Callers that don't have all counters at construction time (the typical
-// case during server startup, where the DB is constructed after the
-// Manager) can pass nil and use the Set*Counter methods below to inject
-// counters once their dependencies are available.
-func NewManager(
-	cfg Config,
-	objectCounter ObjectCounter,
-	collectionCounter CollectionCounter,
-	tenantCounter TenantCounter,
-) *Manager {
-	return &Manager{
-		cfg:               cfg,
-		objectCounter:     objectCounter,
-		collectionCounter: collectionCounter,
-		tenantCounter:     tenantCounter,
-	}
+// NewManager constructs a Manager. counter may be nil for tests; in that
+// case CheckObjects is a no-op when MaxObjectsCount is unset, and returns
+// an error if a cap is configured (loud rather than silent misconfiguration).
+func NewManager(cfg Config, counter ObjectCounter) *Manager {
+	return &Manager{cfg: cfg, counter: counter}
 }
 
-// SetObjectCounter installs an ObjectCounter on the Manager after
-// construction. Use this when the counter's dependencies (e.g. the DB)
-// are not yet available at NewManager time. Safe to call once during
-// startup; the Manager is not designed to handle counter-swapping at
-// runtime.
-func (m *Manager) SetObjectCounter(c ObjectCounter) {
-	if m == nil {
-		return
-	}
-	m.objectCounter = c
-}
-
-// SetCollectionCounter installs a CollectionCounter on the Manager after
-// construction. See SetObjectCounter for usage notes.
-func (m *Manager) SetCollectionCounter(c CollectionCounter) {
-	if m == nil {
-		return
-	}
-	m.collectionCounter = c
-}
-
-// SetTenantCounter installs a TenantCounter on the Manager after
-// construction. See SetObjectCounter for usage notes.
-func (m *Manager) SetTenantCounter(c TenantCounter) {
-	if m == nil {
-		return
-	}
-	m.tenantCounter = c
-}
-
-// NewLimitExceededError constructs a *LimitExceededError whose
-// RenderedMessage is filled from this Manager's USAGE_LIMITS_ERROR_MESSAGE
-// template. Use this for callers that have already computed the count
-// themselves (e.g. the schema Handler, which counts collections via its
-// own schemaManager) and only want the Manager's consistent error
-// rendering. For most callers, prefer the Check* methods which handle
-// counting and formatting together.
-func (m *Manager) NewLimitExceededError(limit LimitName, value int64) *LimitExceededError {
-	if m == nil {
-		return &LimitExceededError{
-			Limit:           limit,
-			Value:           value,
-			RenderedMessage: RenderTemplate("", limit, value),
-		}
-	}
-	return m.exceeded(limit, value)
-}
-
-// CheckObjects rejects when (currentObjects + n) would exceed
-// MaxObjectsCount. n is the number of objects this request would add (1
-// for single writes, len(batch) for batches). The whole-batch-rejection
-// rule lives at the call site, not here — the caller passes len(batch)
-// and rejects the entire request on a non-nil return.
+// CheckObjects rejects when (currentObjects + n) would exceed the cap. n is
+// the number of objects this request would add (1 for single writes,
+// len(batch) for batches). Whole-batch-rejection is the caller's
+// responsibility — the caller passes len(batch) and rejects the entire
+// request on a non-nil return.
 func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
 	if m == nil {
 		return nil
@@ -171,95 +82,29 @@ func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
 	if cap < 0 {
 		return nil
 	}
-	if m.objectCounter == nil {
+	if m.counter == nil {
 		return fmt.Errorf("usagelimits: object limit configured but no counter wired")
 	}
-	current, err := m.objectCounter.LocalObjectCount(ctx)
+	current, err := m.counter.LocalObjectCount(ctx)
 	if err != nil {
 		return fmt.Errorf("usagelimits: counting objects: %w", err)
 	}
 	if current+n > cap {
-		return m.exceeded(LimitObjects, cap)
+		return NewLimitExceededError(m.template(), LimitObjects, cap)
 	}
 	return nil
 }
 
-// CheckCollections rejects when (currentCollections + n) would exceed
-// MaxCollectionsCount.
-func (m *Manager) CheckCollections(ctx context.Context, n int64) error {
-	if m == nil {
-		return nil
+func (m *Manager) template() string {
+	if m == nil || m.cfg.ErrorMessage == nil {
+		return ""
 	}
-	cap := readLimit(m.cfg.MaxCollectionsCount)
-	if cap < 0 {
-		return nil
-	}
-	if m.collectionCounter == nil {
-		return fmt.Errorf("usagelimits: collection limit configured but no counter wired")
-	}
-	current, err := m.collectionCounter.LocalCollectionCount(ctx)
-	if err != nil {
-		return fmt.Errorf("usagelimits: counting collections: %w", err)
-	}
-	if current+n > cap {
-		return m.exceeded(LimitCollections, cap)
-	}
-	return nil
-}
-
-// CheckTenants rejects when (currentTenants + n) for the named class
-// would exceed MaxTenantsPerCollection.
-func (m *Manager) CheckTenants(ctx context.Context, class string, n int64) error {
-	if m == nil {
-		return nil
-	}
-	cap := readLimit(m.cfg.MaxTenantsPerCollection)
-	if cap < 0 {
-		return nil
-	}
-	if m.tenantCounter == nil {
-		return fmt.Errorf("usagelimits: tenant limit configured but no counter wired")
-	}
-	current, err := m.tenantCounter.LocalTenantCount(ctx, class)
-	if err != nil {
-		return fmt.Errorf("usagelimits: counting tenants for %q: %w", class, err)
-	}
-	if current+n > cap {
-		return m.exceeded(LimitTenants, cap)
-	}
-	return nil
-}
-
-// CheckShards rejects a class-create request whose sharding config asks
-// for more shards than MaxShardsPerCollection. Config-time only; no live
-// count needed.
-func (m *Manager) CheckShards(requestedShards int) error {
-	if m == nil {
-		return nil
-	}
-	cap := readLimit(m.cfg.MaxShardsPerCollection)
-	if cap < 0 {
-		return nil
-	}
-	if int64(requestedShards) > cap {
-		return m.exceeded(LimitShards, cap)
-	}
-	return nil
-}
-
-func (m *Manager) exceeded(limit LimitName, value int64) *LimitExceededError {
-	return &LimitExceededError{
-		Limit:           limit,
-		Value:           value,
-		RenderedMessage: RenderTemplate(m.cfg.ErrorMessage.Get(), limit, value),
-	}
+	return m.cfg.ErrorMessage.Get()
 }
 
 // readLimit reads a *DynamicValue[int] safely, returning -1 (unlimited) for
-// nil. The DynamicValue.Get() method itself handles nil receivers, but it
-// returns the int zero value (0) for nil — which would translate to "zero
-// allowed". Treating nil as unlimited keeps the Manager usable when only a
-// subset of counters/limits is wired (tests, partial config).
+// nil. DynamicValue.Get() returns the int zero value (0) for nil — which
+// would translate to "zero allowed" — so the nil check has to live here.
 func readLimit(dv *runtime.DynamicValue[int]) int64 {
 	if dv == nil {
 		return -1

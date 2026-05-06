@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
@@ -211,7 +210,6 @@ func NewManager(validator validator,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
-	usageLimits *usagelimits.Manager,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -221,7 +219,6 @@ func NewManager(validator validator,
 		schemaConfig,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
-		usageLimits,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
