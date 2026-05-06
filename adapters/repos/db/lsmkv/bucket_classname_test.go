@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -38,10 +39,16 @@ import (
 //     code, restored backups, etc.).
 //
 // In both cases the test flushes the memtable to a real on-disk segment so the
-// read path is served from disk, then verifies both decoders:
+// read path is served from disk, then exercises every decoder entry point on
+// `*storobj.Object`. The Disk variants must stamp the bucket's canonical
+// className, and the Network variants (where they exist) must reflect the
+// on-disk value:
 //
-//   - storobj.FromBinaryDisk(v, bucket.ClassName()) → bucket wins;
-//   - storobj.FromBinaryNetwork(v) (legacy single-arg) → falls back to on-disk.
+//   - storobj.FromBinaryDisk / FromBinaryNetwork
+//   - storobj.FromBinaryOptionalDisk / FromBinaryOptionalNetwork
+//   - storobj.FromBinaryUUIDOnlyDisk (no Network counterpart — UUID-only is
+//     a bucket-read fast path that never runs on raw wire bytes)
+//   - (*Object).UnmarshalBinaryDisk / (*Object).UnmarshalBinaryNetwork
 func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -109,30 +116,88 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				count++
 
-				// Bucket-aware decode: the caller-supplied (bucket) className
-				// must win, regardless of what's on disk.
-				decodedWithClassName, err := storobj.FromBinaryDisk(v, className)
-				require.NoError(t, err, "cannot unmarshal object via FromBinaryWithClassName")
-				require.NotNil(t, decodedWithClassName)
-				assert.Equal(t, tc.wantClass, decodedWithClassName.Object.Class,
-					"bucket must stamp its canonical className on the decoded object")
-				assert.Equal(t, obj.ID(), decodedWithClassName.ID())
-				assert.Equal(t, obj.DocID, decodedWithClassName.DocID)
-				assert.Equal(t, obj.Vector, decodedWithClassName.Vector)
-				assert.Equal(t, obj.Properties(), decodedWithClassName.Properties())
+				// FromBinaryDisk: caller-supplied (bucket) className wins
+				// regardless of what's on disk.
+				decodedDisk, err := storobj.FromBinaryDisk(v, className)
+				require.NoError(t, err, "cannot unmarshal via FromBinaryDisk")
+				require.NotNil(t, decodedDisk)
+				assert.Equal(t, tc.wantClass, decodedDisk.Object.Class,
+					"FromBinaryDisk must stamp the bucket's canonical className")
+				assert.Equal(t, obj.ID(), decodedDisk.ID())
+				assert.Equal(t, obj.DocID, decodedDisk.DocID)
+				assert.Equal(t, obj.Vector, decodedDisk.Vector)
+				assert.Equal(t, obj.Properties(), decodedDisk.Properties())
 
-				// Legacy path: FromBinary (no caller className) falls back to
-				// the on-disk value. This is the contract for wire-receive
-				// callers that have no bucket in hand.
-				decoded, err := storobj.FromBinaryNetwork(v)
-				require.NoError(t, err, "cannot unmarshal object via FromBinary")
-				require.NotNil(t, decoded)
-				assert.Equal(t, tc.marshaledClass, decoded.Object.Class,
-					"without caller-supplied className, decoded.Class must reflect the on-disk value")
-				assert.Equal(t, obj.ID(), decoded.ID())
-				assert.Equal(t, obj.DocID, decoded.DocID)
-				assert.Equal(t, obj.Vector, decoded.Vector)
-				assert.Equal(t, obj.Properties(), decoded.Properties())
+				// FromBinaryNetwork: no caller className, falls back to the
+				// on-disk value. This is the wire-receive contract.
+				decodedNet, err := storobj.FromBinaryNetwork(v)
+				require.NoError(t, err, "cannot unmarshal via FromBinaryNetwork")
+				require.NotNil(t, decodedNet)
+				assert.Equal(t, tc.marshaledClass, decodedNet.Object.Class,
+					"FromBinaryNetwork must reflect the on-disk class-name value")
+				assert.Equal(t, obj.ID(), decodedNet.ID())
+				assert.Equal(t, obj.DocID, decodedNet.DocID)
+				assert.Equal(t, obj.Vector, decodedNet.Vector)
+				assert.Equal(t, obj.Properties(), decodedNet.Properties())
+
+				// FromBinaryOptionalDisk: same Disk-side contract for the
+				// optional/additional decoder.
+				decodedOptDisk, err := storobj.FromBinaryOptionalDisk(v, className,
+					additional.Properties{Vector: true}, nil)
+				require.NoError(t, err, "cannot unmarshal via FromBinaryOptionalDisk")
+				require.NotNil(t, decodedOptDisk)
+				assert.Equal(t, tc.wantClass, decodedOptDisk.Object.Class,
+					"FromBinaryOptionalDisk must stamp the bucket's canonical className")
+				assert.Equal(t, obj.ID(), decodedOptDisk.ID())
+				assert.Equal(t, obj.DocID, decodedOptDisk.DocID)
+				assert.Equal(t, obj.Vector, decodedOptDisk.Vector)
+
+				// FromBinaryOptionalNetwork: optional/additional decoder
+				// without a caller className — falls back to on-disk.
+				decodedOptNet, err := storobj.FromBinaryOptionalNetwork(v,
+					additional.Properties{Vector: true}, nil)
+				require.NoError(t, err, "cannot unmarshal via FromBinaryOptionalNetwork")
+				require.NotNil(t, decodedOptNet)
+				assert.Equal(t, tc.marshaledClass, decodedOptNet.Object.Class,
+					"FromBinaryOptionalNetwork must reflect the on-disk class-name value")
+				assert.Equal(t, obj.ID(), decodedOptNet.ID())
+				assert.Equal(t, obj.DocID, decodedOptNet.DocID)
+				assert.Equal(t, obj.Vector, decodedOptNet.Vector)
+
+				// FromBinaryUUIDOnlyDisk: header-only fast path. Decodes ID,
+				// DocID, timestamps, and class. Vector and Properties are
+				// intentionally not populated, so we don't assert on them.
+				decodedUUIDOnly, err := storobj.FromBinaryUUIDOnlyDisk(v, className)
+				require.NoError(t, err, "cannot unmarshal via FromBinaryUUIDOnlyDisk")
+				require.NotNil(t, decodedUUIDOnly)
+				assert.Equal(t, tc.wantClass, decodedUUIDOnly.Object.Class,
+					"FromBinaryUUIDOnlyDisk must stamp the bucket's canonical className")
+				assert.Equal(t, obj.ID(), decodedUUIDOnly.ID())
+				assert.Equal(t, obj.DocID, decodedUUIDOnly.DocID)
+
+				// (*Object).UnmarshalBinaryDisk: object-method form of the
+				// Disk decoder. Same precedence contract as FromBinaryDisk.
+				var unmarshalDisk storobj.Object
+				require.NoError(t, unmarshalDisk.UnmarshalBinaryDisk(v, className),
+					"cannot unmarshal via UnmarshalBinaryDisk")
+				assert.Equal(t, tc.wantClass, unmarshalDisk.Object.Class,
+					"UnmarshalBinaryDisk must stamp the bucket's canonical className")
+				assert.Equal(t, obj.ID(), unmarshalDisk.ID())
+				assert.Equal(t, obj.DocID, unmarshalDisk.DocID)
+				assert.Equal(t, obj.Vector, unmarshalDisk.Vector)
+				assert.Equal(t, obj.Properties(), unmarshalDisk.Properties())
+
+				// (*Object).UnmarshalBinaryNetwork: object-method form of the
+				// Network decoder. Falls back to on-disk class.
+				var unmarshalNet storobj.Object
+				require.NoError(t, unmarshalNet.UnmarshalBinaryNetwork(v),
+					"cannot unmarshal via UnmarshalBinaryNetwork")
+				assert.Equal(t, tc.marshaledClass, unmarshalNet.Object.Class,
+					"UnmarshalBinaryNetwork must reflect the on-disk class-name value")
+				assert.Equal(t, obj.ID(), unmarshalNet.ID())
+				assert.Equal(t, obj.DocID, unmarshalNet.DocID)
+				assert.Equal(t, obj.Vector, unmarshalNet.Vector)
+				assert.Equal(t, obj.Properties(), unmarshalNet.Properties())
 			}
 			require.Equal(t, 1, count, "expected exactly one object in the bucket")
 		})
