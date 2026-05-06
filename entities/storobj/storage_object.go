@@ -105,21 +105,9 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-// FromBinaryNetwork decodes a payload from the objects bucket.
-//
-// WARNING: the class name read from on-disk bytes is NOT authoritative. The
-// objects bucket may contain payloads written under a different class
-// identity than the one currently owning the bucket (e.g. namespace-qualified
-// writes from earlier code, data copied from another cluster, restored
-// backups). Treating Object.Class from the decoded payload as canonical can
-// surface stale or qualified names to callers and break data portability.
-//
-// Callers that read from a shard's objects bucket and have an authoritative
-// class name in scope (typically shard.index.Config.ClassName) MUST use
-// FromBinaryDisk instead, which stamps the supplied class name on
-// the decoded object and ignores the on-disk value. Reserve FromBinaryNetwork for
-// callers that genuinely have no class context (e.g. wire-receive decode
-// where the surrounding protocol carries the class out-of-band).
+// FromBinaryNetwork decodes a payload and reads Object.Class from the on-disk
+// bytes. The on-disk class is not authoritative; use FromBinaryDisk when you
+// have a className in scope.
 func FromBinaryNetwork(data []byte) (*Object, error) {
 	ko := &Object{}
 	if err := ko.UnmarshalBinaryDisk(data, ""); err != nil {
@@ -129,12 +117,14 @@ func FromBinaryNetwork(data []byte) (*Object, error) {
 	return ko, nil
 }
 
-// FromBinaryDisk decodes a payload using the caller-supplied class
-// name in place of the on-disk value. An empty className falls back to the
-// on-disk bytes (matching FromBinary).
+// FromBinaryDisk decodes a payload and stamps the caller-supplied class name
+// on the decoded object, ignoring whatever is in the on-disk class-name field.
+// className must be non-empty; the function returns an error otherwise. Use
+// FromBinaryNetwork for the on-disk-fallback path used by wire-receive callers
+// that have no canonical class to supply.
 func FromBinaryDisk(data []byte, className string) (*Object, error) {
 	if className == "" {
-		return nil, errors.New("className is required for FromBinaryDisk; use FromBinaryNetwork or FromBinary if you want to fall back to on-disk value")
+		return nil, errors.New("className is required for FromBinaryDisk; use FromBinaryNetwork to fall back to the on-disk value")
 	}
 	ko := &Object{}
 	if err := ko.UnmarshalBinaryDisk(data, className); err != nil {
@@ -144,11 +134,16 @@ func FromBinaryDisk(data []byte, className string) (*Object, error) {
 	return ko, nil
 }
 
-// FromBinaryUUIDOnlyDisk lets the caller supply an authoritative
-// class name; an empty className falls back to the on-disk bytes.
+// FromBinaryUUIDOnlyDisk is a header-only fast path that decodes the ID, doc
+// ID, timestamps, and class — vectors, properties, and the rest of the
+// payload are skipped. The caller-supplied class name is stamped on the
+// decoded object, ignoring the on-disk class-name field. className must be
+// non-empty; the function returns an error otherwise. There is no
+// FromBinaryUUIDOnlyNetwork variant — this fast path runs only against bucket
+// reads where a bucket className is always available.
 func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 	if className == "" {
-		return nil, errors.New("className is required for FromBinaryUUIDOnlyDisk; use FromBinaryNetwork or FromBinary if you want to fall back to on-disk value")
+		return nil, errors.New("className is required for FromBinaryUUIDOnlyDisk")
 	}
 	ko := &Object{}
 
@@ -173,36 +168,20 @@ func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 
 	vecLen := rw.ReadUint16()
 	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-	classNameLength := uint64(rw.ReadUint16())
 
-	// When the caller supplies a non-empty className it wins and the on-disk
-	// bytes are skipped; an empty argument falls back to the on-disk value
-	// (callers without a canonical class to supply, e.g. wire-receive paths).
-	if className == "" && classNameLength > 0 {
-		className = string(rw.ReadBytesFromBuffer(classNameLength))
-	} else {
-		rw.MoveBufferPositionForward(classNameLength)
-	}
+	// On-disk class-name bytes are skipped: className is guaranteed non-empty
+	// by the entry guard above, so the caller-supplied value is what we use.
+	classNameLength := uint64(rw.ReadUint16())
+	rw.MoveBufferPositionForward(classNameLength)
 	ko.Object.Class = className
 
 	return ko, nil
 }
 
-// FromBinaryOptionalNetwork decodes a payload while optionally including/excluding
-// vectors, properties, etc. The class name is read from the on-disk bytes.
-//
-// WARNING: the class name read from on-disk bytes is NOT authoritative. The
-// objects bucket may contain payloads written under a different class
-// identity than the one currently owning the bucket (e.g. namespace-qualified
-// writes from earlier code, data copied from another cluster, restored
-// backups). Treating Object.Class from the decoded payload as canonical can
-// surface stale or qualified names to callers and break data portability.
-//
-// Callers that read from a shard's objects bucket and have an authoritative
-// class name in scope (typically shard.index.Config.ClassName) MUST use
-// FromBinaryOptionalDisk instead, which stamps the supplied class
-// name on the decoded object and ignores the on-disk value. Reserve
-// FromBinaryOptionalNetwork for callers that genuinely have no class context.
+// FromBinaryOptionalNetwork decodes a payload, optionally including/excluding
+// vectors and properties via addProp, and reads Object.Class from the on-disk
+// bytes. The on-disk class is not authoritative; use FromBinaryOptionalDisk
+// when you have a className in scope.
 func FromBinaryOptionalNetwork(data []byte,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
@@ -220,8 +199,11 @@ func FromBinaryOptionalDisk(data []byte, className string,
 	return fromBinaryOptionalInternal(data, className, addProp, properties)
 }
 
-// FromBinaryOptionalDisk lets the caller supply an authoritative
-// class name; an empty className falls back to the on-disk bytes.
+// fromBinaryOptionalInternal is the shared implementation behind
+// FromBinaryOptionalDisk and FromBinaryOptionalNetwork. A non-empty className
+// is stamped on the decoded object (Disk-side semantics); an empty className
+// falls back to the on-disk value (Network-side semantics). Callers should
+// use the exported wrappers, which encode their respective contracts.
 func fromBinaryOptionalInternal(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
@@ -385,10 +367,12 @@ func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
 type bucket interface {
 	GetBySecondary(context.Context, int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(context.Context, int, []byte, []byte) ([]byte, []byte, error)
-	// ClassName returns the canonical class name attached to the bucket, used
-	// to stamp Object.Class on every decoded payload. Returns "" for buckets
-	// that have no class context (test fakes, non-objects buckets); decoders
-	// then fall back to the on-disk value.
+	// ClassName returns the canonical class name attached to the bucket. The
+	// storobj helpers (ObjectsByDocID*) use it to stamp Object.Class on every
+	// decoded payload via FromBinaryOptionalDisk. Implementations must return
+	// a non-nil error when the bucket has no class context (e.g. test fakes,
+	// non-objects buckets); the helpers propagate that error rather than fall
+	// back to the on-disk class name.
 	ClassName() (string, error)
 }
 
@@ -1286,29 +1270,21 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinaryNetwork implements encoding.BinaryUnmarshaler.
-//
-// WARNING: the class name read from on-disk bytes is NOT authoritative. The
-// objects bucket may contain payloads written under a different class
-// identity than the one currently owning the bucket (e.g. namespace-qualified
-// writes from earlier code, data copied from another cluster, restored
-// backups). Treating Object.Class from the decoded payload as canonical can
-// surface stale or qualified names to callers and break data portability.
-//
-// Callers that read from a shard's objects bucket and have an authoritative
-// class name in scope (typically shard.index.Config.ClassName) MUST use
-// UnmarshalBinaryDisk instead, which stamps the supplied class name
-// on the decoded object and ignores the on-disk value. Reserve UnmarshalBinaryNetwork
-// for callers that genuinely have no class context (it remains the entry
-// point for the standard encoding.BinaryUnmarshaler interface).
+// UnmarshalBinaryNetwork is the object-method form of FromBinaryNetwork: it
+// decodes onto ko and reads Object.Class from the on-disk bytes. The on-disk
+// class is not authoritative; use UnmarshalBinaryDisk when you have a
+// className in scope. The method name does not satisfy
+// encoding.BinaryUnmarshaler.
 func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
 	return ko.UnmarshalBinaryDisk(data, "")
 }
 
-// UnmarshalBinaryDisk is the versioned way to unmarshal a kind object
-// from binary. A non-empty className takes precedence over the on-disk class
-// name; an empty className falls back to the on-disk bytes (matching
-// UnmarshalBinary).
+// UnmarshalBinaryDisk is the versioned way to unmarshal a kind object from
+// binary. A non-empty className takes precedence over the on-disk class name
+// and the on-disk class-name bytes are skipped. An empty className falls back
+// to the on-disk value — that fallback path is what UnmarshalBinaryNetwork
+// uses; direct callers with a canonical class to supply should pass it
+// non-empty.
 func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
 	version := data[0]
 	if version != 1 {
@@ -1334,9 +1310,9 @@ func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
 	ko.Vector = make([]float32, vectorLength)
 	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
-	// On-disk className bytes are kept in the format for backward compat but
-	// the value is discarded: the canonical class name is the caller-supplied
-	// `className` argument.
+	// className precedence: a non-empty caller-supplied className wins and
+	// the on-disk class-name bytes are skipped. An empty className falls back
+	// to the on-disk value — that's the path UnmarshalBinaryNetwork uses.
 	classNameLength := uint64(rw.ReadUint16())
 	if className == "" && classNameLength > 0 {
 		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)

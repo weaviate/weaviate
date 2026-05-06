@@ -158,12 +158,14 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
-	// Optional canonical class name carried by the bucket. Set on the objects
-	// bucket via WithClassName at creation time so that storobj decoders can
-	// stamp the canonical class on every decoded object instead of trusting the
-	// (no longer authoritative) on-disk className field. Empty for buckets that
-	// do not hold storobj payloads (inverted, prop-length, etc.) — those still
-	// fall back to whatever is on disk via the storobj decoders.
+	// Canonical class name carried by the bucket. Required for any bucket
+	// whose readers go through the storobj decoders (the objects bucket); set
+	// via WithClassName at creation time so the decoders can stamp the
+	// canonical class on every decoded object instead of trusting the (no
+	// longer authoritative) on-disk class-name field. ClassName() returns an
+	// error when this is empty — buckets that do not hold storobj payloads
+	// (inverted, prop-length, etc.) leave it unset because those readers
+	// never call ClassName() in the first place.
 	className string
 
 	// if true, don't increase the segment level during compaction.
@@ -1983,9 +1985,13 @@ func (b *Bucket) DesiredStrategy() string {
 }
 
 // ClassName returns the canonical class name supplied at bucket creation via
-// WithClassName, or "" for buckets that do not hold storobj payloads. Storobj
-// decoders use this value as the authoritative class name and fall back to the
-// on-disk value only when this returns "".
+// WithClassName. Storobj decoders use this value as the authoritative class
+// name and stamp it on every decoded object, ignoring the on-disk class-name
+// field. Buckets that do not hold storobj payloads (inverted, prop-length,
+// etc.) are not opened with WithClassName; calling ClassName() on them
+// returns an error rather than silently producing decoded objects with an
+// empty class — readers that need a class name must come from a bucket that
+// has one.
 func (b *Bucket) ClassName() (string, error) {
 	if b.className == "" {
 		return "", fmt.Errorf("bucket does not have a class name")

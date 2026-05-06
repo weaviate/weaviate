@@ -25,29 +25,20 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// TestObjectsBucketStampsClassNameOnDecode is the bucket-level integration of
-// the contract to deprecate class name on buckets:
-// the canonical class name attached to the bucket via
-// WithClassName is what every reader sees on decoded objects, regardless of
-// what the on-disk payload bytes carry in their class-name field. The test
-// covers two on-disk shapes that the bucket-stamping path must override:
+// TestObjectsBucketStampsClassNameOnDecode locks the bucket-level contract:
+// the class name supplied to a bucket via WithClassName is what every *Disk
+// decoder stamps on the decoded object, regardless of what the on-disk
+// class-name field carries. The Network decoders mirror the on-disk value
+// instead.
 //
-//   - the field is empty (writer had no class to stamp at marshal time, e.g.
-//     wire-receive paths);
-//   - the field is non-empty but doesn't match the bucket's canonical class
-//     (data copied in from elsewhere, namespace-qualified writes from earlier
-//     code, restored backups, etc.).
-//
-// In both cases the test flushes the memtable to a real on-disk segment so the
-// read path is served from disk, then exercises every decoder entry point on
-// `*storobj.Object`. The Disk variants must stamp the bucket's canonical
-// className, and the Network variants (where they exist) must reflect the
-// on-disk value:
+// The test parameterises the on-disk class-name field over two shapes — empty
+// and non-empty-but-mismatched — and exercises every decoder entry point on
+// *storobj.Object after a FlushAndSwitch so the read path is served from a
+// real on-disk segment rather than the memtable:
 //
 //   - storobj.FromBinaryDisk / FromBinaryNetwork
 //   - storobj.FromBinaryOptionalDisk / FromBinaryOptionalNetwork
-//   - storobj.FromBinaryUUIDOnlyDisk (no Network counterpart — UUID-only is
-//     a bucket-read fast path that never runs on raw wire bytes)
+//   - storobj.FromBinaryUUIDOnlyDisk (no Network counterpart)
 //   - (*Object).UnmarshalBinaryDisk / (*Object).UnmarshalBinaryNetwork
 func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 	cases := []struct {
@@ -128,8 +119,8 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				assert.Equal(t, obj.Vector, decodedDisk.Vector)
 				assert.Equal(t, obj.Properties(), decodedDisk.Properties())
 
-				// FromBinaryNetwork: no caller className, falls back to the
-				// on-disk value. This is the wire-receive contract.
+				// FromBinaryNetwork: no caller className; reflects the
+				// on-disk value.
 				decodedNet, err := storobj.FromBinaryNetwork(v)
 				require.NoError(t, err, "cannot unmarshal via FromBinaryNetwork")
 				require.NotNil(t, decodedNet)

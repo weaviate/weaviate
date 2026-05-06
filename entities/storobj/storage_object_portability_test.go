@@ -21,22 +21,17 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestPortability_ClassNamePrecedence tests precedence of caller-supplied className
-// after the deprecation of class name on buckets. The contract is as follows:
+// TestPortability_ClassNamePrecedence locks the contract of the *Disk
+// decoder family on *storobj.Object:
 //
-//  1. When the caller supplies a non-empty className, the caller wins and
-//     the on-disk class-name bytes are skipped. This is the path taken by
-//     every objects-bucket reader inside a shard, and it is what makes
-//     namespace-data portable: a non-namespaced cluster reading bytes that
-//     were marshalled with a qualified `<ns>:<class>` Class produces the
-//     plain class on read, without rewriting on-disk bytes.
+//  1. A non-empty className stamps Object.Class on the decoded payload and
+//     the on-disk class-name bytes are skipped — the caller wins regardless
+//     of what the marshalled bytes carry.
+//  2. An empty className is a contract violation on the *Disk decoders and
+//     produces an error.
 //
-//  2. When the caller supplies an empty className, the decoder falls back
-//     to the on-disk value. This preserves behaviour for callers that have
-//     no canonical class to supply (replica/wire-receive paths where the
-//     class is carried out-of-band by the surrounding protocol).
-//
-// Either way, ID, vectors, and properties round-trip faithfully.
+// ID, vectors, and properties round-trip faithfully whenever the decode
+// succeeds.
 func TestPortability_ClassNamePrecedence(t *testing.T) {
 	build := func(class string) *Object {
 		return FromObject(
@@ -59,28 +54,25 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 		name        string
 		marshaledAs string
 		decodedAs   string
-		want        string
+		want        string // expected Object.Class on success; ignored when expectedErr is true
 		expectedErr bool
 	}{
 		{
-			name:        "caller wins — namespaced bytes read by non-namespaced cluster",
-			marshaledAs: "my_ns:Movies",
+			name:        "caller class overrides on-disk class",
+			marshaledAs: "OnDiskClass",
+			decodedAs:   "CallerClass",
+			want:        "CallerClass",
+		},
+		{
+			name:        "caller class overrides matching on-disk class",
+			marshaledAs: "Movies",
 			decodedAs:   "Movies",
 			want:        "Movies",
-			expectedErr: false,
 		},
 		{
-			name:        "caller wins — non-namespaced bytes read by namespaced cluster",
-			marshaledAs: "Movies",
-			decodedAs:   "other_ns:Movies",
-			want:        "other_ns:Movies",
-			expectedErr: false,
-		},
-		{
-			name:        "error on empty caller class name and empty on-disk class name",
+			name:        "empty caller class name returns an error",
 			marshaledAs: "Movies",
 			decodedAs:   "",
-			want:        "Movies",
 			expectedErr: true,
 		},
 	}
@@ -101,7 +93,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class,
-					"caller-supplied className wins; empty falls back to on-disk")
+					"non-empty caller className must override the on-disk value")
 				assert.Equal(t, before.ID(), after.ID())
 				assert.Equal(t, before.DocID, after.DocID)
 				assert.Equal(t, before.Vector, after.Vector)
@@ -135,17 +127,13 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 	}
 }
 
-// TestPortability_EmptyOnDiskClassName covers the inverse of the fallback
-// case: when the on-disk class-name bytes are empty (length 0), a non-empty
-// caller-supplied className must be used to populate Object.Class. This is
-// the shape produced when a writer marshals a storobj with Object.Class == ""
-// (e.g. wire-receive paths that don't have a class to stamp at marshal time);
-// the decoder must accept the caller's value rather than producing an empty
-// Class.
-func TestPortability_EmptyOnDiskClassName(t *testing.T) {
+// TestEmptyOnDiskClassName asserts that a payload whose on-disk class-name
+// field is empty (length 0) decodes with Object.Class set to the
+// caller-supplied className across all *Disk entry points.
+func TestEmptyOnDiskClassName(t *testing.T) {
 	before := FromObject(
 		&models.Object{
-			Class:              "", // intentionally empty on-disk
+			Class:              "",
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
@@ -166,8 +154,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 		name      string
 		className string
 	}{
-		{name: "plain class name", className: "Movies"},
-		{name: "namespace-qualified class name", className: "my_ns:Movies"},
+		{name: "short class name", className: "Movies"},
 	}
 
 	for _, tc := range cases {
@@ -175,8 +162,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 			t.Run("FromBinaryDisk", func(t *testing.T) {
 				after, err := FromBinaryDisk(data, tc.className)
 				require.NoError(t, err)
-				assert.Equal(t, tc.className, after.Object.Class,
-					"caller-supplied className must populate Object.Class when on-disk bytes are empty")
+				assert.Equal(t, tc.className, after.Object.Class)
 				assert.Equal(t, before.ID(), after.ID())
 				assert.Equal(t, before.DocID, after.DocID)
 				assert.Equal(t, before.Vector, after.Vector)
