@@ -7656,3 +7656,846 @@ func TestNestedFilteringCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 		runOrderings(t, docs, parts, []strfmt.UUID{idMatch})
 	})
 }
+
+// TestNestedFilteringArrayIndexAccess exercises arr[N] positional filters
+// end-to-end through the production write+search pipeline, mirroring the
+// lower-level TestNestedFilteringArrayIndex coverage:
+//
+//   - basic positional: addresses[1].city = "berlin" — matches docs whose
+//     second address element has the value
+//   - out-of-range: addresses[5].city = "berlin" — returns empty when the
+//     index is beyond the array length
+//   - arr[N] in correlated AND: cars[1].make = "bmw" AND
+//     cars[1].tires.width = 205 — both conditions pinned to the same car
+//     index; rejects docs that don't have a cars[1]
+//   - multi-root (object[] variant only): docs[K].addresses[1].city —
+//     verifies arr[N] resolves correctly across multiple root elements
+//
+// Run under both DataTypeObject (top-level "doc") and DataTypeObjectArray
+// (top-level "docs") root properties to cover both encodings.
+func TestNestedFilteringArrayIndexAccess(t *testing.T) {
+	const nestedClass = "ArrIdxAccess"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "docs", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	addr := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: operands,
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ---------- DataTypeObject (top-level "doc") ----------
+	t.Run("doc_object", func(t *testing.T) {
+		// Sub-test 1: addresses[1].city = "berlin"
+		t.Run("addresses[1].city_berlin", func(t *testing.T) {
+			idMatch := uuid(1)
+			idNoMatchSecondAddrWrongCity := uuid(2)
+			idNoMatchSecondAddrAbsent := uuid(3)
+			idNoMatchFirstIsBerlin := uuid(4)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+					addr("city", "paris"), addr("city", "berlin", "postcode", "10115"),
+				)}}, note: "addresses[1] = berlin"},
+				{id: idNoMatchSecondAddrWrongCity, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+					addr("city", "paris"), addr("city", "munich"),
+				)}}, note: "addresses[1] = munich"},
+				{id: idNoMatchSecondAddrAbsent, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+					addr("city", "berlin"),
+				)}}, note: "only addresses[0]; no addresses[1]"},
+				{id: idNoMatchFirstIsBerlin, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+					addr("city", "berlin"), addr("city", "munich"),
+				)}}, note: "addresses[0]=berlin but [1]=munich"},
+			}
+			runScenario(t, docs, textFilter("doc.addresses[1].city", "berlin"), []strfmt.UUID{idMatch})
+		})
+
+		// Sub-test 2: addresses[5].city = "berlin" (out of range — no doc has 6+ addresses)
+		t.Run("addresses[5].city_out_of_range", func(t *testing.T) {
+			idDoc := uuid(1)
+			docs := []docDef{
+				{id: idDoc, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+					addr("city", "berlin"), addr("city", "paris"),
+				)}}, note: "only 2 addresses"},
+			}
+			runScenario(t, docs, textFilter("doc.addresses[5].city", "berlin"), []strfmt.UUID{})
+		})
+
+		// Sub-test 3: cars[1].make = "bmw" AND cars[1].tires.width = 205
+		t.Run("cars[1]_make_AND_cars[1].tires.width", func(t *testing.T) {
+			idMatch := uuid(1)
+			idNoMatchSecondCarAbsent := uuid(2)
+			idNoMatchWrongMake := uuid(3)
+			idNoMatchSplitCars := uuid(4)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "tesla"),
+					car("make", "bmw", "tires", asArr(tire(205))),
+				)}}, note: "cars[1] has both make=bmw and tires.width=205"},
+				{id: idNoMatchSecondCarAbsent, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "bmw", "tires", asArr(tire(205))),
+				)}}, note: "only cars[0]; satisfies neither pinned cars[1] condition"},
+				{id: idNoMatchWrongMake, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "tesla"),
+					car("make", "tesla", "tires", asArr(tire(205))),
+				)}}, note: "cars[1] has tires.width=205 but make=tesla, not bmw"},
+				{id: idNoMatchSplitCars, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "bmw"),
+					car("make", "tesla", "tires", asArr(tire(205))),
+				)}}, note: "make=bmw in cars[0]; width=205 in cars[1] — different cars"},
+			}
+			filter := andFilter(
+				textFilter("doc.cars[1].make", "bmw"),
+				intFilter("doc.cars[1].tires.width", 205),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+
+		// Sub-test 4: arr[N] against an empty intermediate array or absent
+		// property — neither should match (no element exists at index N).
+		t.Run("cars[0].make_empty_or_absent", func(t *testing.T) {
+			idEmptyArr := uuid(1)   // cars: []
+			idAbsentCars := uuid(2) // cars key omitted entirely
+			idMatch := uuid(3)
+			docs := []docDef{
+				{id: idEmptyArr, props: map[string]any{"doc": map[string]any{"cars": []any{}}}, note: "cars=[]"},
+				{id: idAbsentCars, props: map[string]any{"doc": map[string]any{}}, note: "no cars key"},
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "bmw"))}}, note: "cars[0]=bmw"},
+			}
+			runScenario(t, docs, textFilter("doc.cars[0].make", "bmw"), []strfmt.UUID{idMatch})
+		})
+	})
+
+	// ---------- DataTypeObjectArray (top-level "docs") ----------
+	t.Run("docs_array", func(t *testing.T) {
+		// Sub-test 1: docs.addresses[1].city = "berlin" (same shape as object variant,
+		// but the root is an object[] so we also test arr[N] across multiple root elements)
+		t.Run("docs.addresses[1].city_berlin", func(t *testing.T) {
+			idMatchSingleRoot := uuid(1)
+			idMatchSecondRoot := uuid(2)
+			idNoMatchAbsent := uuid(3)
+			docs := []docDef{
+				{id: idMatchSingleRoot, props: map[string]any{"docs": asArr(
+					map[string]any{"addresses": asArr(addr("city", "paris"), addr("city", "berlin"))},
+				)}, note: "single root; addresses[1] = berlin"},
+				{id: idMatchSecondRoot, props: map[string]any{"docs": asArr(
+					map[string]any{"addresses": asArr(addr("city", "munich"))},
+					map[string]any{"addresses": asArr(addr("city", "paris"), addr("city", "berlin"))},
+				)}, note: "second root has matching addresses[1]"},
+				{id: idNoMatchAbsent, props: map[string]any{"docs": asArr(
+					map[string]any{"addresses": asArr(addr("city", "berlin"))},
+				)}, note: "no addresses[1] anywhere"},
+			}
+			runScenario(t, docs, textFilter("docs.addresses[1].city", "berlin"), []strfmt.UUID{idMatchSingleRoot, idMatchSecondRoot})
+		})
+
+		// Sub-test 2: out-of-range arr[N]
+		t.Run("docs.addresses[5].city_out_of_range", func(t *testing.T) {
+			idDoc := uuid(1)
+			docs := []docDef{
+				{id: idDoc, props: map[string]any{"docs": asArr(
+					map[string]any{"addresses": asArr(addr("city", "berlin"), addr("city", "paris"))},
+				)}, note: "only 2 addresses"},
+			}
+			runScenario(t, docs, textFilter("docs.addresses[5].city", "berlin"), []strfmt.UUID{})
+		})
+
+		// Sub-test 3: arr[N] in correlated AND, also exercising root_idx disambiguation
+		t.Run("docs.cars[1]_make_AND_cars[1].tires.width", func(t *testing.T) {
+			idMatch := uuid(1)
+			idMatchInSecondRoot := uuid(2)
+			idNoMatchSplitRoots := uuid(3)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(
+						car("make", "tesla"),
+						car("make", "bmw", "tires", asArr(tire(205))),
+					)},
+				)}, note: "cars[1] in single root has both"},
+				{id: idMatchInSecondRoot, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+					map[string]any{"cars": asArr(
+						car("make", "tesla"),
+						car("make", "bmw", "tires", asArr(tire(205))),
+					)},
+				)}, note: "second root's cars[1] has both"},
+				{id: idNoMatchSplitRoots, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(
+						car("make", "tesla"),
+						car("make", "bmw"),
+					)},
+					map[string]any{"cars": asArr(
+						car("make", "tesla"),
+						car("make", "tesla", "tires", asArr(tire(205))),
+					)},
+				)}, note: "make=bmw in root[0].cars[1]; width=205 in root[1].cars[1] — different roots"},
+			}
+			filter := andFilter(
+				textFilter("docs.cars[1].make", "bmw"),
+				intFilter("docs.cars[1].tires.width", 205),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchInSecondRoot})
+		})
+	})
+}
+
+// TestNestedFilteringArrayIndexLevels exercises positional arr[N] access at
+// different nesting levels (root, mid-1, mid-2) and the dispatch behavior of
+// AND / OR over conditions pinned to *different* arr[N] indices at the same
+// LCA. Same-element AND on the same index is covered by
+// TestNestedFilteringArrayIndexAccess; this test focuses on
+//   - levels: root[N], cars[N], cars.tires[N]
+//   - combinations: AND with conflicting indices (partitioned via
+//     groupChildrenByArrayIndicesKey) and OR (per-clause union).
+func TestNestedFilteringArrayIndexLevels(t *testing.T) {
+	const nestedClass = "ArrIdxLevels"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "docs", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ---------- DataTypeObject (top-level "doc") ----------
+	t.Run("doc_object", func(t *testing.T) {
+		// Mid-1 positional: doc.cars[N].make
+		t.Run("mid1_cars[N].make_positional", func(t *testing.T) {
+			id1 := uuid(1) // cars=[tesla,bmw]
+			id2 := uuid(2) // cars=[bmw]
+			id3 := uuid(3) // cars=[bmw,tesla]
+			docs := []docDef{
+				{id: id1, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "tesla"), car("make", "bmw"))}}, note: "[tesla,bmw]"},
+				{id: id2, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "bmw"))}}, note: "[bmw]"},
+				{id: id3, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "bmw"), car("make", "tesla"))}}, note: "[bmw,tesla]"},
+			}
+			t.Run("cars[0].make=bmw", func(t *testing.T) {
+				runScenario(t, docs, textFilter("doc.cars[0].make", "bmw"), []strfmt.UUID{id2, id3})
+			})
+			t.Run("cars[1].make=bmw", func(t *testing.T) {
+				runScenario(t, docs, textFilter("doc.cars[1].make", "bmw"), []strfmt.UUID{id1})
+			})
+		})
+
+		// Mid-2 positional: doc.cars.tires[N].width (cars unindexed; only tires pinned)
+		t.Run("mid2_tires[N].width_positional", func(t *testing.T) {
+			id1 := uuid(1) // tires=[205,305]
+			id2 := uuid(2) // tires=[205]
+			id3 := uuid(3) // tires=[305,205]
+			docs := []docDef{
+				{id: id1, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(205), tire(305))))}}, note: "tires=[205,305]"},
+				{id: id2, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(205))))}}, note: "tires=[205]"},
+				{id: id3, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(305), tire(205))))}}, note: "tires=[305,205]"},
+			}
+			t.Run("tires[0].width=205", func(t *testing.T) {
+				runScenario(t, docs, intFilter("doc.cars.tires[0].width", 205), []strfmt.UUID{id1, id2})
+			})
+			t.Run("tires[1].width=205", func(t *testing.T) {
+				runScenario(t, docs, intFilter("doc.cars.tires[1].width", 205), []strfmt.UUID{id3})
+			})
+		})
+
+		// AND with conflicting cars[N] indices: groupChildrenByArrayIndicesKey
+		// partitions the two clauses into independent groups (each pinned to a
+		// different K), then ANDs at docID level.
+		t.Run("AND_cars[0]=tesla_AND_cars[1]=bmw", func(t *testing.T) {
+			idMatch := uuid(1)            // cars=[tesla,bmw]
+			idNoMatchSwapped := uuid(2)   // cars=[bmw,tesla]
+			idNoMatchOnlyFirst := uuid(3) // cars=[tesla]
+			idNoMatchSecondCarOnly := uuid(4)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "tesla"), car("make", "bmw"))}}, note: "[tesla,bmw]"},
+				{id: idNoMatchSwapped, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "bmw"), car("make", "tesla"))}}, note: "[bmw,tesla] swapped"},
+				{id: idNoMatchOnlyFirst, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "tesla"))}}, note: "[tesla] only"},
+				{id: idNoMatchSecondCarOnly, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "volvo"), car("make", "bmw"))}}, note: "[volvo,bmw] cars[0]≠tesla"},
+			}
+			filter := andFilter(
+				textFilter("doc.cars[0].make", "tesla"),
+				textFilter("doc.cars[1].make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+
+		// OR with conflicting cars[N] indices: each clause resolved independently
+		// and unioned at docID level (no partitioning needed).
+		t.Run("OR_cars[0]=tesla_OR_cars[1]=bmw", func(t *testing.T) {
+			id1 := uuid(1) // [tesla,bmw] — matches via either side
+			id2 := uuid(2) // [tesla] — matches via cars[0]
+			id3 := uuid(3) // [volvo,bmw] — matches via cars[1]
+			id4 := uuid(4) // [volvo] — no match
+			docs := []docDef{
+				{id: id1, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "tesla"), car("make", "bmw"))}}, note: "[tesla,bmw]"},
+				{id: id2, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "tesla"))}}, note: "[tesla]"},
+				{id: id3, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "volvo"), car("make", "bmw"))}}, note: "[volvo,bmw]"},
+				{id: id4, props: map[string]any{"doc": map[string]any{"cars": asArr(car("make", "volvo"))}}, note: "[volvo]"},
+			}
+			filter := orFilter(
+				textFilter("doc.cars[0].make", "tesla"),
+				textFilter("doc.cars[1].make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{id1, id2, id3})
+		})
+
+		// Multi-level pin in a single clause: doc.cars[0].tires[1].width=205.
+		// Both `cars` and `tires` indices are pinned in one path → stacked
+		// IdxKey constraints on the same chain. Different from 1a's
+		// cars[1].tires.width (only cars pinned) and 1b's tires[N].width
+		// (only tires pinned).
+		t.Run("multi_level_pin_cars[0].tires[1].width", func(t *testing.T) {
+			idMatch := uuid(1)              // cars[0].tires=[305,205]
+			idNoMatchTires0Is205 := uuid(2) // cars[0].tires=[205,305] — match in tires[0] not tires[1]
+			idNoMatchSingleTire := uuid(3)  // cars[0].tires=[205] — no tires[1]
+			idNoMatchSplitCars := uuid(4)   // cars[0].tires=[305], cars[1].tires=[305,205]
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(305), tire(205))))}}, note: "cars[0].tires[1]=205"},
+				{id: idNoMatchTires0Is205, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(205), tire(305))))}}, note: "cars[0].tires[0]=205"},
+				{id: idNoMatchSingleTire, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(205))))}}, note: "cars[0] only has tires[0]"},
+				{id: idNoMatchSplitCars, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("tires", asArr(tire(305))),
+					car("tires", asArr(tire(305), tire(205))),
+				)}}, note: "match in cars[1].tires[1] not cars[0].tires[1]"},
+			}
+			runScenario(t, docs, intFilter("doc.cars[0].tires[1].width", 205), []strfmt.UUID{idMatch})
+		})
+
+		// Three-clause AND with overlapping indices:
+		//   cars[0].make=tesla AND cars[1].make=bmw AND cars[1].tires.width=205
+		// Partitioner groups the two cars[1] clauses together (correlated AND
+		// over the same physical car at index 1) and ANDs that with the
+		// independent cars[0] group at docID level.
+		t.Run("AND_three_clause_partitioned_cars[0]_AND_cars[1]_pair", func(t *testing.T) {
+			idMatch := uuid(1) // [tesla, bmw+tires205]
+			idNoMatchCars1MissingWidth := uuid(2)
+			idNoMatchCars0Wrong := uuid(3)
+			idNoMatchSplitWidth := uuid(4) // tires.width=205 in cars[0] not cars[1]
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "tesla"),
+					car("make", "bmw", "tires", asArr(tire(205))),
+				)}}, note: "cars[0]=tesla, cars[1]=bmw+tires205"},
+				{id: idNoMatchCars1MissingWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "tesla"),
+					car("make", "bmw"),
+				)}}, note: "cars[1] missing tires"},
+				{id: idNoMatchCars0Wrong, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "volvo"),
+					car("make", "bmw", "tires", asArr(tire(205))),
+				)}}, note: "cars[0]=volvo not tesla"},
+				{id: idNoMatchSplitWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					car("make", "tesla", "tires", asArr(tire(205))),
+					car("make", "bmw"),
+				)}}, note: "tires.width=205 in cars[0] not cars[1]"},
+			}
+			filter := andFilter(
+				textFilter("doc.cars[0].make", "tesla"),
+				textFilter("doc.cars[1].make", "bmw"),
+				intFilter("doc.cars[1].tires.width", 205),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+	})
+
+	// ---------- DataTypeObjectArray (top-level "docs") ----------
+	t.Run("docs_array", func(t *testing.T) {
+		// Root positional: docs[N].cars.make — exercises root_idx encoding.
+		t.Run("root_docs[N].cars.make_positional", func(t *testing.T) {
+			id1 := uuid(1) // docs=[{tesla},{bmw}]
+			id2 := uuid(2) // docs=[{bmw}]
+			id3 := uuid(3) // docs=[{bmw},{tesla}]
+			docs := []docDef{
+				{id: id1, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "[{tesla},{bmw}]"},
+				{id: id2, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "[{bmw}]"},
+				{id: id3, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+				)}, note: "[{bmw},{tesla}]"},
+			}
+			t.Run("docs[0].cars.make=bmw", func(t *testing.T) {
+				runScenario(t, docs, textFilter("docs[0].cars.make", "bmw"), []strfmt.UUID{id2, id3})
+			})
+			t.Run("docs[1].cars.make=bmw", func(t *testing.T) {
+				runScenario(t, docs, textFilter("docs[1].cars.make", "bmw"), []strfmt.UUID{id1})
+			})
+		})
+
+		// AND with conflicting docs[N] indices (root level partitioning).
+		t.Run("AND_docs[0]=tesla_AND_docs[1]=bmw", func(t *testing.T) {
+			idMatch := uuid(1)
+			idNoMatchSwapped := uuid(2)
+			idNoMatchOnlyFirst := uuid(3)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "[{tesla},{bmw}]"},
+				{id: idNoMatchSwapped, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+				)}, note: "[{bmw},{tesla}] swapped"},
+				{id: idNoMatchOnlyFirst, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+				)}, note: "[{tesla}] only"},
+			}
+			filter := andFilter(
+				textFilter("docs[0].cars.make", "tesla"),
+				textFilter("docs[1].cars.make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+
+		// OR with conflicting docs[N] indices: per-clause union.
+		t.Run("OR_docs[0]=tesla_OR_docs[1]=bmw", func(t *testing.T) {
+			id1 := uuid(1) // [{tesla},{bmw}] — both
+			id2 := uuid(2) // [{tesla}] — docs[0]
+			id3 := uuid(3) // [{volvo},{bmw}] — docs[1]
+			id4 := uuid(4) // [{volvo}] — no match
+			docs := []docDef{
+				{id: id1, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "[{tesla},{bmw}]"},
+				{id: id2, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+				)}, note: "[{tesla}]"},
+				{id: id3, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "volvo"))},
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "[{volvo},{bmw}]"},
+				{id: id4, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "volvo"))},
+				)}, note: "[{volvo}]"},
+			}
+			filter := orFilter(
+				textFilter("docs[0].cars.make", "tesla"),
+				textFilter("docs[1].cars.make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{id1, id2, id3})
+		})
+
+		// Combined root + intermediate pin in a single clause:
+		// docs[1].cars[0].make=bmw — both root_idx and intermediate IdxKey
+		// applied to the same path simultaneously.
+		t.Run("multi_level_pin_docs[1].cars[0].make", func(t *testing.T) {
+			idMatch := uuid(1)             // docs=[{tesla},{bmw}] → docs[1].cars[0]=bmw
+			idNoMatchDocs1Tesla := uuid(2) // docs=[{bmw},{tesla}] → docs[1].cars[0]=tesla
+			idNoMatchSingleRoot := uuid(3) // docs=[{bmw}] → no docs[1]
+			idNoMatchCarsAt1 := uuid(4)    // docs=[{tesla},{tesla,bmw}] → docs[1].cars[0]=tesla, cars[1]=bmw
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "docs[1].cars[0]=bmw"},
+				{id: idNoMatchDocs1Tesla, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+				)}, note: "docs[1].cars[0]=tesla"},
+				{id: idNoMatchSingleRoot, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "bmw"))},
+				)}, note: "single root, no docs[1]"},
+				{id: idNoMatchCarsAt1, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(car("make", "tesla"))},
+					map[string]any{"cars": asArr(car("make", "tesla"), car("make", "bmw"))},
+				)}, note: "docs[1].cars[1]=bmw but cars[0]=tesla"},
+			}
+			runScenario(t, docs, textFilter("docs[1].cars[0].make", "bmw"), []strfmt.UUID{idMatch})
+		})
+	})
+}
+
+// TestNestedFilteringMixedArrayIndexConstraints exercises correlated AND when
+// clauses at the same LCA have *different* arr[N] constraint sets — one
+// unconstrained, the other pinned. Compatibility grouping treats {} and {N}
+// as compatible (same compatibility key) → both clauses share the same
+// resolveNestedCorrelatedGroup call, and same-element semantics force the
+// unconstrained side to match the same physical element pinned by the [N]
+// side. This is the cross-cutting case between Levels (1b) and the basic
+// arr[N] same-K AND in Access (1a).
+func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
+	const nestedClass = "ArrIdxMixed"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "docs", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	obj := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ---------- DataTypeObject (top-level "doc") ----------
+	t.Run("doc_object", func(t *testing.T) {
+		// Intermediate-level mix: doc.cars.color=red (unconstrained) AND
+		// doc.cars[1].make=bmw (pinned to cars[1]). Same-car semantics: the
+		// unconstrained color must be satisfied at the *same* car element as the
+		// pinned make → only docs whose cars[1] has BOTH red and bmw match.
+		t.Run("intermediate_color_AND_cars[1].make", func(t *testing.T) {
+			idMatch := uuid(1)         // cars=[{green},{red,bmw}] — cars[1] has both
+			idNoMatchSplit := uuid(2)  // cars=[{red},{bmw}] — different cars
+			idNoMatchNoRed := uuid(3)  // cars=[{green},{green,bmw}] — no red anywhere
+			idNoMatchSingle := uuid(4) // cars=[{red,bmw}] — only cars[0]; no cars[1]
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					obj("color", "green"),
+					obj("color", "red", "make", "bmw"),
+				)}}, note: "cars[1] has color=red AND make=bmw"},
+				{id: idNoMatchSplit, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					obj("color", "red"),
+					obj("make", "bmw"),
+				)}}, note: "red in cars[0]; bmw in cars[1]"},
+				{id: idNoMatchNoRed, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					obj("color", "green"),
+					obj("color", "green", "make", "bmw"),
+				)}}, note: "no red anywhere"},
+				{id: idNoMatchSingle, props: map[string]any{"doc": map[string]any{"cars": asArr(
+					obj("color", "red", "make", "bmw"),
+				)}}, note: "only cars[0]; no cars[1] to satisfy pinned make"},
+			}
+			filter := andFilter(
+				textFilter("doc.cars.color", "red"),
+				textFilter("doc.cars[1].make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+	})
+
+	// ---------- DataTypeObjectArray (top-level "docs") ----------
+	t.Run("docs_array", func(t *testing.T) {
+		// Root-level mix: docs.addresses.city=berlin (unconstrained) AND
+		// docs[1].cars.make=bmw (pinned to root[1]). Same-root-element semantics:
+		// the unconstrained city must be satisfied in the *same* root element as
+		// the pinned make → only docs whose root[1] has BOTH berlin and bmw match.
+		t.Run("root_addresses.city_AND_docs[1].cars.make", func(t *testing.T) {
+			idMatch := uuid(1)        // root[1] has berlin AND bmw
+			idNoMatchSplit := uuid(2) // berlin in root[0]; bmw in root[1] — different roots
+			idNoMatchNoBerlin := uuid(3)
+			idNoMatchSingleRoot := uuid(4) // only root[0]; no root[1]
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"docs": asArr(
+					obj("addresses", asArr(obj("city", "munich")), "cars", asArr(obj("make", "tesla"))),
+					obj("addresses", asArr(obj("city", "berlin")), "cars", asArr(obj("make", "bmw"))),
+				)}, note: "root[1] has berlin and bmw"},
+				{id: idNoMatchSplit, props: map[string]any{"docs": asArr(
+					obj("addresses", asArr(obj("city", "berlin")), "cars", asArr(obj("make", "tesla"))),
+					obj("addresses", asArr(obj("city", "munich")), "cars", asArr(obj("make", "bmw"))),
+				)}, note: "berlin in root[0]; bmw in root[1]"},
+				{id: idNoMatchNoBerlin, props: map[string]any{"docs": asArr(
+					obj("addresses", asArr(obj("city", "munich")), "cars", asArr(obj("make", "bmw"))),
+					obj("addresses", asArr(obj("city", "paris")), "cars", asArr(obj("make", "bmw"))),
+				)}, note: "no berlin anywhere"},
+				{id: idNoMatchSingleRoot, props: map[string]any{"docs": asArr(
+					obj("addresses", asArr(obj("city", "berlin")), "cars", asArr(obj("make", "bmw"))),
+				)}, note: "only root[0]; no root[1] to satisfy pinned make"},
+			}
+			filter := andFilter(
+				textFilter("docs.addresses.city", "berlin"),
+				textFilter("docs[1].cars.make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+
+		// Intermediate-level mix: same as doc_object intermediate test but with
+		// object[] root. Exercises the same compatibility-grouping logic when the
+		// LCA is at cars and root is object[].
+		t.Run("intermediate_color_AND_docs.cars[1].make", func(t *testing.T) {
+			idMatch := uuid(1)
+			idNoMatchSplitCars := uuid(2)
+			idNoMatchSplitRoots := uuid(3)
+			docs := []docDef{
+				{id: idMatch, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(obj("color", "green"), obj("color", "red", "make", "bmw"))},
+				)}, note: "single root, cars[1] has both"},
+				{id: idNoMatchSplitCars, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(obj("color", "red"), obj("make", "bmw"))},
+				)}, note: "single root, red in cars[0], bmw in cars[1]"},
+				{id: idNoMatchSplitRoots, props: map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(obj("color", "red"))},
+					map[string]any{"cars": asArr(obj("color", "green"), obj("make", "bmw"))},
+				)}, note: "red in root[0].cars[0]; bmw in root[1].cars[1] — different cars"},
+			}
+			filter := andFilter(
+				textFilter("docs.cars.color", "red"),
+				textFilter("docs.cars[1].make", "bmw"),
+			)
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch})
+		})
+	})
+}
