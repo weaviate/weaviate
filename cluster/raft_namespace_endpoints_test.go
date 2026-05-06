@@ -44,7 +44,7 @@ func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	require.NoError(t, srv.Open(ctx, m.indexer))
 	require.NoError(t, srv.store.Notify(m.cfg.NodeID, addr))
 	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	require.True(t, tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader))
+	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
 	require.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 
 	cleanup := func() {

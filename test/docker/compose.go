@@ -157,6 +157,7 @@ type Compose struct {
 	withAutoschema                 bool
 	withMockOIDC                   bool
 	withMockOIDCWithCertificate    bool
+	withMockOIDCNamespacedUsers    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
@@ -627,6 +628,14 @@ func (d *Compose) WithMockOIDCWithCertificate() *Compose {
 	return d
 }
 
+// WithMockOIDCNamespacedUsers preseeds mockoidc with users that pass
+// OIDC classification on a namespace-enabled cluster
+// (oidc-namespaced-customer1, oidc-namespaced-customer2, oidc-global).
+func (d *Compose) WithMockOIDCNamespacedUsers() *Compose {
+	d.withMockOIDCNamespacedUsers = true
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -911,7 +920,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			}
 		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
+		preseedMode := ""
+		if d.withMockOIDCNamespacedUsers {
+			preseedMode = "namespaces"
+		}
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey, preseedMode)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}

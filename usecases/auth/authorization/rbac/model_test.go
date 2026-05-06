@@ -12,11 +12,19 @@
 package rbac
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func testKeyMatch5(t *testing.T, key1, key2 string, expected bool) {
@@ -473,4 +481,358 @@ func TestRewritePolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+// freshPolicyDir creates a per-test rbac storage directory. Sets a
+// sentinel build.Version so re-Init against the same directory parses
+// the version file (empty build.Version corrupts it).
+func freshPolicyDir(t *testing.T) string {
+	t.Helper()
+	tmp, err := os.MkdirTemp("", "rbac-init-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(tmp) })
+	if build.Version == "" {
+		build.Version = "1.30.0"
+	}
+	return tmp
+}
+
+// rolePolicies returns the resource/verb/domain rows currently registered for
+// roleName.
+func rolePolicies(t *testing.T, m *Manager, roleName string) [][]string {
+	t.Helper()
+	rows, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
+	require.NoError(t, err)
+	return rows
+}
+
+// roleHasResourceVerb reports whether roleName has any policy with a
+// matching resource pattern and verb.
+func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
+	for _, r := range rows {
+		if strings.Contains(r[1], resourceContains) && r[2] == verb {
+			return true
+		}
+	}
+	return false
+}
+
+// TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed asserts
+// admin/viewer on NS-enabled clusters cover only collections/data/tenants/
+// aliases.
+func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
+	dir := freshPolicyDir(t)
+	conf := rbacconf.Config{Enabled: true}
+	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+	require.NotNil(t, enforcer)
+
+	m := &Manager{casbin: enforcer, namespacesEnabled: true}
+
+	adminRows := rolePolicies(t, m, authorization.Admin)
+	viewerRows := rolePolicies(t, m, authorization.Viewer)
+	rootRows := rolePolicies(t, m, authorization.Root)
+	readOnlyRows := rolePolicies(t, m, authorization.ReadOnly)
+
+	// admin: must contain CRUD over schema/data/aliases; tenant rows
+	// share the schema domain. No backups/replicate/cluster/nodes/users/
+	// roles/groups/namespaces/mcp.
+	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.CREATE))
+	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.UPDATE))
+	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.DELETE))
+	assert.True(t, roleHasResourceVerb(adminRows, "data/collections/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(adminRows, "aliases/collections/", authorization.READ))
+	for _, prohibited := range []string{
+		"backups/", "cluster/", "nodes/", "users/", "roles/", "groups/", "namespaces/", "replicate/", "mcp",
+	} {
+		for _, row := range adminRows {
+			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)
+		}
+	}
+
+	// viewer: read-only over the same domains, no other verbs, no other
+	// domains.
+	for _, row := range viewerRows {
+		assert.Equal(t, authorization.READ, row[2], "viewer (NS-enabled) must only have READ verb")
+	}
+	assert.True(t, roleHasResourceVerb(viewerRows, "schema/collections/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(viewerRows, "data/collections/", authorization.READ))
+
+	// root and read-only keep wildcard cluster-wide policies.
+	require.Len(t, rootRows, 1)
+	assert.Equal(t, []string{conv.PrefixRoleName(authorization.Root), "*", conv.VALID_VERBS, "*"}, rootRows[0])
+	require.Len(t, readOnlyRows, 1)
+	assert.Equal(t, []string{conv.PrefixRoleName(authorization.ReadOnly), "*", authorization.READ, "*"}, readOnlyRows[0])
+}
+
+// TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSDisabled is the
+// NS-disabled control: the policy wipe-and-rebuild on every Init must not
+// touch user→role groupings created via the API.
+func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSDisabled(t *testing.T) {
+	dir := freshPolicyDir(t)
+	conf := rbacconf.Config{Enabled: true}
+
+	enforcer, err := Init(conf, dir, config.Authentication{}, false)
+	require.NoError(t, err)
+
+	// API-assign admin to a DB user.
+	user := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
+	_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(authorization.Admin))
+	require.NoError(t, err)
+	require.NoError(t, enforcer.SavePolicy())
+
+	// Simulate a restart: re-Init against the same on-disk policy CSV.
+	enforcer2, err := Init(conf, dir, config.Authentication{}, false)
+	require.NoError(t, err)
+
+	roles, err := enforcer2.GetRolesForUser(user)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Admin),
+		"API-assigned admin grouping must survive restart on NS-disabled")
+}
+
+// TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin
+// asserts an API-assigned admin survives restart on NS-enabled clusters,
+// and the policy table re-converges to the narrowed shape on every Init.
+func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin(t *testing.T) {
+	dir := freshPolicyDir(t)
+	conf := rbacconf.Config{Enabled: true}
+
+	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+
+	beforeRows, err := enforcer.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Admin))
+	require.NoError(t, err)
+	require.NotEmpty(t, beforeRows)
+
+	user := conv.UserNameWithTypeFromId("customer1:alice", authentication.AuthTypeDb)
+	_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(authorization.Admin))
+	require.NoError(t, err)
+	require.NoError(t, enforcer.SavePolicy())
+
+	// Restart.
+	enforcer2, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+
+	roles, err := enforcer2.GetRolesForUser(user)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Admin),
+		"API-assigned admin grouping must survive restart on NS-enabled")
+
+	afterRows, err := enforcer2.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Admin))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, beforeRows, afterRows,
+		"admin policy rows must re-converge to the canonical narrowed shape after restart")
+}
+
+// TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledViewer
+// mirrors the admin survival test for viewer.
+func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledViewer(t *testing.T) {
+	dir := freshPolicyDir(t)
+	conf := rbacconf.Config{Enabled: true}
+
+	enforcer, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+
+	beforeRows, err := enforcer.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Viewer))
+	require.NoError(t, err)
+	require.NotEmpty(t, beforeRows)
+
+	user := conv.UserNameWithTypeFromId("customer1:bob", authentication.AuthTypeDb)
+	_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(authorization.Viewer))
+	require.NoError(t, err)
+	require.NoError(t, enforcer.SavePolicy())
+
+	enforcer2, err := Init(conf, dir, config.Authentication{}, true)
+	require.NoError(t, err)
+
+	roles, err := enforcer2.GetRolesForUser(user)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer),
+		"API-assigned viewer grouping must survive restart on NS-enabled")
+
+	afterRows, err := enforcer2.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Viewer))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, beforeRows, afterRows,
+		"viewer policy rows must re-converge to the canonical narrowed shape after restart")
+}
+
+// TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart asserts
+// env-var-only role groupings (root, read-only) are wiped on every boot —
+// a stray grouping not backed by config does not persist.
+func TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		role string
+	}{
+		{"root", authorization.Root},
+		{"read-only", authorization.ReadOnly},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			conf := rbacconf.Config{Enabled: true}
+
+			enforcer, err := Init(conf, dir, config.Authentication{}, false)
+			require.NoError(t, err)
+
+			user := conv.UserNameWithTypeFromId("alice", authentication.AuthTypeDb)
+			_, err = enforcer.AddRoleForUser(user, conv.PrefixRoleName(tc.role))
+			require.NoError(t, err)
+			require.NoError(t, enforcer.SavePolicy())
+
+			// Restart with the same (empty) config — the user is not in
+			// RootUsers / ReadOnlyGroups, so the grouping should not be
+			// re-applied.
+			enforcer2, err := Init(conf, dir, config.Authentication{}, false)
+			require.NoError(t, err)
+
+			roles, err := enforcer2.GetRolesForUser(user)
+			require.NoError(t, err)
+			assert.NotContains(t, roles, conv.PrefixRoleName(tc.role),
+				"grouping for env-var-only role %q must be wiped on restart when not present in config", tc.role)
+		})
+	}
+}
+
+// TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart
+// asserts that dropping an env-var assignment between boots removes it
+// from the next boot's grouping table.
+func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *testing.T) {
+	dir := freshPolicyDir(t)
+
+	rootUser := "alice"
+	confBefore := rbacconf.Config{
+		Enabled:        true,
+		RootUsers:      []string{rootUser},
+		ReadOnlyGroups: []string{"auditors"},
+	}
+	authNconf := config.Authentication{
+		APIKey: config.StaticAPIKey{Enabled: true, Users: []string{rootUser}},
+	}
+
+	enforcer, err := Init(confBefore, dir, authNconf, false)
+	require.NoError(t, err)
+
+	rootSubject := conv.UserNameWithTypeFromId(rootUser, authentication.AuthTypeDb)
+	groupSubject := conv.PrefixGroupName("auditors")
+
+	roles, err := enforcer.GetRolesForUser(rootSubject)
+	require.NoError(t, err)
+	require.Contains(t, roles, conv.PrefixRoleName(authorization.Root))
+
+	roles, err = enforcer.GetRolesForUser(groupSubject)
+	require.NoError(t, err)
+	require.Contains(t, roles, conv.PrefixRoleName(authorization.ReadOnly))
+
+	// Operator removes both env vars, restarts.
+	confAfter := rbacconf.Config{Enabled: true}
+	enforcer2, err := Init(confAfter, dir, authNconf, false)
+	require.NoError(t, err)
+
+	roles, err = enforcer2.GetRolesForUser(rootSubject)
+	require.NoError(t, err)
+	assert.NotContains(t, roles, conv.PrefixRoleName(authorization.Root),
+		"root assignment removed from config must be gone after restart")
+
+	roles, err = enforcer2.GetRolesForUser(groupSubject)
+	require.NoError(t, err)
+	assert.NotContains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
+		"read-only group assignment removed from config must be gone after restart")
+}
+
+// TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate asserts
+// env-var add-only behaviour for admin/viewer: removing the env var between
+// boots does not revoke the grouping (Casbin rows aren't tagged by source,
+// so the wipe is limited to root/read-only). Operators must revoke via API.
+func TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		namespacesEnabled bool
+	}{
+		{"NS-disabled", false},
+		{"NS-enabled", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+
+			user := "alice"
+			confBefore := rbacconf.Config{
+				Enabled:     true,
+				AdminUsers:  []string{user},
+				ViewerUsers: []string{user},
+			}
+			authNconf := config.Authentication{
+				APIKey: config.StaticAPIKey{Enabled: true, Users: []string{user}},
+			}
+
+			enforcer, err := Init(confBefore, dir, authNconf, tc.namespacesEnabled)
+			require.NoError(t, err)
+
+			subject := conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb)
+			roles, err := enforcer.GetRolesForUser(subject)
+			require.NoError(t, err)
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Admin))
+			require.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer))
+
+			// Operator drops the env vars and restarts.
+			confAfter := rbacconf.Config{Enabled: true}
+			enforcer2, err := Init(confAfter, dir, authNconf, tc.namespacesEnabled)
+			require.NoError(t, err)
+
+			roles, err = enforcer2.GetRolesForUser(subject)
+			require.NoError(t, err)
+			assert.Contains(t, roles, conv.PrefixRoleName(authorization.Admin),
+				"admin env-var assignment must persist after restart even when removed from config (locked asymmetry)")
+			assert.Contains(t, roles, conv.PrefixRoleName(authorization.Viewer),
+				"viewer env-var assignment must persist after restart even when removed from config (locked asymmetry)")
+		})
+	}
+}
+
+// TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig asserts
+// env-var assignments for root/read-only are re-applied from config on
+// every boot, even after the wipe.
+func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testing.T) {
+	dir := freshPolicyDir(t)
+
+	rootUser := "alice"
+	readOnlyGroup := "auditors"
+	conf := rbacconf.Config{
+		Enabled:        true,
+		RootUsers:      []string{rootUser},
+		ReadOnlyGroups: []string{readOnlyGroup},
+	}
+	authNconf := config.Authentication{
+		APIKey: config.StaticAPIKey{Enabled: true, Users: []string{rootUser}},
+	}
+
+	enforcer, err := Init(conf, dir, authNconf, false)
+	require.NoError(t, err)
+
+	rootSubject := conv.UserNameWithTypeFromId(rootUser, authentication.AuthTypeDb)
+	roles, err := enforcer.GetRolesForUser(rootSubject)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Root),
+		"env-var root user must have root role on first boot")
+
+	groupSubject := conv.PrefixGroupName(readOnlyGroup)
+	roles, err = enforcer.GetRolesForUser(groupSubject)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
+		"env-var read-only group must have read-only role on first boot")
+
+	// Restart — the wipe runs, then the loops below re-add from config.
+	enforcer2, err := Init(conf, dir, authNconf, false)
+	require.NoError(t, err)
+
+	roles, err = enforcer2.GetRolesForUser(rootSubject)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.Root),
+		"env-var root user must still have root role after restart")
+
+	roles, err = enforcer2.GetRolesForUser(groupSubject)
+	require.NoError(t, err)
+	assert.Contains(t, roles, conv.PrefixRoleName(authorization.ReadOnly),
+		"env-var read-only group must still have read-only role after restart")
 }

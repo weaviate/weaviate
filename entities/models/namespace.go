@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// Namespace A cluster-level namespace used to group resources under a common administrative unit. Namespace names must start with a lowercase letter, contain only lowercase letters and digits, be 3-36 characters long, and must not be a reserved name.
+// Namespace A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.
 //
 // swagger:model Namespace
 type Namespace struct {

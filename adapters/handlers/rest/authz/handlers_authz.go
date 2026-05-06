@@ -470,6 +470,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		}
 	}
 
+	if err := h.validateUserIDForNamespaces(params.ID); err != nil {
+		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	if len(params.Body.Roles) == 0 {
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
 	}
@@ -493,17 +497,6 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	}
 	if userTypes == nil {
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
-	}
-
-	if h.namespacesEnabled && !h.isStaticAPIKeyUser(params.ID) {
-		for _, role := range params.Body.Roles {
-			if slices.Contains(authorization.BuiltInRoles, role) {
-				return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf(
-					"role %q is reserved for global/operator principals and cannot be assigned to namespaced dynamic DB user %q",
-					role, params.ID,
-				)))
-			}
-		}
 	}
 
 	for _, userType := range userTypes {
@@ -655,6 +648,10 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	if err := h.validateUserIDForNamespaces(params.ID); err != nil {
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
 
 	ownUser := params.ID == principal.Username && params.UserType == string(principal.UserType)
 
@@ -892,6 +889,10 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 		}
 	}
 
+	if err := h.validateUserIDForNamespaces(params.ID); err != nil {
+		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	if len(params.Body.Roles) == 0 {
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("roles can not be empty")))
 	}
@@ -1079,16 +1080,6 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	return authz.NewGetRolesForGroupOK().WithPayload(roles)
 }
 
-// isStaticAPIKeyUser reports whether userID is configured as a static API-key
-// user (env-var managed). Static API-key users are always global principals
-// and remain eligible for built-in roles even on namespace-enabled clusters.
-func (h *authZHandlers) isStaticAPIKeyUser(userID string) bool {
-	if !h.apiKeysConfigs.Enabled {
-		return false
-	}
-	return slices.Contains(h.apiKeysConfigs.Users, userID)
-}
-
 func (h *authZHandlers) userExists(user string, userType authentication.AuthType) (bool, error) {
 	switch userType {
 	case authentication.AuthTypeOIDC:
@@ -1182,6 +1173,22 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 func validateEnvVarRoles(name string) error {
 	if slices.Contains(authorization.EnvVarRoles, name) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
+	}
+	return nil
+}
+
+// validateUserIDForNamespaces rejects bare-form user IDs on
+// namespace-enabled clusters. Static API-key users are intentionally bare
+// and global; they pass through unchanged.
+func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
+	if !h.namespacesEnabled {
+		return nil
+	}
+	if h.apiKeysConfigs.Enabled && slices.Contains(h.apiKeysConfigs.Users, userID) {
+		return nil
+	}
+	if !strings.Contains(userID, ":") {
+		return fmt.Errorf("user IDs on namespace-enabled clusters must be namespace-prefixed (e.g. \"customer1:alice\"); bare-form IDs are only accepted for static API-key users")
 	}
 	return nil
 }

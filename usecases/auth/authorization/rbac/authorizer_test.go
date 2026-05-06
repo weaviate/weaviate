@@ -744,5 +744,77 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 		Enabled: true,
 	}
 
-	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, logger)
+	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, false, logger)
+}
+
+// setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
+// admin/viewer get the narrowed shape, root/read-only stay wildcard.
+func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
+	tmpDir, err := os.MkdirTemp("", "rbac-test-ns-*")
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+
+	rbacDir := filepath.Join(tmpDir, "rbac")
+	if err := os.MkdirAll(rbacDir, 0o755); err != nil {
+		return nil, err
+	}
+	policyPath := filepath.Join(rbacDir, "policy.csv")
+
+	return New(policyPath, rbacconf.Config{Enabled: true},
+		config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}},
+		true, logger)
+}
+
+// TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of
+// the narrowed viewer on NS-enabled clusters: a viewer-assigned principal
+// is denied on cluster-only read endpoints, while a read-only principal
+// is allowed.
+func TestNarrowedViewerVsReadOnly_ClusterReadDenied(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	// viewerUser inherits the narrowed viewer; readOnlyUser inherits
+	// read-only (grouping added directly to bypass the env-var bootstrap).
+	const (
+		viewerSubject   = "viewer-user"
+		readOnlySubject = "read-only-user"
+	)
+	viewerKey := conv.UserNameWithTypeFromId(viewerSubject, authentication.AuthTypeDb)
+	readOnlyKey := conv.UserNameWithTypeFromId(readOnlySubject, authentication.AuthTypeDb)
+
+	_, err = m.casbin.AddRoleForUser(viewerKey, conv.PrefixRoleName(authorization.Viewer))
+	require.NoError(t, err)
+	_, err = m.casbin.AddRoleForUser(readOnlyKey, conv.PrefixRoleName(authorization.ReadOnly))
+	require.NoError(t, err)
+
+	viewer := &models.Principal{Username: viewerSubject, UserType: models.UserTypeInputDb}
+	readOnly := &models.Principal{Username: readOnlySubject, UserType: models.UserTypeInputDb}
+
+	// Cluster-only read surfaces — none of these are in the narrowed viewer
+	// allowlist (collections/data/tenants/aliases). read-only keeps wildcard
+	// READ via its operator policy.
+	cases := []struct {
+		name     string
+		resource string
+	}{
+		{"GET /nodes (minimal)", authorization.Nodes("minimal")[0]},
+		{"GET /nodes/<class> (verbose)", authorization.Nodes("verbose", "Movies")[0]},
+		{"backups list (per-class)", authorization.Backups("Movies")[0]},
+		{"cluster status", authorization.Cluster()},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name+" — viewer denied", func(t *testing.T) {
+			err := m.Authorize(context.Background(), viewer, authorization.READ, tc.resource)
+			require.Error(t, err, "narrowed viewer must not have READ on %s", tc.resource)
+			assert.ErrorAs(t, err, new(authzErrors.Forbidden))
+		})
+		t.Run(tc.name+" — read-only allowed", func(t *testing.T) {
+			err := m.Authorize(context.Background(), readOnly, authorization.READ, tc.resource)
+			assert.NoError(t, err, "env-var-only read-only must keep cluster-wide READ on %s", tc.resource)
+		})
+	}
 }

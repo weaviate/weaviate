@@ -610,8 +610,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, nodeSelector,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
 
-	namespacesController := usecasesNamespaces.NewController(appState.Logger)
-	appState.NamespacesController = namespacesController
+	namespacesController := appState.NamespacesController
 
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
@@ -1115,6 +1114,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger,
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
+		telemetryEnabled(appState),
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -1338,6 +1338,10 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")
 
+	// configureOIDC captures appState.NamespacesController as the
+	// classifier's nsExister, so the controller must be initialised
+	// before this call.
+	appState.NamespacesController = usecasesNamespaces.NewController(logger)
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)

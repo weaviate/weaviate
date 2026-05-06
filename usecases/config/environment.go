@@ -277,14 +277,16 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 		var (
-			skipClientCheck bool
-			issuer          string
-			clientID        string
-			scopes          []string
-			userClaim       string
-			groupsClaim     string
-			certificate     string
-			jwksUrl         string
+			skipClientCheck      bool
+			issuer               string
+			clientID             string
+			scopes               []string
+			userClaim            string
+			groupsClaim          string
+			namespaceClaim       string
+			globalPrincipalClaim string
+			certificate          string
+			jwksUrl              string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
@@ -316,6 +318,14 @@ func FromEnv(config *Config) error {
 			groupsClaim = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_NAMESPACE_CLAIM"); v != "" {
+			namespaceClaim = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM"); v != "" {
+			globalPrincipalClaim = v
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
 			certificate = v
 		}
@@ -330,6 +340,8 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.Scopes = configRuntime.NewDynamicValue(scopes)
 		config.Authentication.OIDC.UsernameClaim = configRuntime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.NamespaceClaim = configRuntime.NewDynamicValue(namespaceClaim)
+		config.Authentication.OIDC.GlobalPrincipalClaim = configRuntime.NewDynamicValue(globalPrincipalClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
 		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
