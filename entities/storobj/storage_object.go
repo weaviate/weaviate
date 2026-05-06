@@ -1331,11 +1331,7 @@ func (ko *Object) unmarshalInternal(data []byte, className string) error {
 	// to the on-disk value — that's the path UnmarshalBinaryNetwork uses.
 	classNameLength := uint64(rw.ReadUint16())
 	if className == "" && classNameLength > 0 {
-		classNameBytes, err := rw.CopyBytesFromBuffer(classNameLength, nil)
-		if err != nil {
-			return errors.Wrap(err, "Could not copy className")
-		}
-		className = string(classNameBytes)
+		className = string(rw.ReadBytesFromBuffer(classNameLength))
 	} else {
 		rw.MoveBufferPositionForward(classNameLength)
 	}
