@@ -36,7 +36,6 @@ import (
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
-	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
@@ -430,10 +429,9 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if err := h.dbUsers.CreateUser(internalKey, hash, userIdentifier, apiKey[:3], params.Body.Namespace, time.Now()); err != nil {
-		// TOCTOU: namespace deleted between handler validation and RAFT apply.
-		// Surface as 422 instead of 500 so clients can retry against current state.
-		if errors.Is(err, dynusers.ErrNamespaceNotFound) ||
-			strings.Contains(err.Error(), dynusers.ErrNamespaceNotFound.Error()) {
+		// Apply-time race: surface a deleted/deleting namespace as 422 so
+		// clients can retry against current state.
+		if isNamespaceTOCTOUErr(err) {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 		}
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
@@ -705,6 +703,21 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 		return false
 	}
 	return h.rbacConfig.IsRoot(principal.Username, principal.Groups)
+}
+
+// isNamespaceTOCTOUErr matches the namespace-gone/deleting sentinels. The
+// string fallback handles errors that lost their wrapping crossing the
+// RAFT boundary.
+func isNamespaceTOCTOUErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, namespaces.ErrNamespaceGone.Error()) ||
+		strings.Contains(msg, namespaces.ErrNamespaceDeleting.Error())
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

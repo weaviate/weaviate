@@ -28,10 +28,8 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// newNamespacesMock returns an Exister mock that reports `known` as the set
-// of existing namespaces. AssertExpectations is intentionally suppressed via
-// MaybeCalled so tests that exercise the empty-namespace short-circuit don't
-// fail when Exists never gets called.
+// newNamespacesMock returns an Exister mock that reports `known` as active
+// namespaces (Exists and IsActive both return true).
 func newNamespacesMock(t *testing.T, known ...string) *usecasesNamespaces.MockExister {
 	t.Helper()
 	m := &usecasesNamespaces.MockExister{}
@@ -44,6 +42,23 @@ func newNamespacesMock(t *testing.T, known ...string) *usecasesNamespaces.MockEx
 		_, ok := set[name]
 		return ok
 	}).Maybe()
+	m.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
+		_, ok := set[name]
+		return ok
+	}).Maybe()
+	return m
+}
+
+// newNamespacesMockDeleting reports `name` as existing-but-deleting
+// (Exists=true, IsActive=false).
+func newNamespacesMockDeleting(t *testing.T, name string) *usecasesNamespaces.MockExister {
+	t.Helper()
+	m := &usecasesNamespaces.MockExister{}
+	m.Test(t)
+	m.On("Exists", mock.AnythingOfType("string")).Return(func(n string) bool {
+		return n == name
+	}).Maybe()
+	m.On("IsActive", mock.AnythingOfType("string")).Return(false).Maybe()
 	return m
 }
 
@@ -77,23 +92,36 @@ func TestManager_CreateUser(t *testing.T) {
 	tests := []struct {
 		name      string
 		namespace string
-		nsKnown   bool
-		wantErr   bool
+		makeMock  func(t *testing.T) *usecasesNamespaces.MockExister
+		wantErrIs error
 	}{
-		{name: "namespace exists", namespace: "ns1", nsKnown: true},
-		{name: "empty namespace skips check", namespace: ""},
-		{name: "namespace deleted before apply", namespace: "ns1", nsKnown: false, wantErr: true},
+		{
+			name:      "active namespace passes",
+			namespace: "ns1",
+			makeMock:  func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMock(t, "ns1") },
+		},
+		{
+			name:      "empty namespace skips check",
+			namespace: "",
+			makeMock:  func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMock(t) },
+		},
+		{
+			name:      "missing namespace returns ErrNamespaceGone",
+			namespace: "ns1",
+			makeMock:  func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMock(t) },
+			wantErrIs: usecasesNamespaces.ErrNamespaceGone,
+		},
+		{
+			name:      "deleting namespace returns ErrNamespaceDeleting",
+			namespace: "ns1",
+			makeMock:  func(t *testing.T) *usecasesNamespaces.MockExister { return newNamespacesMockDeleting(t, "ns1") },
+			wantErrIs: usecasesNamespaces.ErrNamespaceDeleting,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var ns *usecasesNamespaces.MockExister
-			if tc.nsKnown {
-				ns = newNamespacesMock(t, tc.namespace)
-			} else {
-				ns = newNamespacesMock(t)
-			}
-			m, dynUser := newTestManager(t, ns)
+			m, dynUser := newTestManager(t, tc.makeMock(t))
 
 			apply := &cmd.ApplyRequest{SubCommand: mustMarshalJSON(t, cmd.CreateUsersRequest{
 				UserId:         "u1",
@@ -103,8 +131,8 @@ func TestManager_CreateUser(t *testing.T) {
 				CreatedAt:      time.Now(),
 			})}
 			err := m.CreateUser(apply)
-			if tc.wantErr {
-				require.Error(t, err)
+			if tc.wantErrIs != nil {
+				require.ErrorIs(t, err, tc.wantErrIs)
 				users, _ := dynUser.GetUsers("u1")
 				assert.Empty(t, users, "user must not be persisted on rejection")
 				return

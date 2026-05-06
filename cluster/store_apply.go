@@ -177,11 +177,19 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
+			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
+			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
@@ -223,10 +231,28 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
+			req := &api.CreateAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
+			req := &api.ReplaceAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:

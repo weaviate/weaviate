@@ -13,6 +13,7 @@ package db_users
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -381,6 +382,71 @@ func TestCreateUser_Namespaces(t *testing.T) {
 
 			res := h.createUser(users.CreateUserParams{UserID: userID, HTTPRequest: req, Body: tt.body}, principal)
 			assert.IsType(t, tt.wantStatus, res)
+		})
+	}
+}
+
+// TestCreateUser_NamespaceTOCTOU asserts apply-time namespace-gone /
+// namespace-deleting errors map to 422, unrelated errors to 500.
+func TestCreateUser_NamespaceTOCTOU(t *testing.T) {
+	const userID = "user"
+
+	tests := []struct {
+		name     string
+		applyErr error
+		expect   any
+	}{
+		{
+			name:     "ErrNamespaceGone returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceGone),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "ErrNamespaceDeleting returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceDeleting),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "wrapped via string returns 422",
+			applyErr: errors.New("creating user: " + namespaces.ErrNamespaceDeleting.Error()),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "unrelated error returns 500",
+			applyErr: errors.New("disk full"),
+			expect:   &users.CreateUserInternalServerError{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: true}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			expectedKey := apikey.MakeUserKey(userID, "ns1")
+			dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
+			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+			dynUser.On("CreateUser", expectedKey, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
+
+			ns := namespaces.NewMockExister(t)
+			ns.On("Exists", mock.AnythingOfType("string")).Return(true).Maybe()
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+				namespaces:        ns,
+			}
+
+			res := h.createUser(users.CreateUserParams{
+				UserID:      userID,
+				HTTPRequest: req,
+				Body:        users.CreateUserBody{Namespace: "ns1"},
+			}, principal)
+			assert.IsType(t, tt.expect, res)
 		})
 	}
 }
