@@ -225,4 +225,65 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		var forbidden *schema.AliasesCreateForbidden
 		require.True(t, errors.As(err, &forbidden), "expected AliasesCreateForbidden, got %T: %v", err, err)
 	})
+
+	t.Run("namespaced caller deletes its class via short name", func(t *testing.T) {
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+			schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "DeleteMe"}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+
+		// Confirm the qualified class exists before delete.
+		got := helper.GetClassAuth(t, "customer1:DeleteMe", adminKey)
+		require.Equal(t, "customer1:DeleteMe", got.Class)
+
+		// Short-name delete from user1 must qualify to customer1:DeleteMe.
+		helper.DeleteClassAuth(t, "DeleteMe", user1Key)
+
+		_, err = helper.Client(t).Schema.SchemaObjectsGet(
+			schema.NewSchemaObjectsGetParams().WithClassName("customer1:DeleteMe"),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+	})
+
+	t.Run("delete is namespace-isolated when both namespaces share a short name", func(t *testing.T) {
+		// Both namespaces independently create the same short class name.
+		for _, key := range []string{user1Key, user2Key} {
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+				schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "Shared"}),
+				helper.CreateAuth(key),
+			)
+			require.NoError(t, err)
+		}
+		defer helper.DeleteClassAuth(t, "customer2:Shared", adminKey)
+
+		// user1 deletes via the short name — only customer1:Shared should go.
+		helper.DeleteClassAuth(t, "Shared", user1Key)
+
+		_, err := helper.Client(t).Schema.SchemaObjectsGet(
+			schema.NewSchemaObjectsGetParams().WithClassName("customer1:Shared"),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+
+		got := helper.GetClassAuth(t, "customer2:Shared", adminKey)
+		require.Equal(t, "customer2:Shared", got.Class)
+	})
+
+	t.Run("global admin deletes by qualified class name", func(t *testing.T) {
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+			schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "AdminDelete"}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+
+		helper.DeleteClassAuth(t, "customer1:AdminDelete", adminKey)
+
+		_, err = helper.Client(t).Schema.SchemaObjectsGet(
+			schema.NewSchemaObjectsGetParams().WithClassName("customer1:AdminDelete"),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+	})
 }

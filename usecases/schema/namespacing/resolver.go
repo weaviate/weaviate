@@ -12,6 +12,8 @@
 package namespacing
 
 import (
+	"strings"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -71,4 +73,23 @@ func Resolve(principal *models.Principal, sm SchemaManager, nsEnabled bool, name
 
 	// Not an alias, return the qualified name
 	return qualified, ""
+}
+
+// ResolveClass is the same as Resolve, but first title-cases the class
+// portion of the input only. If a "<namespace>:" prefix is present
+// (operator path), it is preserved verbatim and only the class name's
+// first letter is uppercased; otherwise the whole input is treated as a
+// short class name. Use this from class-name handlers that previously
+// chained schema.UppercaseClassName + Resolve.
+func ResolveClass(principal *models.Principal, sm SchemaManager, nsEnabled bool, name string) (class, originalAlias string) {
+	prefix := ""
+	short := name
+	if ns, cls, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+		prefix = ns + schema.NamespaceSeparator
+		short = cls
+	}
+	if short != "" {
+		short = strings.ToUpper(short[:1]) + short[1:]
+	}
+	return Resolve(principal, sm, nsEnabled, prefix+short)
 }

@@ -318,14 +318,13 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
-	if err != nil {
+	class, _ = namespacing.ResolveClass(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
 	}
 
-	class = schema.UppercaseClassName(class)
-
-	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+	if _, err := h.schemaManager.DeleteClass(ctx, class); err != nil {
 		return err
 	}
 
