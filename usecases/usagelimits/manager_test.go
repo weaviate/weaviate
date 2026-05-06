@@ -51,12 +51,12 @@ func (f *fakeTenantCounter) LocalTenantCount(_ context.Context, class string) (i
 
 func TestManager_CheckObjects(t *testing.T) {
 	tests := []struct {
-		name     string
-		cap      int
-		current  int64
-		add      int64
-		wantHit  bool
-		wantVal  int64
+		name    string
+		cap     int
+		current int64
+		add     int64
+		wantHit bool
+		wantVal int64
 	}{
 		{name: "unlimited (-1)", cap: -1, current: 1000000, add: 1, wantHit: false},
 		{name: "well under", cap: 10, current: 5, add: 1, wantHit: false},

@@ -82,7 +82,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+			nil)
 	}
 
 	reset := func() {
@@ -286,7 +286,7 @@ func Test_Add_Object_Uses_Max_SchemaVersion_For_Write_With_AutoTenant(t *testing
 	metrics := &fakeMetrics{}
 	manager := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, metrics, nil,
 		NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+		nil)
 
 	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).Return(nil, nil)
 
@@ -330,7 +330,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+			nil)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -444,7 +444,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+			nil)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -506,7 +506,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+			nil)
 	}
 	reset()
 	ctx := context.Background()
@@ -563,7 +563,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil,
+			nil,
 		)
 	}
 	reset()

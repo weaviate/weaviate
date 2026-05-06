@@ -68,7 +68,7 @@ func Test_GetAction(t *testing.T) {
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+			nil)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -698,7 +698,7 @@ func Test_GetThing(t *testing.T) {
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
 			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-nil)
+			nil)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {

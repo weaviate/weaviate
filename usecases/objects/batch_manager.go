@@ -19,10 +19,10 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects/alias"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
