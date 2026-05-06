@@ -10394,3 +10394,152 @@ func TestNestedFilteringSamePathMultiValueNonTokenized(t *testing.T) {
 		runDocs(t, class2, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar})
 	})
 }
+
+// TestNestedFilteringContextCancellation verifies that a cancelled context
+// propagates correctly through db.Search → nested-filter dispatch and is
+// returned as context.Canceled. Mirrors the lower-level
+// TestRecExecutorContextCancellation but at the production read path.
+//
+// Each sub-test exercises a different executor entry path:
+//   - simple value (canUseRawAndAll)
+//   - correlated AND with subs (runIdxLoopRecursive)
+//   - IsNull standalone (rootAnchor)
+//   - conflicting arr[N] partition (split)
+//
+// The lower-level test covers per-path internals (top-level + inner
+// guards); this DB-level test verifies that whichever path the dispatch
+// chooses, db.Search surfaces the cancellation correctly.
+func TestNestedFilteringContextCancellation(t *testing.T) {
+	const nestedClass = "CtxCancel"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{{
+			Name:     "countries",
+			DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{{
+				Name:     "garages",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					{
+						Name:     "cars",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+							{
+								Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+								NestedProperties: []*models.NestedProperty{
+									{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+								},
+							},
+						},
+					},
+				},
+			}},
+		}},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	bgCtx := context.Background()
+
+	id1 := strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	require.NoError(t, db.PutObject(bgCtx, &models.Object{
+		Class: nestedClass, ID: id1,
+		Properties: map[string]any{"countries": asArr(map[string]any{
+			"garages": asArr(map[string]any{
+				"city": "berlin", "postcode": "10115",
+				"cars": asArr(map[string]any{"make": "honda", "tires": asArr(map[string]any{"width": 205})}),
+			}),
+		})},
+	}, nil, nil, nil, nil, 0))
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	cancelled := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+
+	runCancelled := func(t *testing.T, filter *filters.LocalFilter) {
+		t.Helper()
+		_, err := db.Search(cancelled(), dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.Error(t, err, "expected cancellation error")
+		require.ErrorIs(t, err, context.Canceled, "expected context.Canceled, got: %v", err)
+	}
+
+	// canUseRawAndAll path: a single positive at intermediate scope —
+	// GROUP@"garages.cars" with one here, no subs. Cancellation must surface
+	// before the AndAll runs.
+	t.Run("simple_value_canUseRawAndAll_path", func(t *testing.T) {
+		runCancelled(t, textFilter("countries.garages.cars.make", "honda"))
+	})
+
+	// runIdxLoopRecursive path: two clauses at different LCAs forces evalGroup
+	// into the idx-loop branch (subs reject canUseRawAndAll).
+	t.Run("correlated_AND_idxLoopRecursive_path", func(t *testing.T) {
+		runCancelled(t, andFilter(
+			textFilter("countries.garages.postcode", "10115"),
+			intFilter("countries.garages.cars.tires.width", 205),
+		))
+	})
+
+	// rootAnchor path: standalone IsNull falls through to rootAnchor seeding.
+	t.Run("isNull_rootAnchor_path", func(t *testing.T) {
+		runCancelled(t, isNullFilter("countries.garages.cars.make", false))
+	})
+
+	// SPLIT path: two arr[N] indices on the same LCA → SPLIT@"garages" with
+	// two branches. The cancellation must surface before evalSplit's branch
+	// loop completes.
+	t.Run("conflicting_arrN_split_path", func(t *testing.T) {
+		runCancelled(t, andFilter(
+			textFilter("countries.garages[0].city", "berlin"),
+			textFilter("countries.garages[1].city", "munich"),
+		))
+	})
+}
