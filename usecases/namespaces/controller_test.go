@@ -41,6 +41,9 @@ func TestValidateName(t *testing.T) {
 		{name: "short valid", input: "foo", wantErr: false},
 		{name: "letters and digits", input: "customer1", wantErr: false},
 		{name: "max length", input: strings.Repeat("a", entschema.NamespaceMaxLength), wantErr: false},
+		{name: "digit leading", input: "1foo", wantErr: false},
+		{name: "hyphen middle", input: "foo-bar", wantErr: false},
+		{name: "uuid", input: "550e8400-e29b-41d4-a716-446655440000", wantErr: false},
 		// length
 		{name: "too short", input: "ab", wantErr: true},
 		{name: "empty", input: "", wantErr: true},
@@ -48,9 +51,9 @@ func TestValidateName(t *testing.T) {
 		// format
 		{name: "uppercase leading", input: "Foo", wantErr: true},
 		{name: "uppercase middle", input: "fooBar", wantErr: true},
-		{name: "digit leading", input: "1foo", wantErr: true},
+		{name: "trailing hyphen", input: "foo-", wantErr: true},
+		{name: "leading hyphen", input: "-foo", wantErr: true},
 		{name: "underscore", input: "foo_bar", wantErr: true},
-		{name: "hyphen", input: "foo-bar", wantErr: true},
 		{name: "contains colon", input: "foo:bar", wantErr: true},
 		// Explicit NamespaceSeparator coverage: the reserved separator must
 		// never appear in a namespace name regardless of position, so that
