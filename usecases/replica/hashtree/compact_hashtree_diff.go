@@ -11,22 +11,11 @@
 
 package hashtree
 
-func (ht *CompactHashTree) Diff(ht2 AggregatedHashTree) (discriminant *Bitset, err error) {
+func (ht *CompactHashTree) Diff(ht2 AggregatedHashTree) (*Bitset, error) {
 	cht2, isCompactHashTree := ht2.(*CompactHashTree)
-
 	if ht2 == nil || !isCompactHashTree {
 		return nil, ErrIllegalArguments
 	}
 
 	return ht.hashtree.Diff(cht2.hashtree)
-}
-
-func (ht *CompactHashTree) DiffUsing(ht2 AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error {
-	cht2, isCompactHashTree := ht2.(*CompactHashTree)
-
-	if ht2 == nil || !isCompactHashTree {
-		return ErrIllegalArguments
-	}
-
-	return ht.hashtree.DiffUsing(cht2.hashtree, discriminant, digests1, digests2)
 }

@@ -207,10 +207,22 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.R
 	}
 }
 
-// HashTreeLevel fetches hash tree level digests
+// HashTreeLevel fetches hash tree level digests. discriminant.Size() must
+// equal hashtree.LeavesCount(level).
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hashtree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("nil discriminant")
+	}
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("discriminant size %d, expected %d (level-local) for level %d",
+			discriminant.Size(), expected, level)
+	}
 	body, err := discriminant.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)

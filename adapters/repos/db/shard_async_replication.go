@@ -1152,11 +1152,23 @@ func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree) {
 	}
 }
 
-// HashTreeLevel returns the digests at the given level of the shard's async-
-// replication hashtree, filtered by the provided discriminant bitset.
-// Returns an error if the hashtree is not yet fully initialised on this shard.
+// HashTreeLevel returns the digests at level of the shard's async-replication
+// hashtree, filtered by discriminant (Size() == hashtree.LeavesCount(level)).
+// Returns an error if the hashtree is not yet fully initialised.
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	digests = make([]hashtree.Digest, hashtree.LeavesCount(level))
+	if level < 0 {
+		return nil, fmt.Errorf("hashtree level must be non-negative: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("hashtree level %d: nil discriminant", level)
+	}
+
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("hashtree level %d: discriminant size %d, expected %d (height mismatch?)",
+			level, discriminant.Size(), expected)
+	}
+	digests = make([]hashtree.Digest, expected)
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()
