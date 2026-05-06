@@ -12437,3 +12437,244 @@ func TestNestedFilteringOrAndNotWithScalarArrayPositional(t *testing.T) {
 			[]strfmt.UUID{idShortColors, idColors2NotRed, idEmpty})
 	})
 }
+
+// TestNestedFilteringDeeplyNestedAndOrTree exercises the planner with
+// 3-level nested AND/OR/AND filter trees:
+//
+//	A AND (B OR (C AND D))
+//
+// Comprehensive's complex tests are at most 2 levels deep
+// (A AND (B OR C) or (A AND B) OR C). This test verifies the planner
+// correctly handles the inner AND (C AND D) sitting inside an OR child
+// of the outer AND. The inner AND is a correlated AND at its own LCA
+// (addresses); the outer AND combines its result with another clause
+// at a different LCA (cars) — cross-LCA at docID level.
+//
+// The cross-LCA shape was deliberate: under the planned OR-in-AND
+// distribution rewrite, cross-LCA AND-of-OR results don't change (each
+// branch resolves at docID level regardless), so this test isn't a
+// regression baseline. It just verifies tree-depth handling.
+//
+// Coverage matrix: 2 root variants × 1 shape = 2 sub-tests.
+func TestNestedFilteringDeeplyNestedAndOrTree(t *testing.T) {
+	const nestedClass = "DeeplyNestedAndOrTree"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	addr := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	carM := func(make string) map[string]any { return map[string]any{"make": make} }
+	countryWith := func(addresses []map[string]any, cars []map[string]any) map[string]any {
+		out := map[string]any{}
+		if addresses != nil {
+			out["addresses"] = asArr(addresses...)
+		}
+		if cars != nil {
+			out["cars"] = asArr(cars...)
+		}
+		return out
+	}
+	withCountry := func(addresses []map[string]any, cars []map[string]any) map[string]any {
+		return map[string]any{"country": countryWith(addresses, cars)}
+	}
+	withCountries := func(countries ...map[string]any) map[string]any {
+		anyC := make([]any, len(countries))
+		for i, c := range countries {
+			anyC[i] = c
+		}
+		return map[string]any{"countries": anyC}
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// =========================================================================
+	// country (object) root
+	// =========================================================================
+
+	// Filter:
+	//   country.cars.make = "tesla"
+	//   AND (country.addresses.city = "berlin"
+	//        OR (country.addresses.city = "munich" AND country.addresses.postcode = "80331"))
+	t.Run("country_object_3level_AND_OR_innerAND", func(t *testing.T) {
+		idTeslaPlusBerlin := uuid(1)
+		idTeslaPlusMunich80331 := uuid(2)
+		idTeslaParis := uuid(3)
+		idVolvoBerlin := uuid(4)
+		idTeslaMunichWrongPostcode := uuid(5)
+		idTeslaMunichSplitClauses := uuid(6)
+		idTeslaWithBerlinInSecondAddr := uuid(7)
+		idTeslaWithMunich80331InFirstAddr := uuid(8)
+		idMultiCarsWithTesla := uuid(9)
+		idEmpty := uuid(10)
+		docs := []docDef{
+			{id: idTeslaPlusBerlin, props: withCountry([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("tesla")}), note: "tesla + berlin"},
+			{id: idTeslaPlusMunich80331, props: withCountry([]map[string]any{addr("city", "munich", "postcode", "80331")}, []map[string]any{carM("tesla")}), note: "tesla + munich+80331"},
+			{id: idTeslaParis, props: withCountry([]map[string]any{addr("city", "paris")}, []map[string]any{carM("tesla")}), note: "tesla + paris (neither OR clause)"},
+			{id: idVolvoBerlin, props: withCountry([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("volvo")}), note: "berlin but no tesla"},
+			{id: idTeslaMunichWrongPostcode, props: withCountry([]map[string]any{addr("city", "munich", "postcode", "99999")}, []map[string]any{carM("tesla")}), note: "tesla + munich,99999 — inner AND fails"},
+			{id: idTeslaMunichSplitClauses, props: withCountry([]map[string]any{addr("city", "munich"), addr("postcode", "80331")}, []map[string]any{carM("tesla")}), note: "tesla + munich/80331 in different addresses — inner AND fails"},
+			{id: idTeslaWithBerlinInSecondAddr, props: withCountry([]map[string]any{addr("city", "paris"), addr("city", "berlin")}, []map[string]any{carM("tesla")}), note: "tesla + addresses[1]=berlin (existential)"},
+			{id: idTeslaWithMunich80331InFirstAddr, props: withCountry([]map[string]any{addr("city", "munich", "postcode", "80331"), addr("city", "paris")}, []map[string]any{carM("tesla")}), note: "tesla + addresses[0]=munich+80331"},
+			{id: idMultiCarsWithTesla, props: withCountry([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("tesla"), carM("volvo")}), note: "tesla in cars[0] + berlin"},
+			{id: idEmpty, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+		}
+		filter := andFilter(
+			textFilter("country.cars.make", "tesla"),
+			orFilter(
+				textFilter("country.addresses.city", "berlin"),
+				andFilter(
+					textFilter("country.addresses.city", "munich"),
+					textFilter("country.addresses.postcode", "80331"),
+				),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{
+			idTeslaPlusBerlin, idTeslaPlusMunich80331,
+			idTeslaWithBerlinInSecondAddr, idTeslaWithMunich80331InFirstAddr,
+			idMultiCarsWithTesla,
+		})
+	})
+
+	// =========================================================================
+	// countries (object[]) root
+	// =========================================================================
+
+	// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND-of-OR
+	// behavior at the outer-AND boundary across multiple root elements.
+	// Two discriminator docs (idTeslaWithBerlinInSecondCountry,
+	// idTeslaInOneCountryBerlinInAnother) currently match because the
+	// outer AND treats the OR as a docID-level set — tesla in one
+	// country and berlin in another satisfies docID-level intersection.
+	// Under the planned OR-in-AND distribution rewrite, both would stop
+	// matching: each distributed branch (`tesla AND berlin`,
+	// `tesla AND munich AND 80331`) requires same-country semantics.
+	// Same root cause as regression_AND_of_OR_universal_docID_level_simple.
+	t.Run("regression_countries_array_3level_AND_OR_innerAND", func(t *testing.T) {
+		idTeslaPlusBerlin := uuid(1)
+		idTeslaPlusMunich80331 := uuid(2)
+		idTeslaParis := uuid(3)
+		idVolvoBerlin := uuid(4)
+		idTeslaMunichWrongPostcode := uuid(5)
+		idTeslaMunichSplitClausesInOneCountry := uuid(6)
+		idTeslaWithBerlinInSecondCountry := uuid(7)
+		idTeslaInOneCountryBerlinInAnother := uuid(8)
+		idEmpty := uuid(9)
+		docs := []docDef{
+			{id: idTeslaPlusBerlin, props: withCountries(countryWith([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("tesla")})), note: "tesla + berlin in single country"},
+			{id: idTeslaPlusMunich80331, props: withCountries(countryWith([]map[string]any{addr("city", "munich", "postcode", "80331")}, []map[string]any{carM("tesla")})), note: "tesla + munich,80331"},
+			{id: idTeslaParis, props: withCountries(countryWith([]map[string]any{addr("city", "paris")}, []map[string]any{carM("tesla")})), note: "tesla + paris"},
+			{id: idVolvoBerlin, props: withCountries(countryWith([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("volvo")})), note: "no tesla"},
+			{id: idTeslaMunichWrongPostcode, props: withCountries(countryWith([]map[string]any{addr("city", "munich", "postcode", "99999")}, []map[string]any{carM("tesla")})), note: "tesla + munich,99999 — inner AND fails"},
+			{id: idTeslaMunichSplitClausesInOneCountry, props: withCountries(countryWith([]map[string]any{addr("city", "munich"), addr("postcode", "80331")}, []map[string]any{carM("tesla")})), note: "munich+80331 in different addresses within one country"},
+			{id: idTeslaWithBerlinInSecondCountry, props: withCountries(
+				countryWith([]map[string]any{addr("city", "paris")}, []map[string]any{carM("tesla")}),
+				countryWith([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("volvo")}),
+			), note: "tesla in [0]; berlin in [1] — outer AND at docID succeeds"},
+			{id: idTeslaInOneCountryBerlinInAnother, props: withCountries(
+				countryWith([]map[string]any{addr("city", "munich")}, []map[string]any{carM("tesla")}),
+				countryWith([]map[string]any{addr("city", "berlin")}, []map[string]any{carM("volvo")}),
+			), note: "tesla AND berlin via different countries"},
+			{id: idEmpty, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+		}
+		filter := andFilter(
+			textFilter("countries.cars.make", "tesla"),
+			orFilter(
+				textFilter("countries.addresses.city", "berlin"),
+				andFilter(
+					textFilter("countries.addresses.city", "munich"),
+					textFilter("countries.addresses.postcode", "80331"),
+				),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{
+			idTeslaPlusBerlin, idTeslaPlusMunich80331,
+			idTeslaWithBerlinInSecondCountry, idTeslaInOneCountryBerlinInAnother,
+		})
+	})
+}
