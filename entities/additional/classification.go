@@ -39,7 +39,7 @@ type Properties struct {
 	Distance                bool                   `json:"distance"`
 	Score                   bool                   `json:"score"`
 	ExplainScore            bool                   `json:"explainScore"`
-	Highlight			    bool                   `json:"highlight"`
+	Highlight           bool                   `json:"highlight"`
 	IsConsistent            bool                   `json:"isConsistent"`
 	Group                   bool                   `json:"group"`
 	// QueryProfile enables per-shard query profiling data collection and return.

@@ -20,11 +20,20 @@ import (
 )
 
 const (
-	highlightPrefix      = "<em>"
-	highlightPostfix     = "</em>"
-	defaultFragmentSize  = 50
-	defaultMaxFragments  = 3
+	highlightPrefix     = "<em>"
+	highlightPostfix    = "</em>"
+	defaultFragmentSize = 50
+	defaultMaxFragments = 3
 )
+
+type matchPos struct {
+	start, end int
+}
+
+type highlightWindow struct {
+	start, end int
+	matches    []matchPos
+}
 
 // GenerateHighlights scans the object properties for matched query terms and returns per-property highlighted text fragments.
 // maxFragments and fragmentSize use defaults when zero.
@@ -53,29 +62,7 @@ func generateHighlights(schema interface{}, propNames []string, queryTerms []str
 		if !exists {
 			continue
 		}
-		var frags []string
-		switch v := val.(type) {
-		case string:
-			frags = extractFragments(v, queryTerms, maxFragments, fragmentSize)
-		case []interface{}:
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					frags = append(frags, extractFragments(s, queryTerms, maxFragments, fragmentSize)...)
-					if len(frags) >= maxFragments {
-						frags = frags[:maxFragments]
-						break
-					}
-				}
-			}
-		case []string:
-			for _, s := range v {
-				frags = append(frags, extractFragments(s, queryTerms, maxFragments, fragmentSize)...)
-				if len(frags) >= maxFragments {
-					frags = frags[:maxFragments]
-					break
-				}
-			}
-		}
+		frags := fragmentsForValue(val, queryTerms, maxFragments, fragmentSize)
 		if len(frags) > 0 {
 			results = append(results, map[string]interface{}{
 				"property":  propName,
@@ -88,11 +75,44 @@ func generateHighlights(schema interface{}, propNames []string, queryTerms []str
 		return nil
 	}
 	return results
-
 }
 
-type matchPos struct {
-	start, end int
+func fragmentsForValue(val interface{}, queryTerms []string, maxFragments, fragmentSize int) []string {
+	switch v := val.(type) {
+	case string:
+		return extractFragments(v, queryTerms, maxFragments, fragmentSize)
+	case []interface{}:
+		return fragmentsFromInterfaceSlice(v, queryTerms, maxFragments, fragmentSize)
+	case []string:
+		return fragmentsFromStringSlice(v, queryTerms, maxFragments, fragmentSize)
+	}
+	return nil
+}
+
+func fragmentsFromInterfaceSlice(items []interface{}, queryTerms []string, maxFragments, fragmentSize int) []string {
+	var frags []string
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		frags = append(frags, extractFragments(s, queryTerms, maxFragments, fragmentSize)...)
+		if len(frags) >= maxFragments {
+			return frags[:maxFragments]
+		}
+	}
+	return frags
+}
+
+func fragmentsFromStringSlice(items []string, queryTerms []string, maxFragments, fragmentSize int) []string {
+	var frags []string
+	for _, s := range items {
+		frags = append(frags, extractFragments(s, queryTerms, maxFragments, fragmentSize)...)
+		if len(frags) >= maxFragments {
+			return frags[:maxFragments]
+		}
+	}
+	return frags
 }
 
 func isWordChar(r rune) bool {
@@ -117,12 +137,8 @@ func atWordBoundary(text string, start, end int) bool {
 	return true
 }
 
-func extractFragments(text string, terms []string, maxFragments, fragmentSize int) []string {
-	if text == "" || len(terms) == 0 {
-		return nil
-	}
-	lowerText := strings.ToLower(text)
-
+// findTermMatches locates all whole-word occurrences of each term in lowerText.
+func findTermMatches(lowerText string, terms []string) []matchPos {
 	var matches []matchPos
 	for _, term := range terms {
 		if term == "" {
@@ -138,37 +154,38 @@ func extractFragments(text string, terms []string, maxFragments, fragmentSize in
 			absStart := idx + pos
 			absEnd := absStart + len(lowerTerm)
 			if atWordBoundary(lowerText, absStart, absEnd) {
-				matches = append(matches, matchPos{absStart, absStart + len(term)})
+				matches = append(matches, matchPos{absStart, absEnd})
 			}
 			idx = absStart + 1
 		}
 	}
-	if len(matches) == 0 {
-		return nil
+	return matches
+}
+
+// snapToRuneBoundary adjusts wStart left and wEnd right so both land on valid UTF-8 rune starts.
+func snapToRuneBoundary(text string, wStart, wEnd int) (int, int) {
+	for wStart > 0 && !utf8.RuneStart(text[wStart]) {
+		wStart--
 	}
-	sort.Slice(matches, func(i, j int) bool {
-		return matches[i].start < matches[j].start
-	})
-	type window struct {
-		start, end int
-		matches    []matchPos
+	for wEnd < len(text) && !utf8.RuneStart(text[wEnd]) {
+		wEnd++
 	}
-	var windows []window
+	return wStart, wEnd
+}
+
+// buildWindows groups sorted matches into overlapping context windows capped at maxFragments.
+func buildWindows(text string, matches []matchPos, maxFragments, fragmentSize int) []highlightWindow {
+	var windows []highlightWindow
 	for _, m := range matches {
 		wStart := m.start - fragmentSize
 		if wStart < 0 {
 			wStart = 0
 		}
-		for wStart > 0 && !utf8.RuneStart(text[wStart]) {
-			wStart--
-		}
 		wEnd := m.end + fragmentSize
 		if wEnd > len(text) {
 			wEnd = len(text)
 		}
-		for wEnd < len(text) && !utf8.RuneStart(text[wEnd]) {
-			wEnd++
-		}
+		wStart, wEnd = snapToRuneBoundary(text, wStart, wEnd)
 		if len(windows) > 0 && wStart <= windows[len(windows)-1].end {
 			last := &windows[len(windows)-1]
 			if wEnd > last.end {
@@ -176,24 +193,36 @@ func extractFragments(text string, terms []string, maxFragments, fragmentSize in
 			}
 			last.matches = append(last.matches, m)
 		} else {
-			windows = append(windows, window{wStart, wEnd, []matchPos{m}})
+			windows = append(windows, highlightWindow{wStart, wEnd, []matchPos{m}})
 		}
-
 		if len(windows) >= maxFragments {
 			break
 		}
 	}
+	return windows
+}
+
+func extractFragments(text string, terms []string, maxFragments, fragmentSize int) []string {
+	if text == "" || len(terms) == 0 {
+		return nil
+	}
+	matches := findTermMatches(strings.ToLower(text), terms)
+	if len(matches) == 0 {
+		return nil
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].start < matches[j].start
+	})
+	windows := buildWindows(text, matches, maxFragments, fragmentSize)
 	fragments := make([]string, 0, len(windows))
 	for _, w := range windows {
 		fragments = append(fragments, buildFragment(text, w.start, w.end, w.matches))
 	}
 	return fragments
- 
 }
 
-// buildFragment assembles one text fragment with highlight tags applied left to right
+// buildFragment assembles one text fragment with highlight tags applied left to right.
 func buildFragment(text string, wStart, wEnd int, matches []matchPos) string {
-
 	sort.Slice(matches, func(i, j int) bool {
 		return matches[i].start < matches[j].start
 	})
