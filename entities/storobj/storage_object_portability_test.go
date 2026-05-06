@@ -21,8 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestPortability_ClassNamePrecedence locks the WS7 contract for who decides
-// the value of Object.Class on decode:
+// TestPortability_ClassNamePrecedence tests precedence of caller-supplied className
+// after the deprecation of class name on buckets. The contract is as follows:
 //
 //  1. When the caller supplies a non-empty className, the caller wins and
 //     the on-disk class-name bytes are skipped. This is the path taken by
@@ -95,7 +95,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 			data, err := before.MarshalBinary()
 			require.NoError(t, err)
 
-			t.Run("FromBinaryWithClassName", func(t *testing.T) {
+			t.Run("FromBinaryDisk", func(t *testing.T) {
 				after, err := FromBinaryDisk(data, tc.decodedAs)
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class,
@@ -106,7 +106,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 				assert.Equal(t, before.Properties(), after.Properties())
 			})
 
-			t.Run("FromBinaryOptionalWithClassName", func(t *testing.T) {
+			t.Run("FromBinaryOptionalDisk", func(t *testing.T) {
 				after, err := FromBinaryOptionalDisk(data, tc.decodedAs,
 					additional.Properties{Vector: true}, nil)
 				require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 				assert.Equal(t, before.Vector, after.Vector)
 			})
 
-			t.Run("FromBinaryUUIDOnlyWithClassName", func(t *testing.T) {
+			t.Run("FromBinaryUUIDOnlyDisk", func(t *testing.T) {
 				after, err := FromBinaryUUIDOnlyDisk(data, tc.decodedAs)
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class)
@@ -162,7 +162,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Run("FromBinaryWithClassName", func(t *testing.T) {
+			t.Run("FromBinaryDisk", func(t *testing.T) {
 				after, err := FromBinaryDisk(data, tc.className)
 				require.NoError(t, err)
 				assert.Equal(t, tc.className, after.Object.Class,
@@ -173,7 +173,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 				assert.Equal(t, before.Properties(), after.Properties())
 			})
 
-			t.Run("FromBinaryOptionalWithClassName", func(t *testing.T) {
+			t.Run("FromBinaryOptionalDisk", func(t *testing.T) {
 				after, err := FromBinaryOptionalDisk(data, tc.className,
 					additional.Properties{Vector: true}, nil)
 				require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 				assert.Equal(t, before.Vector, after.Vector)
 			})
 
-			t.Run("FromBinaryUUIDOnlyWithClassName", func(t *testing.T) {
+			t.Run("FromBinaryUUIDOnlyDisk", func(t *testing.T) {
 				after, err := FromBinaryUUIDOnlyDisk(data, tc.className)
 				require.NoError(t, err)
 				assert.Equal(t, tc.className, after.Object.Class)

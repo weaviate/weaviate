@@ -25,7 +25,8 @@ import (
 )
 
 // TestObjectsBucketStampsClassNameOnDecode is the bucket-level integration of
-// the WS7 contract: the canonical class name attached to the bucket via
+// the contract to deprecate class name on buckets:
+// the canonical class name attached to the bucket via
 // WithClassName is what every reader sees on decoded objects, regardless of
 // what the on-disk payload bytes carry in their class-name field. The test
 // covers two on-disk shapes that the bucket-stamping path must override:
