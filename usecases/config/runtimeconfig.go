@@ -30,6 +30,11 @@ import (
 // managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
 	MaximumAllowedCollectionsCount       *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	MaximumAllowedObjectsCount           *runtime.DynamicValue[int]           `json:"maximum_allowed_objects_count" yaml:"maximum_allowed_objects_count"`
+	MaximumAllowedTenantsPerCollection   *runtime.DynamicValue[int]           `json:"maximum_allowed_tenants_per_collection" yaml:"maximum_allowed_tenants_per_collection"`
+	MaximumAllowedShardsPerCollection    *runtime.DynamicValue[int]           `json:"maximum_allowed_shards_per_collection" yaml:"maximum_allowed_shards_per_collection"`
+	UsageLimitsScope                     *runtime.DynamicValue[string]        `json:"usage_limits_scope" yaml:"usage_limits_scope"`
+	UsageLimitsErrorMessage              *runtime.DynamicValue[string]        `json:"usage_limits_error_message" yaml:"usage_limits_error_message"`
 	AutoschemaEnabled                    *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
 	AsyncReplicationDisabled             *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
 	AsyncReplicationClusterMaxWorkers    *runtime.DynamicValue[int]           `json:"async_replication_cluster_max_workers" yaml:"async_replication_cluster_max_workers"`
