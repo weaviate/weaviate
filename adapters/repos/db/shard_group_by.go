@@ -97,6 +97,11 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 		PropertyPaths: propertyPaths,
 	}
 
+	className, err := g.objBucket.ClassName()
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 DOCS_LOOP:
 	for i, docID := range g.ids {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
@@ -136,7 +141,7 @@ DOCS_LOOP:
 
 			if _, ok := docIDObject[docID]; !ok {
 				// whole object, might be that we only need value and ID to be extracted
-				unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, g.objBucket.ClassName(), g.additional, props)
+				unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, className, g.additional, props)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%w: unmarshal data object at position %d", err, i)
 				}
@@ -209,6 +214,11 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		}
 	}
 	if containsDocID {
+
+		className, err := g.objBucket.ClassName()
+		if err != nil {
+			return nil, fmt.Errorf("getting bucket class name: %w", err)
+		}
 		// we have already added this object containing a group to the result array
 		// and we need to unmarshall it again so that a group won't get overridden
 		docIDBytes := make([]byte, 8)
@@ -217,7 +227,7 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		if err != nil {
 			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
-		unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, g.objBucket.ClassName(), g.additional, nil)
+		unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, className, g.additional, nil)
 		if err != nil {
 			return nil, fmt.Errorf("%w: unmarshal data object doc id %d", err, docID)
 		}

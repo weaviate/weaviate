@@ -133,9 +133,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	className := bucket.ClassName()
+
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
 	// Prevent unbounded iteration

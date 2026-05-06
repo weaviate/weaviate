@@ -1798,8 +1798,8 @@ func (f *fakeBucket) GetBySecondaryWithBuffer(ctx context.Context, indexID int, 
 	return lsmBuf[:len(objBytes)], lsmBuf, nil
 }
 
-func (f *fakeBucket) ClassName() string {
-	return ""
+func (f *fakeBucket) ClassName() (string, error) {
+	return "MyClass", nil
 }
 
 func genFakeBucket(t testing.TB, maxSize uint64) *fakeBucket {

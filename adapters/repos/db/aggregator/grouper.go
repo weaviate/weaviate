@@ -287,12 +287,17 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 	c := b.Cursor()
 	defer c.Close()
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting objects bucket class name: %w", err)
+	}
+
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			elem, err := storobj.FromBinaryOptionalWithClassName(v, b.ClassName(), additional.Properties{}, properties)
+			elem, err := storobj.FromBinaryOptionalWithClassName(v, className, additional.Properties{}, properties)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}

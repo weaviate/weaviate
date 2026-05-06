@@ -401,8 +401,12 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	i := 0
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinaryWithClassName(v, b.ClassName())
+		obj, err := storobj.FromBinaryWithClassName(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -1982,8 +1986,11 @@ func (b *Bucket) DesiredStrategy() string {
 // WithClassName, or "" for buckets that do not hold storobj payloads. Storobj
 // decoders use this value as the authoritative class name and fall back to the
 // on-disk value only when this returns "".
-func (b *Bucket) ClassName() string {
-	return b.className
+func (b *Bucket) ClassName() (string, error) {
+	if b.className == "" {
+		return "", fmt.Errorf("bucket does not have a class name")
+	}
+	return b.className, nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

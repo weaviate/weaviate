@@ -64,8 +64,9 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 			require.NoError(t, err)
 			defer bucket.Shutdown(ctx)
 
-			require.Equal(t, wantClass, bucket.ClassName(),
-				"ClassName() must return the value supplied via WithClassName")
+			className, err := bucket.ClassName()
+			require.NoError(t, err)
+			require.Equal(t, wantClass, className, "ClassName() must return the value supplied via WithClassName")
 
 			obj := storobj.FromObject(
 				&models.Object{
@@ -104,7 +105,9 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 
 				// Bucket-aware decode: the caller-supplied (bucket) className
 				// must win, regardless of what's on disk.
-				decodedWithClassName, err := storobj.FromBinaryWithClassName(v, bucket.ClassName())
+				className, err := bucket.ClassName()
+				require.NoError(t, err, "cannot get bucket class name")
+				decodedWithClassName, err := storobj.FromBinaryWithClassName(v, className)
 				require.NoError(t, err, "cannot unmarshal object via FromBinaryWithClassName")
 				require.NotNil(t, decodedWithClassName)
 				assert.Equal(t, wantClass, decodedWithClassName.Object.Class,

@@ -367,7 +367,7 @@ type bucket interface {
 	// to stamp Object.Class on every decoded payload. Returns "" for buckets
 	// that have no class context (test fakes, non-objects buckets); decoders
 	// then fall back to the on-disk value.
-	ClassName() string
+	ClassName() (string, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
@@ -468,6 +468,11 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 		return nil, fmt.Errorf("objects bucket not found")
 	}
 
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 	var (
 		docIDBuf = make([]byte, 8)
 		out      = make([]*Object, len(ids))
@@ -514,7 +519,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptionalWithClassName(res, bucket.ClassName(), additional, props)
+		unmarshalled, err := FromBinaryOptionalWithClassName(res, className, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}

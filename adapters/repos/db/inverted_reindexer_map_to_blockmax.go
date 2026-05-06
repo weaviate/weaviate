@@ -1244,9 +1244,16 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			}
 		}
 
+		className, err := objectsBucket.ClassName()
+		if err != nil {
+			mdCh <- &migrationData{err: fmt.Errorf("getting objects bucket class name: %w", err)}
+			close(mdCh)
+			return
+		}
 		for ; k != nil; k, v = cursor.Next() {
 			ik := keyParse(k)
-			obj, err := storobj.FromBinaryOptionalWithClassName(v, objectsBucket.ClassName(), addProps, propExtraction)
+
+			obj, err := storobj.FromBinaryOptionalWithClassName(v, className, addProps, propExtraction)
 			if err != nil {
 				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object '%s': %w", ik.String(), err)}
 				break
