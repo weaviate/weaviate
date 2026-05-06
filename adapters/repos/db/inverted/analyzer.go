@@ -38,6 +38,7 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+	HasColumnarIndex   bool // columnar index for time/hybrid queries
 }
 
 type NilProperty struct {

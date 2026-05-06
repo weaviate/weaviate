@@ -8779,6 +8779,10 @@ func init() {
         "description": {
           "type": "string"
         },
+        "indexColumnar": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexFilterable": {
           "type": "boolean",
           "x-nullable": true
@@ -9431,6 +9435,11 @@ func init() {
           "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
           "type": "boolean",
           "default": true,
+          "x-nullable": true
+        },
+        "indexColumnar": {
+          "description": "Whether to include this property in a columnar index for efficient time-based and hybrid vector queries. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
           "x-nullable": true
         },
         "indexFilterable": {
@@ -20030,6 +20039,10 @@ func init() {
         "description": {
           "type": "string"
         },
+        "indexColumnar": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexFilterable": {
           "type": "boolean",
           "x-nullable": true
@@ -20866,6 +20879,11 @@ func init() {
           "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
           "type": "boolean",
           "default": true,
+          "x-nullable": true
+        },
+        "indexColumnar": {
+          "description": "Whether to include this property in a columnar index for efficient time-based and hybrid vector queries. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
           "x-nullable": true
         },
         "indexFilterable": {

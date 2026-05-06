@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -127,6 +128,12 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
+	if property.HasColumnarIndex {
+		if err := s.addToColumnarIndex(docID, property); err != nil {
+			return errors.Wrapf(err, "failed adding to prop '%s' columnar index", property.Name)
+		}
+	}
+
 	if err := s.onAddToPropertyValueIndex(docID, &property); err != nil {
 		return err
 	}
@@ -203,6 +210,52 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	}
 
 	return bucket.RoaringSetAddOne(key, docID)
+}
+
+func (s *Shard) addToColumnarIndex(docID uint64, property inverted.Property) error {
+	bucket := s.store.Bucket(helpers.BucketColumnarFromPropNameLSM(property.Name))
+	if bucket == nil {
+		return errors.Errorf("no bucket columnar for prop '%s' found", property.Name)
+	}
+
+	if len(property.Items) == 0 {
+		return nil
+	}
+
+	item := property.Items[0]
+	if len(item.Data) != 8 {
+		return fmt.Errorf("columnar: unexpected data length %d for prop '%s'", len(item.Data), property.Name)
+	}
+
+	// Determine the property data type from the class schema so we can
+	// decode the lexicographically sortable bytes correctly.
+	dt := s.columnarPropDataType(property.Name)
+	switch dt {
+	case "number":
+		v, err := ent.ParseLexicographicallySortableFloat64(item.Data)
+		if err != nil {
+			return fmt.Errorf("columnar: decode float64 for prop '%s': %w", property.Name, err)
+		}
+		return bucket.ColumnarPutFloat32(docID, 0, float32(v))
+	default: // int, date — both stored as int64
+		v, err := ent.ParseLexicographicallySortableInt64(item.Data)
+		if err != nil {
+			return fmt.Errorf("columnar: decode int64 for prop '%s': %w", property.Name, err)
+		}
+		return bucket.ColumnarPutInt64(docID, 0, v)
+	}
+}
+
+func (s *Shard) columnarPropDataType(propName string) string {
+	if s.class == nil {
+		return ""
+	}
+	for _, p := range s.class.Properties {
+		if p.Name == propName && len(p.DataType) > 0 {
+			return p.DataType[0]
+		}
+	}
+	return ""
 }
 
 func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

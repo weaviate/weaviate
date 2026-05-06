@@ -291,6 +291,9 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 		if allow(command.PropertyFieldIndexRangeFilters) {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
 		}
+		if allow(command.PropertyFieldIndexColumnar) {
+			mergedProps[oldIdx].IndexColumnar = new[idx].IndexColumnar
+		}
 		if allow(command.PropertyFieldIndexFilterable) {
 			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
 		}

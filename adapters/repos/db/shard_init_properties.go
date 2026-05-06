@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/columnar"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -89,6 +90,12 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 			continue
 		}
 
+		if inverted.HasColumnarIndex(prop) {
+			eg.Go(func() error {
+				return s.createPropertyColumnarIndex(ctx, &propCopy, makeBucketOptions)
+			})
+		}
+
 		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
 		}
@@ -151,6 +158,12 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			}
 			s.cleanStaleMigrationDirs(prop.Name, "rangeable")
 			s.cleanStaleSidecarDirs(mainBucket)
+		}
+		if !inverted.HasColumnarIndex(prop) {
+			err := s.removeBucket(ctx, helpers.BucketColumnarFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove columnar index for %s property: %w", prop.Name, err)
+			}
 		}
 		return nil
 	})
@@ -536,6 +549,24 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
+func (s *Shard) createPropertyColumnarIndex(ctx context.Context, prop *models.Property,
+	makeBucketOptions lsmkv.MakeBucketOptions,
+) error {
+	if err := s.isReadOnly(); err != nil {
+		return err
+	}
+
+	colSchema := s.columnarSchemaForProp(prop)
+	opts := makeBucketOptions(lsmkv.StrategyColumnar)
+	if colSchema != nil {
+		opts = append(opts, lsmkv.WithColumnarSchema(colSchema))
+	}
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketColumnarFromPropNameLSM(prop.Name),
+		opts...,
+	)
+}
+
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 ) error {
@@ -658,4 +689,24 @@ func (s *Shard) getSearchableBlockmaxProperties() []string {
 	s.searchableBlockmaxPropNamesLock.Lock()
 	defer s.searchableBlockmaxPropNamesLock.Unlock()
 	return s.searchableBlockmaxPropNames
+}
+
+// columnarSchemaForProp returns the columnar schema for a single property.
+// The schema has a single column matching the property's data type.
+func (s *Shard) columnarSchemaForProp(prop *models.Property) *columnar.Schema {
+	dt, _ := schema.AsPrimitive(prop.DataType)
+	var colType columnar.ColumnType
+	switch dt {
+	case schema.DataTypeInt, schema.DataTypeDate:
+		colType = columnar.ColumnTypeInt64
+	case schema.DataTypeNumber:
+		colType = columnar.ColumnTypeFloat32
+	default:
+		return nil
+	}
+	return &columnar.Schema{
+		Columns: []columnar.Column{
+			{Name: prop.Name, Type: colType},
+		},
+	}
 }

@@ -64,6 +64,7 @@ const (
 	PropertyFieldIndexFilterable   = "indexFilterable"
 	PropertyFieldIndexSearchable   = "indexSearchable"
 	PropertyFieldIndexRangeFilters = "indexRangeFilters"
+	PropertyFieldIndexColumnar     = "indexColumnar"
 	PropertyFieldTokenization      = "tokenization"
 	PropertyFieldNestedProperties  = "nestedProperties"
 	// PropertyFieldBucketGeneration is the fieldmask tag for the internal

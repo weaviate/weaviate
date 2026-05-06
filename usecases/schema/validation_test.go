@@ -35,6 +35,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						IndexFilterable:   &vFalse,
 						IndexSearchable:   &vFalse,
 						IndexRangeFilters: &vFalse,
+						IndexColumnar:     &vFalse,
 						Tokenization:      "",
 					},
 				}
@@ -47,6 +48,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						}
@@ -56,6 +58,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -64,6 +67,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									IndexFilterable:   &vFalse,
 									IndexSearchable:   &vFalse,
 									IndexRangeFilters: &vFalse,
+									IndexColumnar:     &vFalse,
 									Tokenization:      "",
 									NestedProperties:  nestedProperties,
 								},
@@ -103,6 +107,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      tokenization,
 			})
 		}
@@ -115,6 +120,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties:  nestedProperties,
 				}
@@ -124,6 +130,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -132,6 +139,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -158,6 +166,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						IndexFilterable:   &vFalse,
 						IndexSearchable:   &vFalse,
 						IndexRangeFilters: &vFalse,
+						IndexColumnar:     &vFalse,
 						Tokenization:      "",
 					},
 				}
@@ -170,6 +179,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						}
@@ -179,6 +189,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -187,6 +198,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									IndexFilterable:   &vFalse,
 									IndexSearchable:   &vFalse,
 									IndexRangeFilters: &vFalse,
+									IndexColumnar:     &vFalse,
 									Tokenization:      "",
 									NestedProperties:  nestedProperties,
 								},
@@ -216,6 +228,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						IndexFilterable:   &vFalse,
 						IndexSearchable:   &vFalse,
 						IndexRangeFilters: &vFalse,
+						IndexColumnar:     &vFalse,
 						Tokenization:      "",
 					},
 				}
@@ -228,6 +241,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						}
@@ -237,6 +251,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -245,6 +260,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									IndexFilterable:   &vFalse,
 									IndexSearchable:   &vFalse,
 									IndexRangeFilters: &vFalse,
+									IndexColumnar:     &vFalse,
 									Tokenization:      "",
 									NestedProperties:  nestedProperties,
 								},
@@ -272,6 +288,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      "",
 			},
 		}
@@ -284,6 +301,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties:  nestedProperties,
 				}
@@ -293,6 +311,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -301,6 +320,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -327,6 +347,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 				}
 				propLvl2Primitives := &models.Property{
@@ -335,6 +356,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -343,6 +365,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 						},
 					},
@@ -379,6 +402,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						IndexFilterable:   &vFalse,
 						IndexSearchable:   &vFalse,
 						IndexRangeFilters: &vFalse,
+						IndexColumnar:     &vFalse,
 						Tokenization:      models.PropertyTokenizationWord,
 					},
 				}
@@ -391,6 +415,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						}
@@ -400,6 +425,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -408,6 +434,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									IndexFilterable:   &vFalse,
 									IndexSearchable:   &vFalse,
 									IndexRangeFilters: &vFalse,
+									IndexColumnar:     &vFalse,
 									Tokenization:      "",
 									NestedProperties:  nestedProperties,
 								},
@@ -435,6 +462,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      "",
 			},
 		}
@@ -447,6 +475,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -455,6 +484,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      models.PropertyTokenizationWord,
 							NestedProperties:  nestedProperties,
 						},
@@ -495,6 +525,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vTrue,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      tokenization,
 			})
 		}
@@ -507,6 +538,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties:  nestedProperties,
 				}
@@ -516,6 +548,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -524,6 +557,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -548,6 +582,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vTrue,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      "",
 			},
 		}
@@ -560,6 +595,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties:  nestedProperties,
 				}
@@ -569,6 +605,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -577,6 +614,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -602,6 +640,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      "",
 			},
 		}
@@ -614,6 +653,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vTrue,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -622,6 +662,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -647,6 +688,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vTrue,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      models.PropertyTokenizationWord,
 			})
 		}
@@ -659,6 +701,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties:  nestedProperties,
 				}
@@ -668,6 +711,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -676,6 +720,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -712,6 +757,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vTrue,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 				})
 
@@ -723,6 +769,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						}
@@ -732,6 +779,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vFalse,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -740,6 +788,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									IndexFilterable:   &vFalse,
 									IndexSearchable:   &vFalse,
 									IndexRangeFilters: &vFalse,
+									IndexColumnar:     &vFalse,
 									Tokenization:      "",
 									NestedProperties:  nestedProperties,
 								},
@@ -767,6 +816,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      "",
 			},
 		}
@@ -779,6 +829,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					IndexFilterable:   &vFalse,
 					IndexSearchable:   &vFalse,
 					IndexRangeFilters: &vFalse,
+					IndexColumnar:     &vFalse,
 					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -787,6 +838,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							IndexFilterable:   &vFalse,
 							IndexSearchable:   &vTrue,
 							IndexRangeFilters: &vFalse,
+							IndexColumnar:     &vFalse,
 							Tokenization:      "",
 							NestedProperties:  nestedProperties,
 						},
@@ -812,6 +864,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vTrue,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      models.PropertyTokenizationWord,
 				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
@@ -826,6 +879,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			IndexFilterable:   &vFalse,
 			IndexSearchable:   &vFalse,
 			IndexRangeFilters: &vFalse,
+			IndexColumnar:     &vFalse,
 			Tokenization:      "",
 			NestedProperties:  nestedProperties,
 		}
@@ -841,6 +895,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vTrue,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      models.PropertyTokenizationWord,
 				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold:       true,
@@ -855,6 +910,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			IndexFilterable:   &vFalse,
 			IndexSearchable:   &vFalse,
 			IndexRangeFilters: &vFalse,
+			IndexColumnar:     &vFalse,
 			Tokenization:      "",
 			NestedProperties:  nestedProperties,
 		}
@@ -870,6 +926,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vTrue,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      "",
 				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold: true,
@@ -883,6 +940,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			IndexFilterable:   &vFalse,
 			IndexSearchable:   &vFalse,
 			IndexRangeFilters: &vFalse,
+			IndexColumnar:     &vFalse,
 			Tokenization:      "",
 			NestedProperties:  nestedProperties,
 		}
@@ -897,6 +955,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			IndexFilterable:   &vTrue,
 			IndexSearchable:   &vFalse,
 			IndexRangeFilters: &vFalse,
+			IndexColumnar:     &vFalse,
 			Tokenization:      "",
 			TextAnalyzer:      &models.TextAnalyzerConfig{},
 		}
@@ -907,6 +966,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			IndexFilterable:   &vFalse,
 			IndexSearchable:   &vFalse,
 			IndexRangeFilters: &vFalse,
+			IndexColumnar:     &vFalse,
 			Tokenization:      "",
 			NestedProperties:  []*models.NestedProperty{nestedProp},
 		}
@@ -923,6 +983,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				IndexFilterable:   &vFalse,
 				IndexSearchable:   &vFalse,
 				IndexRangeFilters: &vFalse,
+				IndexColumnar:     &vFalse,
 				Tokenization:      models.PropertyTokenizationWord,
 				TextAnalyzer: &models.TextAnalyzerConfig{
 					ASCIIFold: true,
@@ -936,6 +997,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			IndexFilterable:   &vFalse,
 			IndexSearchable:   &vFalse,
 			IndexRangeFilters: &vFalse,
+			IndexColumnar:     &vFalse,
 			Tokenization:      "",
 			NestedProperties:  nestedProperties,
 		}
