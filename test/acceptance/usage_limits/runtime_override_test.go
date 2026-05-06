@@ -54,13 +54,16 @@ func TestRuntimeOverride_ObjectLimit(t *testing.T) {
 		FileMode:          0o644,
 	}
 
-	compose, err := docker.New().
+	c := docker.New().
 		WithWeaviate().
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridePath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
-		WithWeaviateFiles(emptyOverride).
-		Start(ctx)
+		WithWeaviateFiles(emptyOverride)
+	for k, v := range aggressiveFlushEnv() {
+		c = c.WithWeaviateEnv(k, v)
+	}
+	compose, err := c.Start(ctx)
 	require.NoError(t, err, "failed to start container")
 	defer func() {
 		if err := compose.Terminate(context.Background()); err != nil {
@@ -77,6 +80,10 @@ func TestRuntimeOverride_ObjectLimit(t *testing.T) {
 		body := []byte(fmt.Sprintf(`{"class":"RuntimeCol","properties":{"i":%d}}`, i))
 		postOK(t, ctx, httpURI+"/v1/objects", body)
 	}
+	// Give the memtable flush trigger a beat to land — otherwise the
+	// async count still says 0 when the override fires, and the probe
+	// would succeed (count 0 + 1 < cap 3).
+	time.Sleep(3 * time.Second)
 
 	// Write a runtime override YAML pinning the object cap to 3 (i.e.
 	// already at the cap given the inserts above).

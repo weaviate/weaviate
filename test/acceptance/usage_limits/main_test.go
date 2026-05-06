@@ -42,12 +42,13 @@ func suiteContext(t *testing.T) (context.Context, context.CancelFunc) {
 }
 
 // startContainer boots a single-node Weaviate with the given env vars set.
-// Helper kept tiny to make per-test startup configurations obvious at the
-// call site. Returns the compose handle (for URI access + cleanup) plus a
-// terminate function the caller defers.
+// Uses WithWeaviateWithGRPC so the gRPC port is exposed for the
+// gRPC-batch acceptance scenarios (the plain WithWeaviate variant only
+// exposes the REST port). Returns the compose handle (for URI access +
+// cleanup) plus a terminate function the caller defers.
 func startContainer(t *testing.T, ctx context.Context, env map[string]string) (*docker.DockerCompose, func()) {
 	t.Helper()
-	c := docker.New().WithWeaviate()
+	c := docker.New().WithWeaviateWithGRPC()
 	for k, v := range env {
 		c = c.WithWeaviateEnv(k, v)
 	}
