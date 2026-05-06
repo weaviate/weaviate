@@ -67,38 +67,38 @@ func (l *ChangeLog) NewTailerWithCap(fromLSN, untilLSN uint64) (*Tailer, error) 
 func (t *Tailer) Next(ctx context.Context) (*Entry, error) {
 	l := t.log
 	for {
-		if entry, err := func() (*Entry, error) {
+		entry, wait, err := func() (*Entry, <-chan struct{}, error) {
 			l.mu.Lock()
 			defer l.mu.Unlock()
 			if l.deactivated {
-				return nil, ErrLogDeactivated
+				return nil, nil, ErrLogDeactivated
 			}
 			// Cap check sits before the emit branch so a tailer constructed at or
 			// past the cap (including untilLSN=0) EOFs on the first Next call
 			// rather than emitting one entry past the boundary.
 			if t.lastLSN >= t.untilLSN {
-				return nil, io.EOF
+				return nil, nil, io.EOF
 			}
 			if t.lastLSN < l.lsn {
 				offset := l.offsetIndex[t.lastLSN]
 				if _, err := t.file.Seek(offset, io.SeekStart); err != nil {
-					return nil, fmt.Errorf("changelog: tailer seek: %w", err)
+					return nil, nil, fmt.Errorf("changelog: tailer seek: %w", err)
 				}
 				entry, err := DecodeFrame(t.file)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				t.lastLSN = entry.LSN
-				return entry, nil
+				return entry, nil, nil
 			}
 			if l.finalized && t.lastLSN >= l.finalLSN {
-				return nil, io.EOF
+				return nil, nil, io.EOF
 			}
-			return nil, nil
-		}(); entry != nil || err != nil {
+			return nil, l.notify, nil
+		}()
+		if entry != nil || err != nil {
 			return entry, err
 		}
-		wait := l.notify
 
 		select {
 		case <-wait:
