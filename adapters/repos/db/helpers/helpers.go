@@ -112,6 +112,10 @@ func BucketRangeableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + "_rangeable")
 }
 
+func BucketColumnarFromPropNameLSM(propName string) string {
+	return BucketFromPropNameLSM(propName + "_columnar")
+}
+
 // CompressionRatioFromConfig calculates the compression ratio from vector index config
 // This is used for inactive tenants where we don't have access to the actual vector index
 func CompressionRatioFromConfig(config schemaConfig.VectorIndexConfig, dimensions int) float64 {

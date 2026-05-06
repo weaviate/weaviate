@@ -31,12 +31,14 @@ import (
 //
 // swagger:model NestedProperty
 type NestedProperty struct {
-
 	// data type
 	DataType []string `json:"dataType"`
 
 	// description
 	Description string `json:"description,omitempty"`
+
+	// index columnar
+	IndexColumnar *bool `json:"indexColumnar,omitempty"`
 
 	// index filterable
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
@@ -210,9 +212,7 @@ func (m *NestedProperty) ContextValidate(ctx context.Context, formats strfmt.Reg
 }
 
 func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.NestedProperties); i++ {
-
 		if m.NestedProperties[i] != nil {
 			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -223,14 +223,12 @@ func (m *NestedProperty) contextValidateNestedProperties(ctx context.Context, fo
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *NestedProperty) contextValidateTextAnalyzer(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.TextAnalyzer != nil {
 		if err := m.TextAnalyzer.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

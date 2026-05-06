@@ -52,6 +52,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 			lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
 			lsmkv.WithUseBloomFilter(false),
 		)
+	case lsmkv.StrategyColumnar:
+		// no special options needed for columnar strategy
 	case lsmkv.StrategyMapCollection:
 		if s.versioner.Version() < 2 {
 			options = append(options,

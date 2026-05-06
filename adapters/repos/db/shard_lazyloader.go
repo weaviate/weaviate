@@ -480,6 +480,12 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
 		}
+		if !inverted.HasColumnarIndex(prop) {
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketColumnarFromPropNameLSM(prop.Name))
+			if err != nil {
+				return fmt.Errorf("cannot remove unloaded columnar index for %s property: %w", prop.Name, err)
+			}
+		}
 		return nil
 	})
 }

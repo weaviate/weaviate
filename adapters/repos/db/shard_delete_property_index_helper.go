@@ -49,6 +49,11 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 				return fmt.Errorf("failed to remove unused bucket for rangeFilters index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
+		if p.isPropertyIndexRemoved(prop.IndexColumnar) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketColumnarFromPropNameLSM(prop.Name)) {
+			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketColumnarFromPropNameLSM(prop.Name)); err != nil {
+				return fmt.Errorf("failed to remove unused bucket for columnar index: class %s property %s: %w", class.Class, prop.Name, err)
+			}
+		}
 	}
 	return nil
 }

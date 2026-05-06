@@ -218,6 +218,7 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 			mergedProps = append(mergedProps, new[idx])
 		} else {
 			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
+			mergedProps[oldIdx].IndexColumnar = new[idx].IndexColumnar
 			mergedProps[oldIdx].IndexFilterable = new[idx].IndexFilterable
 			mergedProps[oldIdx].IndexSearchable = new[idx].IndexSearchable
 

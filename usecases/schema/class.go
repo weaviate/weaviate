@@ -576,6 +576,9 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 		if prop.IndexRangeFilters == nil {
 			prop.IndexRangeFilters = &vFalse
 		}
+		if prop.IndexColumnar == nil {
+			prop.IndexColumnar = &vFalse
+		}
 	}
 }
 
@@ -637,6 +640,10 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 
 	if property.IndexRangeFilters == nil {
 		property.IndexRangeFilters = &vFalse
+	}
+
+	if property.IndexColumnar == nil {
+		property.IndexColumnar = &vFalse
 	}
 }
 
@@ -953,6 +960,17 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 		default:
 			if *prop.IndexRangeFilters {
 				return fmt.Errorf("`indexRangeFilters` is allowed only for number/int/date data types. " +
+					"For other data types set false or leave empty")
+			}
+		}
+	}
+	if prop.IndexColumnar != nil {
+		switch dataType {
+		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
+			// true or false allowed
+		default:
+			if *prop.IndexColumnar {
+				return fmt.Errorf("`indexColumnar` is allowed only for number/int/date data types. " +
 					"For other data types set false or leave empty")
 			}
 		}

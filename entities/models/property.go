@@ -31,7 +31,6 @@ import (
 //
 // swagger:model Property
 type Property struct {
-
 	// Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.
 	DataType []string `json:"dataType"`
 
@@ -40,6 +39,9 @@ type Property struct {
 
 	// If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.
 	DisableDuplicatedReferences *bool `json:"disableDuplicatedReferences,omitempty"`
+
+	// Whether to include this property in a columnar index for efficient time-based and hybrid vector queries. Applicable only to properties of data type int, number, date.
+	IndexColumnar *bool `json:"indexColumnar,omitempty"`
 
 	// Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
@@ -219,9 +221,7 @@ func (m *Property) ContextValidate(ctx context.Context, formats strfmt.Registry)
 }
 
 func (m *Property) contextValidateNestedProperties(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.NestedProperties); i++ {
-
 		if m.NestedProperties[i] != nil {
 			if err := m.NestedProperties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -232,14 +232,12 @@ func (m *Property) contextValidateNestedProperties(ctx context.Context, formats 
 				return err
 			}
 		}
-
 	}
 
 	return nil
 }
 
 func (m *Property) contextValidateTextAnalyzer(ctx context.Context, formats strfmt.Registry) error {
-
 	if m.TextAnalyzer != nil {
 		if err := m.TextAnalyzer.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

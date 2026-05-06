@@ -33,6 +33,7 @@ var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyIndexFilterable,
 	validateNestedPropertyIndexSearchable,
 	validateNestedPropertyIndexRangeFilters,
+	validateNestedPropertyIndexColumnar,
 	validateNestedPropertyProcessing,
 }
 
@@ -205,6 +206,35 @@ func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
 	}
 	if *property.IndexRangeFilters {
 		return fmt.Errorf("property '%s': `indexRangeFilters` is not allowed for other than number/int/date data types",
+			propName)
+	}
+
+	return nil
+}
+
+// indexColumnar allowed for number/int/date data types
+func validateNestedPropertyIndexColumnar(property *models.NestedProperty,
+	primitiveDataType, _ schema.DataType,
+	isPrimitive, _ bool, propNamePrefix string,
+	_ map[string][]string,
+) error {
+	propName := propNamePrefix + "." + property.Name
+
+	// at this point indexColumnar should be set (either by user or by defaults)
+	if property.IndexColumnar == nil {
+		return fmt.Errorf("property '%s': `indexColumnar` not set", propName)
+	}
+
+	if isPrimitive {
+		switch primitiveDataType {
+		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
+			return nil
+		default:
+			// do nothing
+		}
+	}
+	if *property.IndexColumnar {
+		return fmt.Errorf("property '%s': `indexColumnar` is not allowed for other than number/int/date data types",
 			propName)
 	}
 

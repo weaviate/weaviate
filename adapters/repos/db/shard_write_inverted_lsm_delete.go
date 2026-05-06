@@ -68,6 +68,15 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
+		if prop.HasColumnarIndex {
+			bucket := s.store.Bucket(helpers.BucketColumnarFromPropNameLSM(prop.Name))
+			if bucket != nil {
+				if err := bucket.ColumnarDelete(docID); err != nil {
+					return errors.Wrapf(err, "delete docID from prop '%s' columnar index", prop.Name)
+				}
+			}
+		}
+
 		if err := s.onDeleteFromPropertyValueIndex(docID, &prop); err != nil {
 			return err
 		}
