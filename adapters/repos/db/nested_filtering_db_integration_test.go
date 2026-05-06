@@ -11958,3 +11958,247 @@ func TestNestedFilteringAndOfOrRegression(t *testing.T) {
 		runScenario(t, docs, filter, []strfmt.UUID{idCars1Match205, idCars1Match225})
 	})
 }
+
+// TestNestedFilteringOrOfCorrelatedAndsWithMultiToken tests OR over two
+// same-element correlated AND groups where one or both branches contain
+// a multi-token text value. The combinator boundary tested: the
+// token-wrapper pvp shape (Pattern 1 / Pattern 2) inside one OR branch
+// must not bleed positions into the other branch, and per-branch
+// same-leaf token-collapse must work independently of the OR combinator.
+//
+// Coverage matrix: 2 root variants × 2 OR shapes = 4 sub-tests.
+//
+// Root variants:
+//   - country (DataTypeObject) wrapping addresses (object[])
+//   - countries (DataTypeObjectArray) wrapping addresses (object[])
+//
+// Shapes:
+//   - Shape 1: both branches multi-token correlated AND
+//   - Shape 2: one branch multi-token + one single-token correlated AND
+//
+// Sub-test 1 of each shape includes a discriminator doc where multi-token
+// values are split across leaves (token wrapper requires same-leaf for
+// the token group); under the docID-level OR combinator the doc must
+// not match.
+func TestNestedFilteringOrOfCorrelatedAndsWithMultiToken(t *testing.T) {
+	const nestedClass = "OrCorrelatedAndsMultiToken"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	addressProps := []*models.NestedProperty{
+		{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+		{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+	}
+	rootInner := []*models.NestedProperty{
+		{Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: addressProps},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	addr := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	countryWith := func(addresses ...map[string]any) map[string]any {
+		anyAddr := make([]any, len(addresses))
+		for i, a := range addresses {
+			anyAddr[i] = a
+		}
+		return map[string]any{"addresses": anyAddr}
+	}
+	withCountry := func(addresses ...map[string]any) map[string]any {
+		return map[string]any{"country": countryWith(addresses...)}
+	}
+	withCountries := func(countries ...map[string]any) map[string]any {
+		anyC := make([]any, len(countries))
+		for i, c := range countries {
+			anyC[i] = c
+		}
+		return map[string]any{"countries": anyC}
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// =========================================================================
+	// country (object) root
+	// =========================================================================
+
+	t.Run("country_object_Shape1_both_multi_token", func(t *testing.T) {
+		// Filter: (country.addresses.city="new york" AND country.addresses.postcode="10115")
+		//      OR (country.addresses.city="san francisco" AND country.addresses.postcode="94102")
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftWrongPostcode := uuid(4)
+		idLeftSplitTokens := uuid(5)
+		idValuesAtWrongAddress := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(addr("city", "new york", "postcode", "10115")), note: "[0]=ny+10115"},
+			{id: idRightOnly, props: withCountry(addr("city", "munich"), addr("city", "san francisco", "postcode", "94102")), note: "[1]=sf+94102"},
+			{id: idBoth, props: withCountry(addr("city", "new york", "postcode", "10115"), addr("city", "san francisco", "postcode", "94102")), note: "both"},
+			{id: idLeftWrongPostcode, props: withCountry(addr("city", "new york", "postcode", "99999")), note: "ny but 99999"},
+			{id: idLeftSplitTokens, props: withCountry(addr("city", "new", "postcode", "10115"), addr("city", "york", "postcode", "10115")), note: "ny tokens at different addresses — multi-token wrapper fails"},
+			{id: idValuesAtWrongAddress, props: withCountry(addr("city", "new york", "postcode", "94102"), addr("city", "san francisco", "postcode", "10115")), note: "DISCRIMINATOR: postcodes swapped — neither branch matches"},
+			{id: idEmpty, props: map[string]any{"country": map[string]any{}}, note: "no addresses"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("country.addresses.city", "new york"), textFilter("country.addresses.postcode", "10115")),
+			andFilter(textFilter("country.addresses.city", "san francisco"), textFilter("country.addresses.postcode", "94102")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	t.Run("country_object_Shape2_mixed_multi_token_and_single_token", func(t *testing.T) {
+		// Filter: (country.addresses.city="new york" AND country.addresses.postcode="10115")  // multi-token left
+		//      OR (country.addresses.city="berlin"   AND country.addresses.postcode="10115")  // single-token right
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftSplitTokens := uuid(4)
+		idLeftWrongPostcode := uuid(5)
+		idRightSplitClauses := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(addr("city", "new york", "postcode", "10115")), note: "ny+10115"},
+			{id: idRightOnly, props: withCountry(addr("city", "berlin", "postcode", "10115")), note: "berlin+10115"},
+			{id: idBoth, props: withCountry(addr("city", "new york", "postcode", "10115"), addr("city", "berlin", "postcode", "10115")), note: "both"},
+			{id: idLeftSplitTokens, props: withCountry(addr("city", "new", "postcode", "10115"), addr("city", "york", "postcode", "10115")), note: "ny tokens split"},
+			{id: idLeftWrongPostcode, props: withCountry(addr("city", "new york", "postcode", "99999")), note: "ny wrong postcode"},
+			{id: idRightSplitClauses, props: withCountry(addr("city", "berlin"), addr("postcode", "10115")), note: "right split: city in [0], postcode in [1]"},
+			{id: idEmpty, props: map[string]any{"country": map[string]any{}}, note: "no addresses"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("country.addresses.city", "new york"), textFilter("country.addresses.postcode", "10115")),
+			andFilter(textFilter("country.addresses.city", "berlin"), textFilter("country.addresses.postcode", "10115")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	// =========================================================================
+	// countries (object[]) root
+	// =========================================================================
+
+	t.Run("countries_array_Shape1_both_multi_token", func(t *testing.T) {
+		// Filter: (countries.addresses.city="new york" AND countries.addresses.postcode="10115")
+		//      OR (countries.addresses.city="san francisco" AND countries.addresses.postcode="94102")
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idLeftRightDifferentCountries := uuid(3)
+		idLeftWrongPostcode := uuid(4)
+		idLeftSplitTokens := uuid(5)
+		idCrossCountryNoMatch := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWith(addr("city", "new york", "postcode", "10115"))), note: "[0] has ny+10115"},
+			{id: idRightOnly, props: withCountries(countryWith(addr("city", "san francisco", "postcode", "94102"))), note: "[0] has sf+94102"},
+			{id: idLeftRightDifferentCountries, props: withCountries(
+				countryWith(addr("city", "new york", "postcode", "10115")),
+				countryWith(addr("city", "san francisco", "postcode", "94102")),
+			), note: "left in countries[0]; right in countries[1] — both branches satisfied via existential"},
+			{id: idLeftWrongPostcode, props: withCountries(countryWith(addr("city", "new york", "postcode", "99999"))), note: "ny wrong postcode"},
+			{id: idLeftSplitTokens, props: withCountries(countryWith(addr("city", "new", "postcode", "10115"), addr("city", "york", "postcode", "10115"))), note: "ny tokens at different addresses — wrapper fails"},
+			{id: idCrossCountryNoMatch, props: withCountries(
+				countryWith(addr("city", "new york")),
+				countryWith(addr("postcode", "10115")),
+			), note: "DISCRIMINATOR: city in [0], postcode in [1] — no country has correlated AND satisfied"},
+			{id: idEmpty, props: map[string]any{"countries": []any{}}, note: "no countries"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("countries.addresses.city", "new york"), textFilter("countries.addresses.postcode", "10115")),
+			andFilter(textFilter("countries.addresses.city", "san francisco"), textFilter("countries.addresses.postcode", "94102")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idLeftRightDifferentCountries})
+	})
+
+	t.Run("countries_array_Shape2_mixed_multi_token_and_single_token", func(t *testing.T) {
+		// Filter: (countries.addresses.city="new york" AND countries.addresses.postcode="10115")  // multi-token left
+		//      OR (countries.addresses.city="berlin"   AND countries.addresses.postcode="10115")  // single-token right
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBothInOneCountry := uuid(3)
+		idBothInDifferentCountries := uuid(4)
+		idLeftSplitTokens := uuid(5)
+		idCrossCountryNoMatch := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWith(addr("city", "new york", "postcode", "10115"))), note: "ny+10115"},
+			{id: idRightOnly, props: withCountries(countryWith(addr("city", "berlin", "postcode", "10115"))), note: "berlin+10115"},
+			{id: idBothInOneCountry, props: withCountries(countryWith(addr("city", "new york", "postcode", "10115"), addr("city", "berlin", "postcode", "10115"))), note: "both in same country"},
+			{id: idBothInDifferentCountries, props: withCountries(
+				countryWith(addr("city", "new york", "postcode", "10115")),
+				countryWith(addr("city", "berlin", "postcode", "10115")),
+			), note: "left in countries[0], right in countries[1]"},
+			{id: idLeftSplitTokens, props: withCountries(countryWith(addr("city", "new", "postcode", "10115"), addr("city", "york", "postcode", "10115"))), note: "ny tokens split — wrapper fails"},
+			{id: idCrossCountryNoMatch, props: withCountries(
+				countryWith(addr("city", "new york")),
+				countryWith(addr("city", "berlin")),
+			), note: "DISCRIMINATOR: city present in each country but no postcode anywhere — both branches fail"},
+			{id: idEmpty, props: map[string]any{"countries": []any{}}, note: "no countries"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("countries.addresses.city", "new york"), textFilter("countries.addresses.postcode", "10115")),
+			andFilter(textFilter("countries.addresses.city", "berlin"), textFilter("countries.addresses.postcode", "10115")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBothInOneCountry, idBothInDifferentCountries})
+	})
+}
