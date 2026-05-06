@@ -480,7 +480,7 @@ func newTestTelemeter(opts ...telemetryOpt,
 	sg := &fakeNodesStatusGetter{}
 	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger)
+	tel := New(sg, sm, logger, false)
 	for _, opt := range opts {
 		opt(tel)
 	}
