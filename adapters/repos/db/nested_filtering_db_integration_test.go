@@ -9896,3 +9896,501 @@ func TestNestedFilteringTokenizationFollowups(t *testing.T) {
 		runScenario(t, docs, filter, []strfmt.UUID{idAllFourTokens})
 	})
 }
+
+// TestNestedFilteringSamePathMultiValueTokenized ports the 4 BUG sub-tests
+// of lower-level TestResolveNestedCorrelatedAnd (plain-object LCA and
+// object[] LCA × independent=1 / independent>1). These exercise a specific
+// pattern not otherwise covered: same path with multiple value clauses where
+// at least one is multi-token and one or more are single-token, plus a
+// sibling clause on a different path.
+//
+// At the lower level, the bug was that combinePositions produced empty
+// results when mixing MASKED (from token AndAll) and RAW (from independent)
+// bitmaps. The DB-level port verifies the user-visible behavior is correct
+// regardless of how the internal bitmaps are combined.
+func TestNestedFilteringSamePathMultiValueTokenized(t *testing.T) {
+	const nestedClass = "MultiValueTokenized"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	textFilter := func(class, path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: schema.ClassName(class), Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tagsAny := func(tags ...string) []any {
+		out := make([]any, len(tags))
+		for i, t := range tags {
+			out[i] = t
+		}
+		return out
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	// ----- Variant 1: plain-object LCA, text[] tags, multi-token + 1 single -----
+	// Filter: addresses.owner.tags = "new york" AND addresses.owner.tags = "berlin"
+	//         AND addresses.owner.name = "alice"
+	// LCA = addresses.owner (plain-object inside addresses[]). owner has tags
+	// (text[]) and name (text). Single address must satisfy all three clauses.
+	t.Run("plain_obj_LCA_tags_multi_token_plus_single_AND_name", func(t *testing.T) {
+		class := &models.Class{
+			Class:             nestedClass,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{{
+				Name:     "addresses",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{{
+					Name:     "owner",
+					DataType: schema.DataTypeObject.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+					},
+				}},
+			}},
+		}
+		idMatch := uuid(1)            // addresses[0].owner.tags=["new york","berlin"], owner.name="alice"
+		idNoMatchSplit := uuid(2)     // tags split: addresses[0]=["new york"], addresses[1]=["berlin"]
+		idNoMatchWrongName := uuid(3) // addresses[0] has both tags but owner.name != alice
+		idNoMatchPartial := uuid(4)   // addresses[0] has only "new york"; missing "berlin"
+		docs := []struct {
+			id    strfmt.UUID
+			props map[string]any
+		}{
+			{id: idMatch, props: map[string]any{"addresses": asArr(map[string]any{
+				"owner": map[string]any{"tags": tagsAny("new york", "berlin"), "name": "alice"},
+			})}},
+			{id: idNoMatchSplit, props: map[string]any{"addresses": asArr(
+				map[string]any{"owner": map[string]any{"tags": tagsAny("new york"), "name": "alice"}},
+				map[string]any{"owner": map[string]any{"tags": tagsAny("berlin"), "name": "alice"}},
+			)}},
+			{id: idNoMatchWrongName, props: map[string]any{"addresses": asArr(map[string]any{
+				"owner": map[string]any{"tags": tagsAny("new york", "berlin"), "name": "bob"},
+			})}},
+			{id: idNoMatchPartial, props: map[string]any{"addresses": asArr(map[string]any{
+				"owner": map[string]any{"tags": tagsAny("new york"), "name": "alice"},
+			})}},
+		}
+
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: d.id, Properties: d.props}, nil, nil, nil, nil, 0))
+		}
+		filter := andFilter(
+			textFilter(nestedClass, "addresses.owner.tags", "new york"),
+			textFilter(nestedClass, "addresses.owner.tags", "berlin"),
+			textFilter(nestedClass, "addresses.owner.name", "alice"),
+		)
+		res, err := db.Search(ctx, dto.GetParams{ClassName: nestedClass, Pagination: &filters.Pagination{Limit: 100}, Filters: filter})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, []strfmt.UUID{idMatch}, got)
+	})
+
+	// ----- Variant 2: plain-object LCA, text title, multi-token + 2 singles -----
+	// Filter: addresses.owner.title = "new york" AND .title = "berlin" AND .title = "tech"
+	//         AND addresses.owner.name = "alice"
+	// title is text (single-valued); to satisfy three same-path clauses the
+	// title's tokenization must contain all of [new, york, berlin, tech] at the
+	// same position. With word tokenization, a value like "new york berlin tech"
+	// produces all four tokens at the same leaf.
+	t.Run("plain_obj_LCA_title_multi_token_plus_2_singles_AND_name", func(t *testing.T) {
+		class2 := &models.Class{
+			Class:             nestedClass + "2",
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{{
+				Name:     "addresses",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{{
+					Name:     "owner",
+					DataType: schema.DataTypeObject.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "title", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+						{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+					},
+				}},
+			}},
+		}
+		idMatch := uuid(1)            // title="new york berlin tech", name="alice"
+		idNoMatchPartial := uuid(2)   // title="new york berlin" — missing tech
+		idNoMatchWrongName := uuid(3) // title has all 4 but name=bob
+		idNoMatchSplitAddr := uuid(4) // tokens spread across two addresses
+		docs := []struct {
+			id    strfmt.UUID
+			props map[string]any
+		}{
+			{id: idMatch, props: map[string]any{"addresses": asArr(map[string]any{
+				"owner": map[string]any{"title": "new york berlin tech", "name": "alice"},
+			})}},
+			{id: idNoMatchPartial, props: map[string]any{"addresses": asArr(map[string]any{
+				"owner": map[string]any{"title": "new york berlin", "name": "alice"},
+			})}},
+			{id: idNoMatchWrongName, props: map[string]any{"addresses": asArr(map[string]any{
+				"owner": map[string]any{"title": "new york berlin tech", "name": "bob"},
+			})}},
+			{id: idNoMatchSplitAddr, props: map[string]any{"addresses": asArr(
+				map[string]any{"owner": map[string]any{"title": "new york", "name": "alice"}},
+				map[string]any{"owner": map[string]any{"title": "berlin tech", "name": "alice"}},
+			)}},
+		}
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class2)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: class2.Class, ID: d.id, Properties: d.props}, nil, nil, nil, nil, 0))
+		}
+		filter := andFilter(
+			textFilter(class2.Class, "addresses.owner.title", "new york"),
+			textFilter(class2.Class, "addresses.owner.title", "berlin"),
+			textFilter(class2.Class, "addresses.owner.title", "tech"),
+			textFilter(class2.Class, "addresses.owner.name", "alice"),
+		)
+		res, err := db.Search(ctx, dto.GetParams{ClassName: class2.Class, Pagination: &filters.Pagination{Limit: 100}, Filters: filter})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, []strfmt.UUID{idMatch}, got)
+	})
+
+	// ----- Variant 3: object[] LCA (cars), text[] tags, multi-token + 1 single -----
+	// Filter: garages.cars.tags = "new york" AND garages.cars.tags = "berlin"
+	//         AND garages.cars.make = "tesla"
+	// LCA = cars (object[]). Same car must have both tag values (multi-token "new
+	// york" at one leaf, "berlin" at another leaf within the same cars element)
+	// AND make=tesla.
+	t.Run("objArr_LCA_cars.tags_multi_token_plus_single_AND_make", func(t *testing.T) {
+		class3 := &models.Class{
+			Class:             nestedClass + "3",
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{{
+				Name:     "garages",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{{
+					Name:     "cars",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+						{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+					},
+				}},
+			}},
+		}
+		idMatch := uuid(1)               // cars[0].tags=["new york","berlin"], make="tesla"
+		idNoMatchSplitCars := uuid(2)    // tags split across cars; one has make
+		idNoMatchPartialTags := uuid(3)  // cars[0].tags=["new york"] only, make="tesla"
+		idNoMatchWrongMake := uuid(4)    // cars[0] has both tags but make != tesla
+		idNoMatchSplitGarages := uuid(5) // tags+make across separate garages
+		docs := []struct {
+			id    strfmt.UUID
+			props map[string]any
+		}{
+			{id: idMatch, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(map[string]any{"tags": tagsAny("new york", "berlin"), "make": "tesla"}),
+			})}},
+			{id: idNoMatchSplitCars, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(
+					map[string]any{"tags": tagsAny("new york"), "make": "tesla"},
+					map[string]any{"tags": tagsAny("berlin"), "make": "tesla"},
+				),
+			})}},
+			{id: idNoMatchPartialTags, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(map[string]any{"tags": tagsAny("new york"), "make": "tesla"}),
+			})}},
+			{id: idNoMatchWrongMake, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(map[string]any{"tags": tagsAny("new york", "berlin"), "make": "bmw"}),
+			})}},
+			{id: idNoMatchSplitGarages, props: map[string]any{"garages": asArr(
+				map[string]any{"cars": asArr(map[string]any{"tags": tagsAny("new york", "berlin")})},
+				map[string]any{"cars": asArr(map[string]any{"make": "tesla"})},
+			)}},
+		}
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class3)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: class3.Class, ID: d.id, Properties: d.props}, nil, nil, nil, nil, 0))
+		}
+		filter := andFilter(
+			textFilter(class3.Class, "garages.cars.tags", "new york"),
+			textFilter(class3.Class, "garages.cars.tags", "berlin"),
+			textFilter(class3.Class, "garages.cars.make", "tesla"),
+		)
+		res, err := db.Search(ctx, dto.GetParams{ClassName: class3.Class, Pagination: &filters.Pagination{Limit: 100}, Filters: filter})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, []strfmt.UUID{idMatch}, got)
+	})
+
+	// ----- Variant 4: object[] LCA (cars), text make, multi-token + 2 singles -----
+	// Filter: garages.cars.make = "new york" AND .make = "berlin" AND .make = "tech"
+	//         AND garages.cars.model = "s"
+	// make is text (single-valued per car), so all 4 make-tokens must come from
+	// one make value (e.g. "new york berlin tech") on the same car as model="s".
+	t.Run("objArr_LCA_cars.make_multi_token_plus_2_singles_AND_model", func(t *testing.T) {
+		class4 := &models.Class{
+			Class:             nestedClass + "4",
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{{
+				Name:     "garages",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{{
+					Name:     "cars",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+						{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+					},
+				}},
+			}},
+		}
+		idMatch := uuid(1)            // make="new york berlin tech", model="s"
+		idNoMatchSplitCars := uuid(2) // make tokens spread across cars
+		idNoMatchWrongModel := uuid(3)
+		idNoMatchPartial := uuid(4) // make="new york berlin" missing tech
+		docs := []struct {
+			id    strfmt.UUID
+			props map[string]any
+		}{
+			{id: idMatch, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(map[string]any{"make": "new york berlin tech", "model": "s"}),
+			})}},
+			{id: idNoMatchSplitCars, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(
+					map[string]any{"make": "new york", "model": "s"},
+					map[string]any{"make": "berlin tech", "model": "s"},
+				),
+			})}},
+			{id: idNoMatchWrongModel, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(map[string]any{"make": "new york berlin tech", "model": "x"}),
+			})}},
+			{id: idNoMatchPartial, props: map[string]any{"garages": asArr(map[string]any{
+				"cars": asArr(map[string]any{"make": "new york berlin", "model": "s"}),
+			})}},
+		}
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class4)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: class4.Class, ID: d.id, Properties: d.props}, nil, nil, nil, nil, 0))
+		}
+		filter := andFilter(
+			textFilter(class4.Class, "garages.cars.make", "new york"),
+			textFilter(class4.Class, "garages.cars.make", "berlin"),
+			textFilter(class4.Class, "garages.cars.make", "tech"),
+			textFilter(class4.Class, "garages.cars.model", "s"),
+		)
+		res, err := db.Search(ctx, dto.GetParams{ClassName: class4.Class, Pagination: &filters.Pagination{Limit: 100}, Filters: filter})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, []strfmt.UUID{idMatch}, got)
+	})
+}
+
+// TestNestedFilteringSamePathMultiValueNonTokenized closes a gap identified
+// in the Tier 2 re-audit: lower-level TestResolveNestedCorrelatedAnd #7,
+// #19, #20, #25 cover the non-tokenized variant of "same-path multi-value
+// at object[] LCA combined with another path's clause". This shape is
+// distinct from:
+//
+//   - TestNestedFilteringSamePathMultiValueTokenized — tokenized values in
+//     the same-path clauses (different combinePositions branch)
+//   - F_tags_double_value — same-path multi-value alone, no cross-path
+//   - TestNestedFilteringComprehensive — cross-path scalar AND but no
+//     same-path multi-value
+//
+// Both sub-tests use single-token (field-tokenized) text[] values so the
+// dispatch goes through the all-independents branch of combinePositions.
+func TestNestedFilteringSamePathMultiValueNonTokenized(t *testing.T) {
+	const nestedClass = "MultiValueNonTokenized"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tagsAny := func(tags ...string) []any {
+		out := make([]any, len(tags))
+		for i, t := range tags {
+			out[i] = t
+		}
+		return out
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	textFilter := func(class, path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: schema.ClassName(class), Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+	}
+	runDocs := func(t *testing.T, class *models.Class, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: class.Class, ID: d.id, Properties: d.props}, nil, nil, nil, nil, 0))
+		}
+		res, err := db.Search(ctx, dto.GetParams{ClassName: class.Class, Pagination: &filters.Pagination{Limit: 100}, Filters: filter})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- Sub-test 1: same-path multi-value + cross-path scalar -----
+	// Filter: cars.tags = "electric" AND cars.tags = "sport" AND cars.make = "tesla"
+	// Same car must have both tags AND the make. Tests combinePositions for
+	// cars.tags producing a leaf-masked bitmap (multi-independents) that then
+	// ANDs with the raw cars.make bitmap at the same LCA.
+	t.Run("same_path_multi_value_AND_cross_path_scalar", func(t *testing.T) {
+		class := &models.Class{
+			Class:             nestedClass,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{{
+				Name:     "cars",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				},
+			}},
+		}
+		idMatch := uuid(1)
+		idNoMatchSplitTags := uuid(2)
+		idNoMatchSplitTagsMake := uuid(3)
+		idNoMatchPartialTags := uuid(4)
+		idNoMatchWrongMake := uuid(5)
+		idMatchSecondCar := uuid(6)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"cars": asArr(map[string]any{"tags": tagsAny("electric", "sport"), "make": "tesla"})}},
+			{id: idNoMatchSplitTags, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric"), "make": "tesla"},
+				map[string]any{"tags": tagsAny("sport"), "make": "tesla"},
+			)}},
+			{id: idNoMatchSplitTagsMake, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric", "sport")},
+				map[string]any{"make": "tesla"},
+			)}},
+			{id: idNoMatchPartialTags, props: map[string]any{"cars": asArr(map[string]any{"tags": tagsAny("electric"), "make": "tesla"})}},
+			{id: idNoMatchWrongMake, props: map[string]any{"cars": asArr(map[string]any{"tags": tagsAny("electric", "sport"), "make": "bmw"})}},
+			{id: idMatchSecondCar, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric"), "make": "bmw"},
+				map[string]any{"tags": tagsAny("electric", "sport"), "make": "tesla"},
+			)}},
+		}
+		filter := andFilter(
+			textFilter(nestedClass, "cars.tags", "electric"),
+			textFilter(nestedClass, "cars.tags", "sport"),
+			textFilter(nestedClass, "cars.make", "tesla"),
+		)
+		runDocs(t, class, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar})
+	})
+
+	// ----- Sub-test 2: two same-path multi-value paths (each text[]) -----
+	// Filter: cars.tags = "electric" AND cars.tags = "sport"
+	//         AND cars.labels = "red"  AND cars.labels = "blue"
+	// Same car must have all four — both pairs of multi-values must coexist
+	// at the same physical car. Both path bitmaps are leaf-masked
+	// (multi-value), so the AND combines two MASKED bitmaps at the cars LCA.
+	t.Run("two_same_path_multi_value_paths", func(t *testing.T) {
+		class2 := &models.Class{
+			Class:             nestedClass + "2",
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{{
+				Name:     "cars",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					{Name: "labels", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				},
+			}},
+		}
+		idMatch := uuid(1)
+		idNoMatchSplitTags := uuid(2)
+		idNoMatchSplitLabels := uuid(3)
+		idNoMatchSplitBoth := uuid(4)
+		idNoMatchPartialTags := uuid(5)
+		idNoMatchPartialLabels := uuid(6)
+		idMatchSecondCar := uuid(7)
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"cars": asArr(map[string]any{
+				"tags": tagsAny("electric", "sport"), "labels": tagsAny("red", "blue"),
+			})}},
+			{id: idNoMatchSplitTags, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric"), "labels": tagsAny("red", "blue")},
+				map[string]any{"tags": tagsAny("sport"), "labels": tagsAny("red", "blue")},
+			)}},
+			{id: idNoMatchSplitLabels, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric", "sport"), "labels": tagsAny("red")},
+				map[string]any{"labels": tagsAny("blue")},
+			)}},
+			{id: idNoMatchSplitBoth, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric", "sport")},
+				map[string]any{"labels": tagsAny("red", "blue")},
+			)}},
+			{id: idNoMatchPartialTags, props: map[string]any{"cars": asArr(map[string]any{
+				"tags": tagsAny("electric"), "labels": tagsAny("red", "blue"),
+			})}},
+			{id: idNoMatchPartialLabels, props: map[string]any{"cars": asArr(map[string]any{
+				"tags": tagsAny("electric", "sport"), "labels": tagsAny("red"),
+			})}},
+			{id: idMatchSecondCar, props: map[string]any{"cars": asArr(
+				map[string]any{"tags": tagsAny("electric"), "labels": tagsAny("red")},
+				map[string]any{"tags": tagsAny("electric", "sport"), "labels": tagsAny("red", "blue")},
+			)}},
+		}
+		filter := andFilter(
+			textFilter(class2.Class, "cars.tags", "electric"),
+			textFilter(class2.Class, "cars.tags", "sport"),
+			textFilter(class2.Class, "cars.labels", "red"),
+			textFilter(class2.Class, "cars.labels", "blue"),
+		)
+		runDocs(t, class2, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar})
+	})
+}
