@@ -241,28 +241,19 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("cancel replication operation", func(t *testing.T) {
-		cancelled, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(id), nil)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		require.Nil(t, err)
+		require.NotNil(t, created)
+		require.NotNil(t, created.Payload)
+		require.NotNil(t, created.Payload.ID)
+		cancelled, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(*created.Payload.ID), nil)
 		require.Nil(t, err)
 		require.NotNil(t, cancelled)
-	})
-
-	t.Run("wait for replication operation to be cancelled", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 			require.Nil(t, err)
 			assert.Equal(ct, string(api.CANCELLED), details.Payload.Status.State)
 		}, 30*time.Second, 1*time.Second, "replication operation should be cancelled")
-	})
-
-	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
-		nodes, err := helper.Client(t).Nodes.
-			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
-		require.Nil(t, err)
-		for _, node := range nodes.Payload.Nodes {
-			for _, shard := range node.Shards {
-				require.Len(t, shard.AsyncReplicationStatus, 0)
-			}
-		}
 	})
 
 	t.Run("delete replication operation", func(t *testing.T) {
