@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -673,4 +674,73 @@ func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
 
 	assert.NotEqual(t, ns1, ns2,
 		"shared group membership must not collapse two namespace claims into one scope")
+}
+
+// TestRejectNamespacedRoot locks the rule that a namespaced OIDC principal
+// cannot also be granted the root role. Root is cluster-global and has no
+// meaning when bound to a single namespace, so any token combination that
+// would produce such a principal must be rejected at the auth layer.
+func TestRejectNamespacedRoot(t *testing.T) {
+	rbac := rbacconf.Config{
+		RootUsers:  []string{"customer1:bob", "alice"},
+		RootGroups: []string{"WeaviateOps"},
+	}
+
+	tests := []struct {
+		name              string
+		namespace         string
+		qualifiedUsername string
+		groups            []string
+		wantErr           bool
+		wantErrSubstr     string
+	}{
+		{
+			name:              "global principal is unaffected",
+			namespace:         "",
+			qualifiedUsername: "alice",
+			groups:            []string{"WeaviateOps"},
+			wantErr:           false,
+		},
+		{
+			name:              "namespaced principal with no root binding",
+			namespace:         "customer1",
+			qualifiedUsername: "customer1:carol",
+			groups:            []string{"engineers"},
+			wantErr:           false,
+		},
+		{
+			name:              "namespaced principal in RootGroups is rejected",
+			namespace:         "customer1",
+			qualifiedUsername: "customer1:carol",
+			groups:            []string{"WeaviateOps"},
+			wantErr:           true,
+			wantErrSubstr:     "namespaced OIDC principal cannot be granted the root role",
+		},
+		{
+			name:              "namespaced principal whose qualified username is in RootUsers is rejected",
+			namespace:         "customer1",
+			qualifiedUsername: "customer1:bob",
+			groups:            []string{"engineers"},
+			wantErr:           true,
+			wantErrSubstr:     "namespaced OIDC principal cannot be granted the root role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{rbac: rbac, namespacesEnabled: true}
+
+			err := c.rejectNamespacedRoot(tt.namespace, tt.qualifiedUsername, tt.groups)
+
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var apiErr errors.Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, int32(401), apiErr.Code())
+			assert.Contains(t, err.Error(), tt.wantErrSubstr)
+		})
+	}
 }

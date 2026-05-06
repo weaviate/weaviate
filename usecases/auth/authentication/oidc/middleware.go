@@ -30,6 +30,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -43,6 +44,11 @@ type Client struct {
 	logger            logrus.FieldLogger
 	nsExister         namespaces.Exister
 	namespacesEnabled bool
+	// rbac is consulted on namespace-enabled clusters to reject tokens that
+	// would produce a namespaced principal carrying the root role. Root is
+	// a cluster-global role; binding it to a namespace contradicts the
+	// isolation model.
+	rbac rbacconf.Config
 }
 
 // New OIDC Client: It tries to retrieve the JWKs at startup (or fails), it
@@ -59,6 +65,7 @@ func New(cfg config.Config, nsExister namespaces.Exister, namespacesEnabled bool
 		logger:            logger.WithField("component", "oidc"),
 		nsExister:         nsExister,
 		namespacesEnabled: namespacesEnabled,
+		rbac:              cfg.Authorization.Rbac,
 	}
 
 	if !client.Config.Enabled {
@@ -174,13 +181,35 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		return nil, err
 	}
 
+	qualifiedUsername := namespacing.QualifiedName(namespace, username)
+
+	if err := c.rejectNamespacedRoot(namespace, qualifiedUsername, groups); err != nil {
+		return nil, err
+	}
+
 	return &models.Principal{
-		Username:         namespacing.QualifiedName(namespace, username),
+		Username:         qualifiedUsername,
 		Groups:           groups,
 		UserType:         models.UserTypeInputOidc,
 		Namespace:        namespace,
 		IsGlobalOperator: isGlobal,
 	}, nil
+}
+
+// rejectNamespacedRoot returns a 401 error when the token would produce a
+// namespaced principal that also carries the root role via RBAC RootUsers
+// or RootGroups. Root is a cluster-global role and cannot coexist with a
+// namespace claim — such tokens are a configuration error and must not
+// authenticate. Returns nil for global principals, namespace-disabled
+// clusters, and namespaced principals with no root binding.
+func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, groups []string) error {
+	if namespace == "" {
+		return nil
+	}
+	if !c.rbac.IsRoot(qualifiedUsername, groups) {
+		return nil
+	}
+	return errors.New(401, "unauthorized: namespaced OIDC principal cannot be granted the root role; remove the namespace claim or remove the principal from RBAC root configuration")
 }
 
 // classifyPrincipal resolves the namespace and global-operator flag for an
