@@ -51,6 +51,11 @@ func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardNa
 		return 0, err
 	}
 
+	index := c.dbWrapper.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return 0, fmt.Errorf("local index %q not found", indexName)
+	}
+
 	stream, err := client.GetChangeLog(ctx, &protocol.GetChangeLogRequest{
 		IndexName: indexName,
 		ShardName: shardName,
@@ -59,11 +64,6 @@ func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardNa
 	})
 	if err != nil {
 		return 0, fmt.Errorf("open change-log stream on %s: %w", srcNodeId, err)
-	}
-
-	index := c.dbWrapper.GetIndex(schema.ClassName(indexName))
-	if index == nil {
-		return 0, fmt.Errorf("local index %q not found", indexName)
 	}
 
 	apply := func(ctx context.Context, batch []db.ChangeLogReplayEntry) error {

@@ -211,6 +211,9 @@ func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, str
 			return nil
 		}
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return status.Errorf(codes.Canceled, "change-log stream cancelled for index %q, shard %q, op %q: %v", req.IndexName, req.ShardName, req.OpId, err)
+			}
 			return status.Errorf(codes.Internal, "next change-log entry for op %q: %v", req.OpId, err)
 		}
 

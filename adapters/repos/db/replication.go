@@ -830,7 +830,7 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 
 	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
-		return fmt.Errorf("shard %q not found locally", shard)
+		return fmt.Errorf("shard %q not found locally: %w", shard, err)
 	}
 	defer release()
 	if s == nil {

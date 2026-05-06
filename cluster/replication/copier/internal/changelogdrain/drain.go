@@ -29,7 +29,7 @@ import (
 
 // BatchSize caps per-flush memory: each entry carries a storobj payload, which can be
 // small ~ 1KB or large ~4MB+. If throughput is seen to be low (too small value) or memory is high
-// (to large a value for the objects) then this may need to be dynamically set.
+// (too large a value for the objects) then this may need to be dynamically set.
 const BatchSize = 128
 
 // Receiver is the minimum the drain loop needs from a gRPC server-streaming

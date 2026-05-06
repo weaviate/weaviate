@@ -64,6 +64,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 			}
 		}
 		helper.CreateObjectsBatch(t, batch)
+		batch = batch[:0]
 	})
 
 	// tenant2 is the unaffected-op control; its op runs to READY untouched.
@@ -80,6 +81,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 			}
 		}
 		helper.CreateObjectsBatch(t, batch)
+		batch = batch[:0]
 	})
 
 	// Keep the change-capture log non-empty during the op so cancelOp's
@@ -89,6 +91,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 	parallelWriteWg := sync.WaitGroup{}
 	parallelWriteDone := make(chan struct{})
 	parallelWriteWg.Add(1)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	enterrors.GoWrapper(func() {
 		defer parallelWriteWg.Done()
 		containerId := 1
@@ -97,7 +100,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 			select {
 			case <-parallelWriteDone:
 				return
-			default:
+			case <-ticker.C:
 				_ = createObjectThreadSafe(
 					suite.compose.ContainerURI(containerId),
 					paragraphClass.Class,
