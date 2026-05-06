@@ -26,6 +26,7 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type batchObjectHandlers struct {
@@ -48,6 +49,9 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return newLimitExceededResponder(le)
+		}
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchObjectsCreateForbidden().

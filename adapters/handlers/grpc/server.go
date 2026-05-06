@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -179,8 +182,38 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return nil, limitExceededToGrpcError(le)
+		}
+
 		return resp, err
 	}
+}
+
+// limitExceededToGrpcError converts a *usagelimits.LimitExceededError into
+// a gRPC status with codes.ResourceExhausted and an attached
+// errdetails.ErrorInfo proto carrying the structured fields that mirror the
+// REST 429 body. SDKs may match on the gRPC code alone, or read the details
+// payload for the same `errorCode`/`limit`/`value`/`message` fields they'd
+// see over REST.
+func limitExceededToGrpcError(le *usagelimits.LimitExceededError) error {
+	st := status.New(codes.ResourceExhausted, le.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: usagelimits.ErrorCode,
+		Domain: "weaviate.usagelimits",
+		Metadata: map[string]string{
+			"limit":   string(le.Limit),
+			"value":   strconv.FormatInt(le.Value, 10),
+			"message": le.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		// Fall back to the bare status if attaching details fails for any
+		// reason (e.g. proto marshaling). The status code + message is
+		// still a valid contract; we just lose the structured payload.
+		return st.Err()
+	}
+	return withDetails.Err()
 }
 
 func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type objectHandlers struct {
@@ -91,6 +92,9 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return newLimitExceededResponder(le)
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))

@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type schemaHandlers struct {
@@ -41,6 +42,9 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return newLimitExceededResponder(le)
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
@@ -274,6 +278,9 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 		ctx, principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return newLimitExceededResponder(le)
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsCreateForbidden().
