@@ -334,6 +334,11 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
+	// Only the path is resolved; updated.Class is left verbatim because
+	// GET returns it already qualified and validateImmutableFields needs
+	// it to compare against initial.Class (also qualified).
+	className, _ = namespacing.ResolveClass(principal, h.schemaReader, h.config.Namespaces.Enabled, className)
+
 	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err

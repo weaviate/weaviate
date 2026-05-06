@@ -286,4 +286,76 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		)
 		require.Error(t, err)
 	})
+
+	t.Run("namespaced caller updates its class via short path name", func(t *testing.T) {
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+			schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "UpdateMe", Description: "v1"}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+		defer helper.DeleteClassAuth(t, "customer1:UpdateMe", adminKey)
+
+		// GET returns the qualified class; modify the description and PUT
+		// with the short name in the path.
+		got := helper.GetClassAuth(t, "customer1:UpdateMe", adminKey)
+		require.Equal(t, "customer1:UpdateMe", got.Class)
+		got.Description = "v2"
+
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(
+			schema.NewSchemaObjectsUpdateParams().WithClassName("UpdateMe").WithObjectClass(got),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+
+		after := helper.GetClassAuth(t, "customer1:UpdateMe", adminKey)
+		assert.Equal(t, "v2", after.Description)
+	})
+
+	t.Run("update is namespace-isolated when both namespaces share a short name", func(t *testing.T) {
+		for _, key := range []string{user1Key, user2Key} {
+			_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+				schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{
+					Class: "SharedUpdate", Description: "v1",
+				}),
+				helper.CreateAuth(key),
+			)
+			require.NoError(t, err)
+		}
+		defer helper.DeleteClassAuth(t, "customer1:SharedUpdate", adminKey)
+		defer helper.DeleteClassAuth(t, "customer2:SharedUpdate", adminKey)
+
+		// user1's short-name update must only touch customer1:SharedUpdate.
+		toUpdate := helper.GetClassAuth(t, "customer1:SharedUpdate", adminKey)
+		toUpdate.Description = "v2"
+		_, err := helper.Client(t).Schema.SchemaObjectsUpdate(
+			schema.NewSchemaObjectsUpdateParams().WithClassName("SharedUpdate").WithObjectClass(toUpdate),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+
+		after1 := helper.GetClassAuth(t, "customer1:SharedUpdate", adminKey)
+		assert.Equal(t, "v2", after1.Description)
+		after2 := helper.GetClassAuth(t, "customer2:SharedUpdate", adminKey)
+		assert.Equal(t, "v1", after2.Description)
+	})
+
+	t.Run("global admin updates by qualified class name", func(t *testing.T) {
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(
+			schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "AdminUpdate", Description: "v1"}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+		defer helper.DeleteClassAuth(t, "customer1:AdminUpdate", adminKey)
+
+		cls := helper.GetClassAuth(t, "customer1:AdminUpdate", adminKey)
+		cls.Description = "by-admin"
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(
+			schema.NewSchemaObjectsUpdateParams().WithClassName("customer1:AdminUpdate").WithObjectClass(cls),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+
+		after := helper.GetClassAuth(t, "customer1:AdminUpdate", adminKey)
+		assert.Equal(t, "by-admin", after.Description)
+	})
 }
