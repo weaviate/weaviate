@@ -17,9 +17,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	grpcconn "github.com/weaviate/weaviate/grpc/conn"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
+	"github.com/weaviate/weaviate/usecases/cron"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -29,19 +27,23 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
+	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	exportUsecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -59,25 +61,27 @@ type State struct {
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
 	RBAC             *rbac.Manager
+	Crons            *cron.Crons
 
-	ServerConfig          *config.WeaviateConfig
-	LDIntegration         *configRuntime.LDIntegration
-	Logger                *logrus.Logger
-	gqlMutex              sync.Mutex
-	GraphQL               graphql.GraphQL
-	Modules               *modules.Provider
-	SchemaManager         *schema.Manager
-	Cluster               *cluster.State
-	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
-	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
-	RemoteReplicaIncoming *replica.RemoteReplicaIncoming
-	Traverser             *traverser.Traverser
+	ServerConfig        *config.WeaviateConfig
+	LDIntegration       *configRuntime.LDIntegration
+	Logger              *logrus.Logger
+	gqlMutex            sync.Mutex
+	GraphQL             graphql.GraphQL
+	Modules             *modules.Provider
+	SchemaManager       *schema.Manager
+	Cluster             *cluster.State
+	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
+	Traverser           *traverser.Traverser
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
+	ExportParticipant  *exportUsecase.Participant
+	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
@@ -85,16 +89,21 @@ type State struct {
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
-	ClusterService *rCluster.Service
-	TenantActivity *tenantactivity.Handler
-	InternalServer types.ClusterServer
+	ClusterService       *rCluster.Service
+	TenantActivity       *tenantactivity.Handler
+	InternalServer       types.ClusterServer
+	NamespacesController *usecasesNamespaces.Controller
 
 	ObjectTTLCoordinator *objectttl.Coordinator
+	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
 
+	// GRPCConnManager is a general connection manager for any/all gRPC connections used by the application. It implements retry logic and connection pooling.
 	GRPCConnManager *grpcconn.ConnManager
+	// ReplGRPCConnManager is a separate connection manager that implements retry logic to each RPC call on top of connection pooling, specifically for replication traffic.
+	ReplGRPCConnManager *grpcconn.ConnManager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

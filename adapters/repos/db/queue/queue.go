@@ -457,14 +457,23 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
-func (q *DiskQueue) Pause() {
+// Pause the dequeuing of tasks. If nowait is true, it returns immediately
+// without waiting for the currently running tasks to finish.
+// This does not prevent pushing new tasks to the queue.
+func (q *DiskQueue) Pause(ctx context.Context, nowait ...bool) error {
 	q.scheduler.PauseQueue(q.id)
+	if len(nowait) == 0 || !nowait[0] {
+		return q.scheduler.Wait(ctx, q.id)
+	}
+	return nil
 }
 
+// Resume the dequeuing of tasks.
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
 }
 
+// Wait blocks until all currently running tasks are finished.
 func (q *DiskQueue) Wait(ctx context.Context) error {
 	return q.scheduler.Wait(ctx, q.id)
 }
@@ -472,11 +481,13 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 // PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
 // It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
-	q.Pause()
+	err := q.Pause(ctx)
+	if err != nil {
+		return err
+	}
 	defer q.Resume()
-	q.Wait(ctx)
 
-	err := q.Flush()
+	err = q.Flush()
 	if err != nil {
 		return err
 	}
@@ -1307,8 +1318,8 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 func (r *chunkReader) ReleaseChunk(c *chunk) {
 	_ = c.Close()
 	r.m.Lock()
+	defer r.m.Unlock()
 	delete(r.chunks, c.path)
-	r.m.Unlock()
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {

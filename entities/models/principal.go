@@ -32,6 +32,12 @@ type Principal struct {
 	// groups
 	Groups []string `json:"groups"`
 
+	// True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.
+	IsGlobalOperator bool `json:"isGlobalOperator,omitempty"`
+
+	// The namespace this principal is bound to. Empty for global principals (e.g. static API keys).
+	Namespace string `json:"namespace,omitempty"`
+
 	// user type
 	UserType UserTypeInput `json:"userType,omitempty"`
 

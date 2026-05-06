@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -288,6 +289,167 @@ func TestConfigValidation(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestConfigValidation_OIDCNamespaceClaims covers the cross-field invariant
+// for AUTHENTICATION_OIDC_NAMESPACE_CLAIM /
+// AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM: required when NS+OIDC are
+// both on, forbidden when NS=off, and unconstrained when OIDC is off.
+func TestConfigValidation_OIDCNamespaceClaims(t *testing.T) {
+	type wantErr struct {
+		want   bool
+		substr string
+	}
+
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		oidcEnabled       bool
+		nsClaim           string
+		globalClaim       string
+		want              wantErr
+	}{
+		{
+			name:              "NS+OIDC on, both claims set — pass",
+			namespacesEnabled: true,
+			oidcEnabled:       true,
+			nsClaim:           "weaviate_namespace",
+			globalClaim:       "weaviate_global_principal",
+			want:              wantErr{},
+		},
+		{
+			name:              "NS+OIDC on, namespace claim missing — fail",
+			namespacesEnabled: true,
+			oidcEnabled:       true,
+			nsClaim:           "",
+			globalClaim:       "weaviate_global_principal",
+			want:              wantErr{want: true, substr: "are required when NAMESPACES_ENABLED=true"},
+		},
+		{
+			name:              "NS+OIDC on, global claim missing — fail",
+			namespacesEnabled: true,
+			oidcEnabled:       true,
+			nsClaim:           "weaviate_namespace",
+			globalClaim:       "",
+			want:              wantErr{want: true, substr: "are required when NAMESPACES_ENABLED=true"},
+		},
+		{
+			name:              "NS off, namespace claim set — fail",
+			namespacesEnabled: false,
+			oidcEnabled:       true,
+			nsClaim:           "weaviate_namespace",
+			globalClaim:       "",
+			want:              wantErr{want: true, substr: "must not be set when NAMESPACES_ENABLED=false"},
+		},
+		{
+			name:              "NS off, global claim set — fail",
+			namespacesEnabled: false,
+			oidcEnabled:       true,
+			nsClaim:           "",
+			globalClaim:       "weaviate_global_principal",
+			want:              wantErr{want: true, substr: "must not be set when NAMESPACES_ENABLED=false"},
+		},
+		{
+			name:              "NS off, both claims unset — pass",
+			namespacesEnabled: false,
+			oidcEnabled:       true,
+			nsClaim:           "",
+			globalClaim:       "",
+			want:              wantErr{},
+		},
+		{
+			name:              "NS on, OIDC off — pass even if claims missing",
+			namespacesEnabled: true,
+			oidcEnabled:       false,
+			nsClaim:           "",
+			globalClaim:       "",
+			want:              wantErr{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{
+				Authentication: Authentication{
+					APIKey: StaticAPIKey{Enabled: true, Users: []string{"u"}, AllowedKeys: []string{"k"}},
+					OIDC: OIDC{
+						Enabled:              tc.oidcEnabled,
+						NamespaceClaim:       runtime.NewDynamicValue(tc.nsClaim),
+						GlobalPrincipalClaim: runtime.NewDynamicValue(tc.globalClaim),
+					},
+				},
+				DisableGraphQL: true,
+				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
+			}
+			err := c.Validate()
+			if tc.want.want {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.want.substr)
+			} else if err != nil {
+				assert.NotContains(t, err.Error(), "AUTHENTICATION_OIDC_NAMESPACE_CLAIM")
+				assert.NotContains(t, err.Error(), "AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM")
+			}
+		})
+	}
+}
+
+// TestConfigValidation_Namespaces covers the cross-field requirement that
+// NAMESPACES_ENABLED=true mandates DISABLE_GRAPHQL=true. The check fires
+// before Persistence.Validate (which would otherwise also fail on an empty
+// DataPath), so we assert on the error message to distinguish the namespace
+// error from downstream validation noise.
+func TestConfigValidation_Namespaces(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		disableGraphQL    bool
+		wantNamespacesErr bool
+	}{
+		{
+			name:              "namespaces disabled, graphql enabled — no namespace error",
+			namespacesEnabled: false,
+			disableGraphQL:    false,
+			wantNamespacesErr: false,
+		},
+		{
+			name:              "namespaces disabled, graphql disabled — no namespace error",
+			namespacesEnabled: false,
+			disableGraphQL:    true,
+			wantNamespacesErr: false,
+		},
+		{
+			name:              "namespaces enabled without DISABLE_GRAPHQL — error",
+			namespacesEnabled: true,
+			disableGraphQL:    false,
+			wantNamespacesErr: true,
+		},
+		{
+			name:              "namespaces enabled with DISABLE_GRAPHQL — no namespace error",
+			namespacesEnabled: true,
+			disableGraphQL:    true,
+			wantNamespacesErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{
+				Authentication: Authentication{AnonymousAccess: AnonymousAccess{Enabled: true}},
+				DisableGraphQL: tc.disableGraphQL,
+				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
+			}
+			err := c.Validate()
+			if tc.wantNamespacesErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
+			} else if err != nil {
+				// Validate may still fail on unrelated fields (e.g. Persistence).
+				// What matters here is that it does NOT fail on the namespaces
+				// cross-field check.
+				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
 			}
 		})
 	}

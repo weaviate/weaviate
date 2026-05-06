@@ -17,7 +17,6 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,6 +37,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -66,7 +66,8 @@ type VectorIndex interface {
 	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
@@ -414,10 +415,16 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	return dynamic.index.Shutdown(ctx)
 }
 
-func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SwitchCommitLogs(ctx)
+	return dynamic.index.PrepareForBackup(ctx)
+}
+
+func (dynamic *dynamic) ResumeAfterBackup(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ResumeAfterBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -478,9 +485,7 @@ func (dynamic *dynamic) Upgraded() bool {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 

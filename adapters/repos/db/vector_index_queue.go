@@ -59,6 +59,25 @@ func NewVectorIndexQueue(
 	targetVector string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
+	return newVectorIndexQueueWithID(shard, shard.vectorIndexID(targetVector), targetVector, index)
+}
+
+// NewGeoIndexQueue creates a VectorIndexQueue for a geo property index.
+// It uses a geo-specific ID to avoid the misleading "vectors_" prefix.
+func NewGeoIndexQueue(
+	shard *Shard,
+	propName string,
+	index VectorIndex,
+) (*VectorIndexQueue, error) {
+	return newVectorIndexQueueWithID(shard, geoPropID(propName), "geo_"+propName, index)
+}
+
+func newVectorIndexQueueWithID(
+	shard *Shard,
+	indexID string,
+	logLabel string,
+	index VectorIndex,
+) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
 		shard:        shard,
 		scheduler:    shard.scheduler,
@@ -68,7 +87,7 @@ func NewVectorIndexQueue(
 
 	logger := shard.index.logger.WithField("component", "vector_index_queue").
 		WithField("shard_id", shard.ID()).
-		WithField("target_vector", targetVector)
+		WithField("target_vector", logLabel)
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
@@ -76,14 +95,14 @@ func NewVectorIndexQueue(
 		viq.batchSize = batchSize
 	}
 
-	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
+	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), logLabel)
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), shard.vectorIndexID(targetVector)),
+			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), indexID),
 			Logger:    logger,
 			Scheduler: shard.scheduler,
-			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
+			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", indexID)),
 			TaskDecoder: &vectorIndexQueueDecoder{
 				q: &viq,
 			},

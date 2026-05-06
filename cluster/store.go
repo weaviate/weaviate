@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/namespaces"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -44,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const (
@@ -167,6 +169,9 @@ type Config struct {
 
 	DynamicUserController *apikey.DBUser
 
+	NamespacesController *usecasesNamespaces.Controller
+	NamespacesEnabled    bool
+
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
@@ -228,6 +233,9 @@ type Store struct {
 
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	dynUserManager *dynusers.Manager
+
+	// namespaceManager is responsible for applying/querying changes committed by RAFT to the namespace control-plane state
+	namespaceManager *namespaces.Manager
 
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
@@ -317,13 +325,14 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			IsLocalHost:        cfg.IsLocalHost,
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 			LocalName:          cfg.NodeID,
-			LocalAddress:       fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:      schemaManager,
 		snapshotter:        snapshotter,
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
-		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
+		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, cfg.Logger),
 		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
@@ -436,13 +445,13 @@ func (st *Store) init() error {
 	}
 
 	// tcp transport
-	advertiseAddress := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
+	advertiseAddress := net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RaftPort))
 	tcpAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
 		return fmt.Errorf("net.resolve tcp address=%v: %w", advertiseAddress, err)
 	}
 
-	bindAddress := fmt.Sprintf("%s:%d", st.cfg.BindAddr, st.cfg.RaftPort)
+	bindAddress := net.JoinHostPort(st.cfg.BindAddr, fmt.Sprintf("%d", st.cfg.RaftPort))
 	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", bindAddress, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -878,7 +887,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	exNode := servers[0]
 	newNode := raft.Server{
 		ID:       raft.ServerID(st.cfg.NodeID),
-		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Address:  raft.ServerAddress(net.JoinHostPort(st.cfg.Host, fmt.Sprintf("%d", st.cfg.RPCPort))),
 		Suffrage: raft.Voter,
 	}
 

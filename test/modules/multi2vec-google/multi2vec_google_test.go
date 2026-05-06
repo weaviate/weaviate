@@ -46,8 +46,8 @@ func testMulti2VecGoogleAIStudio(host, vectorizerName string) func(t *testing.T)
 		// Define tests
 		tests := []testCase{
 			{
-				name:        "gemini-embedding-2-preview",
-				model:       "gemini-embedding-2-preview",
+				name:        "gemini-embedding-2",
+				model:       "gemini-embedding-2",
 				apiEndpoint: "generativelanguage.googleapis.com",
 				withAudio:   true,
 			},

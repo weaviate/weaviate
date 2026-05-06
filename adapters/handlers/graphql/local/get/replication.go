@@ -14,7 +14,7 @@ package get
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"

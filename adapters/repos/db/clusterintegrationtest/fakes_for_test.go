@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +57,7 @@ type node struct {
 	scheduler     *ubak.Scheduler
 	migrator      *db.Migrator
 	hostname      string
+	objectCount   int
 }
 
 func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State, asyncIndexEnabled bool) {
@@ -93,7 +95,10 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
-	replicaClient := clients.NewReplicationClient(&http.Client{})
+	replicaClient, err := clients.NewReplicationClient(&http.Client{})
+	if err != nil {
+		t.Fatalf("failed to create replication client: %v", err)
+	}
 
 	// Create schema manager first so the mock can reference it
 	n.schemaManager = &fakeSchemaManager{
@@ -180,6 +185,9 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	mux.Handle("/backups/commit", backups.Commit())
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
+	mux.HandleFunc("/replicas/indices/{collection}/shards/{shard}/objects/_count", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strconv.Itoa(n.objectCount))
+	})
 
 	srv := httptest.NewServer(mux)
 	u, err := url.Parse(srv.URL)
@@ -362,7 +370,7 @@ type fakeBackupBackendProvider struct {
 	backupsPath string
 }
 
-func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabilities.BackupBackend, error) {
+func (f *fakeBackupBackendProvider) BackupBackend(name string, _ modulecapabilities.BackendUseCase) (modulecapabilities.BackupBackend, error) {
 	backend.setLocal(name == modstgfs.Name)
 	return backend, nil
 }

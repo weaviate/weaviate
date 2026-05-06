@@ -221,18 +221,24 @@ type RClient interface {
 		ids []strfmt.UUID, numRetries int) ([]types.RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
-		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 }
 
 // FinderClient extends RClient with consistency checks
 type FinderClient struct {
 	cl RClient
+}
+
+func NewFinderClient(cl RClient) FinderClient {
+	return FinderClient{cl: cl}
 }
 
 // FullRead reads full object
@@ -294,7 +300,7 @@ func (fc FinderClient) Overwrite(ctx context.Context,
 }
 
 func (fc FinderClient) FindUUIDs(ctx context.Context,
-	host, class, shard string, filters *filters.LocalFilter,
+	host, class, shard string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)
+	return fc.cl.FindUUIDs(ctx, host, class, shard, filters, limit)
 }

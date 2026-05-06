@@ -19,17 +19,26 @@ import (
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-var ErrBadRequest = errors.New("bad request")
+var (
+	ErrBadRequest        = errors.New("bad request")
+	ErrNamespaceNotFound = errors.New("namespace not found")
+)
 
 type Manager struct {
-	dynUser *apikey.DBUser
-	logger  logrus.FieldLogger
+	dynUser           *apikey.DBUser
+	namespaces        usecasesNamespaces.Exister
+	namespacesEnabled bool
+	logger            logrus.FieldLogger
 }
 
-func NewManager(dynUser *apikey.DBUser, logger logrus.FieldLogger) *Manager {
-	return &Manager{dynUser: dynUser, logger: logger}
+func NewManager(dynUser *apikey.DBUser, namespaces usecasesNamespaces.Exister, namespacesEnabled bool, logger logrus.FieldLogger) *Manager {
+	if namespaces == nil {
+		panic("cluster/dynusers: namespaces controller must not be nil")
+	}
+	return &Manager{dynUser: dynUser, namespaces: namespaces, namespacesEnabled: namespacesEnabled, logger: logger}
 }
 
 func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
@@ -41,7 +50,23 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
+	// Defense-in-depth: on namespace-enabled clusters every db user must be
+	// bound to a namespace. The handler already enforces this, but a stale
+	// or hand-crafted RAFT command must not be able to slip an unbound user
+	// past the apply path.
+	if m.namespacesEnabled && req.Namespace == "" {
+		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
+	}
+
+	// Authoritative existence re-check at apply time. Closes the
+	// handler→apply TOCTOU when a delete-namespace command is RAFT-ordered
+	// before this create-user command: every node observes identical state
+	// and rejects deterministically.
+	if req.Namespace != "" && !m.namespaces.Exists(req.Namespace) {
+		return fmt.Errorf("%w: namespace %q does not exist", ErrNamespaceNotFound, req.Namespace)
+	}
+
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {

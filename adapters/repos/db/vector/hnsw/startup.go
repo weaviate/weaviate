@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -266,7 +267,7 @@ func (h *hnsw) setDimensionsFromEntrypoint() {
 	}
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
 	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
@@ -314,8 +315,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
-	// note we cannot restore h.dims directly from InputDim due to RQ1's min padding
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -467,29 +467,28 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 		// allocChecker is optional, we can only check if it was actually set
 
 		// It's hard to estimate how much memory we'd need to do a successful
-		// hnsw delete cleanup. The value below is probalby vastly overstated.
+		// hnsw delete cleanup. The value below is probably vastly overstated.
 		// However, without a doubt, delete cleanup could lead to temporary
 		// memory increases, either because it loads vectors into cache or
 		// because it rewrites connections in a way that they could need more
 		// memory than before. Either way, it's probably a good idea not to
 		// start a cleanup cycle if we are already this close to running out of
 		// memory.
-		memoryNeeded := int64(100 * 1024 * 1024)
+		memoryNeeded := int64(tombstoneCleanupMemoryNeeded)
 
 		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "hnsw_tombstone_cleanup",
 				"event":  "cleanup_skipped_oom",
 				"class":  h.className,
-			}).WithError(err).
-				Warnf("skipping hnsw cleanup due to memory pressure")
+			}).Warnf("skipping hnsw cleanup due to memory pressure: %v", err)
 			return false
 		}
 	}
 	executed, err := h.cleanUpTombstonedNodes(shouldAbort)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
-			WithError(err).Error("tombstone cleanup errord")
+			Error(err)
 	}
 	return executed
 }

@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	defaultConsumer = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
+	DefaultTelemetryConsumerURL = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
 		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
-	defaultPushInterval = 24 * time.Hour
+	DefaultTelemetryPushInterval = 24 * time.Hour
 )
 
 type nodesStatusGetter interface {
@@ -58,24 +58,41 @@ type Telemeter struct {
 	failedToStart     bool
 	consumer          string
 	pushInterval      time.Duration
+	clientTracker     *ClientTracker
 	cloudInfoHelper   *cloudInfoHelper
 }
 
-// New creates a new Telemeter instance
+// New creates a new Telemeter instance.
+// consumerURL should be base64-encoded. If empty, uses DefaultTelemetryConsumerURL.
+// pushInterval defaults to DefaultTelemetryPushInterval if zero.
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
+	telemetryEnabled bool,
 ) *Telemeter {
+	if consumerURL == "" {
+		consumerURL = DefaultTelemetryConsumerURL
+	}
+	if pushInterval == 0 {
+		pushInterval = DefaultTelemetryPushInterval
+	}
+
 	tel := &Telemeter{
 		machineID:         strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter: nodesStatusGetter,
 		schemaManager:     schemaManager,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
-		consumer:          defaultConsumer,
-		pushInterval:      defaultPushInterval,
-		cloudInfoHelper:   newCloudInfoHelper(logger),
+		consumer:          consumerURL,
+		pushInterval:      pushInterval,
+		clientTracker:     NewClientTracker(logger),
+		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
 	}
 	return tel
+}
+
+// GetClientTracker returns the client tracker instance for use in middleware
+func (tel *Telemeter) GetClientTracker() *ClientTracker {
+	return tel.clientTracker
 }
 
 // Start begins telemetry for the node
@@ -120,6 +137,14 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 
 // Stop shuts down the telemeter
 func (tel *Telemeter) Stop(ctx context.Context) error {
+	// Always stop the client tracker goroutine, even if telemetry failed to start.
+	// This prevents goroutine leaks.
+	defer func() {
+		if tel.clientTracker != nil {
+			tel.clientTracker.Stop()
+		}
+	}()
+
 	if tel.failedToStart {
 		return nil
 	}
@@ -140,6 +165,7 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 			WithField("action", "telemetry_push").
 			WithField("payload", fmt.Sprintf("%+v", payload)).
 			Info("telemetry terminated")
+
 		return nil
 	}
 }
@@ -195,6 +221,17 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get collections count: %w", err)
 	}
 
+	// Get client usage data and reset for the next period
+	// For Init payloads, we don't have client data yet, so skip it
+	var clientUsage map[ClientType]map[string]int64
+	if payloadType != PayloadType.Init && tel.clientTracker != nil {
+		clientUsage = tel.clientTracker.GetAndReset()
+		// Only include if there's actual data
+		if len(clientUsage) == 0 {
+			clientUsage = nil
+		}
+	}
+
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
 	return &Payload{
@@ -206,6 +243,7 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		Arch:             runtime.GOARCH,
 		UsedModules:      usedMods,
 		CollectionsCount: cols,
+		ClientUsage:      clientUsage,
 		CloudProvider:    cloudProvider,
 		UniqueID:         uniqueID,
 	}, nil

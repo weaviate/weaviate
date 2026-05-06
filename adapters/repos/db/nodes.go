@@ -217,6 +217,10 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			queueLen += queue.Size()
 			return nil
 		})
+		_ = shard.ForEachGeoQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueLen += queue.Size()
+			return nil
+		})
 
 		var compressed bool
 		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {

@@ -86,7 +86,7 @@ type BackupsCancelParams struct {
 
 	/* ID.
 
-	   The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
+	   The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).
 	*/
 	ID string
 

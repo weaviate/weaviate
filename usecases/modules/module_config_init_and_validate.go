@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -274,7 +275,79 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 		return errors.Wrapf(err, "module '%s'", moduleName)
 	}
 
+	if err := p.validateBlobHashNotMixedWithOtherFields(mod, class, cfg, targetVector); err != nil {
+		return errors.Wrapf(err, "targetVector '%s'", targetVector)
+	}
+
 	p.validateVectorConfig(class, moduleName, targetVector)
+
+	return nil
+}
+
+// validateBlobHashNotMixedWithOtherFields checks that BlobHash properties are
+// not configured alongside other vectorizable fields in a multi-modal
+// vectorizer. When multiple fields are vectorized together, a partial update to
+// a non-blob field triggers re-vectorization which reads the stored blob hash
+// (a hex digest) instead of the original media data, producing incorrect
+// vectors.
+func (p *Provider) validateBlobHashNotMixedWithOtherFields(
+	mod modulecapabilities.Module, class *models.Class, cfg *ClassBasedModuleConfig,
+	targetVector string,
+) error {
+	var vectorizer interface {
+		VectorizableProperties(cfg *ClassBasedModuleConfig) (bool, []string, error)
+	}
+
+	// Try to obtain VectorizableProperties from the module.
+	switch v := mod.(type) {
+	case modulecapabilities.Vectorizer[[]float32]:
+		vectorizer = &vectorizerAdapter[[]float32]{v}
+	case modulecapabilities.Vectorizer[[][]float32]:
+		vectorizer = &vectorizerAdapter[[][]float32]{v}
+	default:
+		return nil
+	}
+
+	textProps, mediaProps, err := vectorizer.VectorizableProperties(cfg)
+	if err != nil || len(mediaProps) == 0 {
+		return nil
+	}
+
+	// Build a set of property name → data type for quick lookup.
+	propTypes := make(map[string][]string, len(class.Properties))
+	for _, prop := range class.Properties {
+		propTypes[prop.Name] = prop.DataType
+	}
+
+	hasBlobHash := false
+	for _, name := range mediaProps {
+		if dt, ok := propTypes[name]; ok && schema.IsBlobHashDataType(dt) {
+			hasBlobHash = true
+		}
+	}
+	if !hasBlobHash {
+		return nil
+	}
+
+	// Count other vectorizable fields: explicit media props plus, when the
+	// module vectorizes all text properties, every text/text[] prop on the class.
+	otherFields := len(mediaProps) - 1 // at least 1 is the blob hash
+	if textProps {
+		for _, prop := range class.Properties {
+			if len(prop.DataType) == 1 &&
+				(prop.DataType[0] == schema.DataTypeText.String() ||
+					prop.DataType[0] == schema.DataTypeTextArray.String()) {
+				otherFields++
+			}
+		}
+	}
+
+	if otherFields > 0 {
+		return fmt.Errorf("blobHash property cannot be combined with other vectorizable " +
+			"fields in a multi-modal vectorizer configuration: after storage the original " +
+			"blob data is replaced by its hash and can no longer be used for re-vectorization " +
+			"when other fields change. Use a separate named vector for the blobHash property")
+	}
 
 	return nil
 }
@@ -295,4 +368,14 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 		}
 		class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
 	}
+}
+
+// vectorizerAdapter adapts the generic Vectorizer interface so we can call
+// VectorizableProperties without knowing the concrete embedding type.
+type vectorizerAdapter[T dto.Embedding] struct {
+	mod modulecapabilities.Vectorizer[T]
+}
+
+func (a *vectorizerAdapter[T]) VectorizableProperties(cfg *ClassBasedModuleConfig) (bool, []string, error) {
+	return a.mod.VectorizableProperties(cfg)
 }

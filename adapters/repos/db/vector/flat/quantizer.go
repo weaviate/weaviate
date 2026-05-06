@@ -82,19 +82,22 @@ func NewQuantizerBuilder(distancerProvider distancer.Provider) *QuantizerBuilder
 }
 
 // CreateQuantizer creates a quantizer based on the compression type and dimensions
-func (qb *QuantizerBuilder) CreateQuantizer(compression CompressionType, dimensions int32) Quantizer {
+func (qb *QuantizerBuilder) CreateQuantizer(compression CompressionType, dimensions int32) (Quantizer, error) {
 	switch compression {
 	case CompressionBQ:
 		bq := compressionhelpers.NewBinaryQuantizer(nil)
-		return &BinaryQuantizerWrapper{BinaryQuantizer: bq}
+		return &BinaryQuantizerWrapper{BinaryQuantizer: bq}, nil
 	case CompressionRQ1:
-		rq := compressionhelpers.NewBinaryRotationalQuantizer(int(dimensions), compressionhelpers.DefaultFastRotationSeed, qb.distancerProvider)
-		return &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}
+		rq, err := compressionhelpers.NewBinaryRotationalQuantizer(int(dimensions), compressionhelpers.DefaultFastRotationSeed, qb.distancerProvider)
+		if err != nil {
+			return nil, err
+		}
+		return &BinaryRotationalQuantizerWrapper{BinaryRotationalQuantizer: rq}, nil
 	case CompressionRQ8:
 		rq := compressionhelpers.NewRotationalQuantizer(int(dimensions), compressionhelpers.DefaultFastRotationSeed, 8, qb.distancerProvider)
-		return &RotationalQuantizerWrapper{RotationalQuantizer: rq}
+		return &RotationalQuantizerWrapper{RotationalQuantizer: rq}, nil
 	default:
-		return nil
+		return nil, nil
 	}
 }
 

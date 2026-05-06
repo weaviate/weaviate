@@ -31,11 +31,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (
@@ -322,14 +322,135 @@ func (l *hnswCommitLogger) migrateCompactV2Snapshot() error {
 	return nil
 }
 
-func (l *hnswCommitLogger) initSnapshotData() error {
-	// Migrate compact v2 snapshots from the commitlog directory to the
-	// snapshot directory. This enables downgrade compatibility: compact v2
-	// stores snapshots alongside commit logs, but the current version
-	// expects them in a separate directory.
+// migrateCompactV2SortedFiles renames any compact v2 ".sorted" commit log
+// files to plain "{endTS}.condensed". A .sorted file is just a re-ordered
+// WAL, so renaming is enough — the rest of the commit logger (condensor,
+// combiner, snapshotFileName, ...) only knows about ".condensed" and would
+// otherwise produce chained suffixes like ".sorted.snapshot".
+// The method is idempotent: once renamed, there is nothing left to migrate.
+func (l *hnswCommitLogger) migrateCompactV2SortedFiles() error {
+	commitlogDir := commitLogDirectory(l.rootPath, l.id)
+	entries, err := l.fs.ReadDir(commitlogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrap(err, "read commitlog directory")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sorted") {
+			continue
+		}
+		name := entry.Name()
+		inner := strings.TrimSuffix(name, ".sorted")
+
+		// Parse end timestamp (handles both "{ts}" and "{start}_{end}")
+		var endTS int64
+		if _, end, ok := strings.Cut(inner, "_"); ok {
+			endTS, err = strconv.ParseInt(end, 10, 64)
+		} else {
+			endTS, err = strconv.ParseInt(inner, 10, 64)
+		}
+		if err != nil {
+			continue // skip files we can't parse
+		}
+
+		oldPath := filepath.Join(commitlogDir, name)
+		newName := fmt.Sprintf("%d.condensed", endTS)
+		newPath := filepath.Join(commitlogDir, newName)
+
+		// Don't clobber an existing condensed file with the same end timestamp.
+		if _, err := l.fs.Stat(newPath); err == nil {
+			l.logger.WithFields(logrus.Fields{
+				"action":   "migrate_compact_v2_sorted",
+				"old_path": oldPath,
+				"new_path": newPath,
+			}).Warn("destination already exists, skipping migration")
+			continue
+		}
+
+		if err := l.fs.Rename(oldPath, newPath); err != nil {
+			return errors.Wrapf(err, "migrate sorted file %s to %s", oldPath, newPath)
+		}
+
+		l.logger.WithFields(logrus.Fields{
+			"action":   "migrate_compact_v2_sorted",
+			"old_path": oldPath,
+			"new_path": newPath,
+		}).Info("migrated compact v2 sorted file to condensed")
+	}
+
+	return nil
+}
+
+// cleanupCompactV2TempFiles removes orphan ".tmp" files left in the commitlog
+// directory by a crashed compact v2 write. Compact v2's SafeFileWriter writes
+// to "{finalPath}.tmp" and atomically renames on commit; if the process died
+// before the rename, the .tmp file persists. v1.37 only handles ".scratch.tmp"
+// and ".combined.tmp" — anything else (e.g. "1500.sorted.tmp") would slip
+// through and break getCommitFiles' timestamp parsing.
+//
+// v1.37 itself never writes ".sorted.tmp" or ".snapshot.tmp" in this directory,
+// so deleting them is safe.
+func (l *hnswCommitLogger) cleanupCompactV2TempFiles() error {
+	commitlogDir := commitLogDirectory(l.rootPath, l.id)
+	entries, err := l.fs.ReadDir(commitlogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return errors.Wrap(err, "read commitlog directory")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".sorted.tmp") && !strings.HasSuffix(name, ".snapshot.tmp") {
+			continue
+		}
+
+		path := filepath.Join(commitlogDir, name)
+		if err := l.fs.Remove(path); err != nil && !os.IsNotExist(err) {
+			return errors.Wrapf(err, "remove orphan temp file %s", path)
+		}
+
+		l.logger.WithFields(logrus.Fields{
+			"action": "cleanup_compact_v2_tmp",
+			"path":   path,
+		}).Info("removed orphan compact v2 temp file")
+	}
+
+	return nil
+}
+
+// migrateFromCompactV2 normalizes any compact v2 on-disk artifacts so the
+// rest of the commit logger only sees v1.37 native formats. Runs once at
+// startup and is a no-op when no compact v2 artifacts are present.
+// Failures are logged but non-fatal: a partial migration leaves some
+// artifacts in place rather than blocking startup.
+func (l *hnswCommitLogger) migrateFromCompactV2() {
+	// .snapshot files in the commitlog dir → snapshot dir.
 	if err := l.migrateCompactV2Snapshot(); err != nil {
 		l.logger.Warnf("failed to migrate compact v2 snapshot: %v", err)
 	}
+
+	// .sorted commit log files → .condensed (a .sorted file is just a
+	// re-ordered WAL, so renaming is enough).
+	if err := l.migrateCompactV2SortedFiles(); err != nil {
+		l.logger.Warnf("failed to migrate compact v2 sorted files: %v", err)
+	}
+
+	// Orphan .tmp leftovers from a crashed compact v2 write.
+	if err := l.cleanupCompactV2TempFiles(); err != nil {
+		l.logger.Warnf("failed to cleanup compact v2 temp files: %v", err)
+	}
+}
+
+func (l *hnswCommitLogger) initSnapshotData() error {
+	l.migrateFromCompactV2()
 
 	dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
 	if ln := len(dirs); ln > 2 {
@@ -1360,7 +1481,7 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			if err != nil {
 				return errors.Wrapf(err, "read PQData.EncoderType")
 			}
-			encoderType := compressionhelpers.Encoder(b[0])
+			encoderType := compression.Encoder(b[0])
 
 			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderDistribution
 			if err != nil {
@@ -1374,9 +1495,9 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			}
 			useBitsEncoding := b[0] == 1
 
-			encoder := compressionhelpers.Encoder(encoderType)
+			encoder := compression.Encoder(encoderType)
 
-			res.CompressionPQData = &compressionhelpers.PQData{
+			res.CompressionPQData = &compression.PQData{
 				Dimensions:          dims,
 				EncoderType:         encoder,
 				Ks:                  ks,
@@ -1385,12 +1506,12 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 				UseBitsEncoding:     useBitsEncoding,
 			}
 
-			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+			var encoderReader func(r io.Reader, res *compression.PQData, i uint16) (compression.PQSegmentEncoder, error)
 
 			switch encoder {
-			case compressionhelpers.UseTileEncoder:
+			case compression.UseTileEncoder:
 				encoderReader = ReadTileEncoder
-			case compressionhelpers.UseKMeansEncoder:
+			case compression.UseKMeansEncoder:
 				encoderReader = ReadKMeansEncoder
 			default:
 				return errors.New("unsuported encoder type")
@@ -1423,7 +1544,7 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			}
 			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 
-			res.CompressionSQData = &compressionhelpers.SQData{
+			res.CompressionSQData = &compression.SQData{
 				Dimensions: dims,
 				A:          a,
 				B:          b,
@@ -1454,9 +1575,9 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 			}
 			rounds := binary.LittleEndian.Uint32(b[:4])
 
-			swaps := make([][]compressionhelpers.Swap, rounds)
+			swaps := make([][]compression.Swap, rounds)
 			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				swaps[i] = make([]compression.Swap, outputDim/2)
 				for j := uint32(0); j < outputDim/2; j++ {
 					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].I
 					if err != nil {
@@ -1485,10 +1606,10 @@ func (l *hnswCommitLogger) readMetadataLegacy(f common.File, res *Deserializatio
 				}
 			}
 
-			res.CompressionRQData = &compressionhelpers.RQData{
+			res.CompressionRQData = &compression.RQData{
 				InputDim: inputDim,
 				Bits:     bits,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,
 					Swaps:     swaps,
@@ -1718,7 +1839,7 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			if err != nil {
 				return errors.Wrapf(err, "read PQData.EncoderType")
 			}
-			encoderType := compressionhelpers.Encoder(b[0])
+			encoderType := compression.Encoder(b[0])
 
 			_, err = io.ReadFull(mr, b[:1]) // PQData.EncoderDistribution
 			if err != nil {
@@ -1732,9 +1853,9 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			useBitsEncoding := b[0] == 1
 
-			encoder := compressionhelpers.Encoder(encoderType)
+			encoder := compression.Encoder(encoderType)
 
-			res.CompressionPQData = &compressionhelpers.PQData{
+			res.CompressionPQData = &compression.PQData{
 				Dimensions:          dims,
 				EncoderType:         encoder,
 				Ks:                  ks,
@@ -1743,12 +1864,12 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 				UseBitsEncoding:     useBitsEncoding,
 			}
 
-			var encoderReader func(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error)
+			var encoderReader func(r io.Reader, res *compression.PQData, i uint16) (compression.PQSegmentEncoder, error)
 
 			switch encoder {
-			case compressionhelpers.UseTileEncoder:
+			case compression.UseTileEncoder:
 				encoderReader = ReadTileEncoder
-			case compressionhelpers.UseKMeansEncoder:
+			case compression.UseKMeansEncoder:
 				encoderReader = ReadKMeansEncoder
 			default:
 				return errors.New("unsupported encoder type")
@@ -1781,7 +1902,7 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			b := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 
-			res.CompressionSQData = &compressionhelpers.SQData{
+			res.CompressionSQData = &compression.SQData{
 				Dimensions: dims,
 				A:          a,
 				B:          b,
@@ -1812,9 +1933,9 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			rounds := binary.LittleEndian.Uint32(b[:4])
 
-			swaps := make([][]compressionhelpers.Swap, rounds)
+			swaps := make([][]compression.Swap, rounds)
 			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				swaps[i] = make([]compression.Swap, outputDim/2)
 				for j := uint32(0); j < outputDim/2; j++ {
 					_, err = io.ReadFull(mr, b[:2]) // RQData.Rotation.Swaps[i][j].I
 					if err != nil {
@@ -1843,10 +1964,10 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 				}
 			}
 
-			res.CompressionRQData = &compressionhelpers.RQData{
+			res.CompressionRQData = &compression.RQData{
 				InputDim: inputDim,
 				Bits:     bits,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,
 					Swaps:     swaps,
@@ -1873,10 +1994,10 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 			}
 			rounds := binary.LittleEndian.Uint32(b[:4])
 
-			swaps := make([][]compressionhelpers.Swap, rounds)
+			swaps := make([][]compression.Swap, rounds)
 
 			for i := uint32(0); i < rounds; i++ {
-				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				swaps[i] = make([]compression.Swap, outputDim/2)
 				for j := uint32(0); j < outputDim/2; j++ {
 					_, err = ReadAndHash(mr, hasher, b[:2]) // BRQData.Rotation.Swaps[i][j].I
 					if err != nil {
@@ -1915,9 +2036,9 @@ func (l *hnswCommitLogger) readAndCheckMetadata(f common.File, res *Deserializat
 				rounding[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 			}
 
-			res.CompressionBRQData = &compressionhelpers.BRQData{
+			res.CompressionBRQData = &compression.BRQData{
 				InputDim: inputDim,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,
 					Swaps:     swaps,

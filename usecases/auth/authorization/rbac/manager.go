@@ -38,20 +38,27 @@ const (
 )
 
 type Manager struct {
-	casbin      *casbin.SyncedCachedEnforcer
-	logger      logrus.FieldLogger
-	authNconf   config.Authentication
-	rbacConf    rbacconf.Config
-	restoreLock sync.RWMutex
+	casbin            *casbin.SyncedCachedEnforcer
+	logger            logrus.FieldLogger
+	authNconf         config.Authentication
+	rbacConf          rbacconf.Config
+	namespacesEnabled bool
+	restoreLock       sync.RWMutex
 }
 
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
-	csbin, err := Init(rbacConf, rbacStoragePath, authNconf)
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, logger logrus.FieldLogger) (*Manager, error) {
+	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Manager{csbin, logger, authNconf, rbacConf, sync.RWMutex{}}, nil
+	return &Manager{
+		casbin:            csbin,
+		logger:            logger,
+		authNconf:         authNconf,
+		rbacConf:          rbacConf,
+		namespacesEnabled: namespacesEnabled,
+	}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -184,7 +191,7 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 		}
 	}
-	policies, err := conv.CasbinPolicies(casbinStoragePolicies...)
+	policies, err := conv.CasbinPolicies(m.namespacesEnabled, casbinStoragePolicies...)
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
@@ -438,7 +445,7 @@ func (m *Manager) Restore(b []byte) error {
 	}
 
 	// environment config needs to be applied again in case there were changes since the last snapshot
-	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf); err != nil {
+	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf, m.namespacesEnabled); err != nil {
 		return fmt.Errorf("apply env config: %w", err)
 	}
 
@@ -465,9 +472,11 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	ns := principal.Namespace
+
 	// first check group permissions
 	for _, group := range principal.Groups {
-		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
+		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb, ns)
 		if err != nil {
 			return false, err
 		}
@@ -477,7 +486,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	}
 
 	// If no group permissions, check user permissions
-	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
+	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb, ns)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {

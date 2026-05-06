@@ -111,6 +111,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not check user identifier: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_NAMESPACES:
+		payload, err = st.namespaceManager.Get(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get namespaces: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_DETAILS:
 		payload, err = st.replicationManager.GetReplicationDetailsByReplicationId(req)
 		if err != nil {

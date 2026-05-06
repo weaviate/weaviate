@@ -12,8 +12,10 @@
 package composer
 
 import (
+	"errors"
+
+	openapi "github.com/go-openapi/errors"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -35,9 +37,15 @@ func New(config config.Authentication,
 		return apikey.ValidateAndExtract
 	}
 
-	// default to OIDC, even if no scheme is enabled, then it can deal with this
-	// scenario itself. This is the backward-compatible scenario.
-	return oidc.ValidateAndExtract
+	if config.OIDC.Enabled {
+		return oidc.ValidateAndExtract
+	}
+
+	return func(token string, scopes []string) (*models.Principal, error) {
+		return nil, openapi.New(401, "no authentication scheme is configured (API Key or OIDC), "+
+			"but an 'Authorization' header was provided. Please configure an auth scheme "+
+			"or remove the header for anonymous access")
+	}
 }
 
 func pickAuthSchemeDynamically(

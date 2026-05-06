@@ -30,6 +30,12 @@ func MakeNoopBucketOptions(strategy string, _ ...BucketOption) []BucketOption {
 	return []BucketOption{WithStrategy(strategy)}
 }
 
+func MakeRegularBucketOptions(strategy string, customOptions ...BucketOption) []BucketOption {
+	return append([]BucketOption{
+		WithStrategy(strategy),
+	}, customOptions...)
+}
+
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
 		if err := CheckExpectedStrategy(strategy); err != nil {
@@ -284,6 +290,30 @@ func WithShouldSkipKeyFunction(shouldSkipKey func(key []byte, ctx context.Contex
 func WithSkipSecondaryKeyCheck(skip bool) BucketOption {
 	return func(b *Bucket) error {
 		b.skipSecondaryKeyCheck = skip
+		return nil
+	}
+}
+
+// WithImmutable marks the bucket as immutable. All write operations (Put,
+// Delete, SetAdd, MapSet, FlushAndSwitch, etc.) will return ErrImmutable.
+// Used by NewSnapshotBucket to prevent accidental writes to snapshot data.
+//
+// This is distinct from the shard-level read-only status
+// (storagestate.StatusReadOnly) which temporarily halts flushes during
+// backup/compaction operations.
+func WithImmutable(immutable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.immutable = immutable
+		return nil
+	}
+}
+
+// WithSequentialAccess hints the kernel (via fadvise) that segment files will
+// be read sequentially, enabling aggressive read-ahead. Used by snapshot
+// buckets where the export cursor scans from start to end.
+func WithSequentialAccess(v bool) BucketOption {
+	return func(b *Bucket) error {
+		b.sequentialAccess = v
 		return nil
 	}
 }

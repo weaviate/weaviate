@@ -59,9 +59,9 @@ type DB struct {
 	config                         Config
 	indices                        map[string]*Index
 	remoteIndex                    sharding.RemoteIndexClient
-	replicaClient                  replica.Client
 	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
-	nodeResolver                   nodeResolver
+	replicaClient                  replica.Client
+	nodeResolver                   cluster.NodeResolver
 	remoteNode                     *sharding.RemoteNode
 	promMetrics                    *monitoring.PrometheusMetrics
 	indexCheckpoints               *indexcheckpoint.Checkpoints
@@ -116,6 +116,8 @@ type DB struct {
 	bitmapBufPoolClose func()
 
 	AsyncIndexingEnabled bool
+
+	tenantsManager schemaUC.TenantsActivityManager
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -171,7 +173,7 @@ type IndexLike interface {
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteIndex sharding.RemoteIndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
@@ -272,33 +274,37 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 }
 
 type Config struct {
-	RootPath                            string
-	QueryLimit                          int64
-	QueryMaximumResults                 int64
-	QueryHybridMaximumResults           int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	MaxImportGoroutinesFactor           float64
-	LazySegmentsDisabled                bool
-	SegmentInfoIntoFileNameEnabled      bool
-	WriteMetadataFilesEnabled           bool
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	MaxSegmentSize                      int64
-	TrackVectorDimensions               bool
-	TrackVectorDimensionsInterval       time.Duration
-	UsageEnabled                        bool
-	ServerVersion                       string
-	GitHash                             string
-	AvoidMMap                           bool
-	DisableLazyLoadShards               bool
+	RootPath                       string
+	QueryLimit                     int64
+	QueryMaximumResults            int64
+	QueryHybridMaximumResults      int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MaxImportGoroutinesFactor      float64
+	LazySegmentsDisabled           bool
+	SegmentInfoIntoFileNameEnabled bool
+	WriteMetadataFilesEnabled      bool
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	MinMMapSize                    int64
+	MaxReuseWalSize                int64
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	MaxSegmentSize                 int64
+	TrackVectorDimensions          bool
+	TrackVectorDimensionsInterval  time.Duration
+	UsageEnabled                   bool
+	ServerVersion                  string
+	GitHash                        string
+	AvoidMMap                      bool
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	EnableLazyLoadShards                *bool
+	LazyLoadShardCountThreshold         int
+	LazyLoadShardSizeThresholdGB        float64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
@@ -307,6 +313,10 @@ type Config struct {
 	MaximumConcurrentBucketLoads        int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
+	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
+	ObjectsTTLConcurrencyFactor         *configRuntime.DynamicValue[float64]
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool
@@ -357,6 +367,27 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 	return index
 }
 
+// GetLocalShardNames returns the names of all shards local to this node for
+// the given collection. Returns an error if the collection is not found or has
+// no local shards.
+func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+	index := db.GetIndex(schema.ClassName(collection))
+	if index == nil {
+		return nil, fmt.Errorf("collection %q not found", collection)
+	}
+	var names []string
+	if err := index.ForEachShard(func(name string, _ ShardLike) error {
+		names = append(names, name)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	}
+	return names, nil
+}
+
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
@@ -370,18 +401,6 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
 func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
-// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil
@@ -486,9 +505,8 @@ func (db *DB) batchWorker(first bool) {
 	}
 }
 
-func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
+func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
 	db.reindexer = reindexer
-	return db
 }
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
@@ -503,8 +521,11 @@ func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicat
 	db.replicationFSM = replicationFsm
 }
 
-func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 	db.bitmapBufPool = bufPool
 	db.bitmapBufPoolClose = close
-	return db
+}
+
+func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
+	db.tenantsManager = tenantsManager
 }

@@ -65,9 +65,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
 	}
-	if err = s.store.FlushMemtables(ctx); err != nil {
-		return fmt.Errorf("flush memtables: %w", err)
-	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
 	}
@@ -85,17 +82,39 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if err != nil {
 		return fmt.Errorf("flush vector index queues: %w", err)
 	}
+	err = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+		if err = q.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of geo index: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("flush geo index queues: %w", err)
+	}
 
-	// switch commit logs to ensure all data is flushed to disk
+	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+		if err = index.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+
+	// Flush memtables after draining the queues and preparing the indexes.
+	// Queue tasks (e.g. HNSW insertions) and index PrepareForBackup (e.g.
+	// HFresh queue drains) may have written compressed vectors to the LSM
+	// store after the initial FlushMemtables call above. Without this flush
+	// those compressed vectors stay in the memtable (WAL only) and are absent
+	// from the backup while the HNSW commit log references them — including
+	// potentially as the entrypoint. On restore this leads to "entrypoint was
+	// deleted in the object store" errors on every search.
+	if err = s.store.FlushMemtables(ctx); err != nil {
+		return fmt.Errorf("flush memtables after queue drain: %w", err)
+	}
+
 	return nil
 }
 
@@ -237,6 +256,18 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if err != nil {
 		return nil, err
 	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		filesGq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of geo queue %q: %w", propName, err)
+		}
+		files = append(files, filesGq...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return files, nil
 }
 
@@ -284,6 +315,23 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 	g.Go(func() error {
 		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
 			if err := q.DisableMaintenanceMode(); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+			if err := q.DisableMaintenanceMode(); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
 				return fmt.Errorf("resuming after backup: %w", err)
 			}
 			return nil

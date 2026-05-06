@@ -35,10 +35,9 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
 	class = schema.UppercaseClassName(class)
-	class, _ = m.resolveAlias(class)
+	class, _ = m.resolveNS(principal, class)
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id))
-	if err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
 		return nil, err
 	}
 
@@ -123,9 +122,6 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		if cls := m.schemaManager.ResolveAlias(class); cls != "" {
-			class = cls
-		}
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)
@@ -242,7 +238,9 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	limit := m.localLimitOrGlobalLimit(int64(offset), paramLimit)
 
 	if int64(offset+limit) > m.config.Config.QueryMaximumResults {
-		return 0, 0, errors.New("query maximum results exceeded")
+		return 0, 0, fmt.Errorf(
+			"query maximum results exceeded: the total limit calculated from the provided offset '%d' and limit '%d' exceeds the configured value for QUERY_MAXIMUM_RESULTS '%d'. If you've supplied a negative offset or limit, this may be an underflow error",
+			offset, limit, m.config.Config.QueryMaximumResults)
 	}
 
 	return offset, limit, nil

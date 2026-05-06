@@ -23,18 +23,13 @@ import (
 	"context"
 	"fmt"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/weaviate/weaviate/usecases/objects"
-
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-
-	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/weaviate/weaviate/usecases/schema"
-
 	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Builder provides a builder for creating router instances based on configuration.

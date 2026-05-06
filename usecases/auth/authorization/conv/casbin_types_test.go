@@ -1094,6 +1094,26 @@ func TestValidResource(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "valid resource - namespaces",
+			input:    fmt.Sprintf("%s/testNamespace", authorization.NamespacesDomain),
+			expected: true,
+		},
+		{
+			name:     "valid resource - namespaces wildcard",
+			input:    fmt.Sprintf("%s/.*", authorization.NamespacesDomain),
+			expected: true,
+		},
+		{
+			name:     "invalid resource - namespaces empty name",
+			input:    fmt.Sprintf("%s/", authorization.NamespacesDomain),
+			expected: false,
+		},
+		{
+			name:     "invalid resource - namespaces with slash",
+			input:    fmt.Sprintf("%s/foo/bar", authorization.NamespacesDomain),
+			expected: false,
+		},
+		{
 			name:     "invalid resource",
 			input:    "invalid/resource",
 			expected: false,

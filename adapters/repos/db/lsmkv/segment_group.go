@@ -100,6 +100,7 @@ type SegmentGroup struct {
 	bm25config                     *schema.BM25Config
 	writeSegmentInfoIntoFileName   bool
 	writeMetadata                  bool
+	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// Store the average property length for segments in this sg,
@@ -128,6 +129,7 @@ type sgConfig struct {
 	bm25config                   *models.BM25Config
 	writeSegmentInfoIntoFileName bool
 	writeMetadata                bool
+	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
 }
 
@@ -160,6 +162,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		MinMMapSize:                  cfg.MinMMapSize,
 		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 		writeMetadata:                cfg.writeMetadata,
+		sequentialAccess:             cfg.sequentialAccess,
 		bitmapBufPool:                b.bitmapBufPool,
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
@@ -251,6 +254,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					sequentialAccess:         sg.sequentialAccess,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
 					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
@@ -374,6 +378,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			fileList:                 files,
@@ -564,6 +569,7 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			sequentialAccess:         sg.sequentialAccess,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
 			writeMetadata:            sg.writeMetadata,
@@ -748,6 +754,30 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 	return out, nil
 }
 
+func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]byte, error) {
+	var out [][]byte
+
+	// start with first and do not exit
+	for _, segment := range segments {
+		v, err := segment.getCollectionBytes(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		if len(out) == 0 {
+			out = v
+		} else {
+			out = append(out, v...)
+		}
+	}
+
+	return out, nil
+}
+
 func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte, segments []Segment) ([][]value, []Segment, error) {
 	out := make([][]value, len(segments))
 	outSegments := make([]Segment, len(segments))
@@ -866,6 +896,15 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	defer sg.maintenanceLock.Unlock()
 
 	for _, seg := range sg.segments {
+		// For sequential-access buckets, drop page cache entries before
+		// closing to avoid polluting the cache with pages that won't be
+		// accessed again. Best-effort: fadvise is purely advisory.
+		if sg.sequentialAccess {
+			if cs, ok := seg.(*segment); ok && cs.contentFile != nil {
+				_ = fadviseDontNeed(cs.contentFile, cs.size)
+			}
+		}
+
 		if err := seg.close(); err != nil {
 			return err
 		}

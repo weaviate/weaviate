@@ -37,10 +37,9 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
 	className = schema.UppercaseClassName(className)
-	className, _ = m.resolveAlias(className)
+	className, _ = m.resolveNS(principal, className)
 
-	err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id))
-	if err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id)); err != nil {
 		return err
 	}
 	ctx = classcache.ContextWithClassCache(ctx)

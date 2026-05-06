@@ -519,7 +519,7 @@ func pauseAllQueues(t testing.TB, repo *DB, className string) {
 
 	err := idx.ForEachShard(func(_ string, shard ShardLike) error {
 		return shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-			queue.Pause()
+			queue.Pause(t.Context())
 			return nil
 		})
 	})

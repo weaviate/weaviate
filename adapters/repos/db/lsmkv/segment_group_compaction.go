@@ -475,6 +475,7 @@ func (sg *SegmentGroup) preinitializeNewSegment(newPathTmp string, oldPos ...int
 			calcCountNetAdditions:        sg.calcCountNetAdditions,
 			overwriteDerived:             true,
 			enableChecksumValidation:     sg.enableChecksumValidation,
+			sequentialAccess:             sg.sequentialAccess,
 			MinMMapSize:                  sg.MinMMapSize,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: &updatedCountNetAdditions,

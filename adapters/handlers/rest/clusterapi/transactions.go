@@ -57,7 +57,7 @@ type txHandler struct {
 
 func newTxHandler(manager txManager, auth auth, handlerType handlerType) txHandler {
 	if handlerType != schemaTX && handlerType != classifyTX {
-		panic(fmt.Sprintf("unknown handler type: %q", handlerType))
+		panic(fmt.Sprintf("unknown handler type: %v", handlerType))
 	}
 	return txHandler{
 		manager:     manager,

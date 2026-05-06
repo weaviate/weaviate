@@ -49,6 +49,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove computed usage file for unloaded shard: %w", shardName, err)
 	}
 
+	if err := newPropertyDeleteIndexHelper().ensureBucketsAreRemovedForNonExistentPropertyIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
+	}
+
+	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
+	}
+
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
 	if err != nil {
 		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)
@@ -191,7 +199,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.UpdateStatus(storagestate.StatusReady.String(), "notify ready")
+	s.UpdateStatus(storagestate.StatusReady.String(), statusReasonNotifyReady)
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

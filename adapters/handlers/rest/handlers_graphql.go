@@ -22,8 +22,8 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
-	tailorincgraphql "github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/gqlerrors"
+	tailorincgraphql "github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/gqlerrors"
 
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"

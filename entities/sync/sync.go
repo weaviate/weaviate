@@ -106,6 +106,16 @@ func (s *KeyRWLocker) RLock(ID string) {
 	iLock.RLock()
 }
 
+// TryRLock attempts to acquire a read lock without blocking.
+// Returns true if the lock was acquired, false otherwise.
+func (s *KeyRWLocker) TryRLock(ID string) bool {
+	iLock := &sync.RWMutex{}
+	iLocks, _ := s.m.LoadOrStore(ID, iLock)
+
+	iLock = iLocks.(*sync.RWMutex)
+	return iLock.TryRLock()
+}
+
 // RUnlock it runlocks a specific item by it's ID
 func (s *KeyRWLocker) RUnlock(ID string) {
 	iLocks, _ := s.m.Load(ID)

@@ -36,25 +36,26 @@ type cloudInfoHelper struct {
 	logger   logrus.FieldLogger
 }
 
-func newCloudInfoHelper(logger logrus.FieldLogger) *cloudInfoHelper {
-	aws := newAWSCloudInfo("http://169.254.169.254")
-	if aws.isDetected() {
-		logTelemetryInfo(logger)
-		return &cloudInfoHelper{logger: logger, provider: aws}
-	}
+func newCloudInfoHelper(logger logrus.FieldLogger, telemetryEnabled bool) *cloudInfoHelper {
+	if telemetryEnabled {
+		aws := newAWSCloudInfo("http://169.254.169.254")
+		if aws.isDetected() {
+			logTelemetryInfo(logger)
+			return &cloudInfoHelper{logger: logger, provider: aws}
+		}
 
-	gcp := newGCPCloudInfo("http://metadata.google.internal/computeMetadata/v1")
-	if gcp.isDetected() {
-		logTelemetryInfo(logger)
-		return &cloudInfoHelper{logger: logger, provider: gcp}
-	}
+		gcp := newGCPCloudInfo("http://metadata.google.internal/computeMetadata/v1")
+		if gcp.isDetected() {
+			logTelemetryInfo(logger)
+			return &cloudInfoHelper{logger: logger, provider: gcp}
+		}
 
-	azure := newAzureCloudInfo("http://169.254.169.254", "2021-02-01")
-	if azure.isDetected() {
-		logTelemetryInfo(logger)
-		return &cloudInfoHelper{logger: logger, provider: azure}
+		azure := newAzureCloudInfo("http://169.254.169.254", "2021-02-01")
+		if azure.isDetected() {
+			logTelemetryInfo(logger)
+			return &cloudInfoHelper{logger: logger, provider: azure}
+		}
 	}
-
 	return &cloudInfoHelper{logger: logger}
 }
 

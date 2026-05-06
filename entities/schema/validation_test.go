@@ -307,3 +307,25 @@ func TestValidateTenantNameIncludesRegex(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateClassName_RejectsNamespaceSeparator locks in the invariant that
+// plain class names must not contain NamespaceSeparator (":"). This is the
+// *contract* the namespaces startup guard depends on to distinguish
+// namespace-qualified classes from plain ones. If ClassNameRegexCore is ever
+// loosened to accept ":", this test will start passing for qualified names
+// and must be updated together with the consumers of NamespaceSeparator.
+func TestValidateClassName_RejectsNamespaceSeparator(t *testing.T) {
+	cases := []string{
+		"Foo" + NamespaceSeparator + "Bar",
+		NamespaceSeparator + "Movie",
+		"Movie" + NamespaceSeparator,
+		"a" + NamespaceSeparator + "b",
+		"Namespace" + NamespaceSeparator + "Movie",
+	}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidateClassName(name)
+			assert.Error(t, err, "class name %q containing NamespaceSeparator must be rejected", name)
+		})
+	}
+}

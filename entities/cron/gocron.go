@@ -17,20 +17,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func NewGoCronJob(callback func()) *GoCronJob {
-	return &GoCronJob{callback: callback}
-}
-
-type GoCronJob struct {
-	callback func()
-}
-
-func (j *GoCronJob) Run() {
-	j.callback()
-}
-
-// ----------------------------------------------------------------------------
-
 func NewGoCronLogger(logger logrus.FieldLogger, infoLevel logrus.Level) *GoCronLogger {
 	return &GoCronLogger{logger: logger, infoLevel: infoLevel}
 }

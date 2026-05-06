@@ -42,20 +42,18 @@ func TestSnapshotAndRestore(t *testing.T) {
 		{
 			name: "with role and policy",
 			setupPolicies: func(m *Manager) error {
-				// Add a role and policy
-				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("customAdmin"), "*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("customAdmin"))
 				return err
 			},
 		},
 		{
 			name: "multiple roles and policies",
 			setupPolicies: func(m *Manager) error {
-				// Add multiple roles and policies
-				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("customAdmin"), "*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
 				}
@@ -63,7 +61,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", authentication.AuthTypeDb), conv.PrefixRoleName("customAdmin"))
 				if err != nil {
 					return err
 				}

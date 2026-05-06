@@ -188,7 +188,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl)
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, 0)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}

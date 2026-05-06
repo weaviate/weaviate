@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 

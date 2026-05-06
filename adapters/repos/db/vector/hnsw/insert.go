@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (
@@ -184,7 +184,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		dims := len(vectors[0])
 		for _, vec := range vectors {
 			if len(vec) != dims {
-				err = errors.Errorf("addBatch called with vectors of different lengths")
+				err = errors.Errorf("addBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
 				return
 			}
 		}
@@ -201,14 +201,13 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if err != nil {
 		return err
 	}
-
-	levels := make([]int, len(ids))
+	levels := make([]uint8, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
 		if maxId < id {
 			maxId = id
 		}
-		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
+		levels[i] = h.generateLevel()
 	}
 	h.RLock()
 	if maxId >= uint64(len(h.nodes)) {
@@ -234,7 +233,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
-			level: levels[i],
+			level: int(levels[i]),
 		}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
@@ -300,7 +299,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		for _, doc := range vectors {
 			for _, vec := range doc {
 				if len(vec) != dim {
-					err = errors.Errorf("addMultiBatch called with vectors of different lengths")
+					err = errors.Errorf("addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), dim)
 					return
 				}
 			}
@@ -321,9 +320,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
-		levels := make([]int, numVectors)
+		levels := make([]uint8, numVectors)
 		for j := range numVectors {
-			levels[j] = int(h.generateLevel()) // TODO: represent level as uint8
+			levels[j] = h.generateLevel()
 		}
 
 		h.Lock()
@@ -379,7 +378,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			node := &vertex{
 				id:    uint64(nodeId),
-				level: levels[j],
+				level: int(levels[j]),
 			}
 
 			h.Lock()

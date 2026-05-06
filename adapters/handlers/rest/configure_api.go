@@ -13,8 +13,10 @@ package rest
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -34,7 +36,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
-	gocron "github.com/netresearch/go-cron"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -42,6 +44,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
@@ -49,6 +56,7 @@ import (
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
+	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -65,11 +73,11 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/cron"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -146,20 +154,18 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	exportusecase "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -229,7 +235,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// use build.Version instead.
 	config.ServerVersion = build.Version
 
-	appState := startupRoutine(ctx, options)
+	appState := startupRoutine(ctx, serverShutdownCtx, options)
 
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
@@ -363,6 +369,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
+	appState.ObjectTTLLocalStatus = objectttl.NewLocalStatus()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -378,7 +385,88 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	restReplicationClient, err := clients.NewReplicationClient(appState.ClusterHttpClient)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").Fatalf("failed to create replication client: %v", err)
+	}
+
+	// Set up gRPC connection manager (needed for both file replication and replication gRPC client)
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+
+	var creds credentials.TransportCredentials
+	useTLS := len(grpcConfig.CertFile) > 0
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		grpcDialOpts = append(grpcDialOpts,
+			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
+	grpcDialOpts = append(grpcDialOpts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+	)
+
+	grpcConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		metricsRegisterer, appState.Logger, grpcDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create gRPC connection manager")
+	}
+	appState.GRPCConnManager = grpcConnManager
+
+	// Create replication-specific ConnManager with retry interceptor.
+	// The base grpcConnManager (no retry) is used for file-replication;
+	// the replConnManager adds retry on top for replication RPCs.
+	replRetryInterceptor := grpc_retry.UnaryClientInterceptor(
+		grpc_retry.WithMax(9),
+		grpc_retry.WithBackoff(grpc_retry.BackoffExponentialWithJitter(100*time.Millisecond, 0.1)),
+		grpc_retry.WithCodes(codes.Internal, codes.Unavailable, codes.ResourceExhausted),
+	)
+	replDialOpts := make([]grpc.DialOption, len(grpcDialOpts)+1)
+	copy(replDialOpts, grpcDialOpts)
+	replDialOpts[len(grpcDialOpts)] = grpc.WithChainUnaryInterceptor(replRetryInterceptor)
+
+	replMetricsReg := prometheus.WrapRegistererWithPrefix("repl_", metricsRegisterer)
+	replConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		replMetricsReg, appState.Logger, replDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create replication gRPC connection manager")
+	}
+
+	appState.ReplGRPCConnManager = replConnManager
+
+	// Create switch replication client (gRPC or REST based on replication_grpc_enabled runtime config)
+	grpcReplicationClient := clients.NewGRPCReplicationClient(replConnManager)
+	replicationClient := clients.NewSwitchReplicationClient(
+		grpcReplicationClient,
+		restReplicationClient,
+		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
+	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -408,9 +496,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
-		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
+		EnableLazyLoadShards:                appState.ServerConfig.Config.EnableLazyLoadShards,
+		LazyLoadShardCountThreshold:         appState.ServerConfig.Config.LazyLoadShardCountThreshold,
+		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
+		ObjectsTTLBatchSize:                 appState.ServerConfig.Config.ObjectsTTLBatchSize,
+		ObjectsTTLPauseEveryNoBatches:       appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches,
+		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
+		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
@@ -508,58 +602,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
-	grpcConfig := appState.ServerConfig.Config.GRPC
-	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
-
-	var creds credentials.TransportCredentials
-
-	useTLS := len(grpcConfig.CertFile) > 0
-
-	if useTLS {
-		creds = credentials.NewClientTLSFromCert(nil, "")
-	} else {
-		creds = insecure.NewCredentials() // use insecure credentials for testing
-	}
-
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-
-	if authConfig.BasicAuth.Enabled() {
-		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		opts = append(opts,
-			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
-		)
-	}
-
-	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
-	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(
-		appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize,
-		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
-	)
-
-	opts = append(opts,
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(maxSize),
-			grpc.MaxCallSendMsgSize(maxSize),
-		),
-		grpc.WithInitialWindowSize(int32(maxSize)),
-		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
-		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
-		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
-	)
-
-	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
-	grpcIdleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
-
-	grpcConnManager, err := grpcconn.NewConnManager(grpcMaxOpenConns, grpcIdleConnTimeout,
-		metricsRegisterer, appState.Logger, opts...)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
-	}
-	appState.GRPCConnManager = grpcConnManager
-
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		clientConn, err := appState.GRPCConnManager.GetConn(address)
 		if err != nil {
@@ -572,6 +614,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, nodeSelector,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
+
+	namespacesController := appState.NamespacesController
 
 	rConfig := rCluster.Config{
 		WorkDir:                     filepath.Join(dataPath, config.DefaultRaftDir),
@@ -605,6 +649,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AuthzController:             appState.AuthzController,
 		RBAC:                        appState.RBAC,
 		DynamicUserController:       appState.APIKey.Dynamic,
+		NamespacesController:        namespacesController,
+		NamespacesEnabled:           appState.ServerConfig.Config.Namespaces.Enabled,
 		ReplicaCopier:               replicaCopier,
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
@@ -659,17 +705,27 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
+	repo.SetTenantsActivityManager(appState.SchemaManager)
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.ServerConfig.Config.Backup, appState.Authorizer,
 		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
+
+	// Create export participant early so the cluster API server can register it
+	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportMetrics = exportusecase.NewExportMetrics(prometheus.DefaultRegisterer)
+	appState.ExportParticipant = exportusecase.NewParticipant(
+		appState.DB, appState.Modules, appState.Logger,
+		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+		appState.ExportMetrics,
+		appState.ServerConfig.Config.ExportParallelism,
+	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
@@ -687,12 +743,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
-	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
+	repo.SetBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
 	reindexer := configureReindexer(appState, reindexCtx)
-	repo.WithReindexer(reindexer)
+	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
 	enterrors.GoWrapper(func() {
@@ -755,6 +811,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
+
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
@@ -762,7 +821,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		l.Info("Configuring crons")
-		configureCrons(appState, serverShutdownCtx)
+		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator); err != nil {
+			l.WithError(err).Fatal("Configuring crons failed")
+		}
+	}, appState.Logger)
+
+	// Namespace startup invariant: verify the NAMESPACES_ENABLED flag is
+	// compatible with cluster state (schema classes + namespace entities).
+	// Runs after the meta store is ready so both sources are authoritative;
+	// placed in a goroutine to avoid blocking other init work that does not
+	// depend on the meta store. Fatals on mismatch — a misconfigured cluster
+	// must not come up.
+	enterrors.GoWrapper(func() {
+		l := appState.Logger.WithField("action", "startup")
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			l.WithError(err).Fatal("meta store failed to become ready; cannot verify namespace startup invariants")
+		}
+		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
+		var classNames []string
+		if schemaSnapshot.Objects != nil {
+			for _, c := range schemaSnapshot.Objects.Classes {
+				classNames = append(classNames, c.Class)
+			}
+		}
+		if err := enforceNamespaceStartupInvariants(
+			appState.ServerConfig.Config.Namespaces.Enabled,
+			classNames,
+			appState.ClusterService.NamespaceCount(),
+		); err != nil {
+			l.Fatal(err)
+		}
 	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
@@ -781,10 +869,21 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		providers := map[string]distributedtask.Provider{}
+
+		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
+			shardNoopProvider := distributedtask.NewShardNoopProvider(
+				appState.Cluster.LocalName(), appState.Logger, repo,
+				appState.ServerConfig.Config.Persistence.DataPath,
+			)
+			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+			setupShardNoopDebugHandler(appState, shardNoopProvider)
+		}
+
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,
 			TasksLister:        appState.ClusterService.Raft,
-			Providers:          map[string]distributedtask.Provider{},
+			Providers:          providers,
 			Logger:             appState.Logger,
 			MetricsRegisterer:  metricsRegisterer,
 			LocalNode:          appState.Cluster.LocalName(),
@@ -851,119 +950,41 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	return reindexer
 }
 
-func configureCrons(appState *state.State, serverShutdownCtx context.Context) {
-	// enterrors.GoWrapper(func() {
-	// 	f := func() {
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-
-	// 		nodes := appState.SchemaManager.Nodes()
-	// 		nodeName := appState.SchemaManager.NodeName()
-	// 		fmt.Printf("  ==> SchemaManager.Nodes: %v\n"+
-	// 			"      SchemaManager.NodeName: %v\n", nodes, nodeName)
-	// 		fmt.Println()
-
-	// 		allHostnames := appState.Cluster.AllHostnames()
-	// 		allNames := appState.Cluster.AllNames()
-	// 		allOtherClusterMembers := appState.Cluster.AllOtherClusterMembers(0)
-	// 		nodeCount := appState.Cluster.NodeCount()
-	// 		fmt.Printf("  ==> Cluster.AllHostnames: %v\n"+
-	// 			"      Cluster.AllNames: %v\n"+
-	// 			"      Cluster.AllOtherClusterMembers: %v\n"+
-	// 			"      Cluster.NodeCount: %v\n", allHostnames, allNames, allOtherClusterMembers, nodeCount)
-	// 		fmt.Println()
-
-	// 		for _, name := range allNames {
-	// 			nodeAddress := appState.Cluster.NodeAddress(name)
-	// 			nodeHostname, b := appState.Cluster.NodeHostname(name)
-	// 			nodeInfo, b2 := appState.Cluster.NodeInfo(name)
-	// 			fmt.Printf("  ==> Cluster.NodeAddress[%s]: %v\n"+
-	// 				"      Cluster.NodeHostname[%s]: %v [%v]\n"+
-	// 				"      Cluster.NodeInfo[%s]: %#v [%v]\n", name, nodeAddress, name, nodeHostname, b, name, nodeInfo, b2)
-	// 			fmt.Println()
-	// 		}
-
-	// 		fmt.Println("--------------------------------------------------------------------------------")
-	// 	}
-	// 	f()
-
-	// 	t := time.NewTicker(5 * time.Second)
-	// 	for {
-	// 		<-t.C
-	// 		f()
-	// 	}
-
-	// }, appState.Logger)
-
-	type jobSpec struct {
-		name     string
-		schedule string
-		job      gocron.Job
-	}
-
-	logger := appState.Logger.WithField("action", "cron")
-	cronLogger := cron.NewGoCronLogger(logger, logrus.DebugLevel)
-	specs := []jobSpec{}
-
-	if schedule := appState.ServerConfig.Config.ObjectsTTLDeleteSchedule; schedule != "" {
-		l := logger.WithField("action", "cron_ttl_scheduler")
-
-		triggerDeletionObjectsExpiredJob := gocron.NewChain(gocron.SkipIfStillRunning(cronLogger)).
-			Then(cron.NewGoCronJob(func() {
-				if !appState.ClusterService.IsLeader() {
-					l.Debug("not a ttl scheduler - skipping")
-					return
-				}
-
-				var err error
-				started := time.Now()
-
-				l.Info("triggering deletion of expired objects")
-				defer func() {
-					l = l.WithField("took", time.Since(started))
-					if err != nil {
-						l.WithError(err).Error("triggering deletion of expired objects failed")
-					} else {
-						l.Info("triggering deletion of expired objects succeeded")
-					}
-				}()
-
-				err = appState.ObjectTTLCoordinator.Start(serverShutdownCtx, false, started, started)
-			}))
-
-		specs = append(specs, jobSpec{
-			name:     "trigger_deletion_objects_expired",
-			schedule: schedule,
-			job:      triggerDeletionObjectsExpiredJob,
-		})
-	}
-
-	if len(specs) == 0 {
-		logger.Info("no jobs configured")
-		return
-	}
-
-	opts := []gocron.Option{
-		gocron.WithLogger(cronLogger),
-		gocron.WithChain(gocron.Recover(cronLogger)),
-	}
-	if appState.ServerConfig.Config.ObjectsTtlAllowSeconds {
-		opts = append(opts, gocron.WithSeconds())
-	}
-	cr := gocron.New(opts...)
-	for i := range specs {
-		l := logger.WithField("job_name", specs[i].name)
-
-		entryId, err := cr.AddJob(specs[i].schedule, specs[i].job)
-		if err != nil {
-			l.WithError(err).Error("failed adding job")
-			continue
+// enforceNamespaceStartupInvariants decides whether the current cluster state
+// is compatible with the NAMESPACES_ENABLED flag. It is a pure function so the
+// decision logic can be unit-tested without fighting os.Exit; the caller wires
+// a non-nil return to logrus.Fatal.
+//
+// A class name is considered namespace-qualified iff it contains
+// entschema.NamespaceSeparator (":"), which is forbidden in plain class names
+// by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
+func enforceNamespaceStartupInvariants(enabled bool, classNames []string, nsCount int) error {
+	var nonNamespacedCount, namespacedCount int
+	var nonNamespacedExample, namespacedExample string
+	for _, name := range classNames {
+		if strings.Contains(name, entschema.NamespaceSeparator) {
+			if namespacedCount == 0 {
+				namespacedExample = name
+			}
+			namespacedCount++
+		} else {
+			if nonNamespacedCount == 0 {
+				nonNamespacedExample = name
+			}
+			nonNamespacedCount++
 		}
-		l.WithField("entry", entryId).Info("added job")
 	}
-	cr.Start()
 
-	<-serverShutdownCtx.Done()
-	cr.Stop()
+	switch {
+	case enabled && nonNamespacedCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
+	case !enabled && nsCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d existing namespace entities; this is not supported", nsCount)
+	case !enabled && namespacedCount > 0:
+		// Guards against disabling namespaces on a namespaced cluster.
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
+	}
+	return nil
 }
 
 type metaStoreReady struct {
@@ -1057,6 +1078,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authentication.OIDC,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Namespaces.Enabled,
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
@@ -1064,10 +1086,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB, appState.Logger, appState.ClusterHttpClient, appState.Cluster)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
+	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
+	setupTokenizeHandlers(api, appState.SchemaManager, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
@@ -1082,22 +1105,31 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
+	exportScheduler := startExportScheduler(appState)
+	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	if appState.ServerConfig.Config.DistributedTasks.Enabled {
 		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 	}
+
+	telemeter := telemetry.New(
+		appState.DB,
+		appState.SchemaManager,
+		appState.Logger,
+		getTelemetryURL(appState),
+		appState.ServerConfig.Config.TelemetryPushInterval,
+		telemetryEnabled(appState),
+	)
 
 	var grpcInstrument []grpc.ServerOption
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		grpcInstrument = monitoring.InstrumentGrpc(appState.GRPCServerMetrics)
 	}
 
-	grpcServer, batchDrain := createGrpcServer(appState, grpcInstrument...)
+	grpcServer, batchDrain := createGrpcServer(appState, telemeter.GetClientTracker(), grpcInstrument...)
 
 	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
-
-	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context(), telemeter)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
@@ -1118,6 +1150,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
+		// Reject new export requests and signal in-flight exports to stop
+		// early, while the server can still serve other requests. The actual
+		// wait for export drain happens in ServerShutdown.
+		exportScheduler.StartShutdown()
+		appState.ExportParticipant.StartShutdown()
 		batchDrain()
 	}
 
@@ -1126,6 +1163,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err := appState.Cluster.Leave(); err != nil {
 			appState.Logger.WithError(err).Error("leave node from cluster")
 		}
+
+		// PreServerShutdown already called StartShutdown so exports are signaled to stop, wait here until completion.
+		exportDone := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(exportDone)
+			exportCtx, exportCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer exportCancel()
+			if err := appState.ExportParticipant.Shutdown(exportCtx); err != nil {
+				appState.Logger.
+					WithError(err).
+					WithField("action", "shutdown export participant").
+					Errorf("failed to gracefully shutdown")
+			}
+		}, appState.Logger)
 
 		// drain any ongoing operations
 		time.Sleep(appState.ServerConfig.Config.Raft.DrainSleep.Get())
@@ -1155,6 +1206,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// close grpc client connections
+		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
 		// gracefully stop gRPC server
@@ -1163,6 +1215,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)
 		}
+
+		// Ensure export cleanup finished before closing the infrastructure
+		// it depends on (internal server, cluster service, modules).
+		<-exportDone
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -1197,7 +1253,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	startGrpcServer(grpcServer, appState)
-
+	setupMCPHandlers(api, appState, objectsManager)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
@@ -1212,8 +1268,24 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	return backupScheduler
 }
 
+func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
+	return exportusecase.NewScheduler(
+		appState.Authorizer,
+		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Export,
+		appState.DB,
+		appState.Modules,
+		appState.Logger,
+		clients.NewClusterExports(appState.ClusterHttpClient),
+		appState.Cluster,
+		appState.Cluster.LocalName(),
+		appState.ExportParticipant,
+		appState.ExportMetrics,
+	)
+}
+
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
 	logger := logger()
@@ -1270,6 +1342,10 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")
 
+	// configureOIDC captures appState.NamespacesController as the
+	// classifier's nsExister, so the controller must be initialised
+	// before this call.
+	appState.NamespacesController = usecasesNamespaces.NewController(logger)
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
@@ -1278,6 +1354,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
 		logger.Exit(1)
 	}
+	appState.Crons = configureCrons(appState, serverShutdownCtx)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
@@ -2152,6 +2229,18 @@ func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
 }
 
+// getTelemetryURL returns the telemetry consumer URL from config.
+// If a custom URL is set, it's base64-encoded to match the expected format.
+// Returns empty string if no custom URL is set (telemetry.New will use default).
+func getTelemetryURL(state *state.State) string {
+	url := state.ServerConfig.Config.TelemetryURL
+	if url == "" {
+		return ""
+	}
+	// The telemetry package expects base64-encoded URLs
+	return base64.StdEncoding.EncodeToString([]byte(url))
+}
+
 type membership struct {
 	*cluster.State
 	raft *rCluster.Service
@@ -2172,6 +2261,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
+		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
 		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
@@ -2180,12 +2270,22 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
+		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
+		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
+		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
+		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
+		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
+		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
+		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
+		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2196,6 +2296,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
 			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
 			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
+			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
 		}
 
 		cm, err := configRuntime.NewConfigManager(
@@ -2238,6 +2339,8 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			hooks["OIDC"] = appState.OIDC.Init
 		}
+		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
+
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		cm.RegisterHooks(hooks)
 		// reload current overrides file to take into account additional settings

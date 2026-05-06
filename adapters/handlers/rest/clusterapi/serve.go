@@ -14,7 +14,6 @@ package clusterapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -23,11 +22,10 @@ import (
 	sentryhttp "github.com/getsentry/sentry-go/http"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -58,7 +56,7 @@ func NewServer(appState *state.State) *Server {
 
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(
-		appState.RemoteReplicaIncoming,
+		appState.DB,
 		auth,
 		appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		appState.ServerConfig.Config.Cluster.RequestQueueConfig,
@@ -68,8 +66,9 @@ func NewServer(appState *state.State) *Server {
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
+	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
-	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
@@ -87,9 +86,21 @@ func NewServer(appState *state.State) *Server {
 	mux.Handle("/backups/abort", backups.Abort())
 	mux.Handle("/backups/status", backups.Status())
 
+	mux.Handle("/exports/prepare", exportsHandler.Prepare())
+	mux.Handle("/exports/commit", exportsHandler.Commit())
+	mux.Handle("/exports/abort", exportsHandler.Abort())
+	mux.Handle("/exports/status", exportsHandler.Status())
+
 	mux.Handle("/", index())
 
-	grpcServer := grpc.NewServer(appState)
+	grpcServer := grpc.NewServer(grpc.Config{
+		State:                              appState,
+		Replicator:                         appState.DB,
+		FileReplicationRepo:                appState.DB,
+		FileReplicationSchema:              appState.ClusterService.SchemaReader(),
+		MaintenanceModeEnabledForLocalhost: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		NodeReady:                          appState.ClusterService.Ready,
+	})
 
 	var handler http.Handler
 	// Multiplexing handler: Routes gRPC vs. REST (HTTP)
@@ -184,17 +195,6 @@ func (s *Server) Close(ctx context.Context) error {
 	})
 
 	return eg.Wait()
-}
-
-// Serve is kept for backward compatibility
-func Serve(appState *state.State) (*Server, error) {
-	server := NewServer(appState)
-	if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		appState.Logger.WithField("action", "cluster_api_shutdown").
-			WithError(err).
-			Error("server error")
-	}
-	return server, nil
 }
 
 func index() http.Handler {

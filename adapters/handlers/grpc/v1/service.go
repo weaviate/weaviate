@@ -20,11 +20,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -33,10 +36,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaEnt "github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -47,7 +49,7 @@ type Service struct {
 	traverser            *traverser.Traverser
 	authComposer         composer.TokenFunc
 	allowAnonymousAccess bool
-	schemaManager        *schemaManager.Manager
+	schemaManager        *schema.Manager
 	batchManager         *objects.BatchManager
 	config               *config.Config
 	authorizer           authorization.Authorizer
@@ -58,23 +60,19 @@ type Service struct {
 	batchStreamHandler *batch.StreamHandler
 }
 
-func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
-	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
-	logger logrus.FieldLogger,
-) (*Service, batch.Drain) {
-	authenticator := auth.NewHandler(allowAnonymousAccess, authComposer)
-	batchHandler := batch.NewHandler(authorization, batchManager, logger, authenticator, schemaManager)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, authorization, batchHandler, prometheus.DefaultRegisterer, 2*NUMCPU, logger)
+func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
+	authenticator := auth.NewHandler(allowAnonymous, authComposer)
+	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled)
+	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, state.SchemaManager, prometheus.DefaultRegisterer, NUMCPU, state.Logger)
 	return &Service{
-		traverser:            traverser,
+		traverser:            state.Traverser,
 		authComposer:         authComposer,
-		allowAnonymousAccess: allowAnonymousAccess,
-		schemaManager:        schemaManager,
-		batchManager:         batchManager,
-		config:               config,
-		logger:               logger,
-		authorizer:           authorization,
+		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		schemaManager:        state.SchemaManager,
+		batchManager:         state.BatchManager,
+		config:               &state.ServerConfig.Config,
+		logger:               state.Logger,
+		authorizer:           state.Authorizer,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
@@ -272,10 +270,6 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	var result *pb.SearchReply
 	var errInner error
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
-
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.search(ctx, req)
 	}, s.logger); err != nil {
@@ -293,6 +287,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+
+	req.Collection, _ = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
 
 	parser := NewParser(
 		req.Uses_127Api,
@@ -330,7 +326,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	}
 
 	for _, prop := range searchParams.Properties {
-		_, err := schema.GetPropertyByName(class, prop.Name)
+		_, err := schemaEnt.GetPropertyByName(class, prop.Name)
 		if err != nil {
 			return err
 		}

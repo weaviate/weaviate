@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -411,7 +412,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if filters != nil {
 			filterDocIds, err = inverted.NewSearcher(s.index.logger, s.store,
 				s.index.getSchema.ReadOnlyClass, s.propertyIndices,
-				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+				s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
 				s.bitmapFactory).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
@@ -426,7 +427,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
-			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.stopwords,
+			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(),
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
@@ -442,7 +443,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
 			s.index.Config.InvertedSorterDisabled)
@@ -478,7 +479,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -601,6 +602,14 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				return nil
 			}
 
+			if selection != nil {
+				ids, dists, err = s.applySelection(ctx, selection, targetVector, ids, dists, limit)
+				if err != nil {
+					return fmt.Errorf("mmr selection for target %q: %w", targetVector, err)
+				}
+				limit = int(selection.MMR.Limit)
+			}
+
 			idss[i] = ids
 			distss[i] = dists
 			return nil
@@ -662,6 +671,50 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 	return objs, distCombined, nil
+}
+
+func (s *Shard) applySelection(ctx context.Context, selection *searchparams.Selection, targetVector string, ids []uint64, dists []float32, k int) ([]uint64, []float32, error) {
+	distProv := distancerForConfig(s.index.GetVectorIndexConfig(targetVector))
+
+	// Pre-fetch candidate vectors from the object store
+	var addProps additional.Properties
+	if targetVector == "" {
+		addProps = additional.Properties{Vector: true}
+	} else {
+		addProps = additional.Properties{Vectors: []string{targetVector}}
+	}
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	objs, err := storobj.ObjectsByDocIDWithEmpty(bucket, ids, addProps, nil, s.index.logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mmr selection: fetch vectors: %w", err)
+	}
+
+	vecMap := make(map[uint64][]float32, len(ids))
+	for i, obj := range objs {
+		if obj == nil {
+			continue
+		}
+		var vec []float32
+		if targetVector == "" {
+			vec = obj.Vector
+		} else {
+			vec = obj.Vectors[targetVector]
+		}
+		vecMap[ids[i]] = vec
+	}
+
+	vecForID := func(_ context.Context, id uint64) ([]float32, error) {
+		return vecMap[id], nil
+	}
+
+	sel, err := selector.New(selection, distProv.SingleDist, vecForID, k)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mmr selection: %w", err)
+	}
+	if sel == nil {
+		return ids, dists, nil
+	}
+	return sel.Select(ctx, ids, dists)
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
@@ -759,7 +812,7 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+		s.propertyIndices, s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {

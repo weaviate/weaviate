@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/cron"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
@@ -87,13 +88,22 @@ func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldL
 // middleware will still be able to provide the user with a valuable error
 // message, even when OIDC is globally disabled.
 func configureOIDC(appState *state.State) *oidc.Client {
-	c, err := oidc.New(appState.ServerConfig.Config, appState.Logger)
+	c, err := oidc.New(
+		appState.ServerConfig.Config,
+		appState.NamespacesController,
+		appState.ServerConfig.Config.Namespaces.Enabled,
+		appState.Logger,
+	)
 	if err != nil {
 		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
 		os.Exit(1)
 	}
 
 	return c
+}
+
+func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
+	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
 }
 
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
@@ -119,6 +129,7 @@ func configureAuthorizer(appState *state.State) error {
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
+			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)

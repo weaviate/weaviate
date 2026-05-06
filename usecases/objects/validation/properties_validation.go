@@ -297,6 +297,11 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %w", propertyName, className, err)
 		}
+	case schema.DataTypeBlobHash:
+		data, err = blobVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blobHash property '%s' on class '%s': %w", propertyName, className, err)
+		}
 	case schema.DataTypeTextArray:
 		data, err = stringArrayVal(pv, "text")
 		if err != nil {

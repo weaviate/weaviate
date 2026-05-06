@@ -250,6 +250,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		return nil
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
+	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{"shard1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -262,7 +264,8 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
+		EnableLazyLoadShards:      boolPtr(true),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 
@@ -343,8 +346,9 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
+		EnableLazyLoadShards:      boolPtr(true),
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
-	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	sch := schema.Schema{
@@ -386,6 +390,8 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		}, nil,
 	).Maybe()
 
+	nodeResolver := cluster.NewMockNodeResolver(t)
+
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
@@ -393,6 +399,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 	replicator, err := replica.NewReplicator(
 		class.Class,
 		mockRouter,
+		nodeResolver,
 		localNodeName,
 		getDeletionStrategy,
 		repClient,
@@ -403,10 +410,11 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
-			RootPath:            tmpDir,
-			ClassName:           schema.ClassName(class.Class),
-			QueryMaximumResults: maxResults,
-			ReplicationFactor:   1,
+			EnableLazyLoadShards: true,
+			RootPath:             tmpDir,
+			ClassName:            schema.ClassName(class.Class),
+			QueryMaximumResults:  maxResults,
+			ReplicationFactor:    1,
 		},
 		metrics:                metrics,
 		partitioningEnabled:    shardState.PartitioningEnabled,
@@ -425,8 +433,18 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
+		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
+	}
+	{
+		var presetDetectors map[string]*stopwords.Detector
+		if class.InvertedIndexConfig != nil {
+			var err error
+			presetDetectors, err = stopwords.BuildPresetDetectors(iic.StopwordPresets)
+			require.NoError(t, err)
+		}
+		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -437,7 +455,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards, true)
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.EnableLazyLoadShards, true)
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)

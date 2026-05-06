@@ -144,7 +144,7 @@ func TestQueuePush(t *testing.T) {
 		q := makeQueueSize(t, s, discardExecutor(), 1000)
 
 		// ensure the queue doesn't get processed
-		q.Pause()
+		q.Pause(t.Context())
 
 		for i := 0; i < 100; i++ {
 			pushMany(t, q, 1, 100, 200, 300)
@@ -238,7 +238,7 @@ func TestQueueDecodeTask(t *testing.T) {
 	t.Run("many tasks", func(t *testing.T) {
 		exec := discardExecutor()
 		q := makeQueueSize(t, s, exec, 660)
-		q.Pause()
+		q.Pause(t.Context())
 
 		// encode 120 records
 		for i := 0; i < 120; i++ {
@@ -471,7 +471,7 @@ func TestPartialChunkRecovery(t *testing.T) {
 			require.NoError(t, err)
 
 			s.RegisterQueue(q)
-			q.Pause()
+			q.Pause(t.Context())
 
 			// manually promote a partial chunk to a full chunk
 			err = q.w.Promote()
@@ -500,7 +500,7 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause() // prevent scheduler from processing the queue
+		q.Pause(t.Context()) // prevent scheduler from processing the queue
 		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
@@ -543,7 +543,7 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause() // prevent scheduler from processing the queue
+		q.Pause(t.Context()) // prevent scheduler from processing the queue
 		q.inactivityPeriod = 400 * time.Millisecond
 		pushMany(t, q, 1, 100, 200, 300)
 		require.Equal(t, int64(3), q.Size())
@@ -626,7 +626,7 @@ func TestEnableMaintenanceMode(t *testing.T) {
 	defer s.Close(t.Context())
 
 	q := makeQueueSize(t, s, discardExecutor(), 50)
-	q.Pause()
+	q.Pause(t.Context())
 
 	pushMany(t, q, 1, 100, 200, 300)
 	err := q.Flush()
@@ -671,7 +671,7 @@ func TestDisableMaintenanceMode(t *testing.T) {
 	defer s.Close(t.Context())
 
 	q := makeQueueSize(t, s, discardExecutor(), 50)
-	q.Pause()
+	q.Pause(t.Context())
 
 	pushMany(t, q, 1, 100, 200, 300)
 	err := q.Flush()
@@ -716,7 +716,7 @@ func TestEnableMaintenanceModeCrashRecovery(t *testing.T) {
 	tmpDir := t.TempDir()
 	decoder := &mockTaskDecoder{}
 	q := makeQueueWith(t, s, decoder, 50, tmpDir)
-	q.Pause()
+	q.Pause(t.Context())
 
 	// push 6 tasks → 2 full chunks (3 each at chunkSize=50)
 	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
@@ -739,6 +739,7 @@ func TestEnableMaintenanceModeCrashRecovery(t *testing.T) {
 
 	// reopen the queue — Init() should clean up the tombstoned chunk
 	q2 := makeQueueWith(t, s, decoder, 50, tmpDir)
+	q2.Pause(t.Context())
 	require.Equal(t, int64(3), q2.Size()) // only the second chunk remains
 
 	// tombstoned chunk and its tombstone are gone
@@ -763,7 +764,7 @@ func TestListFilesExcludesTombstoned(t *testing.T) {
 	tmpDir := t.TempDir()
 	_, e := streamExecutor()
 	q := makeQueueWith(t, s, e, 50, tmpDir)
-	q.Pause()
+	q.Pause(t.Context())
 
 	// push 6 tasks → 2 full chunks
 	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
@@ -830,7 +831,7 @@ func TestQueueForceSwitch(t *testing.T) {
 	require.Len(t, entries, 8)
 
 	// pause the queue
-	q.Pause()
+	q.Pause(t.Context())
 	require.NoError(t, q.Wait(ctx))
 
 	// call ForceSwitch to promote the last chunk

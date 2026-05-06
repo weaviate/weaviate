@@ -25,9 +25,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func createTestCommitLoggerForSnapshotsWithOpts(t *testing.T, rootDir, id string, opts ...CommitlogOption) *hnswCommitLogger {
@@ -934,14 +935,14 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      7,
 			Compressed: true,
 			Nodes:      make([]*vertex, 150),
-			CompressionPQData: &compressionhelpers.PQData{
+			CompressionPQData: &compression.PQData{
 				Dimensions:          128,
 				Ks:                  256,
 				M:                   8,
-				EncoderType:         compressionhelpers.UseTileEncoder,
+				EncoderType:         compression.UseTileEncoder,
 				EncoderDistribution: 1,
 				UseBitsEncoding:     true,
-				Encoders:            make([]compressionhelpers.PQEncoder, 8),
+				Encoders:            make([]compression.PQSegmentEncoder, 8),
 			},
 		}
 
@@ -985,7 +986,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      12,
 			Compressed: true,
 			Nodes:      make([]*vertex, 300),
-			CompressionSQData: &compressionhelpers.SQData{
+			CompressionSQData: &compression.SQData{
 				Dimensions: 64,
 				A:          1.5,
 				B:          2.7,
@@ -1023,13 +1024,13 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      5,
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
-			CompressionRQData: &compressionhelpers.RQData{
+			CompressionRQData: &compression.RQData{
 				InputDim: 8,
 				Bits:     8,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
-					Swaps: [][]compressionhelpers.Swap{
+					Swaps: [][]compression.Swap{
 						{
 							{I: 0, J: 1},
 							{I: 2, J: 3},
@@ -1146,12 +1147,12 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Level:      5,
 			Compressed: true,
 			Nodes:      make([]*vertex, 250),
-			CompressionBRQData: &compressionhelpers.BRQData{
+			CompressionBRQData: &compression.BRQData{
 				InputDim: 8,
-				Rotation: compressionhelpers.FastRotation{
+				Rotation: compression.FastRotation{
 					OutputDim: 8,
 					Rounds:    1,
-					Swaps: [][]compressionhelpers.Swap{
+					Swaps: [][]compression.Swap{
 						{
 							{I: 0, J: 1},
 							{I: 2, J: 3},
@@ -1206,7 +1207,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 			Compressed:    true,
 			MuveraEnabled: true,
 			Nodes:         make([]*vertex, 180),
-			CompressionSQData: &compressionhelpers.SQData{
+			CompressionSQData: &compression.SQData{
 				Dimensions: 64,
 				A:          1.5,
 				B:          2.7,
@@ -1788,6 +1789,192 @@ func TestMigrateCompactV2Snapshot(t *testing.T) {
 		// No snapshot files at all — should be a noop
 		require.NoError(t, cl.migrateCompactV2Snapshot())
 		require.NoError(t, cl.migrateCompactV2Snapshot())
+	})
+}
+
+func TestMigrateCompactV2SortedFiles(t *testing.T) {
+	newLogger := func(rootDir, id string) *hnswCommitLogger {
+		return &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+	}
+
+	t.Run("renames single-timestamp .sorted to .condensed", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed"}, names)
+	})
+
+	t.Run("renames range .sorted to {endTS}.condensed", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000_1500.sorted"), []byte("a"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed"}, names)
+	})
+
+	t.Run("preserves non-compactv2 files", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Mix: a sorted file to migrate, a native condensed file to preserve,
+		// and a raw active log to preserve.
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2000.condensed"), []byte("b"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2500"), []byte("c"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed", "2000.condensed", "2500"}, names)
+	})
+
+	t.Run("skips when destination already exists", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Both forms map to "1500.condensed" — collision case.
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.condensed"), []byte("b"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		// Both files preserved, no overwrite.
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.sorted", "1500.condensed"}, names)
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+
+		cl := newLogger(rootDir, "main")
+		require.NoError(t, cl.migrateCompactV2SortedFiles())
+		require.NoError(t, cl.migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed"}, names)
+	})
+
+	t.Run("noop when no sorted files exist", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.condensed"), []byte("a"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.Equal(t, "1500.condensed", entries[0].Name())
+	})
+}
+
+func TestCleanupCompactV2TempFiles(t *testing.T) {
+	newLogger := func(rootDir, id string) *hnswCommitLogger {
+		return &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+	}
+
+	t.Run("removes compactv2 .sorted.tmp and .snapshot.tmp leftovers", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Compactv2 SafeFileWriter leftovers from a crashed write.
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted.tmp"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000_1500.sorted.tmp"), []byte("b"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.snapshot.tmp"), []byte("c"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000_1500.snapshot.tmp"), []byte("d"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	})
+
+	t.Run("preserves v1.37 native files and other tmp formats", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Mix: compactv2 leftover (must remove), v1.37 natives, and v1.37 tmp
+		// formats handled elsewhere (must NOT remove).
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted.tmp"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000.condensed"), []byte("b"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2000"), []byte("c"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2500.scratch.tmp"), []byte("d"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "3000.combined.tmp"), []byte("e"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t,
+			[]string{"1000.condensed", "2000", "2500.scratch.tmp", "3000.combined.tmp"},
+			names)
+	})
+
+	t.Run("noop when commitlog directory is missing", func(t *testing.T) {
+		rootDir := t.TempDir()
+		// don't create commitlog dir
+		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
 	})
 }
 

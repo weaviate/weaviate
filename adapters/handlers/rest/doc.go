@@ -18,7 +18,7 @@
 //	  https
 //	Host: localhost
 //	BasePath: /v1
-//	Version: 1.35.18
+//	Version: 1.38.0-dev
 //	Contact: Weaviate<hello@weaviate.io> https://github.com/weaviate
 //
 //	Consumes:
@@ -27,6 +27,7 @@
 //
 //	Produces:
 //	  - application/json
+//	  - text/event-stream
 //
 // swagger:meta
 package rest

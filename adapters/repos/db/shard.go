@@ -68,14 +68,15 @@ var (
 )
 
 type ShardLike interface {
-	Index() *Index                                                                      // Get the parent index
-	Name() string                                                                       // Get the shard name
-	Store() *lsmkv.Store                                                                // Get the underlying store
-	NotifyReady()                                                                       // Set shard status to ready
-	GetStatus() storagestate.Status                                                     // Return the shard status
-	UpdateStatus(status, reason string) error                                           // Set shard status
-	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
-	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
+	Index() *Index                                                                                 // Get the parent index
+	Name() string                                                                                  // Get the shard name
+	Store() *lsmkv.Store                                                                           // Get the underlying store
+	NotifyReady()                                                                                  // Set shard status to ready
+	GetStatus() storagestate.Status                                                                // Return the shard status
+	GetStatusReason() string                                                                       // Return the reason for the current status
+	UpdateStatus(status, reason string) error                                                      // Set shard status
+	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
 	ObjectCount(ctx context.Context) (int, error)
@@ -88,9 +89,10 @@ type ShardLike interface {
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
+	DropVectorIndex(ctx context.Context, targetVector string) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
@@ -101,13 +103,14 @@ type ShardLike interface {
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
+	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
 	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
-	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
+	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
@@ -125,6 +128,7 @@ type ShardLike interface {
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -238,6 +242,8 @@ type Shard struct {
 	vectorIndexes map[string]VectorIndex
 	queues        map[string]*VectorIndexQueue
 
+	geoQueues map[string]*VectorIndexQueue
+
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
 	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
@@ -326,6 +332,11 @@ type Shard struct {
 	HFreshEnabled bool
 
 	lazySegmentLoadingEnabled bool
+
+	// metricsRegistered tracks whether this shard was registered with shard lifecycle metrics
+	// (e.g., NewLoadedShard or FinishLoadingShard was called). This prevents double-counting
+	// or incorrect metric updates during partial initialization cleanup.
+	metricsRegistered atomic.Bool
 }
 
 func (s *Shard) ID() string {
@@ -371,7 +382,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return err
 	}
 
-	reason := "UpdateVectorIndexConfig"
+	reason := statusReasonVectorIndexUpdate
 	err := s.SetStatusReadonly(reason)
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)

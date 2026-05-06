@@ -109,6 +109,11 @@ func (p *Parser) parseVectorConfig(class *models.Class) error {
 
 	newVC := map[string]models.VectorConfig{}
 	for vector, config := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(config) {
+			newVC[vector] = config
+			continue
+		}
+
 		mapMC, ok := config.Vectorizer.(map[string]any)
 		if !ok {
 			return fmt.Errorf("vectorizer for %s is not a map, got %v", vector, config)
@@ -202,6 +207,9 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 
 func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vectorConfig) {
+			continue
+		}
 		isMultiVector := false
 		vectorizerModuleName := ""
 		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
@@ -232,6 +240,14 @@ func (p *Parser) parseTargetVectorsIndexConfig(class *models.Class) error {
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{}, isMultiVector bool, defaultQuantization *configRuntime.DynamicValue[string],
 ) (schemaConfig.VectorIndexConfig, error) {
+	// "none" is a sentinel for dropped indexes, not a real index type.
+	// Reject it explicitly rather than relying on the default branch.
+	if vectorIndexType == vectorindex.VectorIndexTypeNone {
+		return nil, errors.Errorf(
+			"parse vector index config: %q is not a valid vector index type; "+
+				"it is an internal sentinel for dropped indexes", vectorIndexType)
+	}
+
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC && vectorIndexType != vectorindex.VectorIndexTypeHFresh {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
@@ -311,6 +327,14 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, fmt.Errorf("inverted index config: %w", err)
 	}
 
+	var updatedPresets map[string][]string
+	if update.InvertedIndexConfig != nil {
+		updatedPresets = update.InvertedIndexConfig.StopwordPresets
+	}
+	if err := validateStopwordPresetsStillReferenced(class.Properties, updatedPresets); err != nil {
+		return nil, fmt.Errorf("inverted index config: %w", err)
+	}
+
 	return update, nil
 }
 
@@ -349,7 +373,7 @@ func propertyAsMap(in any) (map[string]any, error) {
 	out := make(map[string]any)
 
 	v := reflect.ValueOf(in)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
@@ -541,6 +565,21 @@ func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated 
 			return fmt.Errorf("missing config for vector %q", vecName)
 		}
 
+		// Skip entries that are already dropped in both initial and updated
+		// configs to avoid false immutability violations.
+		// Reject attempts to re-create a previously dropped vector index —
+		// the executor has no path to re-create the on-disk index structures.
+		if modelsext.IsVectorIndexDropped(initialCfg) {
+			if !modelsext.IsVectorIndexDropped(updatedCfg) {
+				return fmt.Errorf("vector %q: cannot re-create a dropped vector index; "+
+					"the index was removed and cannot be restored through a class update", vecName)
+			}
+			continue
+		}
+		if modelsext.IsVectorIndexDropped(updatedCfg) {
+			continue
+		}
+
 		// immutable vector type
 		if initialCfg.VectorIndexType != updatedCfg.VectorIndexType {
 			return fmt.Errorf("vector index type of vector %q is immutable: attempted change from %q to %q",
@@ -578,8 +617,14 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 	}
 
 	cfgs := map[string]schemaConfig.VectorIndexConfig{}
-	for vecName := range c.VectorConfig {
-		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	for vecName, vecCfg := range c.VectorConfig {
+		if modelsext.IsVectorIndexDropped(vecCfg) {
+			continue
+		}
+		cfgs[vecName] = vecCfg.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	}
+	if len(cfgs) == 0 {
+		return nil
 	}
 	return cfgs
 }

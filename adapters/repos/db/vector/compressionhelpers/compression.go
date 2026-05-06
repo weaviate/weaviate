@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -46,10 +47,10 @@ type CompressorDistancer interface {
 type ReturnDistancerFn func()
 
 type CommitLogger interface {
-	AddPQCompression(PQData) error
-	AddSQCompression(SQData) error
-	AddRQCompression(RQData) error
-	AddBRQCompression(BRQData) error
+	AddPQCompression(compression.PQData) error
+	AddSQCompression(compression.SQData) error
+	AddRQCompression(compression.RQData) error
+	AddBRQCompression(compression.BRQData) error
 }
 
 type CompressionStats interface {
@@ -83,6 +84,7 @@ type VectorCompressor interface {
 	PersistCompression(CommitLogger)
 	Stats() CompressionStats
 	Get(id uint64) ([]float32, error)
+	GetCompressed(id uint64) (any, error)
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -103,6 +105,10 @@ func (compressor *quantizedVectorsCompressor[T]) Get(id uint64) ([]float32, erro
 		return nil, err
 	}
 	return compressor.quantizer.Decode(compressed), nil
+}
+
+func (compressor *quantizedVectorsCompressor[T]) GetCompressed(id uint64) (any, error) {
+	return compressor.cache.Get(context.Background(), id)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
@@ -501,7 +507,7 @@ func RestoreHNSWPQCompressor(
 	dimensions int,
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
-	encoders []PQEncoder,
+	encoders []compression.PQSegmentEncoder,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
@@ -578,7 +584,7 @@ func RestoreHNSWPQMultiCompressor(
 	dimensions int,
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
-	encoders []PQEncoder,
+	encoders []compression.PQSegmentEncoder,
 	store *lsmkv.Store,
 	makeBucketOptions lsmkv.MakeBucketOptions,
 	allocChecker memwatch.AllocChecker,
@@ -817,7 +823,10 @@ func NewRQCompressor(
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		quantizer, err := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		if err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
 			quantizer:         quantizer,
 			compressedStore:   store,
@@ -866,7 +875,7 @@ func RestoreRQCompressor(
 	bits int,
 	outputDim int,
 	rounds int,
-	swaps [][]Swap,
+	swaps [][]compression.Swap,
 	signs [][]float32,
 	rounding []float32,
 	store *lsmkv.Store,
@@ -940,7 +949,10 @@ func NewRQMultiCompressor(
 	var rqVectorsCompressor VectorCompressor
 	switch bits {
 	case 1:
-		quantizer := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		quantizer, err := NewBinaryRotationalQuantizer(dim, DefaultFastRotationSeed, distance)
+		if err != nil {
+			return nil, err
+		}
 		rqVectorsCompressor = &quantizedVectorsCompressor[uint64]{
 			quantizer:         quantizer,
 			compressedStore:   store,
@@ -989,7 +1001,7 @@ func RestoreRQMultiCompressor(
 	bits int,
 	outputDim int,
 	rounds int,
-	swaps [][]Swap,
+	swaps [][]compression.Swap,
 	signs [][]float32,
 	rounding []float32,
 	store *lsmkv.Store,

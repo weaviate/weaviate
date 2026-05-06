@@ -32,6 +32,7 @@ import (
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -48,7 +49,8 @@ import (
 )
 
 // CreateGRPCServer creates *grpc.Server with optional grpc.Serveroption passed.
-func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
+// clientTracker is optional; when non-nil, a gRPC interceptor is added to track client SDK usage.
+func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker, options ...grpc.ServerOption) (*grpc.Server, batch.Drain) {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
 		grpc.MaxSendMsgSize(state.ServerConfig.Config.GRPC.MaxMsgSize),
@@ -93,6 +95,13 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 	}
 
 	interceptors = append(interceptors, makeIPInterceptor())
+	if clientTracker != nil {
+		// ClientTrackingUnaryInterceptor both tracks usage and sets "clientIdentifier" in context,
+		// so no need for a separate makeClientIdentifierInterceptor.
+		interceptors = append(interceptors, telemetry.ClientTrackingUnaryInterceptor(clientTracker))
+	} else {
+		interceptors = append(interceptors, makeClientIdentifierInterceptor())
+	}
 	interceptors = append(interceptors, makeOperationalModeInterceptor(state))
 	interceptors = append(interceptors, makeMaintenanceModeUnaryInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
 
@@ -115,18 +124,7 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) (*grpc.S
 
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
-	weaviateV1, drainBatch := v1.NewService(
-		state.Traverser,
-		composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey, state.OIDC),
-		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		state.SchemaManager,
-		state.BatchManager,
-		&state.ServerConfig.Config,
-		state.Authorizer,
-		state.Logger,
-	)
+	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 
@@ -201,6 +199,18 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+		return handler(ctx, req)
+	}
+}
+
+func makeClientIdentifierInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
+				ctx = context.WithValue(ctx, "clientIdentifier", telemetry.SanitizeClientHeader(vals[0]))
+			}
+		}
 		return handler(ctx, req)
 	}
 }

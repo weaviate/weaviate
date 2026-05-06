@@ -22,13 +22,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netresearch/go-cron"
+	"github.com/sirupsen/logrus"
+
 	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
@@ -122,7 +124,43 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
-		config.DisableLazyLoadShards = true
+		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
+	}
+
+	// Lazy load shard count threshold for auto-detection
+	// Determines at what shard count auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_COUNT_THRESHOLD"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_COUNT_THRESHOLD as int: %w", err)
+		}
+		if asInt < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_COUNT_THRESHOLD must be >= 0")
+		}
+		config.LazyLoadShardCountThreshold = asInt
+		if config.LazyLoadShardCountThreshold == 0 {
+			v := true
+			config.EnableLazyLoadShards = &v
+		}
+	} else {
+		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
+	}
+
+	// Lazy load shard size threshold for auto-detection (in GB)
+	// Determines at what total shard size auto-detection enables lazy loading
+	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB as float: %w", err)
+		}
+		if asFloat < 0 {
+			return fmt.Errorf("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB must be >= 0")
+		}
+		config.LazyLoadShardSizeThresholdGB = asFloat
+	} else {
+		config.LazyLoadShardSizeThresholdGB = DefaultLazyLoadShardSizeThresholdGB
 	}
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
@@ -152,21 +190,48 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
-	objectsTtlAllowSecondsEnv := "OBJECTS_TTL_ALLOW_SECONDS"
-	if entcfg.Enabled(os.Getenv(objectsTtlAllowSecondsEnv)) {
-		config.ObjectsTtlAllowSeconds = true
+	{
+		if err := parser.ParseDynamicFloatWithValidation("OBJECTS_TTL_CONCURRENCY_FACTOR",
+			DefaultObjectsTTLConcurrencyFactor,
+			parser.ValidateFloatGreaterThan0,
+			func(val *configRuntime.DynamicValue[float64]) { config.ObjectsTTLConcurrencyFactor = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_BATCH_SIZE",
+			DefaultObjectsTTLBatchSize,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLBatchSize = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicIntWithValidation("OBJECTS_TTL_PAUSE_EVERY_NO_BATCHES",
+			DefaultObjectsTTLPauseEveryNoBatches,
+			parser.ValidateIntGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[int]) { config.ObjectsTTLPauseEveryNoBatches = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicDurationWithValidation("OBJECTS_TTL_PAUSE_DURATION",
+			DefaultObjectsTTLPauseDuration,
+			parser.ValidateDurationGreaterThanEqual0,
+			func(val *configRuntime.DynamicValue[time.Duration]) { config.ObjectsTTLPauseDuration = val }); err != nil {
+			return err
+		}
+
+		if err := parser.ParseDynamicStringWithValidation("OBJECTS_TTL_DELETE_SCHEDULE",
+			DefaultObjectsTTLDeleteSchedule,
+			parser.ValidateGocronSchedule,
+			func(val *configRuntime.DynamicValue[string]) { config.ObjectsTTLDeleteSchedule = val }); err != nil {
+			return err
+		}
 	}
-	objectsTtlDeleteScheduleEnv := "OBJECTS_TTL_DELETE_SCHEDULE"
-	if objectsTtlDeleteSchedule := os.Getenv(objectsTtlDeleteScheduleEnv); objectsTtlDeleteSchedule != "" {
-		parser := cron.StandardParser()
-		if config.ObjectsTtlAllowSeconds {
-			// equivalent of cron.WithSeconds() option
-			parser = cron.MustNewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-		}
-		if _, err := parser.Parse(objectsTtlDeleteSchedule); err != nil {
-			return fmt.Errorf("%s: %w", objectsTtlDeleteScheduleEnv, err)
-		}
-		config.ObjectsTTLDeleteSchedule = objectsTtlDeleteSchedule
+
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
 	}
 
 	cptParser := newCollectionPropsTenantsParser()
@@ -211,18 +276,25 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 		var (
-			skipClientCheck bool
-			issuer          string
-			clientID        string
-			scopes          []string
-			userClaim       string
-			groupsClaim     string
-			certificate     string
-			jwksUrl         string
+			skipClientCheck      bool
+			issuer               string
+			clientID             string
+			scopes               []string
+			userClaim            string
+			groupsClaim          string
+			namespaceClaim       string
+			globalPrincipalClaim string
+			certificate          string
+			jwksUrl              string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			skipClientCheck = true
+		}
+
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
@@ -245,6 +317,14 @@ func FromEnv(config *Config) error {
 			groupsClaim = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_NAMESPACE_CLAIM"); v != "" {
+			namespaceClaim = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM"); v != "" {
+			globalPrincipalClaim = v
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
 			certificate = v
 		}
@@ -259,8 +339,11 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.Scopes = configRuntime.NewDynamicValue(scopes)
 		config.Authentication.OIDC.UsernameClaim = configRuntime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.NamespaceClaim = configRuntime.NewDynamicValue(namespaceClaim)
+		config.Authentication.OIDC.GlobalPrincipalClaim = configRuntime.NewDynamicValue(globalPrincipalClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -486,6 +569,16 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultVectorIndexType := ""
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
+		defaultVectorIndexType = strings.ToLower(v)
+		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
+		if !slices.Contains(validTypes, defaultVectorIndexType) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
+		}
+	}
+	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
 		"DEFAULT_SHARDING_COUNT",
@@ -500,9 +593,7 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_HFRESH_ENABLED")) {
-		config.HFreshEnabled = true
-	}
+	config.HFreshEnabled = true
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -602,6 +693,8 @@ func FromEnv(config *Config) error {
 	if err := config.parseCORSConfig(); err != nil {
 		return err
 	}
+
+	config.parseExportConfig()
 
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
@@ -878,7 +971,20 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// MCP Server Configuration
+	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+	}
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
+	}
+
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -908,13 +1014,39 @@ func FromEnv(config *Config) error {
 		config.Replication.DeletionStrategy = v
 	}
 
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
+
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
 	}
 
-	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
-		config.HNSWStartupWaitForVectorCache = true
+	// Telemetry URL override (useful for local development with telemetry dashboard)
+	if v := os.Getenv("TELEMETRY_URL"); v != "" {
+		config.TelemetryURL = v
+	}
+
+	// Telemetry push interval override
+	if v := os.Getenv("TELEMETRY_PUSH_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
+		}
+		config.TelemetryPushInterval = interval
+	}
+
+	{
+		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
+		switch {
+		// flag: still honored, environment always wins over auto-detection.
+		case waitEnvSet:
+			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
+
+		default:
+			config.HNSWStartupWaitForVectorCache = true
+
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -1323,26 +1455,30 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 	return nil
 }
 
+func validatePositiveInt(val int, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
+func validateNonNegativeInt(val int, envName string) error {
+	if val < 0 {
+		return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
+	}
+	return nil
+}
+
 func parseInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error { return nil })
 }
 
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validatePositiveInt)
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
-		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
-		}
-		return nil
-	})
+	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
 
 func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
@@ -1381,21 +1517,23 @@ func parsePositiveDuration(envName string, cb func(val time.Duration), defaultVa
 	return nil
 }
 
+func validatePositiveFloat(val float64, envName string) error {
+	if val <= 0 {
+		return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
+	}
+	return nil
+}
+
 // func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error { return nil })
 // }
 
 func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
-	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
-		if val <= 0 {
-			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
-		}
-		return nil
-	})
+	return parseFloatVerify(envName, defaultValue, cb, validatePositiveFloat)
 }
 
 // func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
-// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64, envName string) error {
 // 		if val < 0 {
 // 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
 // 		}
@@ -1403,7 +1541,7 @@ func parsePositiveFloat(envName string, cb func(val float64), defaultValue float
 // 	})
 // }
 
-func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64, envName string) error) error {
 	var err error
 	asFloat := defaultValue
 
@@ -1412,7 +1550,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 		if err != nil {
 			return fmt.Errorf("parse %s as float: %w", envName, err)
 		}
-		if err = verify(asFloat); err != nil {
+		if err = verify(asFloat, envName); err != nil {
 			return err
 		}
 	}
@@ -1444,6 +1582,8 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
 	DefaultAsyncReplicationClusterMaxWorkers   = 15
@@ -1815,4 +1955,24 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultPath == nil {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
 }

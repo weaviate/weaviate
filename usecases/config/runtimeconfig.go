@@ -47,10 +47,24 @@ type WeaviateRuntimeConfig struct {
 	UsageShardJitterInterval             *runtime.DynamicValue[time.Duration] `json:"usage_shard_jitter_interval" yaml:"usage_shard_jitter_interval"`
 	UsagePolicyVersion                   *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 	UsageVerifyPermissions               *runtime.DynamicValue[bool]          `json:"usage_verify_permissions" yaml:"usage_verify_permissions"`
+	ReplicationGRPCEnabled               *runtime.DynamicValue[bool]          `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
 	ReplicatedIndicesRequestQueueEnabled *runtime.DynamicValue[bool]          `json:"replicated_indices_request_queue_enabled" yaml:"replicated_indices_request_queue_enabled"`
 	OperationalMode                      *runtime.DynamicValue[string]        `json:"operational_mode" yaml:"operational_mode"`
 	DefaultQuantization                  *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
+	DefaultVectorIndexType               *runtime.DynamicValue[string]        `yaml:"default_vector_index" json:"default_vector_index"`
 	DefaultShardingCount                 *runtime.DynamicValue[int]           `yaml:"default_sharding_count" json:"default_sharding_count"`
+
+	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
+	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
+	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
+	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
+	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
+
+	// Export settings
+	ExportEnabled       *runtime.DynamicValue[bool]   `json:"export_enabled" yaml:"export_enabled"`
+	ExportDefaultBucket *runtime.DynamicValue[string] `json:"export_default_bucket" yaml:"export_default_bucket"`
+	ExportDefaultPath   *runtime.DynamicValue[string] `json:"export_default_path" yaml:"export_default_path"`
+	ExportParallelism   *runtime.DynamicValue[int]    `json:"export_parallelism" yaml:"export_parallelism"`
 
 	// RAFT specific configs
 	RaftDrainSleep        *runtime.DynamicValue[time.Duration] `json:"raft_drain_sleep" yaml:"raft_drain_sleep"`
@@ -65,6 +79,7 @@ type WeaviateRuntimeConfig struct {
 	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"authentication_oidc_scopes" json:"authentication_oidc_scopes"`
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"authentication_oidc_certificate" json:"authentication_oidc_certificate"`
 	OIDCJWKSUrl           *runtime.DynamicValue[string]   `yaml:"authentication_oidc_jwks_url" json:"authentication_oidc_jwks_url"`
+	OIDCSkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"authentication_oidc_insecure_skip_tls_verify" json:"authentication_oidc_insecure_skip_tls_verify"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -161,7 +176,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[int])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[float64]:
@@ -171,7 +186,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[float64])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[bool]:
@@ -181,7 +196,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[bool])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[time.Duration]:
@@ -191,7 +206,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[time.Duration])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[string]:
@@ -201,7 +216,7 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[string])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		case *runtime.DynamicValue[[]string]:
@@ -211,27 +226,32 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.Reset()
 			} else {
 				p := pi.(*runtime.DynamicValue[[]string])
-				sv.SetValue(p.Get())
+				r.err = sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
 		default:
 			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
-		if !reflect.DeepEqual(r.newV, r.oldV) {
+		if r.err != nil || !reflect.DeepEqual(r.newV, r.oldV) {
 			logRecords = append(logRecords, r)
 		}
 
 	}
 
 	// log the changes made as INFO for auditing.
-	for _, v := range logRecords {
-		log.WithFields(logrus.Fields{
+	for _, r := range logRecords {
+		logger := log.WithFields(logrus.Fields{
 			"action":    "runtime_overrides_changed",
-			"field":     v.field,
-			"old_value": v.oldV,
-			"new_value": v.newV,
-		}).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", v.field, v.oldV, v.newV)
+			"field":     r.field,
+			"old_value": r.oldV,
+		})
+
+		if r.err != nil {
+			logger.WithError(r.err).Errorf("runtime overrides: config '%v' change failed", r.field)
+			continue
+		}
+		logger.WithField("new_value", r.newV).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", r.field, r.oldV, r.newV)
 	}
 
 	for match, f := range hooks {
@@ -255,12 +275,13 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 // updateLogRecord is used to record changes during updating runtime config.
 type updateLogRecord struct {
 	field      string
+	err        error
 	oldV, newV any
 }
 
 func matchUpdatedFields(match string, records []updateLogRecord) bool {
 	for _, v := range records {
-		if strings.Contains(v.field, match) {
+		if strings.HasPrefix(v.field, match) {
 			return true
 		}
 	}
