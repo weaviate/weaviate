@@ -9692,3 +9692,207 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 		})
 	}
 }
+
+// TestNestedFilteringTokenizationFollowups closes three coverage gaps in the
+// tokenization cluster left open by TestNestedFilteringTokenizationCorrelatedAnd:
+//
+//  1. Multi-token text combined with arr[N] —
+//     `addresses[0].city = "new york" AND addresses[0].postcode = "10115"`.
+//     Verifies that arr[N] restriction applies to all token-leaf positions,
+//     not just the wrapper's first leaf.
+//  2. Multi-token text at a deeper LCA — `cars.tires.description = "new york"
+//     AND cars.tires.brand = "high speed"`. Existing tokenization tests use
+//     LCA=addresses (L1); this verifies the same machinery at LCA=cars.tires
+//     (L2) where the token wrapper sits at a deeper path.
+//  3. Multi-token same-path contradiction — `addresses.city = "new york" AND
+//     addresses.city = "munich oslo"`. Both clauses are token wrappers; AndAll
+//     collapses to require all four tokens (new, york, munich, oslo) at the
+//     same leaf. Documents the actual edge-case behavior — should match only
+//     docs whose city literally contains all four tokens at one address.
+func TestNestedFilteringTokenizationFollowups(t *testing.T) {
+	const nestedClass = "TokenizationFollowups"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+				{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "description", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+						{Name: "brand", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	addr := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	tireDB := func(desc, brand string) map[string]any {
+		out := map[string]any{}
+		if desc != "" {
+			out["description"] = desc
+		}
+		if brand != "" {
+			out["brand"] = brand
+		}
+		return out
+	}
+	carWithTires := func(tires ...map[string]any) map[string]any {
+		anyTires := make([]any, len(tires))
+		for i, t := range tires {
+			anyTires[i] = t
+		}
+		return map[string]any{"tires": anyTires}
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- 1. Multi-token + arr[N] -----
+	// `addresses[0].city = "new york" AND addresses[0].postcode = "10115"`
+	t.Run("arrN_addresses[0].city_new_york_AND_postcode", func(t *testing.T) {
+		idMatch := uuid(1)               // addresses[0] has city="new york" + postcode="10115"
+		idMatchExtraToken := uuid(2)     // addresses[0] city="new york city" — extra token at same leaf
+		idNoMatchInSecond := uuid(3)     // addresses[0]={}, addresses[1] satisfies — pin to [0] excludes
+		idNoMatchSplitTokens := uuid(4)  // addresses[0]={city:"new",postcode:"10115"}, [1]={city:"york"} — tokens split
+		idNoMatchOnlyOne := uuid(5)      // addresses[0] has only one of the two clauses
+		idNoMatchSplitClauses := uuid(6) // city in [0], postcode in [1] — same-element forces both at [0]
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york", "postcode", "10115"))}}, note: "[0] has both"},
+			{id: idMatchExtraToken, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york city", "postcode", "10115"))}}, note: "[0].city has extra token"},
+			{id: idNoMatchInSecond, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr(), addr("city", "new york", "postcode", "10115"))}}, note: "match only at [1]; pinned to [0]"},
+			{id: idNoMatchSplitTokens, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new", "postcode", "10115"), addr("city", "york"))}}, note: "city tokens split across addresses"},
+			{id: idNoMatchOnlyOne, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york"))}}, note: "[0] has city but no postcode"},
+			{id: idNoMatchSplitClauses, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york"), addr("postcode", "10115"))}}, note: "city at [0], postcode at [1]"},
+		}
+		filter := andFilter(
+			textFilter("doc.addresses[0].city", "new york"),
+			textFilter("doc.addresses[0].postcode", "10115"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraToken})
+	})
+
+	// ----- 2. Multi-token at deeper LCA -----
+	// LCA = cars.tires (L2 from root); both clauses are multi-token at the same
+	// LCA. Same-tire correlation requires the same physical tire to satisfy
+	// both `description` and `brand`.
+	t.Run("deeper_LCA_cars.tires.description_AND_brand_multi_token", func(t *testing.T) {
+		idMatch := uuid(1)                   // tires=[{description:"new york",brand:"high speed"}]
+		idMatchSecondTire := uuid(2)         // tires=[{},{description:"new york",brand:"high speed"}]
+		idNoMatchSplitAcrossTires := uuid(3) // description in tires[0], brand in tires[1]
+		idNoMatchPartialClause := uuid(4)    // tires[0].description has only "new"
+		idNoMatchWrongBrand := uuid(5)       // tires[0] correct desc but brand="low speed"
+		idMatchExtraTokens := uuid(6)        // description="new york city", brand="very high speed" — extra tokens
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireDB("new york", "high speed")))}}, note: "tires[0] has both at same tire"},
+			{id: idMatchSecondTire, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireDB("", ""), tireDB("new york", "high speed")))}}, note: "tires[1] has both"},
+			{id: idNoMatchSplitAcrossTires, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireDB("new york", ""), tireDB("", "high speed")))}}, note: "different tires"},
+			{id: idNoMatchPartialClause, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireDB("new", "high speed")))}}, note: "missing 'york' token"},
+			{id: idNoMatchWrongBrand, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireDB("new york", "low speed")))}}, note: "wrong brand"},
+			{id: idMatchExtraTokens, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireDB("new york city", "very high speed")))}}, note: "extra tokens at same tire"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.tires.description", "new york"),
+			textFilter("doc.cars.tires.brand", "high speed"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondTire, idMatchExtraTokens})
+	})
+
+	// ----- 3. Multi-token same-path contradiction -----
+	// `addresses.city = "new york" AND addresses.city = "munich oslo"` — both
+	// clauses target the same path with disjoint multi-token values. AndAll
+	// over the token leaves requires [new, york, munich, oslo] all at the
+	// same address element. Edge case: documents the actual behavior, ensures
+	// no crash, and verifies a doc that *does* contain all four tokens at one
+	// address is matched.
+	t.Run("same_path_multi_token_contradiction", func(t *testing.T) {
+		idNoMatchOnlyFirst := uuid(1)  // city="new york"
+		idNoMatchOnlySecond := uuid(2) // city="munich oslo"
+		idNoMatchSplit := uuid(3)      // city="new york" in [0], city="munich oslo" in [1] — different addresses
+		idAllFourTokens := uuid(4)     // city="new york munich oslo" — all four tokens at one address
+		docs := []docDef{
+			{id: idNoMatchOnlyFirst, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york"))}}, note: "city has [new,york]; missing munich,oslo"},
+			{id: idNoMatchOnlySecond, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "munich oslo"))}}, note: "city has [munich,oslo]; missing new,york"},
+			{id: idNoMatchSplit, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york"), addr("city", "munich oslo"))}}, note: "split across addresses"},
+			{id: idAllFourTokens, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "new york munich oslo"))}}, note: "all four tokens at same address"},
+		}
+		filter := andFilter(
+			textFilter("doc.addresses.city", "new york"),
+			textFilter("doc.addresses.city", "munich oslo"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idAllFourTokens})
+	})
+}
