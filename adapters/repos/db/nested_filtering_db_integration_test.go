@@ -10543,3 +10543,653 @@ func TestNestedFilteringContextCancellation(t *testing.T) {
 		))
 	})
 }
+
+// TestNestedFilteringOrOfCorrelatedAnds tests `(A AND B) OR (C AND D)` shapes
+// where each AND side is a same-element correlated AND. Verifies that the
+// OR combinator correctly unions docID-level results from two independent
+// correlated AND groups — neither side's positions should bleed into the
+// other's same-element evaluation. Closes a gap noted in
+// project_correlated_and_test_followups.md.
+//
+// Two sub-tests:
+//
+//   - Same LCA: both AND groups at cars LCA. Each side picks different
+//     same-car combinations (tesla+205 vs honda+305). Doc with one car
+//     satisfying either side matches.
+//   - Different LCAs: left side at cars, right side at addresses. Each
+//     AND-group resolves at its own LCA, then the two docID sets are
+//     unioned.
+func TestNestedFilteringOrOfCorrelatedAnds(t *testing.T) {
+	const nestedClass = "OrOfCorrelatedAnds"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	carWith := func(make string, width int) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if width > 0 {
+			out["tires"] = asArr(tire(width))
+		}
+		return out
+	}
+	addr := func(city, postcode string) map[string]any {
+		out := map[string]any{}
+		if city != "" {
+			out["city"] = city
+		}
+		if postcode != "" {
+			out["postcode"] = postcode
+		}
+		return out
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- Sub-test 1: same LCA, both AND groups at cars -----
+	// Filter: (cars.make=tesla AND cars.tires.width=205)
+	//      OR (cars.make=honda AND cars.tires.width=305)
+	// Each side requires a single car element satisfying both clauses on
+	// that side. The OR unions docID-level results from two independent
+	// correlated AND evaluations.
+	t.Run("same_LCA_cars_make_AND_width_OR_make_AND_width", func(t *testing.T) {
+		idMatchLeft := uuid(1)              // cars=[{tesla, 205}]
+		idMatchRight := uuid(2)             // cars=[{honda, 305}]
+		idMatchBoth := uuid(3)              // cars=[{tesla, 205},{honda, 305}]
+		idMatchLeftViaSecondCar := uuid(4)  // first car wrong, second satisfies left
+		idNoMatchTeslaWrongWidth := uuid(5) // cars=[{tesla, 305}] — left side wrong width
+		idNoMatchSplitLeft := uuid(6)       // cars=[{tesla},{tires:[{205}]}] — split across cars
+		idNoMatchNeither := uuid(7)         // cars=[{bmw, 225}]
+		docs := []docDef{
+			{id: idMatchLeft, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205))}}, note: "tesla+205"},
+			{id: idMatchRight, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("honda", 305))}}, note: "honda+305"},
+			{id: idMatchBoth, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205), carWith("honda", 305))}}, note: "both sides"},
+			{id: idMatchLeftViaSecondCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 225), carWith("tesla", 205))}}, note: "[1] satisfies left"},
+			{id: idNoMatchTeslaWrongWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 305))}}, note: "tesla but wrong width; not honda"},
+			{id: idNoMatchSplitLeft, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0), carWith("", 205))}}, note: "tesla and 205 in different cars"},
+			{id: idNoMatchNeither, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 225))}}, note: "neither side"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("doc.cars.make", "tesla"), intFilter("doc.cars.tires.width", 205)),
+			andFilter(textFilter("doc.cars.make", "honda"), intFilter("doc.cars.tires.width", 305)),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchLeft, idMatchRight, idMatchBoth, idMatchLeftViaSecondCar})
+	})
+
+	// ----- Sub-test 2: different LCAs -----
+	// Filter: (cars.make=tesla AND cars.tires.width=205)
+	//      OR (addresses.city=berlin AND addresses.postcode=10115)
+	// Left side at LCA=cars (same-car semantics). Right side at LCA=addresses
+	// (same-address semantics). The OR unions docID-level results from two
+	// independent correlated AND evaluations at distinct LCAs.
+	t.Run("different_LCAs_cars_AND_OR_addresses_AND", func(t *testing.T) {
+		idMatchLeft := uuid(1)         // cars=[{tesla,205}], no berlin address
+		idMatchRight := uuid(2)        // addresses=[{berlin,10115}], no tesla car
+		idMatchBoth := uuid(3)         // satisfies both sides
+		idNoMatchSplitLeft := uuid(4)  // tesla and 205 in different cars
+		idNoMatchSplitRight := uuid(5) // berlin and 10115 in different addresses
+		idNoMatchNeither := uuid(6)
+		docs := []docDef{
+			{id: idMatchLeft, props: map[string]any{"doc": map[string]any{
+				"cars":      asArr(carWith("tesla", 205)),
+				"addresses": asArr(addr("munich", "80331")),
+			}}, note: "left side only"},
+			{id: idMatchRight, props: map[string]any{"doc": map[string]any{
+				"cars":      asArr(carWith("bmw", 225)),
+				"addresses": asArr(addr("berlin", "10115")),
+			}}, note: "right side only"},
+			{id: idMatchBoth, props: map[string]any{"doc": map[string]any{
+				"cars":      asArr(carWith("tesla", 205)),
+				"addresses": asArr(addr("berlin", "10115")),
+			}}, note: "both sides"},
+			{id: idNoMatchSplitLeft, props: map[string]any{"doc": map[string]any{
+				"cars":      asArr(carWith("tesla", 0), carWith("", 205)),
+				"addresses": asArr(addr("munich", "80331")),
+			}}, note: "left split; right absent"},
+			{id: idNoMatchSplitRight, props: map[string]any{"doc": map[string]any{
+				"cars":      asArr(carWith("bmw", 225)),
+				"addresses": asArr(addr("berlin", "00000"), addr("munich", "10115")),
+			}}, note: "right split; left absent"},
+			{id: idNoMatchNeither, props: map[string]any{"doc": map[string]any{
+				"cars":      asArr(carWith("bmw", 225)),
+				"addresses": asArr(addr("munich", "80331")),
+			}}, note: "neither side"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("doc.cars.make", "tesla"), intFilter("doc.cars.tires.width", 205)),
+			andFilter(textFilter("doc.addresses.city", "berlin"), textFilter("doc.addresses.postcode", "10115")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchLeft, idMatchRight, idMatchBoth})
+	})
+}
+
+// TestNestedFilteringNotOfCorrelatedAnd tests `NOT (A AND B)` where the
+// inner AND is a same-element correlated AND. Verifies that NOT inverts
+// the docID-level result of the AND-group: docs without any car
+// satisfying both clauses are returned; docs with at least one car
+// satisfying both are excluded.
+//
+// Two sub-tests:
+//   - NOT (cars.make=bmw AND cars.tires.width=205): basic same-element AND
+//     wrapped in NOT.
+//   - NOT (cars[0].make=tesla AND cars[1].make=bmw): NOT over a partitioned
+//     AND (conflicting arr[N] indices). Verifies NOT correctly inverts the
+//     partition result.
+func TestNestedFilteringNotOfCorrelatedAnd(t *testing.T) {
+	const nestedClass = "NotOfCorrelatedAnd"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	carWith := func(make string, width int) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if width > 0 {
+			out["tires"] = asArr(tire(width))
+		}
+		return out
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	notFilter := func(inner *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorNot,
+			Operands: []filters.Clause{*inner.Root},
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- Sub-test 1: NOT over basic correlated AND -----
+	// Filter: NOT (cars.make=bmw AND cars.tires.width=205)
+	// Match docs where it is NOT the case that some single car has both
+	// make=bmw AND tires.width=205.
+	t.Run("NOT_make_bmw_AND_width_205_same_car", func(t *testing.T) {
+		idAndMatchSingle := uuid(1)      // single car has both → AND match → NOT excludes
+		idAndMatchInSecondCar := uuid(2) // cars[1] has both → AND match → NOT excludes
+		idBmwWrongWidth := uuid(3)       // bmw but width=225 → AND no match → NOT match
+		idCorrectWidthWrongMake := uuid(4)
+		idSplitAcrossCars := uuid(5) // bmw in cars[0], 205 in cars[1] → AND no match → NOT match
+		idNoCarsArray := uuid(6)     // empty cars array
+		idNoCarsField := uuid(7)     // no cars key
+		idMultipleCarsNeitherSatisfies := uuid(8)
+		docs := []docDef{
+			{id: idAndMatchSingle, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 205))}}, note: "cars[0]={bmw,205}"},
+			{id: idAndMatchInSecondCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225), carWith("bmw", 205))}}, note: "cars[1]={bmw,205}"},
+			{id: idBmwWrongWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 225))}}, note: "bmw,225"},
+			{id: idCorrectWidthWrongMake, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205))}}, note: "tesla,205"},
+			{id: idSplitAcrossCars, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0), carWith("", 205))}}, note: "bmw and 205 in different cars"},
+			{id: idNoCarsArray, props: map[string]any{"doc": map[string]any{"cars": []any{}}}, note: "empty cars"},
+			{id: idNoCarsField, props: map[string]any{"doc": map[string]any{}}, note: "no cars field"},
+			{id: idMultipleCarsNeitherSatisfies, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 225), carWith("tesla", 205))}}, note: "bmw+225 and tesla+205; no single car has both"},
+		}
+		filter := notFilter(andFilter(
+			textFilter("doc.cars.make", "bmw"),
+			intFilter("doc.cars.tires.width", 205),
+		))
+		runScenario(t, docs, filter, []strfmt.UUID{
+			idBmwWrongWidth, idCorrectWidthWrongMake, idSplitAcrossCars,
+			idNoCarsArray, idNoCarsField, idMultipleCarsNeitherSatisfies,
+		})
+	})
+
+	// ----- Sub-test 2: NOT over partitioned AND with conflicting arr[N] -----
+	// Filter: NOT (cars[0].make=tesla AND cars[1].make=bmw)
+	// Inner AND: cars[0] must be tesla AND cars[1] must be bmw (different
+	// physical positions enforced by arr[N] partition). NOT excludes docs
+	// satisfying that arrangement.
+	t.Run("NOT_cars[0].make_tesla_AND_cars[1].make_bmw_partition", func(t *testing.T) {
+		idAndMatch := uuid(1)                // [tesla,bmw] → AND match → NOT excludes
+		idSwapped := uuid(2)                 // [bmw,tesla] → AND no match → NOT match
+		idOnlyFirst := uuid(3)               // only [0] → no [1] → AND no match → NOT match
+		idCorrectFirstWrongSecond := uuid(4) // [tesla,volvo]
+		idEmpty := uuid(5)                   // no cars
+		idAndMatchExtraCars := uuid(6)       // [tesla,bmw,extra] → AND match → NOT excludes
+		docs := []docDef{
+			{id: idAndMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0), carWith("bmw", 0))}}, note: "[tesla,bmw]"},
+			{id: idSwapped, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0), carWith("tesla", 0))}}, note: "[bmw,tesla]"},
+			{id: idOnlyFirst, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0))}}, note: "[tesla] only"},
+			{id: idCorrectFirstWrongSecond, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0), carWith("volvo", 0))}}, note: "[tesla,volvo]"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+			{id: idAndMatchExtraCars, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0), carWith("bmw", 0), carWith("volvo", 0))}}, note: "[tesla,bmw,volvo]"},
+		}
+		filter := notFilter(andFilter(
+			textFilter("doc.cars[0].make", "tesla"),
+			textFilter("doc.cars[1].make", "bmw"),
+		))
+		runScenario(t, docs, filter, []strfmt.UUID{
+			idSwapped, idOnlyFirst, idCorrectFirstWrongSecond, idEmpty,
+		})
+	})
+
+	// ----- Sub-test 3 (regression baseline): NOT inside correlated AND -----
+	// Filter: cars.make = "tesla" AND NOT cars.tires.width = 205
+	//
+	// This locks in the *current* docID-level (universal) semantics for NOT.
+	// Two docs (idSomeTeslaWithout205 and idTwoTeslasOneHas205) discriminate
+	// between universal and per-element semantics — they would flip from "no
+	// match" to "match" if NOT inside a correlated AND were rewritten to per-
+	// element evaluation. See plan_not_per_element_semantics.md.
+	//
+	// Universal interpretation (current):
+	//   A = docs with some tesla car
+	//   B = docs where NO car has width=205
+	//   Result = A ∩ B
+	//
+	// Per-element interpretation (future, if implemented):
+	//   For each car element K: this car is tesla AND this car doesn't have width=205
+	//   Result = docs where ANY car satisfies the per-element condition
+	t.Run("regression_NOT_inside_AND_universal_docID_level", func(t *testing.T) {
+		idTeslaNo205 := uuid(1)          // single tesla car w/o 205 — both interpretations: match
+		idTeslaWith205 := uuid(2)        // single tesla car with 205 — both: no match
+		idSomeTeslaWithout205 := uuid(3) // tesla(225) + bmw(205) — universal: NO; per-element: YES
+		idTeslaWith205PlusBmw := uuid(4) // tesla(205) + bmw(225) — both: no match
+		idNoTesla := uuid(5)             // no tesla at all — both: no match
+		idTwoTeslasOneHas205 := uuid(6)  // tesla(225) + tesla(205) — universal: NO; per-element: YES
+		idEmpty := uuid(7)               // no cars — both: no match
+		docs := []docDef{
+			{id: idTeslaNo205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225))}}, note: "tesla,225"},
+			{id: idTeslaWith205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205))}}, note: "tesla,205"},
+			{id: idSomeTeslaWithout205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225), carWith("bmw", 205))}}, note: "tesla,225 + bmw,205 — DISCRIMINATOR"},
+			{id: idTeslaWith205PlusBmw, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205), carWith("bmw", 225))}}, note: "tesla,205 + bmw,225"},
+			{id: idNoTesla, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 205))}}, note: "bmw,205 — no tesla"},
+			{id: idTwoTeslasOneHas205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225), carWith("tesla", 205))}}, note: "tesla,225 + tesla,205 — DISCRIMINATOR"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.make", "tesla"),
+			notFilter(intFilter("doc.cars.tires.width", 205)),
+		)
+		// Current behavior: only idTeslaNo205 matches. Two discriminator docs
+		// (idSomeTeslaWithout205, idTwoTeslasOneHas205) are excluded because
+		// some car (any car) has width=205, even though a tesla without 205
+		// also exists. If per-element NOT lands, both flip to match.
+		runScenario(t, docs, filter, []strfmt.UUID{idTeslaNo205})
+	})
+}
+
+// TestNestedFilteringNotEqualNestedRegression locks in the current
+// docID-level (universal) semantics of NotEqual on nested-leaf paths.
+// NotEqual's row-reader implementation produces a denylist: same bitmap
+// as Equal, flagged isDenyList=true. The searcher inverts at docID level,
+// giving "no element has the value" — universal/NONE-like, NOT consistent
+// with Equal's existential semantics on the same path.
+//
+// Two notable consequences locked in by this test:
+//
+//  1. A doc with mixed values (`[{bmw}, {tesla}]`) is excluded by
+//     NotEqual bmw, even though some element ≠ bmw exists. Existential
+//     interpretation would match.
+//  2. A doc with NO elements at all (no cars, or empty array) IS matched
+//     by NotEqual bmw — vacuously true under universal. Existential would
+//     exclude it (no element satisfies the predicate). This is also
+//     asymmetric with Equal: `cars.make = bmw` correctly excludes
+//     empty-cars docs.
+//
+// Discriminator docs (idMixed, idEmpty, idEmptyArr) flip from match-or-not
+// when the uniform-existential switch in
+// plan_explicit_array_quantifiers.md lands.
+//
+// Sub-test 2 mirrors regression_NOT_inside_AND_universal_docID_level for
+// NotEqual inside a correlated AND, showing that NOT and NotEqual share
+// the same per-element-vs-docID-level mismatch.
+func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
+	const nestedClass = "NotEqualRegression"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	carWith := func(make string, width int) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if width > 0 {
+			out["tires"] = asArr(tire(width))
+		}
+		return out
+	}
+
+	textNotEqualFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorNotEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intNotEqualFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorNotEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- Sub-test 1: basic NotEqual at nested leaf -----
+	// Filter: cars.make NotEqual "bmw"
+	//
+	// Universal (current): match docs where NO car has make=bmw.
+	// Existential (proposed): match docs where ANY car has make≠bmw.
+	t.Run("regression_basic_NotEqual_universal_docID_level", func(t *testing.T) {
+		idOnlyBmw := uuid(1)
+		idOnlyTesla := uuid(2)
+		idMixed := uuid(3)
+		idEmpty := uuid(4)
+		idEmptyArr := uuid(5)
+		docs := []docDef{
+			{id: idOnlyBmw, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0))}}, note: "bmw"},
+			{id: idOnlyTesla, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0))}}, note: "tesla"},
+			{id: idMixed, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0), carWith("tesla", 0))}}, note: "[bmw,tesla] — DISCRIMINATOR"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars — DISCRIMINATOR"},
+			{id: idEmptyArr, props: map[string]any{"doc": map[string]any{"cars": []any{}}}, note: "cars=[] — DISCRIMINATOR"},
+		}
+		filter := textNotEqualFilter("doc.cars.make", "bmw")
+		// Current universal: idOnlyTesla + idEmpty + idEmptyArr.
+		// Existential would: idOnlyTesla + idMixed (and exclude empty docs).
+		runScenario(t, docs, filter, []strfmt.UUID{idOnlyTesla, idEmpty, idEmptyArr})
+	})
+
+	// ----- Sub-test 2: NotEqual inside correlated AND (BUG REGRESSION) -----
+	// Filter: cars.make = "tesla" AND cars.tires.width NotEqual 205
+	//
+	// **This sub-test locks in BUGGY current behavior, NOT correct behavior.**
+	//
+	// Verified by experiment: NotEqual's denylist flag is dropped (or
+	// inverted) when its bitmap is combined with another nested clause via
+	// correlated AND. The filter incorrectly matches docs where
+	// `tesla AND width=205 (same car)` — the exact OPPOSITE of what
+	// NotEqual should produce.
+	//
+	// Doc-by-doc analysis with the current bug:
+	//   idTeslaNo205    : [{tesla,225}]               → tesla yes, 205 no → bug excludes (correct expectation: include)
+	//   idTeslaWith205  : [{tesla,205}]               → same car has tesla AND 205 → bug includes (correct expectation: exclude)
+	//   idSomeTeslaWO205: [{tesla,225},{bmw,205}]     → no single car has tesla AND 205 → bug excludes
+	//   idTeslaWith205+ : [{tesla,205},{bmw,225}]     → cars[0] has tesla AND 205 → bug includes (correct expectation: exclude)
+	//   idNoTesla       : [{bmw,205}]                 → no tesla → bug excludes
+	//   idTwoTeslas1@205: [{tesla,225},{tesla,205}]   → cars[1] has tesla AND 205 → bug includes (correct expectation: exclude)
+	//   idEmpty         : (no cars)                   → bug excludes (universal-correct expectation: include)
+	//
+	// When the bug is fixed (whether to universal denylist or the proposed
+	// uniform-existential semantics), this test will fail and the expected
+	// list must be updated:
+	//   - Universal-correct fix: [idTeslaNo205, idEmpty]
+	//   - Uniform-existential fix: [idTeslaNo205, idSomeTeslaWO205, idTwoTeslas1@205]
+	//
+	// Filed alongside plan_explicit_array_quantifiers.md as a separate bug
+	// requiring fix regardless of the existential-semantics direction.
+	t.Run("regression_BUG_NotEqual_inside_AND_treated_as_Equal", func(t *testing.T) {
+		idTeslaNo205 := uuid(1)
+		idTeslaWith205 := uuid(2)
+		idSomeTeslaWithout205 := uuid(3)
+		idTeslaWith205PlusBmw := uuid(4)
+		idNoTesla := uuid(5)
+		idTwoTeslasOneHas205 := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idTeslaNo205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225))}}, note: "tesla,225"},
+			{id: idTeslaWith205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205))}}, note: "tesla,205"},
+			{id: idSomeTeslaWithout205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225), carWith("bmw", 205))}}, note: "tesla,225 + bmw,205"},
+			{id: idTeslaWith205PlusBmw, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 205), carWith("bmw", 225))}}, note: "tesla,205 + bmw,225"},
+			{id: idNoTesla, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 205))}}, note: "bmw,205"},
+			{id: idTwoTeslasOneHas205, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 225), carWith("tesla", 205))}}, note: "tesla,225 + tesla,205"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.make", "tesla"),
+			intNotEqualFilter("doc.cars.tires.width", 205),
+		)
+		// BUG: NotEqual is treated as Equal in correlated AND. The matches
+		// below are docs where `tesla AND width=205 (same car)` — the
+		// opposite of what NotEqual should produce.
+		runScenario(t, docs, filter, []strfmt.UUID{
+			idTeslaWith205, idTeslaWith205PlusBmw, idTwoTeslasOneHas205,
+		})
+	})
+}
