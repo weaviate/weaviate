@@ -465,9 +465,11 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	ns := principal.Namespace
+
 	// first check group permissions
 	for _, group := range principal.Groups {
-		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
+		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb, ns)
 		if err != nil {
 			return false, err
 		}
@@ -477,7 +479,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	}
 
 	// If no group permissions, check user permissions
-	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
+	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb, ns)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {

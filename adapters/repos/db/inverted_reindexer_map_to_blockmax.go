@@ -1252,7 +1252,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			}
 
 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				props, _, err := shard.AnalyzeObject(obj)
+				props, _, _, err := shard.AnalyzeObject(obj)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break

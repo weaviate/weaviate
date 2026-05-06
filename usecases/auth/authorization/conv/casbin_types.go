@@ -215,6 +215,15 @@ func CasbinNamespaces(name string) string {
 	return fmt.Sprintf("%s/%s", authorization.NamespacesDomain, name)
 }
 
+// ContainsNamespaceSeparator reports whether a casbin resource path contains
+// the namespace separator. The separator never appears in any other valid
+// resource path segment (collection, shard, tenant, role, and user names all
+// forbid it), so a plain byte scan unambiguously detects namespace
+// qualification regardless of the path shape.
+func ContainsNamespaceSeparator(resource string) bool {
+	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
+}
+
 func extractFromExtAction(inputAction string) (string, string, error) {
 	splits := strings.Split(inputAction, "_")
 	if len(splits) < 2 {

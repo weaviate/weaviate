@@ -131,6 +131,20 @@ func CreateUser(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
+func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(
+		users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Namespace: namespace}),
+		CreateAuth(adminKey),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
 	t.Helper()
 	tp := true

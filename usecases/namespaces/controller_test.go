@@ -40,11 +40,11 @@ func TestValidateName(t *testing.T) {
 		// valid
 		{name: "short valid", input: "foo", wantErr: false},
 		{name: "letters and digits", input: "customer1", wantErr: false},
-		{name: "max length", input: strings.Repeat("a", NameMaxLength), wantErr: false},
+		{name: "max length", input: strings.Repeat("a", entschema.NamespaceMaxLength), wantErr: false},
 		// length
 		{name: "too short", input: "ab", wantErr: true},
 		{name: "empty", input: "", wantErr: true},
-		{name: "too long", input: strings.Repeat("a", NameMaxLength+1), wantErr: true},
+		{name: "too long", input: strings.Repeat("a", entschema.NamespaceMaxLength+1), wantErr: true},
 		// format
 		{name: "uppercase leading", input: "Foo", wantErr: true},
 		{name: "uppercase middle", input: "fooBar", wantErr: true},

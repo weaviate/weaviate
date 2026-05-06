@@ -91,7 +91,7 @@ func Test_UpdateAction(t *testing.T) {
 			Created:   beforeUpdate,
 			Updated:   beforeUpdate,
 		}
-		db.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		db.On("Object", "ActionClass", id, mock.Anything, mock.Anything, "").Return(result, nil).Once()
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(vec, nil)
 		db.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()

@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/auth"
@@ -61,7 +62,7 @@ type Service struct {
 
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymous, authComposer)
-	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager)
+	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled)
 	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, state.SchemaManager, prometheus.DefaultRegisterer, NUMCPU, state.Logger)
 	return &Service{
 		traverser:            state.Traverser,
@@ -269,10 +270,6 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	var result *pb.SearchReply
 	var errInner error
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
-
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.search(ctx, req)
 	}, s.logger); err != nil {
@@ -290,6 +287,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+
+	req.Collection, _ = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
 
 	parser := NewParser(
 		req.Uses_127Api,

@@ -3244,14 +3244,24 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	return shard.GetStatus().String(), nil
 }
 
-func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
-	if err != nil {
+func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	isOwner := false
+	if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state != nil {
+			isOwner = state.IsLocalShard(shardName)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
+	if !isOwner {
+		return nil
+	}
+
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	defer release()
-	if shard == nil {
-		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
+	if err != nil {
+		return err
 	}
 	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }

@@ -1075,6 +1075,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authentication.OIDC,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Namespaces.Enabled,
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)

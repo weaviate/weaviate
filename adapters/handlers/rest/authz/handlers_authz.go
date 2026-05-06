@@ -47,14 +47,15 @@ const (
 var validateRoleNameRegex = regexp.MustCompile(`^` + roleNameRegexCore + `$`)
 
 type authZHandlers struct {
-	authorizer     authorization.Authorizer
-	controller     ControllerAndGetUsers
-	schemaReader   schemaUC.SchemaGetter
-	logger         logrus.FieldLogger
-	metrics        *monitoring.PrometheusMetrics
-	apiKeysConfigs config.StaticAPIKey
-	oidcConfigs    config.OIDC
-	rbacconfig     rbacconf.Config
+	authorizer        authorization.Authorizer
+	controller        ControllerAndGetUsers
+	schemaReader      schemaUC.SchemaGetter
+	logger            logrus.FieldLogger
+	metrics           *monitoring.PrometheusMetrics
+	apiKeysConfigs    config.StaticAPIKey
+	oidcConfigs       config.OIDC
+	rbacconfig        rbacconf.Config
+	namespacesEnabled bool
 }
 
 type ControllerAndGetUsers interface {
@@ -63,17 +64,18 @@ type ControllerAndGetUsers interface {
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers, schemaReader schemaUC.SchemaGetter,
-	apiKeysConfigs config.StaticAPIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	apiKeysConfigs config.StaticAPIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, namespacesEnabled bool, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &authZHandlers{
-		controller:     controller,
-		authorizer:     authorizer,
-		schemaReader:   schemaReader,
-		rbacconfig:     rconfig,
-		oidcConfigs:    oidcConfigs,
-		apiKeysConfigs: apiKeysConfigs,
-		logger:         logger,
-		metrics:        metrics,
+		controller:        controller,
+		authorizer:        authorizer,
+		schemaReader:      schemaReader,
+		rbacconfig:        rconfig,
+		oidcConfigs:       oidcConfigs,
+		apiKeysConfigs:    apiKeysConfigs,
+		namespacesEnabled: namespacesEnabled,
+		logger:            logger,
+		metrics:           metrics,
 	}
 
 	// rbac role handlers
@@ -149,6 +151,10 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you cannot create role with the same name as built-in role %s", *params.Body.Name)))
 	}
 
+	if err := h.validateNoQualifiedNamespaceInPolicies(policies[*params.Body.Name]); err != nil {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.CREATE, policies[*params.Body.Name], *params.Body.Name); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -194,6 +200,10 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	})
 	if err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permissions %w", err)))
+	}
+
+	if err := h.validateNoQualifiedNamespaceInPolicies(policies[params.ID]); err != nil {
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.UPDATE, policies[params.ID], params.ID); err != nil {
@@ -484,6 +494,18 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	if userTypes == nil {
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("username to assign role to doesn't exist")))
 	}
+
+	if h.namespacesEnabled && !h.isStaticAPIKeyUser(params.ID) {
+		for _, role := range params.Body.Roles {
+			if slices.Contains(authorization.BuiltInRoles, role) {
+				return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf(
+					"role %q is reserved for global/operator principals and cannot be assigned to namespaced dynamic DB user %q",
+					role, params.ID,
+				)))
+			}
+		}
+	}
+
 	for _, userType := range userTypes {
 		if err := h.controller.AddRolesForUser(conv.UserNameWithTypeFromId(params.ID, userType), params.Body.Roles); err != nil {
 			return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("AddRolesForUser: %w", err)))
@@ -1057,6 +1079,16 @@ func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, pr
 	return authz.NewGetRolesForGroupOK().WithPayload(roles)
 }
 
+// isStaticAPIKeyUser reports whether userID is configured as a static API-key
+// user (env-var managed). Static API-key users are always global principals
+// and remain eligible for built-in roles even on namespace-enabled clusters.
+func (h *authZHandlers) isStaticAPIKeyUser(userID string) bool {
+	if !h.apiKeysConfigs.Enabled {
+		return false
+	}
+	return slices.Contains(h.apiKeysConfigs.Users, userID)
+}
+
 func (h *authZHandlers) userExists(user string, userType authentication.AuthType) (bool, error) {
 	switch userType {
 	case authentication.AuthTypeOIDC:
@@ -1150,6 +1182,22 @@ func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypePara
 func validateEnvVarRoles(name string) error {
 	if slices.Contains(authorization.EnvVarRoles, name) {
 		return fmt.Errorf("modifying '%s' role or changing its assignments is not allowed", name)
+	}
+	return nil
+}
+
+// validateNoQualifiedNamespaceInPolicies rejects role-definition policies
+// whose resource paths contain the namespace separator. On namespace-enabled
+// clusters role definitions must remain namespace-relative templates; the
+// matcher specializes them at enforce time. No-op when namespaces are disabled.
+func (h *authZHandlers) validateNoQualifiedNamespaceInPolicies(policies []authorization.Policy) error {
+	if !h.namespacesEnabled {
+		return nil
+	}
+	for _, p := range policies {
+		if conv.ContainsNamespaceSeparator(p.Resource) {
+			return fmt.Errorf("role permissions must not contain namespace-qualified resource paths; got %q", p.Resource)
+		}
 	}
 	return nil
 }
