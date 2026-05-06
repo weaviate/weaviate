@@ -59,11 +59,9 @@ func (s *Set) ForEach(fn func(opID string, log *ChangeLog)) {
 // WithAdded returns a new Set containing every entry of s plus opID→log. If
 // opID already exists in s, it is replaced. The receiver is unchanged.
 func (s *Set) WithAdded(opID string, log *ChangeLog) *Set {
-	var size int
+	size := 1
 	if s != nil {
 		size = len(s.logs) + 1
-	} else {
-		size = 1
 	}
 	next := &Set{logs: make(map[string]*ChangeLog, size)}
 	if s != nil {
