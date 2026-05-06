@@ -42,6 +42,8 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
+	setupDebugObjectInspectHandler(appState)
+
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
 		if colName == "" {
