@@ -86,7 +86,9 @@ func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
 		{"reserved system", "system"},
 		{"reserved weaviate", "weaviate"},
 		{"uppercase letter", "Foo"},
-		{"digit prefix", "1foo"},
+		{"leading hyphen", "-foo"},
+		{"trailing hyphen", "foo-"},
+		{"underscore", "foo_bar"},
 		{"too short", "fo"},
 		{"too long 37 chars", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, // 37
 	}
