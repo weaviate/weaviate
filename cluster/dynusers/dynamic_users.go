@@ -93,6 +93,20 @@ func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.DeleteUser(req.UserId)
 }
 
+func (m *Manager) DeleteUsersInNamespace(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.DeleteUsersInNamespaceRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.Namespace == "" {
+		return fmt.Errorf("%w: namespace is required", ErrBadRequest)
+	}
+	return m.dynUser.DeleteUsersInNamespace(req.Namespace)
+}
+
 func (m *Manager) ActivateUser(c *cmd.ApplyRequest) error {
 	if m.dynUser == nil {
 		return nil

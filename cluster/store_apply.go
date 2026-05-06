@@ -333,6 +333,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.namespaceManager.RemoveEntity(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUsersInNamespace(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {

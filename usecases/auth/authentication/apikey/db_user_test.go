@@ -557,6 +557,75 @@ func TestValidateAndExtractReturnsNamespace(t *testing.T) {
 	}
 }
 
+func TestDeleteUsersInNamespace(t *testing.T) {
+	t.Run("removes only matching users", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+
+		seeds := []struct {
+			id, namespace string
+		}{
+			{"u-alpha-1", "alpha"},
+			{"u-alpha-2", "alpha"},
+			{"u-beta", "beta"},
+			{"u-unscoped", ""},
+		}
+		for _, s := range seeds {
+			_, hash, identifier, err := keys.CreateApiKeyAndHash()
+			require.NoError(t, err)
+			require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
+		}
+
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+
+		users, err := dynUsers.GetUsers()
+		require.NoError(t, err)
+		require.Len(t, users, 2)
+		require.NotContains(t, users, "u-alpha-1")
+		require.NotContains(t, users, "u-alpha-2")
+		require.Contains(t, users, "u-beta")
+		require.Contains(t, users, "u-unscoped")
+	})
+
+	t.Run("rerun on empty namespace is a no-op", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
+
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("never-existed"))
+	})
+
+	t.Run("frees the user id for re-creation", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
+
+		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("u1", hash2, identifier2, "", "alpha", time.Now()))
+
+		users, err := dynUsers.GetUsers("u1")
+		require.NoError(t, err)
+		require.NotNil(t, users["u1"])
+		require.Equal(t, "alpha", users["u1"].Namespace)
+	})
+
+	t.Run("empty namespace argument is rejected", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log)
+		require.NoError(t, err)
+		require.Error(t, dynUsers.DeleteUsersInNamespace(""))
+	})
+}
+
 func TestRestoreIncompleteData(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), false, log)
 	require.NoError(t, err)

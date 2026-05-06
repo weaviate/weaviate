@@ -269,6 +269,13 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	c.deleteUserLocked(userId)
+	return c.storeToFile()
+}
+
+// deleteUserLocked removes userId from every in-memory map. Caller must
+// hold the write lock and call storeToFile.
+func (c *DBUser) deleteUserLocked(userId string) {
 	delete(c.data.SecureKeyStorageById, userId)
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
@@ -276,6 +283,29 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	delete(c.data.UserKeyRevoked, userId)
 	delete(c.data.ImportedApiKeysWeakHash, userId)
+}
+
+// DeleteUsersInNamespace removes every user bound to namespace. An empty
+// namespace argument is rejected so the helper cannot wipe unscoped users.
+func (c *DBUser) DeleteUsersInNamespace(namespace string) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	matches := make([]string, 0)
+	for id, u := range c.data.Users {
+		if u != nil && u.Namespace == namespace {
+			matches = append(matches, id)
+		}
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+	for _, id := range matches {
+		c.deleteUserLocked(id)
+	}
 	return c.storeToFile()
 }
 
