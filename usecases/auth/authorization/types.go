@@ -233,17 +233,29 @@ var (
 	ReadOnly     = "read-only"
 	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
-	// viewer : can view everything , roles, users, schema, data
-	// editor : can create/read/update everything , roles, users, schema, data
-	// Admin : aka basically super Admin or root
-	BuiltInPermissions = map[string][]*models.Permission{
-		Viewer:   viewerPermissions(),
-		Admin:    adminPermissions(),
+	EnvVarRoles = []string{ReadOnly, Root}
+)
+
+// BuiltInPermissionsFor returns the canonical permission shape of the four
+// built-in roles. On namespace-enabled clusters admin/viewer are narrowed
+// to collections/schema, data, multi-tenancy, and aliases; root/read-only
+// keep wildcard CRUD/READ across all domains.
+func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
+	if !namespacesEnabled {
+		return map[string][]*models.Permission{
+			Viewer:   viewerPermissions(),
+			Admin:    adminPermissions(),
+			Root:     adminPermissions(),
+			ReadOnly: viewerPermissions(),
+		}
+	}
+	return map[string][]*models.Permission{
+		Viewer:   tenantSafeViewerPermissions(),
+		Admin:    tenantSafeAdminPermissions(),
 		Root:     adminPermissions(),
 		ReadOnly: viewerPermissions(),
 	}
-	EnvVarRoles = []string{ReadOnly, Root}
-)
+}
 
 type Policy struct {
 	Resource string
@@ -641,6 +653,54 @@ func adminPermissions() []*models.Permission {
 		})
 	}
 
+	return perms
+}
+
+// tenantSafeActions is the ordered list of actions whose resource paths are
+// namespace-bearing (collections, data, tenants, aliases). The matcher
+// specializes these to the principal's namespace, so they are safe to grant
+// to API-assignable built-in roles on namespace-enabled clusters.
+var tenantSafeActions = []string{
+	CreateCollections, ReadCollections, UpdateCollections, DeleteCollections,
+	CreateData, ReadData, UpdateData, DeleteData,
+	CreateTenants, ReadTenants, UpdateTenants, DeleteTenants,
+	CreateAliases, ReadAliases, UpdateAliases, DeleteAliases,
+}
+
+// tenantSafeAdminPermissions returns the narrowed admin shape for
+// namespace-enabled clusters: CRUD over the namespace-bearing domains only.
+// Cluster-only domains (backups, replicate, nodes, cluster, users, roles,
+// groups, namespaces, mcp) are excluded.
+func tenantSafeAdminPermissions() []*models.Permission {
+	perms := make([]*models.Permission, 0, len(tenantSafeActions))
+	for _, action := range tenantSafeActions {
+		perms = append(perms, &models.Permission{
+			Action:      &action,
+			Data:        AllData,
+			Collections: AllCollections,
+			Tenants:     AllTenants,
+			Aliases:     AllAliases,
+		})
+	}
+	return perms
+}
+
+// tenantSafeViewerPermissions returns the read-only subset of
+// tenantSafeAdminPermissions.
+func tenantSafeViewerPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range tenantSafeActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{
+			Action:      &action,
+			Data:        AllData,
+			Collections: AllCollections,
+			Tenants:     AllTenants,
+			Aliases:     AllAliases,
+		})
+	}
 	return perms
 }
 

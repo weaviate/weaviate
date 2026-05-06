@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -40,19 +41,23 @@ type Response struct {
 }
 
 type tokensHandler struct {
-	client                      *http.Client
-	authEndpoint, tokenEndpoint string
+	client                                     *http.Client
+	authEndpoint, tokenEndpoint, queueEndpoint string
 }
 
 func newTokensHandler() (*tokensHandler, error) {
-	getEndpointsAndClient := func() (string, string, *http.Client, error) {
+	getEndpointsAndClient := func() (string, string, string, *http.Client, error) {
 		hostname := os.Getenv("MOCK_HOSTNAME")
+		// adminHost addresses the mockoidc admin port (:48002) for queue
+		// management. The hostname env var carries `<host>:48001`; rewrite
+		// the port in place so we hit the same container's admin listener.
+		adminHost := strings.Replace(hostname, ":48001", ":48002", 1)
 		certificate := os.Getenv("MOCK_CERTIFICATE")
 		if certificate != "" {
 			certBlock, _ := pem.Decode([]byte(certificate))
 			cert, err := x509.ParseCertificate(certBlock.Bytes)
 			if err != nil {
-				return "", "", nil, fmt.Errorf("failed to decode certificate: %w", err)
+				return "", "", "", nil, fmt.Errorf("failed to decode certificate: %w", err)
 			}
 
 			certPool := x509.NewCertPool()
@@ -71,29 +76,45 @@ func newTokensHandler() (*tokensHandler, error) {
 			// Adjust endpoints to use https
 			authEndpoint := "https://" + hostname + "/oidc/authorize"
 			tokenEndpoint := "https://" + hostname + "/oidc/token"
+			// admin port serves plain HTTP regardless of OIDC TLS setup —
+			// it's an internal-only test fixture endpoint.
+			queueEndpoint := "http://" + adminHost + "/queue"
 
-			return authEndpoint, tokenEndpoint, client, nil
+			return authEndpoint, tokenEndpoint, queueEndpoint, client, nil
 		}
 		// Default HTTP client
 		client := &http.Client{}
 
 		authEndpoint := "http://" + hostname + "/oidc/authorize"
 		tokenEndpoint := "http://" + hostname + "/oidc/token"
+		queueEndpoint := "http://" + adminHost + "/queue"
 
-		return authEndpoint, tokenEndpoint, client, nil
+		return authEndpoint, tokenEndpoint, queueEndpoint, client, nil
 	}
 
-	authEndpoint, tokenEndpoint, client, err := getEndpointsAndClient()
+	authEndpoint, tokenEndpoint, queueEndpoint, client, err := getEndpointsAndClient()
 	if err != nil {
 		return nil, err
 	}
-	return &tokensHandler{authEndpoint: authEndpoint, tokenEndpoint: tokenEndpoint, client: client}, nil
+	return &tokensHandler{
+		authEndpoint:  authEndpoint,
+		tokenEndpoint: tokenEndpoint,
+		queueEndpoint: queueEndpoint,
+		client:        client,
+	}, nil
 }
 
 func (t *tokensHandler) handler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+
+	if subject := r.URL.Query().Get("subject"); subject != "" {
+		if err := t.queueSubject(subject); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	accessToken, refreshToken, err := getTokensFromMockOIDC(t.client, t.authEndpoint, t.tokenEndpoint)
@@ -109,6 +130,34 @@ func (t *tokensHandler) handler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, fmt.Sprintf("encode response: %v", err), http.StatusInternalServerError)
 	}
+}
+
+// queueSubject drains-and-replaces the mockoidc user/code queues with the
+// requested subject via the admin endpoint on :48002, so the next /tokens
+// call dequeues exactly that user.
+func (t *tokensHandler) queueSubject(subject string) error {
+	u, err := url.Parse(t.queueEndpoint)
+	if err != nil {
+		return fmt.Errorf("parse queue endpoint: %w", err)
+	}
+	q := u.Query()
+	q.Set("subject", subject)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodPost, u.String(), nil)
+	if err != nil {
+		return fmt.Errorf("build queue request: %w", err)
+	}
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("queue subject %q: %w", subject, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("queue subject %q: status %d: %s", subject, resp.StatusCode, string(body))
+	}
+	return nil
 }
 
 func getTokensFromMockOIDC(client *http.Client, authEndpoint, tokenEndpoint string) (string, string, error) {

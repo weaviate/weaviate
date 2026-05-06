@@ -28,7 +28,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -47,10 +47,7 @@ const (
 // qualify class names): ":" is excluded from UserNameRegexCore, so a
 // user-supplied id can never contain it and the split-back is unambiguous.
 func MakeUserKey(userId, namespace string) string {
-	if namespace == "" {
-		return userId
-	}
-	return namespace + schema.NamespaceSeparator + userId
+	return namespacing.QualifiedName(namespace, userId)
 }
 
 type DBUsers interface {

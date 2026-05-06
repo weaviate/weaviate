@@ -11,6 +11,8 @@
 
 package rbacconf
 
+import "slices"
+
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
@@ -27,4 +29,17 @@ type Config struct {
 // config package
 func (c Config) Validate() error {
 	return nil
+}
+
+// IsRoot reports whether a principal with the given username and groups
+// would be granted the root role via the static RootUsers/RootGroups
+// bindings. username must be the same form casbin sees — i.e. the
+// namespace-qualified name on namespace-enabled clusters.
+func (c Config) IsRoot(username string, groups []string) bool {
+	for _, group := range groups {
+		if slices.Contains(c.RootGroups, group) {
+			return true
+		}
+	}
+	return slices.Contains(c.RootUsers, username)
 }
