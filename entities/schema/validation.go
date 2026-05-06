@@ -68,8 +68,9 @@ const (
 	// Namespace name validation contract (kept tight so the operator API gives
 	// predictable results and so name-in-URL round-tripping is unambiguous):
 	//
-	//   - Must start with a lowercase ASCII letter.
-	//   - Subsequent characters are lowercase letters or digits.
+	//   - Contains only lowercase ASCII letters, digits, and hyphens.
+	//   - Must start and end with a lowercase letter or digit (no leading or
+	//     trailing hyphens).
 	//   - Length in [NamespaceMinLength, NamespaceMaxLength].
 	//   - Must not collide with a reserved name.
 	//

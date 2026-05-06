@@ -47,7 +47,7 @@ func NewCreateNamespace(ctx *middleware.Context, handler CreateNamespaceHandler)
 
 # Create a new namespace
 
-Create a new cluster-level namespace with the given name. Names must start with a lowercase letter, contain only lowercase letters and digits, be 3-36 characters long, and must not be a reserved name.
+Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.
 */
 type CreateNamespace struct {
 	Context *middleware.Context
