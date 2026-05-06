@@ -248,12 +248,14 @@ type Shard struct {
 	asyncReplicationCancelFunc      context.CancelFunc
 
 	// Lock order, outermost → innermost:
-	//   Index.backupLock.RLock(shard) > quiesceMux > asyncReplicationRWMux > docIdLock[poolId].
+	//   Index.backupLock.RLock(shard) > writeBarrierMux > asyncReplicationRWMux > docIdLock[poolId].
 	changeLogs atomic.Pointer[changelog.Set]
 	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
 	// activates can't sweep each other's freshly-opened .log file.
 	changeLogsActivateMu sync.Mutex
-	quiesceMux           sync.RWMutex
+	// writeBarrierMux: writes/reads RLock; barrier-takers Lock to fence
+	// in-flight writes for a consistent LSN snapshot.
+	writeBarrierMux sync.RWMutex
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex

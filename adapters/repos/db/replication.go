@@ -529,7 +529,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 }
 
 // IncomingSnapshotChangeLogLSN returns the current LSN under the same
-// quiesce as Finalize, but without sealing the log.
+// write barrier as Finalize, but without sealing the log.
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {

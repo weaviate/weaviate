@@ -29,8 +29,8 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	s.quiesceMux.RLock()
-	defer s.quiesceMux.RUnlock()
+	s.writeBarrierMux.RLock()
+	defer s.writeBarrierMux.RUnlock()
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()

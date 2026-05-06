@@ -64,28 +64,29 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 	return log, nil
 }
 
-// FinalizeChangeLog briefly takes quiesceMux.Lock so the returned LSN is a
-// true upper bound on writes that already passed the bucket-write boundary.
+// FinalizeChangeLog briefly takes writeBarrierMux.Lock so the returned LSN
+// is a true upper bound on writes already past the bucket-write boundary.
 func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	s.quiesceMux.Lock()
-	defer s.quiesceMux.Unlock()
+	s.writeBarrierMux.Lock()
+	defer s.writeBarrierMux.Unlock()
 	return log.Finalize()
 }
 
-// SnapshotChangeLogLSN returns the highest LSN under the same brief quiesce
-// as FinalizeChangeLog, but does not seal — the log keeps accepting writes.
-// Pairs with a capped tailer to drain a phase boundary mid-movement.
+// SnapshotChangeLogLSN returns the highest LSN under the same brief
+// write-barrier as FinalizeChangeLog, but does not seal — the log keeps
+// accepting writes. Pairs with a capped tailer to drain a phase boundary
+// mid-movement.
 func (s *Shard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	s.quiesceMux.Lock()
-	defer s.quiesceMux.Unlock()
+	s.writeBarrierMux.Lock()
+	defer s.writeBarrierMux.Unlock()
 	return log.LSN(), nil
 }
 

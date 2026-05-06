@@ -242,8 +242,8 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		s.quiesceMux.RLock()
-		defer s.quiesceMux.RUnlock()
+		s.writeBarrierMux.RLock()
+		defer s.writeBarrierMux.RUnlock()
 
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()

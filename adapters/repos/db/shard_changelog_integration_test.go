@@ -228,7 +228,7 @@ func TestShard_ChangeLog_SkipPaths_NoEntry(t *testing.T) {
 }
 
 // Hangs on lock-order regression. The only assertion is the 10s timeout —
-// if quiesceMux ends up nested inside docIdLock, this deadlocks.
+// if writeBarrierMux ends up nested inside docIdLock, this deadlocks.
 func TestShard_ChangeLog_LockOrder_NoDeadlock(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
