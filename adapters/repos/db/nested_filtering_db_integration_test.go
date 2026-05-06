@@ -8499,3 +8499,439 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 		})
 	})
 }
+
+// TestNestedFilteringIsNullWithArrayIndex covers IsNull / IsNotNull combined
+// with arr[N] in *standalone* form (no AND wrapper). Three shapes:
+//   - addresses[N] IsNull/IsNotNull  → existence of a Nth element in the array
+//   - addresses[N].leaf IsNull/IsNotNull → presence of leaf within the Nth element
+//
+// IsNotNull (IsNull=false) returns docs where the Nth element exists AND the
+// queried path is present at that element. IsNull=true is the complement
+// (denylist) under current universal semantics.
+//
+// The existing TestNestedFilteringIsNullStandalone covers IsNull at all
+// nesting levels but never with arr[N]; the existing
+// TestNestedFilteringIsNullWithArrNInCorrelatedAnd always combines IsNull with
+// a value clause. This test fills the standalone+arr[N] gap.
+func TestNestedFilteringIsNullWithArrayIndex(t *testing.T) {
+	const nestedClass = "IsNullArrIdx"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "docs", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	addr := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ---------- DataTypeObject (top-level "doc") ----------
+	t.Run("doc_object", func(t *testing.T) {
+		// docs share across the four sub-tests:
+		//   doc1: addresses=[{city:berlin},{city:paris}] — both elements have city
+		//   doc2: addresses=[{city:berlin},{}]          — [0] has city, [1] is empty
+		//   doc3: addresses=[{city:berlin}]              — only [0]; no [1]
+		//   doc4: addresses=[]                           — empty array
+		//   doc5: doc has no addresses key               — absent entirely
+		idBoth := uuid(1)
+		idSecondNoCity := uuid(2)
+		idOnlyOne := uuid(3)
+		idEmpty := uuid(4)
+		idAbsent := uuid(5)
+		docs := []docDef{
+			{id: idBoth, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "berlin"), addr("city", "paris"))}}, note: "[1] has city"},
+			{id: idSecondNoCity, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "berlin"), addr())}}, note: "[1] is empty (no city)"},
+			{id: idOnlyOne, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("city", "berlin"))}}, note: "only [0]; no [1]"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{"addresses": []any{}}}, note: "empty addresses"},
+			{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no addresses key"},
+		}
+
+		t.Run("addresses[1]_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses[1]", false), []strfmt.UUID{idBoth, idSecondNoCity})
+		})
+		t.Run("addresses[1]_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses[1]", true), []strfmt.UUID{idOnlyOne, idEmpty, idAbsent})
+		})
+		t.Run("addresses[1].city_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses[1].city", false), []strfmt.UUID{idBoth})
+		})
+		t.Run("addresses[1].city_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses[1].city", true), []strfmt.UUID{idSecondNoCity, idOnlyOne, idEmpty, idAbsent})
+		})
+	})
+
+	// ---------- DataTypeObjectArray (top-level "docs") ----------
+	t.Run("docs_array", func(t *testing.T) {
+		// Tests root-level arr[N] applied to IsNull (docs[N]).
+		idBoth := uuid(1)         // docs=[{addr=[{berlin}]},{addr=[{paris}]}]
+		idSecondNoAddr := uuid(2) // docs=[{addr=[{berlin}]},{}]
+		idOnlyOne := uuid(3)      // docs=[{addr=[{berlin}]}]
+		idEmpty := uuid(4)        // docs=[]
+		idAbsent := uuid(5)       // no docs key
+		docs := []docDef{
+			{id: idBoth, props: map[string]any{"docs": asArr(
+				map[string]any{"addresses": asArr(addr("city", "berlin"))},
+				map[string]any{"addresses": asArr(addr("city", "paris"))},
+			)}, note: "docs[1] has addresses"},
+			{id: idSecondNoAddr, props: map[string]any{"docs": asArr(
+				map[string]any{"addresses": asArr(addr("city", "berlin"))},
+				map[string]any{},
+			)}, note: "docs[1] empty (no addresses)"},
+			{id: idOnlyOne, props: map[string]any{"docs": asArr(
+				map[string]any{"addresses": asArr(addr("city", "berlin"))},
+			)}, note: "only docs[0]"},
+			{id: idEmpty, props: map[string]any{"docs": []any{}}, note: "empty docs"},
+			{id: idAbsent, props: map[string]any{}, note: "no docs key"},
+		}
+
+		t.Run("docs[1]_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("docs[1]", false), []strfmt.UUID{idBoth, idSecondNoAddr})
+		})
+		t.Run("docs[1]_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("docs[1]", true), []strfmt.UUID{idOnlyOne, idEmpty, idAbsent})
+		})
+		t.Run("docs[1].addresses.city_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("docs[1].addresses.city", false), []strfmt.UUID{idBoth})
+		})
+		t.Run("docs[1].addresses.city_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("docs[1].addresses.city", true), []strfmt.UUID{idSecondNoAddr, idOnlyOne, idEmpty, idAbsent})
+		})
+	})
+}
+
+// TestNestedFilteringIsNullArrayIndexFollowups fills four IsNull-cluster
+// coverage gaps surfaced by audit:
+//
+//  1. Multi-level arr[N] + IsNull standalone — `cars[1].tires[0] IsNotNull`,
+//     `cars[1].tires[0].width IsNotNull`. Existing IsNull+arr[N] tests use a
+//     single arr[N] segment; multi-level pin with IsNull is its own dispatch
+//     path.
+//  2. Multi-level nested object[] standalone IsNull (no arr[N]) —
+//     `cars.tires IsNotNull`, `cars.tires.width IsNotNull`. The existing
+//     standalone test uses single-level object[] (addresses); deeper nested
+//     paths exercise different lcaPath / restriction logic.
+//  3. text[] (scalar array) IsNull combined with arr[N] —
+//     `addresses[1].tags IsNotNull`. text[] IsNull is covered standalone in
+//     IsNullStandalone, but never with an arr[N] restriction on its parent.
+//  4. Mixed constrained/unconstrained IsNull in correlated AND —
+//     `addresses.tags IsNotNull AND addresses[1].city = berlin`. The IsNotNull
+//     side has empty constraints, the value side pins addresses[1];
+//     compatibility grouping puts both in the same group, forcing the
+//     IsNotNull to be satisfied at the same address as the value clause.
+func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
+	const nestedClass = "IsNullArrFollowups"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width ...int) map[string]any {
+		if len(width) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"width": width[0]}
+	}
+	car := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	addr := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	tagsAny := func(tags ...string) []any {
+		out := make([]any, len(tags))
+		for i, t := range tags {
+			out[i] = t
+		}
+		return out
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- 1. Multi-level arr[N] + IsNull standalone -----
+	t.Run("multi_level_arrN_cars[1].tires[0]_IsNull", func(t *testing.T) {
+		idCar1HasTireWithWidth := uuid(1) // cars=[{},{tires:[{305}]}]
+		idCar1HasEmptyTire := uuid(2)     // cars=[{},{tires:[{}]}]      (tire exists, no width)
+		idCar1NoTires := uuid(3)          // cars=[{},{}]
+		idNoCar1 := uuid(4)               // cars=[{tires:[{305}]}]      (only cars[0])
+		idAbsent := uuid(5)               // no cars
+
+		docs := []docDef{
+			{id: idCar1HasTireWithWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(car(), car("tires", asArr(tire(305))))}}, note: "cars[1].tires[0]={width:305}"},
+			{id: idCar1HasEmptyTire, props: map[string]any{"doc": map[string]any{"cars": asArr(car(), car("tires", asArr(tire())))}}, note: "cars[1].tires[0]={} (no width)"},
+			{id: idCar1NoTires, props: map[string]any{"doc": map[string]any{"cars": asArr(car(), car())}}, note: "cars[1] has no tires"},
+			{id: idNoCar1, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(305))))}}, note: "only cars[0]; no cars[1]"},
+			{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no cars at all"},
+		}
+
+		t.Run("cars[1].tires[0]_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0]", false),
+				[]strfmt.UUID{idCar1HasTireWithWidth, idCar1HasEmptyTire})
+		})
+		t.Run("cars[1].tires[0]_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0]", true),
+				[]strfmt.UUID{idCar1NoTires, idNoCar1, idAbsent})
+		})
+		t.Run("cars[1].tires[0].width_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0].width", false),
+				[]strfmt.UUID{idCar1HasTireWithWidth})
+		})
+		t.Run("cars[1].tires[0].width_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0].width", true),
+				[]strfmt.UUID{idCar1HasEmptyTire, idCar1NoTires, idNoCar1, idAbsent})
+		})
+	})
+
+	// ----- 2. Multi-level nested object[] standalone IsNull (no arr[N]) -----
+	t.Run("multi_level_nested_objArr_cars.tires_IsNull", func(t *testing.T) {
+		idAllTires := uuid(1)       // cars=[{tires:[{305}]}]
+		idSecondCarTires := uuid(2) // cars=[{},{tires:[{305}]}]
+		idTiresNoWidth := uuid(3)   // cars=[{tires:[{}]}]              (tires exist, no width)
+		idCarsNoTires := uuid(4)    // cars=[{}]
+		idAbsent := uuid(5)         // no cars
+		docs := []docDef{
+			{id: idAllTires, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire(305))))}}, note: "cars[0].tires[0]={width:305}"},
+			{id: idSecondCarTires, props: map[string]any{"doc": map[string]any{"cars": asArr(car(), car("tires", asArr(tire(305))))}}, note: "tires only in cars[1]"},
+			{id: idTiresNoWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(car("tires", asArr(tire())))}}, note: "tires exist but no width"},
+			{id: idCarsNoTires, props: map[string]any{"doc": map[string]any{"cars": asArr(car())}}, note: "cars[0] has no tires"},
+			{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+		}
+
+		// Universal: tires/width IsNull matches docs where the property is absent
+		// everywhere within the addressed scope.
+		t.Run("cars.tires_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars.tires", false),
+				[]strfmt.UUID{idAllTires, idSecondCarTires, idTiresNoWidth})
+		})
+		t.Run("cars.tires_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars.tires", true),
+				[]strfmt.UUID{idCarsNoTires, idAbsent})
+		})
+		t.Run("cars.tires.width_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars.tires.width", false),
+				[]strfmt.UUID{idAllTires, idSecondCarTires})
+		})
+		t.Run("cars.tires.width_IsNull_universal", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.cars.tires.width", true),
+				[]strfmt.UUID{idTiresNoWidth, idCarsNoTires, idAbsent})
+		})
+	})
+
+	// ----- 3. text[] IsNull combined with arr[N] standalone -----
+	t.Run("text_array_with_arrN_addresses[1].tags_IsNull", func(t *testing.T) {
+		idBothHaveTags := uuid(1) // addresses=[{tags:[a]},{tags:[b]}]
+		idSecondNoTags := uuid(2) // addresses=[{tags:[a]},{}]
+		idOnlyFirst := uuid(3)    // addresses=[{tags:[a]}]
+		idAbsent := uuid(4)       // no addresses
+		docs := []docDef{
+			{id: idBothHaveTags, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny("a")), addr("tags", tagsAny("b")))}}, note: "[1] has tags=[b]"},
+			{id: idSecondNoTags, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny("a")), addr())}}, note: "[1] is empty (no tags)"},
+			{id: idOnlyFirst, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny("a")))}}, note: "only [0]; no [1]"},
+			{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no addresses"},
+		}
+
+		t.Run("addresses[1].tags_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses[1].tags", false), []strfmt.UUID{idBothHaveTags})
+		})
+		t.Run("addresses[1].tags_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses[1].tags", true),
+				[]strfmt.UUID{idSecondNoTags, idOnlyFirst, idAbsent})
+		})
+	})
+
+	// ----- 4. Mixed constrained/unconstrained IsNull in correlated AND -----
+	// `addresses.tags IsNotNull AND addresses[1].city = berlin`.
+	// IsNotNull is unconstrained (empty arrayIndices); value pins addresses[1].
+	// Compatibility grouping puts both in the same group → same-element AND
+	// forces tags to be present at the same address as city=berlin (i.e., [1]).
+	t.Run("mixed_constrained_unconstrained_isNull_AND_value", func(t *testing.T) {
+		idMatch1 := uuid(1)                 // [{munich,a},{berlin,b}] — [1] has city+tags
+		idMatch2 := uuid(2)                 // [{berlin,a},{berlin,b}] — [1] has city+tags
+		idNoMatchSecondNoTags := uuid(3)    // [{berlin,a},{berlin}] — [1] has city but no tags
+		idNoMatchOnlyFirst := uuid(4)       // [{berlin,a}] — only [0]
+		idNoMatchTagsAtFirstOnly := uuid(5) // [{munich,a},{berlin}] — [1] city ok, no tags; tags only at [0]
+		docs := []docDef{
+			{id: idMatch1, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+				addr("city", "munich", "tags", tagsAny("a")),
+				addr("city", "berlin", "tags", tagsAny("b")),
+			)}}, note: "[1] city=berlin AND tags present"},
+			{id: idMatch2, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+				addr("city", "berlin", "tags", tagsAny("a")),
+				addr("city", "berlin", "tags", tagsAny("b")),
+			)}}, note: "both have berlin and tags"},
+			{id: idNoMatchSecondNoTags, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+				addr("city", "berlin", "tags", tagsAny("a")),
+				addr("city", "berlin"),
+			)}}, note: "[1] city=berlin but no tags; tags only at [0]"},
+			{id: idNoMatchOnlyFirst, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+				addr("city", "berlin", "tags", tagsAny("a")),
+			)}}, note: "only [0]"},
+			{id: idNoMatchTagsAtFirstOnly, props: map[string]any{"doc": map[string]any{"addresses": asArr(
+				addr("city", "munich", "tags", tagsAny("a")),
+				addr("city", "berlin"),
+			)}}, note: "[1] city=berlin; tags only at [0] (different address)"},
+		}
+
+		filter := andFilter(
+			isNullFilter("doc.addresses.tags", false),
+			textFilter("doc.addresses[1].city", "berlin"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch1, idMatch2})
+	})
+}
