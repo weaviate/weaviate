@@ -8895,6 +8895,38 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 		})
 	})
 
+	// ----- 5. IsNull on scalar-array positional element (text[] arr[N]) -----
+	// `addresses.tags[2] IsNotNull` — does any address have a third tag?
+	// IsNull is restricted to the IdxKey on the scalar-array index, exercising
+	// the rarely-used path where the IsNull's arrayIndices target the scalar
+	// array itself rather than its parent. Different from `addresses[1].tags`
+	// (parent pinned, child IsNull) and `addresses.tags` (whole array IsNull).
+	t.Run("scalar_array_positional_addresses.tags[2]_IsNull", func(t *testing.T) {
+		idHasThirdTag := uuid(1)      // addresses=[{tags:[a,b,c]}]
+		idHasThirdInSecond := uuid(2) // addresses=[{tags:[a]},{tags:[a,b,c]}]
+		idTwoTagsOnly := uuid(3)      // addresses=[{tags:[a,b]}]
+		idEmptyTags := uuid(4)        // addresses=[{tags:[]}]
+		idNoTags := uuid(5)           // addresses=[{}]
+		idAbsent := uuid(6)           // no addresses
+		docs := []docDef{
+			{id: idHasThirdTag, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny("a", "b", "c")))}}, note: "addresses[0].tags[2]=c"},
+			{id: idHasThirdInSecond, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny("a")), addr("tags", tagsAny("a", "b", "c")))}}, note: "addresses[1].tags[2]=c"},
+			{id: idTwoTagsOnly, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny("a", "b")))}}, note: "no tags[2]"},
+			{id: idEmptyTags, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr("tags", tagsAny()))}}, note: "empty tags"},
+			{id: idNoTags, props: map[string]any{"doc": map[string]any{"addresses": asArr(addr())}}, note: "no tags field"},
+			{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no addresses"},
+		}
+
+		t.Run("addresses.tags[2]_IsNotNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses.tags[2]", false),
+				[]strfmt.UUID{idHasThirdTag, idHasThirdInSecond})
+		})
+		t.Run("addresses.tags[2]_IsNull", func(t *testing.T) {
+			runScenario(t, docs, isNullFilter("doc.addresses.tags[2]", true),
+				[]strfmt.UUID{idTwoTagsOnly, idEmptyTags, idNoTags, idAbsent})
+		})
+	})
+
 	// ----- 4. Mixed constrained/unconstrained IsNull in correlated AND -----
 	// `addresses.tags IsNotNull AND addresses[1].city = berlin`.
 	// IsNotNull is unconstrained (empty arrayIndices); value pins addresses[1].
@@ -8933,5 +8965,341 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			textFilter("doc.addresses[1].city", "berlin"),
 		)
 		runScenario(t, docs, filter, []strfmt.UUID{idMatch1, idMatch2})
+	})
+}
+
+// TestNestedFilteringScalarArrayIndex covers positional access on scalar
+// arrays (text[]) within nested objects. Mirrors lower-level
+// TestNestedFilteringIsNullAndMultiLevelArrayIndex Cases 2 and 3:
+//
+//   - Basic positional: cars.colors[N] = red — IdxKey("cars.colors", N)
+//     restriction on a scalar-array element.
+//   - Out-of-range: cars.colors[5] = red against docs with shorter arrays.
+//   - Multi-level pin: cars[N].colors[M] = red — both object[] and scalar
+//     array indices restrict the same path.
+//   - Same-parent correlated AND: cars.colors[0]=red AND cars.colors[1]=blue
+//     — both clauses share LCA=cars; same-element AND requires the same
+//     car's colors to satisfy both positional clauses.
+//
+// Also covers a single docs_array variant to exercise root_idx in
+// combination with scalar-array positional access.
+func TestNestedFilteringScalarArrayIndex(t *testing.T) {
+	const nestedClass = "ScalarArrIdx"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "colors", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "docs", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	colorsAny := func(colors ...string) []any {
+		out := make([]any, len(colors))
+		for i, c := range colors {
+			out[i] = c
+		}
+		return out
+	}
+	carColors := func(colors ...string) map[string]any {
+		return map[string]any{"colors": colorsAny(colors...)}
+	}
+	carWithMakeAndColors := func(make string, colors ...string) map[string]any {
+		out := map[string]any{"make": make}
+		if len(colors) > 0 {
+			out["colors"] = colorsAny(colors...)
+		}
+		return out
+	}
+	tireWithTags := func(tags ...string) map[string]any {
+		return map[string]any{"tags": colorsAny(tags...)}
+	}
+	carWithTires := func(tires ...map[string]any) map[string]any {
+		out := make([]any, len(tires))
+		for i, t := range tires {
+			out[i] = t
+		}
+		return map[string]any{"tires": out}
+	}
+	carEmpty := func() map[string]any { return map[string]any{} }
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// ----- Sub-test 1: basic scalar-array positional, no parent arr[N] -----
+	// `doc.cars.colors[2] = red` — match docs where any car has colors[2]=red.
+	t.Run("basic_cars.colors[2]_eq_red", func(t *testing.T) {
+		idMatchPosition2 := uuid(1)     // colors=[blue,green,red]
+		idNoMatchAtPosition0 := uuid(2) // colors=[red]
+		idNoMatchTooShort := uuid(3)    // colors=[red,red]
+		idMatchSecondCar := uuid(4)     // first car short, second has [2]=red
+		idNoMatchEmptyColors := uuid(5) // colors=[]
+		idNoMatchNoColors := uuid(6)    // car with no colors field
+		idNoMatchNoCars := uuid(7)      // no cars at all
+		docs := []docDef{
+			{id: idMatchPosition2, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("blue", "green", "red"))}}, note: "colors[2]=red"},
+			{id: idNoMatchAtPosition0, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red"))}}, note: "red at colors[0] only"},
+			{id: idNoMatchTooShort, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "red"))}}, note: "no colors[2]"},
+			{id: idMatchSecondCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("blue"), carColors("green", "blue", "red"))}}, note: "cars[1].colors[2]=red"},
+			{id: idNoMatchEmptyColors, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors())}}, note: "empty colors"},
+			{id: idNoMatchNoColors, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty())}}, note: "car with no colors field"},
+			{id: idNoMatchNoCars, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+		}
+		runScenario(t, docs, textFilter("doc.cars.colors[2]", "red"), []strfmt.UUID{idMatchPosition2, idMatchSecondCar})
+	})
+
+	// ----- Sub-test 2: out-of-range scalar-array positional -----
+	t.Run("out_of_range_cars.colors[5]_eq_red", func(t *testing.T) {
+		idDoc := uuid(1)
+		docs := []docDef{
+			{id: idDoc, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "red", "red"))}}, note: "only 3 colors"},
+		}
+		runScenario(t, docs, textFilter("doc.cars.colors[5]", "red"), []strfmt.UUID{})
+	})
+
+	// ----- Sub-test 3: multi-level pin (object[] + scalar array) -----
+	// `doc.cars[1].colors[2] = red` — two arr[N] segments restrict the same
+	// path. Restriction order: cars[1] first, then colors[2] within that car.
+	t.Run("multi_level_cars[1].colors[2]_eq_red", func(t *testing.T) {
+		idMatch := uuid(1)                 // cars=[{colors:[x]},{colors:[a,b,red]}]
+		idNoMatchOnlyFirstCar := uuid(2)   // cars=[{colors:[a,b,red]}] — no cars[1]
+		idNoMatchSecondTooShort := uuid(3) // cars=[{colors:[a,b,red]},{colors:[red]}] — cars[1].colors[0]=red, no [2]
+		idNoMatchSecondAtZero := uuid(4)   // cars=[{},{colors:[red,blue,green]}] — cars[1].colors[0]=red, [2]=green
+		idMatchExtraCars := uuid(5)        // 3 cars, [1] satisfies, [2] is extra
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("x"), carColors("a", "b", "red"))}}, note: "cars[1].colors[2]=red"},
+			{id: idNoMatchOnlyFirstCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("a", "b", "red"))}}, note: "no cars[1]"},
+			{id: idNoMatchSecondTooShort, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("a", "b", "red"), carColors("red"))}}, note: "cars[1] only has colors[0]"},
+			{id: idNoMatchSecondAtZero, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty(), carColors("red", "blue", "green"))}}, note: "cars[1].colors[0]=red, [2]=green"},
+			{id: idMatchExtraCars, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty(), carColors("a", "b", "red"), carColors("red"))}}, note: "cars[1].colors[2]=red, extra cars[2]"},
+		}
+		runScenario(t, docs, textFilter("doc.cars[1].colors[2]", "red"), []strfmt.UUID{idMatch, idMatchExtraCars})
+	})
+
+	// ----- Sub-test 4: same-parent correlated AND on scalar-array positional -----
+	// `doc.cars.colors[0]=red AND doc.cars.colors[1]=blue` — both clauses share
+	// LCA=cars; same-element AND requires the same car's colors[0]=red AND
+	// colors[1]=blue.
+	t.Run("AND_cars.colors[0]_eq_red_AND_cars.colors[1]_eq_blue", func(t *testing.T) {
+		idMatchSingleCar := uuid(1)         // cars=[{colors:[red,blue]}] — same car satisfies
+		idMatchSecondCar := uuid(2)         // cars[0] partial; cars[1] satisfies
+		idNoMatchSplitAcrossCars := uuid(3) // cars[0].colors[0]=red, cars[1].colors[1]=blue — different cars
+		idNoMatchWrongOrder := uuid(4)      // cars=[{colors:[blue,red]}] — wrong positions
+		idNoMatchOnlyFirst := uuid(5)       // cars=[{colors:[red]}] — no [1]
+		docs := []docDef{
+			{id: idMatchSingleCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "blue"))}}, note: "cars[0].colors=[red,blue]"},
+			{id: idMatchSecondCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("green"), carColors("red", "blue", "green"))}}, note: "cars[1].colors=[red,blue,...]"},
+			{id: idNoMatchSplitAcrossCars, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "green"), carColors("green", "blue"))}}, note: "red in cars[0].colors[0]; blue in cars[1].colors[1]"},
+			{id: idNoMatchWrongOrder, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("blue", "red"))}}, note: "swapped positions"},
+			{id: idNoMatchOnlyFirst, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red"))}}, note: "no colors[1]"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.colors[0]", "red"),
+			textFilter("doc.cars.colors[1]", "blue"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchSingleCar, idMatchSecondCar})
+	})
+
+	// ----- Sub-test 5: docs_array root variant -----
+	// `docs[1].cars.colors[2] = red` — root_idx pin combined with scalar-array
+	// positional. Verifies the dispatch works across DataTypeObjectArray root.
+	t.Run("docs_array_docs[1].cars.colors[2]_eq_red", func(t *testing.T) {
+		idMatch := uuid(1)              // docs[1].cars[0].colors[2]=red
+		idNoMatchInFirstRoot := uuid(2) // docs[0] has it; docs[1] doesn't
+		idNoMatchSingleRoot := uuid(3)  // single root only
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"docs": asArr(
+				map[string]any{"cars": asArr(carColors("blue"))},
+				map[string]any{"cars": asArr(carColors("a", "b", "red"))},
+			)}, note: "docs[1].cars[0].colors[2]=red"},
+			{id: idNoMatchInFirstRoot, props: map[string]any{"docs": asArr(
+				map[string]any{"cars": asArr(carColors("a", "b", "red"))},
+				map[string]any{"cars": asArr(carColors("blue"))},
+			)}, note: "red at docs[0].cars[0].colors[2], not docs[1]"},
+			{id: idNoMatchSingleRoot, props: map[string]any{"docs": asArr(
+				map[string]any{"cars": asArr(carColors("a", "b", "red"))},
+			)}, note: "no docs[1]"},
+		}
+		runScenario(t, docs, textFilter("docs[1].cars.colors[2]", "red"), []strfmt.UUID{idMatch})
+	})
+
+	// ----- Sub-test 6: mixed scalar + scalar-array positional, same-element AND -----
+	// `cars.make=tesla AND cars.colors[0]=red` — same-element AND at LCA=cars
+	// across two clause types (regular text scalar + text[] positional). Both
+	// must hold on the same physical car.
+	t.Run("AND_cars.make_AND_cars.colors[0]_same_car", func(t *testing.T) {
+		idMatch := uuid(1)               // cars=[{make:tesla,colors:[red]}]
+		idMatchSecondCar := uuid(2)      // cars[0] partial, cars[1] satisfies
+		idNoMatchSplit := uuid(3)        // tesla in cars[1], red in cars[0]
+		idNoMatchTeslaNoColor := uuid(4) // tesla car has no colors
+		idNoMatchWrongColor := uuid(5)   // tesla car has colors[0]=blue
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithMakeAndColors("tesla", "red"))}}, note: "single car: tesla, colors[0]=red"},
+			{id: idMatchSecondCar, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithMakeAndColors("bmw", "red"), carWithMakeAndColors("tesla", "red", "blue"))}}, note: "cars[1] has tesla and colors[0]=red"},
+			{id: idNoMatchSplit, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithMakeAndColors("bmw", "red"), carWithMakeAndColors("tesla"))}}, note: "tesla car has no colors"},
+			{id: idNoMatchTeslaNoColor, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithMakeAndColors("tesla"))}}, note: "tesla; no colors"},
+			{id: idNoMatchWrongColor, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithMakeAndColors("tesla", "blue", "red"))}}, note: "tesla; colors[0]=blue"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.make", "tesla"),
+			textFilter("doc.cars.colors[0]", "red"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchSecondCar})
+	})
+
+	// ----- Sub-test 7: multi-level pin + same-parent correlated AND -----
+	// `cars[1].colors[0]=red AND cars[1].colors[1]=blue` — both clauses pinned
+	// to cars[1]; same-parent correlated AND requires both color positions to
+	// be satisfied within the same cars[1].
+	t.Run("AND_cars[1].colors[0]_AND_cars[1].colors[1]_pinned", func(t *testing.T) {
+		idMatch := uuid(1)            // cars=[{},{colors:[red,blue]}]
+		idNoMatchOnlyFirst := uuid(2) // cars=[{colors:[red,blue]}] — no [1]
+		idNoMatchSwapped := uuid(3)   // cars[1].colors=[blue,red]
+		idNoMatchTooShort := uuid(4)  // cars[1].colors=[red]
+		idMatchExtraColors := uuid(5) // cars[1].colors=[red,blue,green]
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty(), carColors("red", "blue"))}}, note: "cars[1].colors=[red,blue]"},
+			{id: idNoMatchOnlyFirst, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "blue"))}}, note: "no cars[1]"},
+			{id: idNoMatchSwapped, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty(), carColors("blue", "red"))}}, note: "swapped"},
+			{id: idNoMatchTooShort, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty(), carColors("red"))}}, note: "no colors[1]"},
+			{id: idMatchExtraColors, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty(), carColors("red", "blue", "green"))}}, note: "cars[1].colors=[red,blue,green]"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars[1].colors[0]", "red"),
+			textFilter("doc.cars[1].colors[1]", "blue"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraColors})
+	})
+
+	// ----- Sub-test 8: scalar-array partition with different parents -----
+	// `cars[0].colors[0]=red AND cars[1].colors[0]=blue` — different cars,
+	// each with its own positional clause. The dispatch's
+	// groupChildrenByArrayIndicesKey partitions {cars:0} and {cars:1} into
+	// independent groups → ANDed at docID level.
+	t.Run("AND_cars[0].colors[0]_red_AND_cars[1].colors[0]_blue_partition", func(t *testing.T) {
+		idMatch := uuid(1)              // cars=[{colors:[red]},{colors:[blue]}]
+		idMatchExtraColors := uuid(2)   // cars=[{colors:[red,green]},{colors:[blue,red]}]
+		idNoMatchSwapped := uuid(3)     // cars=[{colors:[blue]},{colors:[red]}]
+		idNoMatchOnlyFirst := uuid(4)   // cars=[{colors:[red]}]
+		idNoMatchSecondWrong := uuid(5) // cars[0]=red ok, cars[1].colors[0]=red not blue
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red"), carColors("blue"))}}, note: "cars=[{red},{blue}]"},
+			{id: idMatchExtraColors, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "green"), carColors("blue", "red"))}}, note: "cars=[{red,green},{blue,red}]"},
+			{id: idNoMatchSwapped, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("blue"), carColors("red"))}}, note: "swapped"},
+			{id: idNoMatchOnlyFirst, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red"))}}, note: "no cars[1]"},
+			{id: idNoMatchSecondWrong, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red"), carColors("red"))}}, note: "cars[1].colors[0]=red not blue"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars[0].colors[0]", "red"),
+			textFilter("doc.cars[1].colors[0]", "blue"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchExtraColors})
+	})
+
+	// ----- Sub-test 9: deeper-nested scalar array (cars.tires.tags[N]) -----
+	// `cars.tires.tags[2] = red` — text[] positional inside a 2-level-deep
+	// nested object[]. Exercises lcaPath calculation for scalar arrays at a
+	// deeper LCA than the cars-direct case.
+	t.Run("deeper_cars.tires.tags[2]_eq_red", func(t *testing.T) {
+		idMatch := uuid(1)           // tires=[{tags:[a,b,red]}]
+		idMatchSecondTire := uuid(2) // tires=[{},{tags:[a,b,red]}]
+		idNoMatchAtZero := uuid(3)   // tires=[{tags:[red]}]
+		idNoMatchTooShort := uuid(4) // tires=[{tags:[a,b]}]
+		idNoMatchNoTires := uuid(5)  // car with no tires
+		docs := []docDef{
+			{id: idMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireWithTags("a", "b", "red")))}}, note: "tires[0].tags[2]=red"},
+			{id: idMatchSecondTire, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(map[string]any{}, tireWithTags("a", "b", "red")))}}, note: "tires[1].tags[2]=red"},
+			{id: idNoMatchAtZero, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireWithTags("red")))}}, note: "tags[0]=red only"},
+			{id: idNoMatchTooShort, props: map[string]any{"doc": map[string]any{"cars": asArr(carWithTires(tireWithTags("a", "b")))}}, note: "no tags[2]"},
+			{id: idNoMatchNoTires, props: map[string]any{"doc": map[string]any{"cars": asArr(carEmpty())}}, note: "no tires"},
+		}
+		runScenario(t, docs, textFilter("doc.cars.tires.tags[2]", "red"), []strfmt.UUID{idMatch, idMatchSecondTire})
+	})
+
+	// ----- Sub-test 10: same-position contradiction -----
+	// `cars.colors[0]=red AND cars.colors[0]=blue` — single position cannot
+	// equal two different values; should always return empty.
+	t.Run("contradiction_cars.colors[0]_eq_red_AND_eq_blue", func(t *testing.T) {
+		idHasRed := uuid(1)
+		idHasBlue := uuid(2)
+		idHasBoth := uuid(3) // colors=[red,blue] — but [0]=red, [1]=blue, neither position has both
+		docs := []docDef{
+			{id: idHasRed, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red"))}}, note: "colors[0]=red"},
+			{id: idHasBlue, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("blue"))}}, note: "colors[0]=blue"},
+			{id: idHasBoth, props: map[string]any{"doc": map[string]any{"cars": asArr(carColors("red", "blue"))}}, note: "colors=[red,blue]"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.colors[0]", "red"),
+			textFilter("doc.cars.colors[0]", "blue"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{})
 	})
 }
