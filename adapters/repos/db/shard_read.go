@@ -767,6 +767,11 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
+	bucketClassName, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 	cursor := bucket.Cursor()
 	defer cursor.Close()
 
@@ -789,7 +794,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinaryDisk(val, className.String())
+		obj, err := storobj.FromBinaryDisk(val, bucketClassName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}
