@@ -1253,7 +1253,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 		for ; k != nil; k, v = cursor.Next() {
 			ik := keyParse(k)
 
-			obj, err := storobj.FromBinaryOptionalWithClassName(v, className, addProps, propExtraction)
+			obj, err := storobj.FromBinaryOptionalDisk(v, className, addProps, propExtraction)
 			if err != nil {
 				mdCh <- &migrationData{err: fmt.Errorf("unmarshalling object '%s': %w", ik.String(), err)}
 				break

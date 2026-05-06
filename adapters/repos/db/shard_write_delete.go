@@ -136,7 +136,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	previousObject, err := storobj.FromBinaryWithClassName(previous, s.index.Config.ClassName.String())
+	previousObject, err := storobj.FromBinaryDisk(previous, s.index.Config.ClassName.String())
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}

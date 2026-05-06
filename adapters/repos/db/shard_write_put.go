@@ -199,7 +199,7 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 		return nil, fmt.Errorf("getting bucket class name: %w", err)
 	}
 
-	obj, err := storobj.FromBinaryWithClassName(objBytes, className)
+	obj, err := storobj.FromBinaryDisk(objBytes, className)
 	if err != nil {
 		return nil, err
 	}

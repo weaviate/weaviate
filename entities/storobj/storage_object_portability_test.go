@@ -96,7 +96,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Run("FromBinaryWithClassName", func(t *testing.T) {
-				after, err := FromBinaryWithClassName(data, tc.decodedAs)
+				after, err := FromBinaryDisk(data, tc.decodedAs)
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class,
 					"caller-supplied className wins; empty falls back to on-disk")
@@ -107,7 +107,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 			})
 
 			t.Run("FromBinaryOptionalWithClassName", func(t *testing.T) {
-				after, err := FromBinaryOptionalWithClassName(data, tc.decodedAs,
+				after, err := FromBinaryOptionalDisk(data, tc.decodedAs,
 					additional.Properties{Vector: true}, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class)
@@ -116,7 +116,7 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 			})
 
 			t.Run("FromBinaryUUIDOnlyWithClassName", func(t *testing.T) {
-				after, err := FromBinaryUUIDOnlyWithClassName(data, tc.decodedAs)
+				after, err := FromBinaryUUIDOnlyDisk(data, tc.decodedAs)
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class)
 				assert.Equal(t, before.ID(), after.ID())
@@ -163,7 +163,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Run("FromBinaryWithClassName", func(t *testing.T) {
-				after, err := FromBinaryWithClassName(data, tc.className)
+				after, err := FromBinaryDisk(data, tc.className)
 				require.NoError(t, err)
 				assert.Equal(t, tc.className, after.Object.Class,
 					"caller-supplied className must populate Object.Class when on-disk bytes are empty")
@@ -174,7 +174,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 			})
 
 			t.Run("FromBinaryOptionalWithClassName", func(t *testing.T) {
-				after, err := FromBinaryOptionalWithClassName(data, tc.className,
+				after, err := FromBinaryOptionalDisk(data, tc.className,
 					additional.Properties{Vector: true}, nil)
 				require.NoError(t, err)
 				assert.Equal(t, tc.className, after.Object.Class)
@@ -183,7 +183,7 @@ func TestPortability_EmptyOnDiskClassName(t *testing.T) {
 			})
 
 			t.Run("FromBinaryUUIDOnlyWithClassName", func(t *testing.T) {
-				after, err := FromBinaryUUIDOnlyWithClassName(data, tc.className)
+				after, err := FromBinaryUUIDOnlyDisk(data, tc.className)
 				require.NoError(t, err)
 				assert.Equal(t, tc.className, after.Object.Class)
 				assert.Equal(t, before.ID(), after.ID())

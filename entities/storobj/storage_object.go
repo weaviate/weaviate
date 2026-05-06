@@ -105,7 +105,7 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-// FromBinary decodes a payload from the objects bucket.
+// FromBinaryNetwork decodes a payload from the objects bucket.
 //
 // WARNING: the class name read from on-disk bytes is NOT authoritative. The
 // objects bucket may contain payloads written under a different class
@@ -116,18 +116,18 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 //
 // Callers that read from a shard's objects bucket and have an authoritative
 // class name in scope (typically shard.index.Config.ClassName) MUST use
-// FromBinaryWithClassName instead, which stamps the supplied class name on
-// the decoded object and ignores the on-disk value. Reserve FromBinary for
+// FromBinaryDisk instead, which stamps the supplied class name on
+// the decoded object and ignores the on-disk value. Reserve FromBinaryNetwork for
 // callers that genuinely have no class context (e.g. wire-receive decode
 // where the surrounding protocol carries the class out-of-band).
-func FromBinary(data []byte) (*Object, error) {
-	return FromBinaryWithClassName(data, "")
+func FromBinaryNetwork(data []byte) (*Object, error) {
+	return FromBinaryDisk(data, "")
 }
 
-// FromBinaryWithClassName decodes a payload using the caller-supplied class
+// FromBinaryDisk decodes a payload using the caller-supplied class
 // name in place of the on-disk value. An empty className falls back to the
 // on-disk bytes (matching FromBinary).
-func FromBinaryWithClassName(data []byte, className string) (*Object, error) {
+func FromBinaryDisk(data []byte, className string) (*Object, error) {
 	ko := &Object{}
 	if err := ko.UnmarshalBinaryWithClassName(data, className); err != nil {
 		return nil, err
@@ -136,9 +136,9 @@ func FromBinaryWithClassName(data []byte, className string) (*Object, error) {
 	return ko, nil
 }
 
-// FromBinaryUUIDOnlyWithClassName lets the caller supply an authoritative
+// FromBinaryUUIDOnlyDisk lets the caller supply an authoritative
 // class name; an empty className falls back to the on-disk bytes.
-func FromBinaryUUIDOnlyWithClassName(data []byte, className string) (*Object, error) {
+func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -177,7 +177,7 @@ func FromBinaryUUIDOnlyWithClassName(data []byte, className string) (*Object, er
 	return ko, nil
 }
 
-// FromBinaryOptional decodes a payload while optionally including/excluding
+// FromBinaryOptionalNetwork decodes a payload while optionally including/excluding
 // vectors, properties, etc. The class name is read from the on-disk bytes.
 //
 // WARNING: the class name read from on-disk bytes is NOT authoritative. The
@@ -189,18 +189,18 @@ func FromBinaryUUIDOnlyWithClassName(data []byte, className string) (*Object, er
 //
 // Callers that read from a shard's objects bucket and have an authoritative
 // class name in scope (typically shard.index.Config.ClassName) MUST use
-// FromBinaryOptionalWithClassName instead, which stamps the supplied class
+// FromBinaryOptionalDisk instead, which stamps the supplied class
 // name on the decoded object and ignores the on-disk value. Reserve
-// FromBinaryOptional for callers that genuinely have no class context.
-func FromBinaryOptional(data []byte,
+// FromBinaryOptionalNetwork for callers that genuinely have no class context.
+func FromBinaryOptionalNetwork(data []byte,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
-	return FromBinaryOptionalWithClassName(data, "", addProp, properties)
+	return FromBinaryOptionalDisk(data, "", addProp, properties)
 }
 
-// FromBinaryOptionalWithClassName lets the caller supply an authoritative
+// FromBinaryOptionalDisk lets the caller supply an authoritative
 // class name; an empty className falls back to the on-disk bytes.
-func FromBinaryOptionalWithClassName(data []byte, className string,
+func FromBinaryOptionalDisk(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
@@ -519,7 +519,7 @@ func objectsByDocIDSequentialInner(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptionalWithClassName(res, className, additional, props)
+		unmarshalled, err := FromBinaryOptionalDisk(res, className, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}

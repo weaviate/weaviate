@@ -406,7 +406,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 		return fmt.Errorf("getting bucket class name: %w", err)
 	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinaryWithClassName(v, className)
+		obj, err := storobj.FromBinaryDisk(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}

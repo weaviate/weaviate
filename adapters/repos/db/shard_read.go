@@ -95,7 +95,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinaryWithClassName(bytes, className)
+	obj, err := storobj.FromBinaryDisk(bytes, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -134,7 +134,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinaryWithClassName(bytes, className)
+		obj, err := storobj.FromBinaryDisk(bytes, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -275,7 +275,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinaryWithClassName(bytes, className)
+	obj, err := storobj.FromBinaryDisk(bytes, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -789,7 +789,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinaryWithClassName(val, className.String())
+		obj, err := storobj.FromBinaryDisk(val, className.String())
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}

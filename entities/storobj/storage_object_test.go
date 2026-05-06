@@ -70,7 +70,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -243,13 +243,13 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 
 		t.Run("check multi vectors optional", func(t *testing.T) {
 			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+				afterMultiVectorsOptional, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, nil)
 				require.Nil(t, err)
 				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
 			})
 
 			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+				afterMultiVectorsOptional, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
 					Vectors: []string{"vector4"},
 				}, nil)
 				require.Nil(t, err)
@@ -259,7 +259,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			})
 
 			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
-				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+				afterMultiVectorsOptional, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
 					Vectors: []string{"vector2", "vector4"},
 				}, nil)
 				require.Nil(t, err)
@@ -462,7 +462,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("without any optional", func(t *testing.T) {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+		after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, nil)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -632,7 +632,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -792,7 +792,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := FromBinary(asBinary)
+	after, err := FromBinaryNetwork(asBinary)
 	require.Nil(t, err)
 
 	t.Run("compare", func(t *testing.T) {
@@ -877,7 +877,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)
 
-				after, err := FromBinary(asBinary)
+				after, err := FromBinaryNetwork(asBinary)
 				require.Nil(t, err)
 
 				t.Run("compare", func(t *testing.T) {
@@ -914,7 +914,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				require.Nil(t, err)
 
 				t.Run("get without additional properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -930,7 +930,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("get with additional property vector", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{Vector: true}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -948,7 +948,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("with explicit properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{},
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{},
 						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
@@ -959,7 +959,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("test no props and moduleparams", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{
+					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
 						NoProps:      true,
 						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
 					},
@@ -1183,7 +1183,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Equal(t, 3*4, len(fullBytes)-len(optionalBytes)) // 3 floats * 4 bytes
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, Vectors: []string{"vector1", "vector2", "multiVec1", "multiVec2"}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: false, Vectors: []string{"vector1", "vector2", "multiVec1", "multiVec2"}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1202,7 +1202,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		require.Nil(t, err)
 
 		// Verify it can be deserialized with vector
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: true}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.Vector, after.Vector)
 	})
@@ -1221,7 +1221,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Less(t, len(optionalBytes), len(fullBytes))
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1243,7 +1243,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Less(t, len(optionalBytes), len(fullBytes))
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, Vectors: []string{}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: false, Vectors: []string{}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		// Target vectors should be nil since they weren't serialized
@@ -1259,7 +1259,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		require.Nil(t, err)
 
 		// Verify it can still be deserialized with the specific vectors
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: true, Vectors: []string{"vector1", "multiVec1"}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: true, Vectors: []string{"vector1", "multiVec1"}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.Vector, after.Vector)
@@ -1296,7 +1296,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 			float64(len(fullBytes)-len(optionalBytes))/float64(len(fullBytes))*100)
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{Vector: false, NoProps: true, Vectors: []string{}}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{Vector: false, NoProps: true, Vectors: []string{}}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1319,7 +1319,7 @@ func TestMarshalBinaryOptional(t *testing.T) {
 		assert.Less(t, len(optionalBytes), len(fullBytes))
 
 		// Verify it can still be deserialized
-		after, err := FromBinaryOptional(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
+		after, err := FromBinaryOptionalNetwork(optionalBytes, additional.Properties{NoProps: true, Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, before.DocID, after.DocID)
 		assert.Equal(t, before.ID(), after.ID())
@@ -1515,7 +1515,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{}, props)
+		after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{}, props)
 		require.Nil(b, err)
 		require.NotNil(b, after)
 	}

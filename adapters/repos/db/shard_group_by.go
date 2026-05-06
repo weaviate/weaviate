@@ -141,7 +141,7 @@ DOCS_LOOP:
 
 			if _, ok := docIDObject[docID]; !ok {
 				// whole object, might be that we only need value and ID to be extracted
-				unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, className, g.additional, props)
+				unmarshalled, err := storobj.FromBinaryOptionalDisk(objData, className, g.additional, props)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%w: unmarshal data object at position %d", err, i)
 				}
@@ -227,7 +227,7 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		if err != nil {
 			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
-		unmarshalled, err := storobj.FromBinaryOptionalWithClassName(objData, className, g.additional, nil)
+		unmarshalled, err := storobj.FromBinaryOptionalDisk(objData, className, g.additional, nil)
 		if err != nil {
 			return nil, fmt.Errorf("%w: unmarshal data object doc id %d", err, docID)
 		}

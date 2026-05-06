@@ -107,7 +107,7 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				// must win, regardless of what's on disk.
 				className, err := bucket.ClassName()
 				require.NoError(t, err, "cannot get bucket class name")
-				decodedWithClassName, err := storobj.FromBinaryWithClassName(v, className)
+				decodedWithClassName, err := storobj.FromBinaryDisk(v, className)
 				require.NoError(t, err, "cannot unmarshal object via FromBinaryWithClassName")
 				require.NotNil(t, decodedWithClassName)
 				assert.Equal(t, wantClass, decodedWithClassName.Object.Class,
@@ -120,7 +120,7 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				// Legacy path: FromBinary (no caller className) falls back to
 				// the on-disk value. This is the contract for wire-receive
 				// callers that have no bucket in hand.
-				decoded, err := storobj.FromBinary(v)
+				decoded, err := storobj.FromBinaryNetwork(v)
 				require.NoError(t, err, "cannot unmarshal object via FromBinary")
 				require.NotNil(t, decoded)
 				assert.Equal(t, tc.marshaledClass, decoded.Object.Class,
