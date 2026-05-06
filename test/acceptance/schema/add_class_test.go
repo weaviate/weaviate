@@ -593,9 +593,13 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
-			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
-			assert.Contains(t, parsed.Payload.Error[0].Message, "maximum number of collections")
+			var parsed *clschema.SchemaObjectsCreateTooManyRequests
+			require.True(t, errors.As(err, &parsed),
+				"error should be TooManyRequests (USAGE_LIMIT_EXCEEDED), got %T: %v", err, err)
+			require.NotNil(t, parsed.Payload)
+			assert.Equal(t, "USAGE_LIMIT_EXCEEDED", parsed.Payload.ErrorCode)
+			assert.Equal(t, "collections", parsed.Payload.Limit)
+			assert.Equal(t, int64(100), parsed.Payload.Value)
 		})
 
 		// Delete one class and verify we can create a new one
