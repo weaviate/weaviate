@@ -60,30 +60,28 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 		marshaledAs string
 		decodedAs   string
 		want        string
+		expectedErr bool
 	}{
 		{
 			name:        "caller wins — namespaced bytes read by non-namespaced cluster",
 			marshaledAs: "my_ns:Movies",
 			decodedAs:   "Movies",
 			want:        "Movies",
+			expectedErr: false,
 		},
 		{
 			name:        "caller wins — non-namespaced bytes read by namespaced cluster",
 			marshaledAs: "Movies",
 			decodedAs:   "other_ns:Movies",
 			want:        "other_ns:Movies",
+			expectedErr: false,
 		},
 		{
-			name:        "fallback to on-disk when caller supplies empty",
+			name:        "error on empty caller class name and empty on-disk class name",
 			marshaledAs: "Movies",
 			decodedAs:   "",
 			want:        "Movies",
-		},
-		{
-			name:        "fallback preserves a qualified on-disk class",
-			marshaledAs: "my_ns:Movies",
-			decodedAs:   "",
-			want:        "my_ns:Movies",
+			expectedErr: true,
 		},
 	}
 
@@ -97,6 +95,10 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 
 			t.Run("FromBinaryDisk", func(t *testing.T) {
 				after, err := FromBinaryDisk(data, tc.decodedAs)
+				if tc.expectedErr {
+					require.Error(t, err)
+					return
+				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class,
 					"caller-supplied className wins; empty falls back to on-disk")
@@ -109,6 +111,10 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 			t.Run("FromBinaryOptionalDisk", func(t *testing.T) {
 				after, err := FromBinaryOptionalDisk(data, tc.decodedAs,
 					additional.Properties{Vector: true}, nil)
+				if tc.expectedErr {
+					require.Error(t, err)
+					return
+				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class)
 				assert.Equal(t, before.ID(), after.ID())
@@ -117,6 +123,10 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 
 			t.Run("FromBinaryUUIDOnlyDisk", func(t *testing.T) {
 				after, err := FromBinaryUUIDOnlyDisk(data, tc.decodedAs)
+				if tc.expectedErr {
+					require.Error(t, err)
+					return
+				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.want, after.Object.Class)
 				assert.Equal(t, before.ID(), after.ID())

@@ -147,6 +147,9 @@ func FromBinaryDisk(data []byte, className string) (*Object, error) {
 // FromBinaryUUIDOnlyDisk lets the caller supply an authoritative
 // class name; an empty className falls back to the on-disk bytes.
 func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryUUIDOnlyDisk; use FromBinaryNetwork or FromBinary if you want to fall back to on-disk value")
+	}
 	ko := &Object{}
 
 	rw := byteops.NewReadWriter(data)
@@ -203,12 +206,23 @@ func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 func FromBinaryOptionalNetwork(data []byte,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
-	return FromBinaryOptionalDisk(data, "", addProp, properties)
+	return fromBinaryOptionalInternal(data, "", addProp, properties)
 }
 
 // FromBinaryOptionalDisk lets the caller supply an authoritative
 // class name; an empty className falls back to the on-disk bytes.
 func FromBinaryOptionalDisk(data []byte, className string,
+	addProp additional.Properties, properties *PropertyExtraction,
+) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryOptionalDisk; use FromBinaryOptionalNetwork if you want to fall back to on-disk value")
+	}
+	return fromBinaryOptionalInternal(data, className, addProp, properties)
+}
+
+// FromBinaryOptionalDisk lets the caller supply an authoritative
+// class name; an empty className falls back to the on-disk bytes.
+func fromBinaryOptionalInternal(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
