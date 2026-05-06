@@ -214,7 +214,6 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		}
 	}
 	if containsDocID {
-
 		className, err := g.objBucket.ClassName()
 		if err != nil {
 			return nil, fmt.Errorf("getting bucket class name: %w", err)
