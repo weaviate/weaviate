@@ -250,12 +250,8 @@ type Shard struct {
 	// Lock order, outermost → innermost:
 	//   Index.backupLock.RLock(shard) > quiesceMux > asyncReplicationRWMux > docIdLock[poolId].
 	changeLogs atomic.Pointer[changelog.Set]
-	// changeLogsActivateMu serializes ActivateChangeLog so the keep-snapshot,
-	// orphan sweep, O_EXCL Open, and Register form one atomic step. Without
-	// it, two concurrent activates can each snapshot a registered set that
-	// excludes the other's pending op, then sweep the other's freshly-opened
-	// .log file. Leaf lock — held only across activate, never under any
-	// other shard mutex and never on the write-path tee.
+	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
+	// activates can't sweep each other's freshly-opened .log file.
 	changeLogsActivateMu sync.Mutex
 	quiesceMux           sync.RWMutex
 
