@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/alias"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type schemaManager interface {
@@ -91,11 +90,6 @@ type Manager struct {
 	autoSchemaManager *AutoSchemaManager
 	metrics           objectsMetrics
 	allocChecker      *memwatch.Monitor
-
-	// usageLimits is the Free-Tier guardrail gate. AddObject calls
-	// CheckObjects(ctx, 1) after authorization and before persistence;
-	// nil disables the check (used in tests that don't exercise limits).
-	usageLimits *usagelimits.Manager
 }
 
 type objectsMetrics interface {
@@ -167,13 +161,18 @@ type ModulesProvider interface {
 	VectorizerName(className string) (string, error)
 }
 
-// NewManager creates a new manager
+// NewManager creates a new manager.
+//
+// Note: object usage-limit enforcement does NOT live here — it fires
+// at the storage chokepoint (Shard.PutObject{,Batch}). The use-case
+// layer is invoked only on the entry node, while the chokepoint
+// catches both local and forwarded writes (RF=1). See
+// docs/usage_limits.md.
 func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
 	autoSchemaManager *AutoSchemaManager,
-	usageLimits *usagelimits.Manager,
 ) *Manager {
 	if allocChecker == nil {
 		allocChecker = memwatch.NewDummyMonitor()
@@ -190,7 +189,6 @@ func NewManager(schemaManager schemaManager,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
-		usageLimits:       usageLimits,
 	}
 }
 

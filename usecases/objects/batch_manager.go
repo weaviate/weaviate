@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects/alias"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
@@ -37,11 +36,6 @@ type BatchManager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
-
-	// usageLimits is the Free-Tier guardrail gate. AddObjects calls
-	// CheckObjects(ctx, len(batch)) after batch authorization and before
-	// persistence — whole-batch rejection on miss, no partial fill.
-	usageLimits *usagelimits.Manager
 }
 
 type BatchVectorRepo interface {
@@ -58,12 +52,16 @@ type batchRepoNew interface {
 		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchReferences, error)
 }
 
-// NewBatchManager creates a new manager
+// NewBatchManager creates a new manager.
+//
+// Note: object usage-limit enforcement does NOT live here — see
+// the matching note on NewManager. The chokepoint is at
+// Shard.PutObjectBatch (adapters/repos/db/shard_write_batch_objects.go).
+// docs/usage_limits.md has the full rationale.
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager,
-	usageLimits *usagelimits.Manager,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
@@ -75,7 +73,6 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		authorizer:        authorizer,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
-		usageLimits:       usageLimits,
 	}
 }
 

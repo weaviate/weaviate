@@ -106,6 +106,9 @@ Modules implement the `Module` interface (`Name()`, `Init()`, `Type()`) and opti
 ### Startup Wiring
 All initialization happens in `adapters/handlers/rest/configure_api.go` → `MakeAppState()`: DB creation, schema manager, cluster/RAFT services, module registration, gRPC server startup, and monitoring.
 
+### Usage Limits / Free-Tier Guardrails
+Server-side caps (`MAXIMUM_ALLOWED_*`) for objects, collections, tenants, and shards. The object check fires at `Shard.PutObject{,Batch}` (the storage chokepoint, covering local + forwarded writes for RF=1); schema-side checks fire at their use-case entry points. See `docs/usage_limits.md` for the full design, env vars, and supported deployment shapes.
+
 ## Code Conventions
 
 ### Allocation Efficiency

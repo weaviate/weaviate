@@ -67,8 +67,7 @@ func Test_GetAction(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-			nil)
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -697,8 +696,7 @@ func Test_GetThing(t *testing.T) {
 		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()),
-			nil)
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1095,7 +1093,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil,
-		NewAutoSchemaManager(schemaManager, r.repo, cfg, r.authorizer, logger, prometheus.NewPedanticRegistry()), nil)
+		NewAutoSchemaManager(schemaManager, r.repo, cfg, r.authorizer, logger, prometheus.NewPedanticRegistry()))
 
 	return r
 }

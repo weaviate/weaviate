@@ -183,7 +183,6 @@ func TestManager_AllUnlimitedByDefault(t *testing.T) {
 	// bootstrap).
 	m := NewManager(Config{
 		ErrorMessage: runtime.NewDynamicValue(""),
-		Scope:        runtime.NewDynamicValue(""),
 	}, nil, nil, nil)
 
 	if err := m.CheckObjects(context.Background(), 1_000_000); err != nil {
@@ -207,32 +206,6 @@ func TestManager_NilManagerIsSafe(t *testing.T) {
 	}
 	if err := m.CheckShards(100); err != nil {
 		t.Errorf("nil manager CheckShards should be safe, got %v", err)
-	}
-	if got := m.CurrentScope(); got != ScopeNode {
-		t.Errorf("nil manager CurrentScope = %v, want %v", got, ScopeNode)
-	}
-}
-
-func TestManager_CurrentScope(t *testing.T) {
-	tests := []struct {
-		name string
-		val  string
-		want Scope
-	}{
-		{name: "default empty", val: "", want: ScopeNode},
-		{name: "explicit node", val: "node", want: ScopeNode},
-		// Note: cluster/namespace would have been rejected at startup, so
-		// they should never reach this code path. Still, we don't mangle
-		// them — Manager just returns the literal Scope value.
-		{name: "cluster passes through (startup gate is upstream)", val: "cluster", want: ScopeCluster},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := NewManager(Config{Scope: runtime.NewDynamicValue(tt.val)}, nil, nil, nil)
-			if got := m.CurrentScope(); got != tt.want {
-				t.Errorf("CurrentScope() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 

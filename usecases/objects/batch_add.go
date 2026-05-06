@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least one object for batching")
@@ -64,14 +65,6 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 	}
 
-	// Free-Tier guardrail: whole-batch rejection if this batch would push
-	// the per-instance live object count above MAXIMUM_ALLOWED_OBJECTS_COUNT.
-	// We deliberately do not partial-fill (server picking which objects
-	// survived would be surprising); the client decides what to retry.
-	if err := b.usageLimits.CheckObjects(ctx, int64(len(objects))); err != nil {
-		return nil, err
-	}
-
 	return b.addObjects(ctx, principal, objects, repl, knownClasses)
 }
 
@@ -79,13 +72,6 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
-	// Same Free-Tier guardrail as the REST entry point — gRPC has its
-	// own auth path but limit enforcement must run on every coordinator
-	// write entry. Whole-batch rejection on miss; the gRPC handler maps
-	// *LimitExceededError to a top-level codes.ResourceExhausted reply.
-	if err := b.usageLimits.CheckObjects(ctx, int64(len(objects))); err != nil {
-		return nil, err
-	}
 	return b.addObjects(ctx, principal, objects, repl, fetchedClasses)
 }
 
@@ -154,7 +140,41 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
+	// Free-Tier guardrail: the per-object cap is enforced at the storage
+	// chokepoint (Shard.PutObjectBatch in adapters/repos/db). When it
+	// fires, every object in the shard-slice carries the same
+	// *LimitExceededError. Surface that as a top-level error so the
+	// REST/gRPC handler maps it to 429 / RESOURCE_EXHAUSTED, preserving
+	// the whole-batch-rejection contract from the RFC. This only fires
+	// when *all* returned objects carry the same limit-exceeded — for
+	// multi-shard collections where only some shard-slices were rejected,
+	// the per-object errors flow through unchanged. See
+	// docs/usage_limits.md.
+	if le := unanimousLimitExceeded(res); le != nil {
+		return nil, le
+	}
+
 	return res, nil
+}
+
+// unanimousLimitExceeded returns a *usagelimits.LimitExceededError if and
+// only if every BatchObject in res carries the same limit-exceeded error
+// (matching Limit + Value). Otherwise nil.
+func unanimousLimitExceeded(res BatchObjects) *usagelimits.LimitExceededError {
+	if len(res) == 0 {
+		return nil
+	}
+	first, ok := usagelimits.AsLimitExceeded(res[0].Err)
+	if !ok {
+		return nil
+	}
+	for i := 1; i < len(res); i++ {
+		got, ok := usagelimits.AsLimitExceeded(res[i].Err)
+		if !ok || got.Limit != first.Limit || got.Value != first.Value {
+			return nil
+		}
+	}
+	return first
 }
 
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,

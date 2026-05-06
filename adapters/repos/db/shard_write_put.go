@@ -35,6 +35,15 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
+	// Free-Tier guardrail. Fires once per write on the home node — covers
+	// both local writes (Index.putObject → Shard.PutObject) and writes
+	// forwarded by another node (Index.IncomingPutObject → Shard.PutObject),
+	// because both paths converge here for RF=1. RF>1 bypasses this helper
+	// (replica path uses preparePutObject → s.putOne directly) and is out
+	// of scope. See docs/usage_limits.md.
+	if err := s.index.usageLimits.CheckObjects(ctx, 1); err != nil {
+		return err
+	}
 	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err

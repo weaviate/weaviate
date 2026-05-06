@@ -1040,6 +1040,10 @@ func FromEnv(config *Config) error {
 		config.AsyncIndexingEnabled = true
 	}
 
+	// Free-Tier guardrail env vars. See docs/usage_limits.md for the full
+	// design (chokepoint location, supported deployment shapes, runtime
+	// override semantics). Defaults are -1 / "" / unlimited so the feature
+	// is opt-in and existing deployments are unaffected.
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {
@@ -1079,10 +1083,6 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
-
-	parseString("USAGE_LIMITS_SCOPE", func(val string) {
-		config.UsageLimits.Scope = configRuntime.NewDynamicValue(val)
-	}, DefaultUsageLimitsScope)
 
 	parseString("USAGE_LIMITS_ERROR_MESSAGE", func(val string) {
 		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
@@ -1628,7 +1628,6 @@ const (
 	DefaultMaximumAllowedObjectsCount          = -1 // unlimited
 	DefaultMaximumAllowedTenantsPerCollection  = -1 // unlimited
 	DefaultMaximumAllowedShardsPerCollection   = -1 // unlimited
-	DefaultUsageLimitsScope                    = "node"
 	DefaultUsageLimitsErrorMessage             = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 )
 

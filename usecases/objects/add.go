@@ -45,15 +45,6 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	// Free-Tier guardrail: reject up front if this write would push the
-	// per-instance live object count above MAXIMUM_ALLOWED_OBJECTS_COUNT.
-	// Coordinator-only check, before replication. The error type is
-	// *usagelimits.LimitExceededError; the REST/gRPC handler layer maps
-	// it to HTTP 429 / RESOURCE_EXHAUSTED.
-	if err := m.usageLimits.CheckObjects(ctx, 1); err != nil {
-		return nil, err
-	}
-
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 

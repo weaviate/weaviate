@@ -43,11 +43,10 @@ import (
 //   - Tenant limit (REST tenants create)
 //   - Shard limit (REST class create)
 //   - Custom error-message template rendering
-//   - Default scope (no USAGE_LIMITS_SCOPE env var → behaves as "node")
 //
-// Runtime-override and unsupported-scope startup-rejection scenarios
-// live in their own test functions because they need different
-// container configurations.
+// The runtime-override scenario lives in its own test function because
+// it needs a different container configuration (no env-var limit set,
+// then a YAML override written mid-flight).
 //
 // `PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1` is set so the
 // async object-count path picks up freshly-inserted objects within a
@@ -160,13 +159,6 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 		require.True(t, ok, "expected gRPC status, got %T: %v", err, err)
 		assert.Equal(t, codes.ResourceExhausted, st.Code(),
 			"expected codes.ResourceExhausted, got %v: %s", st.Code(), st.Message())
-	})
-
-	t.Run("default scope unset → behaves as node", func(t *testing.T) {
-		// All preceding sub-tests ran on a container with USAGE_LIMITS_SCOPE
-		// deliberately unset. Their limits firing as expected is the proof
-		// that the default-scope path enforces. This sub-test exists as a
-		// documented anchor — no additional assertion required.
 	})
 }
 

@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
@@ -125,10 +124,6 @@ type SchemaHandlerConfig struct {
 // unlimited / default). Operators set values via env vars at startup and
 // can also override at runtime via the YAML runtime-overrides file.
 type UsageLimitsConfig struct {
-	// Scope declares the unit of accounting for every limit. Today only
-	// "node" is implemented; "cluster" / "namespace" are reserved and
-	// rejected at startup so future changes can be additive.
-	Scope *runtime.DynamicValue[string] `json:"scope" yaml:"scope"`
 	// ErrorMessage is the operator-overridable template used to render the
 	// `message` field of the structured limit-exceeded response. Recognized
 	// placeholders are {limit} and {value}; see usagelimits.RenderTemplate.
@@ -368,23 +363,7 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
-	if err := c.validateUsageLimits(); err != nil {
-		return configErr(err)
-	}
-
 	return nil
-}
-
-// validateUsageLimits rejects unsupported USAGE_LIMITS_SCOPE values at
-// startup. ScopeNode (or empty, defaulting to node) is allowed; cluster
-// and namespace are reserved as forward-compatible extension points and
-// must fail closed so an operator can't accidentally rely on a contract
-// Weaviate doesn't yet honor.
-func (c *Config) validateUsageLimits() error {
-	if c.UsageLimits.Scope == nil {
-		return nil
-	}
-	return usagelimits.ValidateScopeString(c.UsageLimits.Scope.Get())
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

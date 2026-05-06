@@ -37,6 +37,23 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return []error{err}
 	}
 
+	// Free-Tier guardrail. Fires once per shard-slice on the home node —
+	// covers local entry (Index.putObjectBatch → Shard.PutObjectBatch)
+	// and forwarded entry (Index.IncomingBatchPutObjects →
+	// Shard.PutObjectBatch). Because Index.putObjectBatch partitions a
+	// client batch by shard *before* forwarding, on multi-shard
+	// collections one client batch can produce per-shard partial success;
+	// single-shard collections (Free Tier) get whole-batch rejection
+	// unchanged. RF>1 is out of scope (replica path bypasses this
+	// helper). See docs/usage_limits.md.
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects))); err != nil {
+		errs := make([]error, len(objects))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
+
 	return s.putBatch(ctx, objects)
 }
 

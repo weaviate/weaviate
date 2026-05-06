@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type DB struct {
@@ -118,6 +119,20 @@ type DB struct {
 	AsyncIndexingEnabled bool
 
 	tenantsManager schemaUC.TenantsActivityManager
+
+	// usageLimits is the Free-Tier guardrail gate, propagated to each
+	// Index when it is created so Shard.PutObject{,Batch} can call
+	// CheckObjects on the write path. nil disables the check (used in
+	// tests / older deployments where the guardrails are not wired).
+	// See docs/usage_limits.md for the full design.
+	usageLimits *usagelimits.Manager
+}
+
+// SetUsageLimits installs the usage-limits Manager on the DB. Must be
+// called before WaitForStartup so that indices created during startup
+// inherit the manager. See docs/usage_limits.md.
+func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
+	db.usageLimits = m
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {

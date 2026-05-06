@@ -9,6 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Package usagelimits enforces server-side usage limits (objects,
+// collections, tenants, shards) configured via env vars and runtime
+// overrides. The object-count check fires at the storage chokepoint
+// (Shard.PutObject{,Batch}); the schema-side checks fire at their
+// respective use-case entry points. See docs/usage_limits.md for the
+// full design.
 package usagelimits
 
 import (
@@ -52,9 +58,6 @@ type TenantCounter interface {
 // usable in tests and during early bootstrap before configuration is
 // fully wired.
 type Config struct {
-	// Scope: declared unit of accounting. Today only "node" is implemented;
-	// "cluster" / "namespace" are rejected at startup.
-	Scope *runtime.DynamicValue[string]
 	// ErrorMessage is the operator-overridable template for the user-facing
 	// error message rendered into LimitExceededError.RenderedMessage.
 	ErrorMessage *runtime.DynamicValue[string]
@@ -242,21 +245,6 @@ func (m *Manager) CheckShards(requestedShards int) error {
 		return m.exceeded(LimitShards, cap)
 	}
 	return nil
-}
-
-// CurrentScope returns the configured scope (defaulting to ScopeNode for
-// unset / empty). Invariant: by the time a Manager exists, scope has
-// already been validated at startup, so this never returns an unsupported
-// value.
-func (m *Manager) CurrentScope() Scope {
-	if m == nil {
-		return ScopeNode
-	}
-	s := m.cfg.Scope.Get()
-	if s == "" {
-		return ScopeNode
-	}
-	return Scope(s)
 }
 
 func (m *Manager) exceeded(limit LimitName, value int64) *LimitExceededError {

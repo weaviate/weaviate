@@ -80,6 +80,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
@@ -311,6 +312,13 @@ type Index struct {
 	shardResolver  *resolver.ShardResolver
 	bitmapBufPool  roaringset.BitmapBufPool
 	tenantsManager schemaUC.TenantsActivityManager
+
+	// usageLimits is the Free-Tier guardrail gate; inherited from the
+	// owning DB at construction time. Read by Shards on the write path
+	// via s.index.usageLimits. nil means no enforcement (tests, or
+	// deployments that haven't set MAXIMUM_ALLOWED_OBJECTS_COUNT).
+	// See docs/usage_limits.md.
+	usageLimits *usagelimits.Manager
 }
 
 func (i *Index) ID() string {

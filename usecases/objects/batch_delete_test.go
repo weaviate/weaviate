@@ -69,7 +69,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider := getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), nil)
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	reset := func() {
