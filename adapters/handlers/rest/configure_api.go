@@ -1120,6 +1120,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger,
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
+		telemetryEnabled(appState),
 	)
 
 	var grpcInstrument []grpc.ServerOption
