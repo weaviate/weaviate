@@ -81,12 +81,12 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+	require.Nil(t, err)
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
@@ -266,12 +266,12 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
-	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+	require.Nil(t, err)
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
@@ -446,7 +446,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 	})
 }
 
-func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
+func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWrites() {
 	t := suite.T()
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
@@ -457,12 +457,12 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
-	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+	require.Nil(t, err)
 
 	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
 	defer cancel()
