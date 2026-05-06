@@ -46,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // State is the only source of application-wide state
@@ -97,6 +98,12 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+
+	// UsageLimits is the cross-cutting policy gate for the Free-Tier
+	// guardrails. Constructed early in MakeAppState; counters are
+	// installed (via Set*Counter) once their dependencies (DB, schema
+	// manager) become available later in startup.
+	UsageLimits *usagelimits.Manager
 
 	// GRPCConnManager is a general connection manager for any/all gRPC connections used by the application. It implements retry logic and connection pooling.
 	GRPCConnManager *grpcconn.ConnManager

@@ -12,9 +12,12 @@
 package test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -494,20 +497,39 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
 
-		// Second class should fail
-		className2 := "TestCollection2"
-		c2 := &models.Class{
-			Class:      className2,
-			Vectorizer: "none",
-		}
+		// Second class should fail with the new HTTP 429 + structured
+		// USAGE_LIMIT_EXCEEDED body. The pre-RFC behavior was an HTTP 422
+		// with a free-text "maximum number of collections" message; this
+		// is the migration documented under the RFC's Backward
+		// compatibility section.
+		//
+		// We use a raw HTTP client here because 429 is not declared in
+		// the OpenAPI spec for SchemaObjectsCreate (covered separately in
+		// the RFC's Phase 7 doc/spec work), so the go-swagger generated
+		// client cannot decode it as a typed response.
+		body := []byte(`{"class":"TestCollection2","vectorizer":"none"}`)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			"http://"+compose.GetWeaviate().URI()+"/v1/schema",
+			bytes.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		raw, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer raw.Body.Close()
+		assert.Equal(t, http.StatusTooManyRequests, raw.StatusCode,
+			"expected HTTP 429 once collection limit is hit")
 
-		params = clschema.NewSchemaObjectsCreateParams().WithObjectClass(c2)
-		resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-		helper.AssertRequestFail(t, resp, err, func() {
-			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
-			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
-			assert.Contains(t, parsed.Payload.Error[0].Message, "maximum number of collections")
-		})
+		var parsed struct {
+			ErrorCode string `json:"errorCode"`
+			Limit     string `json:"limit"`
+			Value     int64  `json:"value"`
+			Message   string `json:"message"`
+		}
+		require.NoError(t, json.NewDecoder(raw.Body).Decode(&parsed))
+		assert.Equal(t, "USAGE_LIMIT_EXCEEDED", parsed.ErrorCode)
+		assert.Equal(t, "collections", parsed.Limit)
+		assert.Equal(t, int64(1), parsed.Value)
+		assert.NotEmpty(t, parsed.Message)
 	})
 
 	t.Run("with default limit (unlimited collections)", func(t *testing.T) {

@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
@@ -499,36 +500,21 @@ func Test_AddClassWithLimits(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with max collections limit", func(t *testing.T) {
+		// After the Free-Tier guardrails RFC, a hit on the collection-count
+		// limit returns *usagelimits.LimitExceededError so the REST/gRPC
+		// layer can map it to HTTP 429 / RESOURCE_EXHAUSTED with the
+		// structured USAGE_LIMIT_EXCEEDED body. The free-text 422-mapped
+		// error is gone; assertions now check the typed shape instead.
 		tests := []struct {
 			name          string
 			existingCount int
 			maxAllowed    int
-			expectedError error
+			expectExceed  bool
 		}{
-			{
-				name:          "under the limit",
-				existingCount: 5,
-				maxAllowed:    10,
-				expectedError: nil,
-			},
-			{
-				name:          "at the limit",
-				existingCount: 10,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "over the limit",
-				existingCount: 11,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "no limit set",
-				existingCount: 100,
-				maxAllowed:    -1,
-				expectedError: nil,
-			},
+			{name: "under the limit", existingCount: 5, maxAllowed: 10, expectExceed: false},
+			{name: "at the limit", existingCount: 10, maxAllowed: 10, expectExceed: true},
+			{name: "over the limit", existingCount: 11, maxAllowed: 10, expectExceed: true},
+			{name: "no limit set", existingCount: 100, maxAllowed: -1, expectExceed: false},
 		}
 
 		for _, tt := range tests {
@@ -547,15 +533,19 @@ func Test_AddClassWithLimits(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 
-				if tt.expectedError == nil {
+				if !tt.expectExceed {
 					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				}
 
 				_, _, err := handler.AddClass(ctx, nil, class)
-				if tt.expectedError != nil {
+				if tt.expectExceed {
 					require.NotNil(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError.Error())
+					le, ok := usagelimits.AsLimitExceeded(err)
+					require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+					assert.Equal(t, usagelimits.LimitCollections, le.Limit)
+					assert.Equal(t, int64(tt.maxAllowed), le.Value)
+					assert.NotEmpty(t, le.RenderedMessage)
 				} else {
 					require.Nil(t, err)
 				}

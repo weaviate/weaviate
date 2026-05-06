@@ -159,6 +159,7 @@ import (
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
@@ -233,6 +234,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	config.ServerVersion = build.Version
 
 	appState := startupRoutine(ctx, serverShutdownCtx, options)
+
+	// Construct the usage-limits Manager early so consumers downstream
+	// (schema manager, batch manager, tenant create path) can hold a
+	// reference to it. Counters are wired in via Set*Counter once their
+	// dependencies (schema state, DB) are constructed below.
+	appState.UsageLimits = usagelimits.NewManager(usagelimits.Config{
+		Scope:                   appState.ServerConfig.Config.UsageLimits.Scope,
+		ErrorMessage:            appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		MaxObjectsCount:         appState.ServerConfig.Config.UsageLimits.MaxObjectsCount,
+		MaxCollectionsCount:     appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount,
+		MaxTenantsPerCollection: appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
+		MaxShardsPerCollection:  appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection,
+	}, nil, nil, nil)
 
 	// Initialize OpenTelemetry tracing
 	if err := opentelemetry.Init(appState.Logger); err != nil {
@@ -686,6 +700,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Modules, appState.Cluster,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
+		appState.UsageLimits,
 	)
 	if err != nil {
 		appState.Logger.

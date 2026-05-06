@@ -88,6 +88,11 @@ type Manager struct {
 // but a nil counter combined with a configured limit on its corresponding
 // Check* call returns an error rather than silently passing through, so
 // misconfiguration is loud rather than silent.
+//
+// Callers that don't have all counters at construction time (the typical
+// case during server startup, where the DB is constructed after the
+// Manager) can pass nil and use the Set*Counter methods below to inject
+// counters once their dependencies are available.
 func NewManager(
 	cfg Config,
 	objectCounter ObjectCounter,
@@ -100,6 +105,54 @@ func NewManager(
 		collectionCounter: collectionCounter,
 		tenantCounter:     tenantCounter,
 	}
+}
+
+// SetObjectCounter installs an ObjectCounter on the Manager after
+// construction. Use this when the counter's dependencies (e.g. the DB)
+// are not yet available at NewManager time. Safe to call once during
+// startup; the Manager is not designed to handle counter-swapping at
+// runtime.
+func (m *Manager) SetObjectCounter(c ObjectCounter) {
+	if m == nil {
+		return
+	}
+	m.objectCounter = c
+}
+
+// SetCollectionCounter installs a CollectionCounter on the Manager after
+// construction. See SetObjectCounter for usage notes.
+func (m *Manager) SetCollectionCounter(c CollectionCounter) {
+	if m == nil {
+		return
+	}
+	m.collectionCounter = c
+}
+
+// SetTenantCounter installs a TenantCounter on the Manager after
+// construction. See SetObjectCounter for usage notes.
+func (m *Manager) SetTenantCounter(c TenantCounter) {
+	if m == nil {
+		return
+	}
+	m.tenantCounter = c
+}
+
+// NewLimitExceededError constructs a *LimitExceededError whose
+// RenderedMessage is filled from this Manager's USAGE_LIMITS_ERROR_MESSAGE
+// template. Use this for callers that have already computed the count
+// themselves (e.g. the schema Handler, which counts collections via its
+// own schemaManager) and only want the Manager's consistent error
+// rendering. For most callers, prefer the Check* methods which handle
+// counting and formatting together.
+func (m *Manager) NewLimitExceededError(limit LimitName, value int64) *LimitExceededError {
+	if m == nil {
+		return &LimitExceededError{
+			Limit:           limit,
+			Value:           value,
+			RenderedMessage: RenderTemplate("", limit, value),
+		}
+	}
+	return m.exceeded(limit, value)
 }
 
 // CheckObjects rejects when (currentObjects + n) would exceed

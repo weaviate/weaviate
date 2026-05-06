@@ -46,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
@@ -151,12 +152,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		return nil, 0, fmt.Errorf(
-			"cannot create collection: maximum number of collections (%d) reached - "+
-				"please consider switching to multi-tenancy or increasing the collection count limit - "+
-				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
-				"when working with multiple collections and tenants",
-			limit)
+		// Return a typed *usagelimits.LimitExceededError so the REST/gRPC
+		// layer can map it to the canonical 429 / RESOURCE_EXHAUSTED
+		// response with the operator-overridable error message template.
+		// Pre-RFC, this same condition surfaced as a free-text error
+		// mapped to HTTP 422 — see RFC `Backward compatibility`.
+		return nil, 0, h.usageLimits.NewLimitExceededError(usagelimits.LimitCollections, int64(limit))
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
