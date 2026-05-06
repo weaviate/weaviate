@@ -483,13 +483,9 @@ func TestRewritePolicy(t *testing.T) {
 	}
 }
 
-// freshPolicyDir creates a per-test rbac storage directory (cleaned up at
-// test end). Returns the parent path that Init expects.
-//
-// Init writes build.Version into <dir>/rbac/version. In unit tests
-// build.Version is empty, which corrupts the version file and breaks the
-// minor-version parse on a second Init call against the same directory.
-// Set a sentinel here so the restart-semantics tests can re-Init.
+// freshPolicyDir creates a per-test rbac storage directory. Sets a
+// sentinel build.Version so re-Init against the same directory parses
+// the version file (empty build.Version corrupts it).
 func freshPolicyDir(t *testing.T) string {
 	t.Helper()
 	tmp, err := os.MkdirTemp("", "rbac-init-*")
@@ -521,10 +517,9 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 	return false
 }
 
-// TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed locks the
-// per-permission registration of admin/viewer on NS-enabled clusters: their
-// Casbin policy table contains the four namespace-bearing domains
-// (collections/data/tenants/aliases) and nothing else.
+// TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed asserts
+// admin/viewer on NS-enabled clusters cover only collections/data/tenants/
+// aliases.
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
@@ -598,9 +593,8 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSDisabled(t *testing
 }
 
 // TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin
-// covers the NS-enabled case: an API-assigned admin survives restart and
-// the role policy table re-converges to the canonical narrowed shape after
-// every Init.
+// asserts an API-assigned admin survives restart on NS-enabled clusters,
+// and the policy table re-converges to the narrowed shape on every Init.
 func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledAdmin(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
@@ -664,10 +658,9 @@ func TestApplyPredefinedRoles_RestartSurvivesAPIAssignment_NSEnabledViewer(t *te
 		"viewer policy rows must re-converge to the canonical narrowed shape after restart")
 }
 
-// TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart asserts the
-// inverse of the admin/viewer survival tests: env-var-only role groupings
-// (root, read-only) are wiped on every boot, so a stray grouping that isn't
-// backed by config does not persist.
+// TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart asserts
+// env-var-only role groupings (root, read-only) are wiped on every boot —
+// a stray grouping not backed by config does not persist.
 func TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -703,9 +696,8 @@ func TestApplyPredefinedRoles_RootReadOnlyGroupingsWipedOnRestart(t *testing.T) 
 }
 
 // TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart
-// asserts that when an env-var-driven assignment is dropped from config
-// between boots, the next boot reflects that removal: the wipe runs, and
-// the user/group is no longer in the (now-shorter) re-apply list.
+// asserts that dropping an env-var assignment between boots removes it
+// from the next boot's grouping table.
 func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *testing.T) {
 	dir := freshPolicyDir(t)
 
@@ -749,14 +741,10 @@ func TestApplyPredefinedRoles_RootReadOnlyRemovedFromConfigDropAfterRestart(t *t
 		"read-only group assignment removed from config must be gone after restart")
 }
 
-// TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate locks
-// the env-var add-only behaviour for admin/viewer on both NS-disabled and
-// NS-enabled. Casbin grouping rows aren't tagged by source, so the wipe
-// is restricted to env-var-only roles (root, read-only) to avoid
-// clobbering API-assigned admin/viewer groupings — the trade-off is that
-// env-var *removals* for admin/viewer don't take effect on restart.
-// Operators must revoke via the API to undo an env-var-bootstrapped
-// admin/viewer.
+// TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate asserts
+// env-var add-only behaviour for admin/viewer: removing the env var between
+// boots does not revoke the grouping (Casbin rows aren't tagged by source,
+// so the wipe is limited to root/read-only). Operators must revoke via API.
 func TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
@@ -803,8 +791,8 @@ func TestApplyPredefinedRoles_AdminViewerEnvVarRemovalDoesNotPropagate(t *testin
 }
 
 // TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig asserts
-// the other half of the contract: env-var-driven assignments for root /
-// read-only get re-applied on every boot from config, even after a wipe.
+// env-var assignments for root/read-only are re-applied from config on
+// every boot, even after the wipe.
 func TestApplyPredefinedRoles_RootReadOnlyGroupingsReappliedFromConfig(t *testing.T) {
 	dir := freshPolicyDir(t)
 

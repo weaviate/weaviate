@@ -356,11 +356,10 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// validateOIDCNamespaceClaims enforces the cross-field invariant that the
-// new namespace + global-principal claim env vars must be set when both
-// NAMESPACES_ENABLED and AUTHENTICATION_OIDC_ENABLED are on, and must be
-// unset when NAMESPACES_ENABLED is off. The check is a no-op when OIDC is
-// disabled (the middleware never reads the claims).
+// validateOIDCNamespaceClaims requires the namespace + global-principal
+// claim env vars when NAMESPACES_ENABLED and AUTHENTICATION_OIDC_ENABLED
+// are both on, and forbids them when NAMESPACES_ENABLED is off. No-op
+// when OIDC is disabled.
 func (c *Config) validateOIDCNamespaceClaims() error {
 	if !c.Authentication.OIDC.Enabled {
 		return nil

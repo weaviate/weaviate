@@ -237,11 +237,9 @@ var (
 )
 
 // BuiltInPermissionsFor returns the canonical permission shape of the four
-// built-in roles for a given namespace mode. On namespace-enabled clusters the
-// API-assignable roles (admin, viewer) are narrowed to an explicit allowlist
-// over collections/schema, data, multi-tenancy, and aliases; the env-var-only
-// operator roles (root, read-only) keep wildcard CRUD/READ across all domains
-// so a cluster operator can bootstrap cluster-wide access.
+// built-in roles. On namespace-enabled clusters admin/viewer are narrowed
+// to collections/schema, data, multi-tenancy, and aliases; root/read-only
+// keep wildcard CRUD/READ across all domains.
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{

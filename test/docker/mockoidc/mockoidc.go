@@ -37,10 +37,9 @@ const (
 	clientID     = "mock-oidc-test"
 )
 
-// namespacedUser is a custom mockoidc.User that emits the namespace and
-// global-principal claims alongside the MockUser baseline. Either extra
-// claim is omitted when its corresponding zero value is set (empty
-// Namespace, nil GlobalPrincipal).
+// namespacedUser emits the namespace and global-principal claims
+// alongside the MockUser baseline. Empty Namespace / nil GlobalPrincipal
+// omits the corresponding claim.
 type namespacedUser struct {
 	mockoidc.MockUser
 	Namespace       string
@@ -49,14 +48,8 @@ type namespacedUser struct {
 
 // namespacedClaims embeds *mockoidc.IDTokenClaims (concrete pointer, not
 // the jwt.Claims interface) so JSON marshalling flattens the standard
-// claims (sub, iss, exp, …) alongside the WS-specific extras. Embedding
-// the interface instead would nest everything under a single "Claims"
-// field and break the wire format.
-//
-// Both extras use omitempty/pointer-omitempty so an unset value never
-// appears on the wire — the OIDC classifier treats missing-key and
-// empty-string namespace as equivalent, but having an empty key in the
-// JSON would still be surprising and make test debugging harder.
+// claims (sub, iss, exp, …) alongside the extras. Both extras use
+// omitempty so unset values never appear on the wire.
 type namespacedClaims struct {
 	*mockoidc.IDTokenClaims
 	Groups          []string `json:"groups,omitempty"`
@@ -76,19 +69,16 @@ func (u *namespacedUser) Claims(scope []string, c *mockoidc.IDTokenClaims) (jwt.
 // boolPtr is a small helper to construct *bool values inline.
 func boolPtr(b bool) *bool { return &b }
 
-// legacyPreseedUsers is the FIFO queue used by tests that pre-date the
-// namespaces work. The order (admin first, custom second) is load-bearing:
-// existing tests pull the admin token then the custom token by FIFO order
-// and depend on this contract.
+// legacyPreseedUsers is the default FIFO queue. Order is load-bearing:
+// callers pull admin first, then the custom token.
 var legacyPreseedUsers = []mockoidc.User{
 	&mockoidc.MockUser{Subject: "admin-user"},
 	&mockoidc.MockUser{Subject: "custom-user", Groups: []string{"custom-group"}},
 }
 
-// namespacePreseedUsers contains only OIDC users that pass classification:
-// valid namespaced principals (assuming the cluster has those namespaces)
-// and an explicit global operator. Tests that just need to act as a
-// namespaced or global user pull from here.
+// namespacePreseedUsers contains OIDC users that pass classification:
+// valid namespaced principals (when those namespaces exist) plus an
+// explicit global operator.
 var namespacePreseedUsers = []mockoidc.User{
 	&namespacedUser{
 		MockUser:  mockoidc.MockUser{Subject: "oidc-namespaced-customer1"},
@@ -102,10 +92,9 @@ var namespacePreseedUsers = []mockoidc.User{
 		MockUser:        mockoidc.MockUser{Subject: "oidc-global"},
 		GlobalPrincipal: boolPtr(true),
 	},
-	// Member of the AllUsers OIDC group; used for testing group-based
-	// role assignments. The cluster matcher specializes a group-bound
-	// role to the principal's namespace at enforce time, so this user
-	// inherits whatever role is assigned to "AllUsers" inside customer1.
+	// Member of the AllUsers OIDC group, used for group-based role
+	// assignment tests. Inherits whatever role is bound to "AllUsers",
+	// matcher-specialized to customer1 at enforce time.
 	&namespacedUser{
 		MockUser:  mockoidc.MockUser{Subject: "oidc-customer1-group-member", Groups: []string{"AllUsers"}},
 		Namespace: "customer1",
@@ -147,14 +136,11 @@ func queueUser(m *mockoidc.MockOIDC, u mockoidc.User) {
 }
 
 // adminQueueHandler drains and replaces the user/code queues with the
-// requested subject. The replace-not-append behaviour keeps the operation
-// order-independent: any pre-seeded entry from FIFO drift gets discarded,
-// and the next /tokens call dequeues exactly the requested user.
+// requested subject so the next /tokens call dequeues exactly that user.
 //
-// Not safe for parallel use: two callers racing /queue + /tokens against
-// the same mock instance can interleave and dequeue the wrong user.
-// Acceptance tests that pin a subject must serialize the queue+token
-// pair (no t.Parallel between subtests sharing the mock).
+// Not safe for parallel use: callers racing /queue + /tokens against the
+// same mock can interleave. Subtests pinning a subject must not run with
+// t.Parallel.
 func adminQueueHandler(m *mockoidc.MockOIDC, index map[string]mockoidc.User) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

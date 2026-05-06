@@ -156,8 +156,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
 	// Wipe all four built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
-	// keeps the on-disk policy CSV honest if the allowlist evolves between
-	// versions.
+	// keeps the on-disk policy CSV honest.
 	for _, role := range authorization.BuiltInRoles {
 		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role)); err != nil {
 			return err
@@ -173,10 +172,9 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	}
 
 	// Register wildcard policies. On NS-disabled all four built-ins get
-	// the wildcard shape; on NS-enabled only the env-var operator roles
-	// do, because Casbin's default-effect lacks deny semantics — a
-	// wildcard CRUD row can't be narrowed, so the API-assignable
-	// admin/viewer must be registered per-permission instead.
+	// wildcards; on NS-enabled only root/read-only do — Casbin lacks deny
+	// semantics, so admin/viewer must be registered per-permission to be
+	// narrowable.
 	wildcardRoles := authorization.BuiltInRoles
 	if namespacesEnabled {
 		wildcardRoles = authorization.EnvVarRoles

@@ -747,9 +747,8 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, false, logger)
 }
 
-// setupNSEnabledTestManager mirrors setupTestManager with namespacesEnabled=true,
-// so applyPredefinedRoles registers the narrowed admin/viewer per-permission
-// shape and leaves root/read-only as wildcard.
+// setupNSEnabledTestManager is setupTestManager with namespacesEnabled=true:
+// admin/viewer get the narrowed shape, root/read-only stay wildcard.
 func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-ns-*")
 	if err != nil {
@@ -768,21 +767,17 @@ func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, e
 		true, logger)
 }
 
-// TestNarrowedViewerVsReadOnly_ClusterReadDenied is the WS6 enforcement-level
-// counterpart to TestBuiltInPermissions_NamespacesEnabled. The permission-set
-// test in usecases/auth/authorization/types_test.go locks the *shape* of the
-// narrowed viewer; this one locks the *enforcement*: a principal assigned the
-// (narrowed) viewer role is denied on cluster-only read endpoints, while a
-// principal assigned the env-var-only read-only role is allowed.
+// TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of
+// the narrowed viewer on NS-enabled clusters: a viewer-assigned principal
+// is denied on cluster-only read endpoints, while a read-only principal
+// is allowed.
 func TestNarrowedViewerVsReadOnly_ClusterReadDenied(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	m, err := setupNSEnabledTestManager(t, logger)
 	require.NoError(t, err)
 
-	// Principals: viewerUser inherits the narrowed viewer (API-assignable);
-	// readOnlyUser inherits read-only (env-var-only path, but here we
-	// short-circuit the bootstrap by adding the grouping directly — the
-	// canonical wildcard policy is already in place via applyPredefinedRoles).
+	// viewerUser inherits the narrowed viewer; readOnlyUser inherits
+	// read-only (grouping added directly to bypass the env-var bootstrap).
 	const (
 		viewerSubject   = "viewer-user"
 		readOnlySubject = "read-only-user"

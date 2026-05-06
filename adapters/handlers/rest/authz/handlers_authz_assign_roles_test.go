@@ -629,12 +629,9 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled(t *testing.T) {
 	}
 }
 
-// TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed locks that the only roles blocked
-// from API assignment are the env-var-only operator roles (Root, ReadOnly).
-// Admin/Viewer are API-assignable to namespaced DB users
-// on NS-enabled clusters because they are narrowed at registration time
-// (matcher specializes the namespace-bearing policies to the user's
-// namespace).
+// TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed asserts that
+// only Root/ReadOnly are blocked from API assignment on NS-enabled
+// clusters. Admin/Viewer are API-assignable (narrowed at registration).
 func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 	type testCase struct {
 		name             string
@@ -712,10 +709,9 @@ func TestAssignRoleToUserBuiltInRoleNamespacesEnabled_Allowed(t *testing.T) {
 	}
 }
 
-// TestUserIDNamespacePrefixRequiredOnNSEnabled covers the bare-form user-ID
-// gate: assign / revoke / read paths reject `params.ID` without a `:` on
-// NS-enabled clusters for OIDC and dynamic-DB users; static API-key users
-// are intentionally bare and pass through.
+// TestUserIDNamespacePrefixRequiredOnNSEnabled asserts assign/revoke/read
+// reject bare `params.ID` for OIDC and dynamic-DB users on NS-enabled
+// clusters. Static API-key users pass through.
 func TestUserIDNamespacePrefixRequiredOnNSEnabled(t *testing.T) {
 	type op string
 	const (

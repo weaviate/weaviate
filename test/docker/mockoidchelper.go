@@ -99,11 +99,9 @@ func GetTokensFromMockOIDCWithHelper(t *testing.T, mockOIDCHelperURI string) (st
 }
 
 // GetTokensFromMockOIDCWithHelperFor is like GetTokensFromMockOIDCWithHelper
-// but pins the next-issued token to the named mockoidc subject. The helper
-// drains-and-replaces the user/code queues before running the token dance,
-// so the issued token reflects the requested subject regardless of any
-// FIFO state from prior calls. Subject names must match those preseeded
-// in test/docker/mockoidc/mockoidc.go.
+// but pins the next-issued token to the named mockoidc subject by
+// draining-and-replacing the user/code queues first. Subject names must
+// match those preseeded in test/docker/mockoidc/mockoidc.go.
 func GetTokensFromMockOIDCWithHelperFor(t *testing.T, mockOIDCHelperURI, subject string) (string, string) {
 	return getTokensFromMockOIDC(t, mockOIDCHelperURI, subject)
 }

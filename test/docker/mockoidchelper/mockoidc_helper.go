@@ -133,9 +133,8 @@ func (t *tokensHandler) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 // queueSubject drains-and-replaces the mockoidc user/code queues with the
-// requested subject by POSTing to the admin endpoint on :48002. Used so
-// the next /tokens dance dequeues exactly the requested user, regardless
-// of any FIFO state from prior calls.
+// requested subject via the admin endpoint on :48002, so the next /tokens
+// call dequeues exactly that user.
 func (t *tokensHandler) queueSubject(subject string) error {
 	u, err := url.Parse(t.queueEndpoint)
 	if err != nil {

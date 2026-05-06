@@ -425,9 +425,8 @@ func (f *fakeExister) Exists(name string) bool {
 	return ok
 }
 
-// TestClassifyPrincipal locks the per-token classification matrix from the
-// RFC. The fake exister recognizes "customer1" only, so namespace-existence
-// is exercised on the rejection side too.
+// TestClassifyPrincipal exercises the per-token classification matrix.
+// The fake exister recognizes only "customer1", covering the rejection path.
 func TestClassifyPrincipal(t *testing.T) {
 	const (
 		nsClaimKey     = "weaviate_namespace"
@@ -577,16 +576,10 @@ func TestClassifyPrincipal(t *testing.T) {
 	}
 }
 
-// TestClassifyPrincipal_NoGroupNamespaceInference is the explicit
-// regression guard against future "clever" group→namespace inference.
-// The classifier reads only the configured namespace and global-principal
-// claims; group memberships are an authentication-side attribute used for
-// role lookup and must never supply or override the namespace.
-//
-// The matrix below carries claims that would *look like* a namespace if
-// groups were ever consulted (e.g. groups: ["customer1"] on an
-// NS-enabled cluster where "customer1" is a real namespace), and asserts
-// they are rejected exactly the same as the "neither claim" case.
+// TestClassifyPrincipal_NoGroupNamespaceInference asserts that group
+// memberships never supply or override the namespace. The cases below
+// carry groups that look like real namespaces and assert they're
+// rejected the same as the "neither claim" case.
 func TestClassifyPrincipal_NoGroupNamespaceInference(t *testing.T) {
 	const (
 		nsClaimKey     = "weaviate_namespace"
@@ -634,11 +627,9 @@ func TestClassifyPrincipal_NoGroupNamespaceInference(t *testing.T) {
 	}
 }
 
-// TestClassifyPrincipal_SameGroupDifferentNamespaces locks the rule that
-// a namespace belongs to the principal, not to the group: two tokens
-// sharing a group but carrying different namespace claims must resolve
-// to different namespaces. Catches any future regression where the
-// classifier accidentally caches or shares scope across group members.
+// TestClassifyPrincipal_SameGroupDifferentNamespaces asserts that a
+// namespace belongs to the principal, not the group: two tokens sharing
+// a group but carrying different namespace claims resolve distinctly.
 func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
 	const (
 		nsClaimKey     = "weaviate_namespace"
@@ -676,10 +667,8 @@ func TestClassifyPrincipal_SameGroupDifferentNamespaces(t *testing.T) {
 		"shared group membership must not collapse two namespace claims into one scope")
 }
 
-// TestRejectNamespacedRoot locks the rule that a namespaced OIDC principal
-// cannot also be granted the root role. Root is cluster-global and has no
-// meaning when bound to a single namespace, so any token combination that
-// would produce such a principal must be rejected at the auth layer.
+// TestRejectNamespacedRoot asserts that a namespaced OIDC principal
+// cannot also carry the root role (root is cluster-global).
 func TestRejectNamespacedRoot(t *testing.T) {
 	rbac := rbacconf.Config{
 		RootUsers:  []string{"customer1:bob", "alice"},

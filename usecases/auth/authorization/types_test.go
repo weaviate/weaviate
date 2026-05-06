@@ -296,12 +296,10 @@ func TestBuiltInPermissions_NamespaceManageOnly(t *testing.T) {
 	assert.False(t, hasBackupAction(viewer), "Viewer must not include any *_backups action")
 }
 
-// TestBuiltInPermissions_NamespacesEnabled locks the narrowed shape of
-// admin/viewer on namespace-enabled clusters. The API-assignable roles get
-// CRUD/READ over collections/data/tenants/aliases only; cluster-only domains
-// (backups, replicate, nodes, cluster, users, roles, groups, namespaces,
-// mcp) must not appear. The env-var-only operator roles (root, read-only)
-// keep wildcard cluster-wide perms regardless of NAMESPACES_ENABLED.
+// TestBuiltInPermissions_NamespacesEnabled asserts the narrowed admin/viewer
+// shape on NS-enabled clusters: CRUD/READ over collections/data/tenants/
+// aliases only, no cluster-only domains. Root/read-only keep wildcard
+// permissions regardless of NAMESPACES_ENABLED.
 func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	builtIn := BuiltInPermissionsFor(true)
 	admin := builtIn[Admin]

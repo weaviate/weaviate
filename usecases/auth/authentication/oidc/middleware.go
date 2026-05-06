@@ -45,9 +45,8 @@ type Client struct {
 	nsExister         namespaces.Exister
 	namespacesEnabled bool
 	// rbac is consulted on namespace-enabled clusters to reject tokens that
-	// would produce a namespaced principal carrying the root role. Root is
-	// a cluster-global role; binding it to a namespace contradicts the
-	// isolation model.
+	// would produce a namespaced principal carrying the root role (root is
+	// cluster-global).
 	rbac rbacconf.Config
 }
 
@@ -56,9 +55,8 @@ type Client struct {
 // API.
 //
 // nsExister is consulted only on namespace-enabled clusters to validate the
-// namespace claim of incoming tokens. namespacesEnabled is the cluster-level
-// flag (config.Namespaces.Enabled) plumbed in from the caller — the OIDC
-// config sub-tree does not carry this flag and Client.Config stays narrow.
+// namespace claim. namespacesEnabled is the cluster-level flag passed in
+// from the caller.
 func New(cfg config.Config, nsExister namespaces.Exister, namespacesEnabled bool, logger logrus.FieldLogger) (*Client, error) {
 	client := &Client{
 		Config:            cfg.Authentication.OIDC,
@@ -196,12 +194,9 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 	}, nil
 }
 
-// rejectNamespacedRoot returns a 401 error when the token would produce a
-// namespaced principal that also carries the root role via RBAC RootUsers
-// or RootGroups. Root is a cluster-global role and cannot coexist with a
-// namespace claim — such tokens are a configuration error and must not
-// authenticate. Returns nil for global principals, namespace-disabled
-// clusters, and namespaced principals with no root binding.
+// rejectNamespacedRoot returns 401 when the token would produce a
+// namespaced principal that also carries the root role via RootUsers or
+// RootGroups. Returns nil otherwise.
 func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, groups []string) error {
 	if namespace == "" {
 		return nil
@@ -235,10 +230,8 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 // interpret, which is an authentication failure from the caller's
 // perspective.
 //
-// On namespace-enabled clusters, the resolved username from extractUsername
-// must not contain ':' — that character is the namespace separator used to
-// build prefixed usernames, and a token-side ':' would make the prefix
-// scheme ambiguous. Reject with 401 in that case.
+// On namespace-enabled clusters, the resolved username must not contain
+// ':' (the namespace separator); reject with 401.
 func (c *Client) classifyPrincipal(claims map[string]interface{}, username string) (namespace string, isGlobal bool, err error) {
 	if !c.namespacesEnabled {
 		return "", false, nil

@@ -1178,11 +1178,8 @@ func validateEnvVarRoles(name string) error {
 }
 
 // validateUserIDForNamespaces rejects bare-form user IDs on
-// namespace-enabled clusters. Every namespaced principal — dynamic DB user
-// or OIDC user — is keyed by `<namespace>:<user>`, so a bare ID can only
-// ever produce stuck Casbin rows that don't match any real namespaced
-// principal. Static API-key users are intentionally bare and global; they
-// pass through unchanged.
+// namespace-enabled clusters. Static API-key users are intentionally bare
+// and global; they pass through unchanged.
 func (h *authZHandlers) validateUserIDForNamespaces(userID string) error {
 	if !h.namespacesEnabled {
 		return nil

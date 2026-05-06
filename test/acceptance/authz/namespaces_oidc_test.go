@@ -30,19 +30,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-// TestNamespacesOIDC covers the integration points that need live cluster
-// wiring on a namespace-enabled OIDC cluster. The classification matrix
-// (type mismatches, both/neither claims, etc.) is unit-tested in the oidc
-// package; this test exercises the parts that depend on real plumbing:
-//
-//   - Classification → principal username carries the namespace prefix
-//     (or stays bare for global operators); existence check rejects
-//     unknown-namespace tokens.
-//   - Bare-form gate → assigning a role to a bare-form OIDC user ID is
-//     rejected at the API.
-//   - Built-in narrowing → admin assigned to a namespaced OIDC user can
-//     CRUD their namespace's collections but is denied on cluster-only
-//     resources (manage_namespaces).
+// TestNamespacesOIDC exercises NS-enabled OIDC integration points that
+// need live cluster wiring:
+//   - Classification: principal username carries the namespace prefix
+//     (or stays bare for global operators); unknown namespaces rejected.
+//   - Bare-form OIDC user IDs are rejected at the assign-role API.
+//   - Narrowed admin can CRUD their namespace's collections but is
+//     denied on cluster-only resources (manage_namespaces).
 func TestNamespacesOIDC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -127,15 +121,12 @@ func TestNamespacesOIDC(t *testing.T) {
 		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-namespaced-customer1")
 
 		// Narrowed admin → can CRUD collections inside their namespace.
-		// The matcher specializes the policy resource path to the
-		// principal's namespace, so the user creates "Movies" which
-		// becomes "customer1:Movies" cluster-side.
+		// "Movies" becomes "customer1:Movies" cluster-side via the matcher.
 		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, token)
 		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
 
-		// Verify the class landed under the namespace-qualified name by
-		// fetching it as the global operator (admin key sees raw stored
-		// names, no namespace specialization).
+		// Verify the class landed under the namespace-qualified name —
+		// the global operator sees raw stored names.
 		stored := helper.GetClassAuth(t, "customer1:Movies", adminKey)
 		assert.Equal(t, "customer1:Movies", stored.Class)
 
@@ -150,12 +141,9 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.True(t, errors.As(err, &nsForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
 	})
 
-	// Global operator via OIDC: oidc-global is bootstrapped as a Root
-	// user via WithRbacRoots, so the OIDC token must wield full
-	// operator privileges. The narrowed-admin subtests assert the
-	// negative side of the operator-vs-tenant boundary; this one
-	// asserts the positive side: cluster-only operations
-	// (manage_namespaces) and cross-namespace visibility.
+	// Global operator via OIDC: oidc-global is bootstrapped as Root via
+	// WithRbacRoots and must wield full operator privileges — cluster-only
+	// operations (manage_namespaces) and cross-namespace visibility.
 	t.Run("global operator via OIDC has cluster-only privileges", func(t *testing.T) {
 		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-global")
 
@@ -167,8 +155,7 @@ func TestNamespacesOIDC(t *testing.T) {
 		defer helper.DeleteNamespace(t, ns, token)
 
 		// A namespaced DB user populates a collection; the operator
-		// must then be able to read it back under the qualified name
-		// (operator sees raw stored names, no namespace specialization).
+		// reads it back under the qualified name.
 		const tenantSubject = "tenant-user"
 		tenantID := ns + ":" + tenantSubject
 		tenantKey := helper.CreateUserWithNamespace(t, tenantSubject, ns, token)
@@ -183,25 +170,18 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.Equal(t, ns+":Reports", stored.Class)
 	})
 
-	// End-to-end exercise on the same compose: namespaced DB user
-	// creation, dual-auth convergence (OIDC and API key produce the
-	// same principal username), tenant-safe admin from the DB-user
-	// side, and namespace-management deny via narrowed admin. The
-	// OIDC-only narrowed admin path is covered by the preceding
-	// subtest; this one exercises the parallel DB path and the
-	// convergence between them.
+	// End-to-end DB-user path: namespaced user creation, dual-auth
+	// convergence (OIDC and API key produce the same principal username),
+	// tenant-safe admin, and narrowed-admin deny on namespace management.
 	t.Run("end-to-end: namespaced DB user, dual auth path, narrowed admin", func(t *testing.T) {
-		// customer2 is created so the cluster has more than one
-		// namespace at probe time, putting the narrowed admin's
-		// namespace deny under realistic conditions.
+		// customer2 makes the namespace-deny test realistic by giving
+		// the cluster more than one namespace at probe time.
 		helper.CreateNamespace(t, "customer2", adminKey)
 		defer helper.DeleteNamespace(t, "customer2", adminKey)
 
-		// One short subject reused across both namespaces. Same logical
-		// userId, but the qualified storage paths customer1:user and
-		// customer2:user keep the two principals distinct. The OIDC
-		// preseed ships a "user" subject in customer1; pairing it with
-		// a DB user of the same subject lets us probe both auth paths.
+		// One short subject reused across both namespaces — qualified storage
+		// paths customer1:user and customer2:user keep the principals distinct.
+		// Pairing the OIDC preseed subject with a DB user probes both auth paths.
 		const sharedSubject = "user"
 		const customer1ID = "customer1:" + sharedSubject
 
@@ -217,9 +197,8 @@ func TestNamespacesOIDC(t *testing.T) {
 
 		customer1OIDCToken, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, sharedSubject)
 
-		// Both auth paths produce the same principal username: the OIDC
-		// classifier's namespace-prefix on the token's subject lines up
-		// with the namespace-prefix the user-creation API stores.
+		// Both auth paths produce the same principal username — the OIDC
+		// namespace prefix matches what the user-creation API stores.
 		dbInfo := helper.GetInfoForOwnUser(t, customer1Key)
 		require.NotNil(t, dbInfo.Username)
 		assert.Equal(t, customer1ID, *dbInfo.Username)
@@ -228,9 +207,8 @@ func TestNamespacesOIDC(t *testing.T) {
 		require.NotNil(t, oidcInfo.Username)
 		assert.Equal(t, customer1ID, *oidcInfo.Username)
 
-		// customer1's user creates a collection via the DB API key. The
-		// matcher specializes the request to their namespace, so it
-		// lands as customer1:Books. The title property is defined
+		// customer1's user creates a collection via the DB API key —
+		// matcher-specialized to customer1:Books. Title is defined
 		// upfront so later object inserts are typed.
 		helper.CreateClassAuth(t, &models.Class{
 			Class: "Books",
@@ -244,16 +222,13 @@ func TestNamespacesOIDC(t *testing.T) {
 		stored := helper.GetClassAuth(t, "customer1:Books", adminKey)
 		assert.Equal(t, "customer1:Books", stored.Class)
 
-		// customer1's user via OIDC reads the same class through the
-		// resolver: requests "Books"; the resolver prefixes to
-		// customer1:Books. Confirms OIDC and DB paths share the matcher
-		// specialization.
+		// customer1's user via OIDC reads the same class: requests "Books",
+		// resolver prefixes to customer1:Books. Confirms OIDC and DB paths
+		// share the matcher specialization.
 		viaOIDC := helper.GetClassAuth(t, "Books", customer1OIDCToken)
 		assert.Equal(t, "customer1:Books", viaOIDC.Class)
 
 		// Narrowed admin → DENIED on namespace management (cluster-only).
-		// Same property exercised on the OIDC path in the preceding
-		// subtest; here we assert it on the DB path too.
 		_, err = helper.Client(t).Namespaces.DeleteNamespace(
 			clnamespaces.NewDeleteNamespaceParams().WithNamespaceID("customer2"),
 			helper.CreateAuth(customer1Key),
@@ -262,11 +237,9 @@ func TestNamespacesOIDC(t *testing.T) {
 		var nsForbidden *clnamespaces.DeleteNamespaceForbidden
 		assert.True(t, errors.As(err, &nsForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
 
-		// Cross-namespace isolation: spin up a parallel user in
-		// customer2 with the *same* short subject. Different namespace
-		// prefixes keep the two storage keys (customer1:user vs
-		// customer2:user) distinct so the userId can be reused by
-		// tenants without collision.
+		// Cross-namespace isolation: a parallel user in customer2 with the
+		// *same* short subject. Different prefixes (customer1:user vs
+		// customer2:user) keep storage keys distinct.
 		customer2ID := "customer2:" + sharedSubject
 		customer2Key := helper.CreateUserWithNamespace(t, sharedSubject, "customer2", adminKey)
 		defer helper.DeleteUser(t, customer2ID, adminKey)
@@ -319,10 +292,9 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.Equal(t, "customer2-book", got2.Properties.(map[string]interface{})["title"])
 	})
 
-	// Group binding does not carry a namespace at the API layer — the
-	// matcher specializes the bound role to the principal's namespace at
-	// enforce time. Bob has no direct user-level role; he inherits admin
-	// only because his OIDC token's groups claim places him in AllUsers.
+	// Group binding carries no namespace at the API layer; the matcher
+	// specializes the bound role at enforce time. Bob has no direct role —
+	// he inherits admin via the AllUsers group claim on his OIDC token.
 	t.Run("narrowed admin via OIDC group binding", func(t *testing.T) {
 		const groupName = "AllUsers"
 		const bobSubject = "oidc-customer1-group-member"

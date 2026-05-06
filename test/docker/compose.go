@@ -628,10 +628,9 @@ func (d *Compose) WithMockOIDCWithCertificate() *Compose {
 	return d
 }
 
-// WithMockOIDCNamespacedUsers preseeds the mockoidc server with users
-// that pass OIDC classification on a namespace-enabled cluster
+// WithMockOIDCNamespacedUsers preseeds mockoidc with users that pass
+// OIDC classification on a namespace-enabled cluster
 // (oidc-namespaced-customer1, oidc-namespaced-customer2, oidc-global).
-// For normal happy-path test writing.
 func (d *Compose) WithMockOIDCNamespacedUsers() *Compose {
 	d.withMockOIDCNamespacedUsers = true
 	return d
