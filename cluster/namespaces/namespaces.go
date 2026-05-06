@@ -64,6 +64,45 @@ func (m *Manager) Delete(c *cmd.ApplyRequest) error {
 	return m.controller.Delete(req.Name)
 }
 
+// ChangeState applies a ChangeNamespaceState RAFT command, transitioning
+// the namespace into the target state. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown
+// target states, [usecasesNamespaces.ErrNotFound] when the namespace does
+// not exist, and [usecasesNamespaces.ErrInvalidStateTransition] when the
+// requested transition is forbidden.
+func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
+	req := &cmd.ChangeNamespaceStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return m.controller.ChangeState(req.Name, req.TargetState)
+}
+
+// RemoveEntity applies a RemoveNamespaceEntity RAFT command, deleting the
+// map entry for a deleting namespace. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads,
+// [usecasesNamespaces.ErrNotFound] when the namespace does not exist, and
+// [usecasesNamespaces.ErrInvalidState] when called on an active namespace.
+func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
+	req := &cmd.RemoveNamespaceEntityRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return m.controller.RemoveEntity(req.Name)
+}
+
+// Exists proxies to the controller so the apply switch can satisfy
+// [usecasesNamespaces.Exister] with a single namespaceManager reference
+// instead of threading the controller through every call site.
+func (m *Manager) Exists(name string) bool {
+	return m.controller.Exists(name)
+}
+
+// IsActive proxies to the controller. Same rationale as Exists.
+func (m *Manager) IsActive(name string) bool {
+	return m.controller.IsActive(name)
+}
+
 // Get handles a QueryGetNamespaces query. An empty Names slice returns all
 // known namespaces; otherwise only the named ones that exist are returned
 // (missing names are silently omitted).

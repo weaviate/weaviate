@@ -12,25 +12,32 @@
 package api
 
 const (
-	// NamespaceLatestCommandPolicyVersion is bumped when the on-the-wire
-	// shape of a namespace RAFT command changes in a way that requires
-	// version-gated handling on the apply side.
+	// NamespaceLatestCommandPolicyVersion is bumped when a namespace RAFT
+	// command's wire shape requires version-gated apply handling.
 	NamespaceLatestCommandPolicyVersion = iota
 )
 
-// Namespace is the cluster-level control-plane entity. It is the sole source
-// of truth for namespace existence. Restrictions is a forward-compatible
-// placeholder so later work can add namespace-scoped knobs without a schema
-// reshape. A State field is intentionally omitted: the current delete
-// semantics are a hard delete, so there is no active/deleting lifecycle to
-// represent. A future addition will be tolerated by the JSON-based snapshot
-// format (unknown-field defaults).
+// Namespace is the cluster-level control-plane entity. State drives the
+// deletion lifecycle (active → deleting → entity removed); empty State
+// restores as NamespaceStateActive.
 type Namespace struct {
 	Name         string
 	Restrictions NamespaceRestrictions
+	State        NamespaceState
 }
 
-// NamespaceRestrictions is an empty forward-compatibility placeholder.
+// NamespaceState is the lifecycle state of a Namespace entity.
+type NamespaceState string
+
+const (
+	// NamespaceStateActive accepts create-like operations against the namespace.
+	NamespaceStateActive NamespaceState = "active"
+	// NamespaceStateDeleting rejects create-like operations; the entity is
+	// removed once cleanup empties it.
+	NamespaceStateDeleting NamespaceState = "deleting"
+)
+
+// NamespaceRestrictions is a forward-compatibility placeholder.
 type NamespaceRestrictions struct{}
 
 // AddNamespaceRequest is the RAFT apply payload for creating a namespace.
@@ -40,14 +47,26 @@ type AddNamespaceRequest struct {
 }
 
 // DeleteNamespaceRequest is the RAFT apply payload for deleting a namespace.
-// Delete is hard and idempotent at the manager layer.
 type DeleteNamespaceRequest struct {
 	Name    string
 	Version int
 }
 
-// QueryGetNamespacesRequest lists namespaces. Empty Names returns all known
-// namespaces.
+// ChangeNamespaceStateRequest transitions a namespace into TargetState.
+// Same-state transitions are idempotent.
+type ChangeNamespaceStateRequest struct {
+	Name        string
+	TargetState NamespaceState
+	Version     int
+}
+
+// RemoveNamespaceEntityRequest removes a deleting namespace's entity.
+type RemoveNamespaceEntityRequest struct {
+	Name    string
+	Version int
+}
+
+// QueryGetNamespacesRequest lists namespaces. Empty Names returns all.
 type QueryGetNamespacesRequest struct {
 	Names []string
 }

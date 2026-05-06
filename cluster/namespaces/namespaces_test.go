@@ -45,6 +45,33 @@ func deleteCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
 
+func changeStateCmd(t *testing.T, name string, target cmd.NamespaceState) *cmd.ApplyRequest {
+	t.Helper()
+	payload, err := json.Marshal(cmd.ChangeNamespaceStateRequest{Name: name, TargetState: target})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{SubCommand: payload}
+}
+
+func removeEntityCmd(t *testing.T, name string) *cmd.ApplyRequest {
+	t.Helper()
+	payload, err := json.Marshal(cmd.RemoveNamespaceEntityRequest{Name: name})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{SubCommand: payload}
+}
+
+// seedNamespace creates name and transitions it to seedState. An empty
+// seedState seeds nothing.
+func seedNamespace(t *testing.T, m *Manager, name string, seedState cmd.NamespaceState) {
+	t.Helper()
+	if seedState == "" {
+		return
+	}
+	require.NoError(t, m.Add(addCmd(t, name)))
+	if seedState == cmd.NamespaceStateDeleting {
+		require.NoError(t, m.ChangeState(changeStateCmd(t, name, cmd.NamespaceStateDeleting)))
+	}
+}
+
 func TestNewManager_NilControllerPanics(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	assert.Panics(t, func() {
@@ -54,33 +81,110 @@ func TestNewManager_NilControllerPanics(t *testing.T) {
 
 func TestManager_Add(t *testing.T) {
 	m := newTestManager(t)
-
-	t.Run("happy path dispatches to controller", func(t *testing.T) {
-		require.NoError(t, m.Add(addCmd(t, "customer1")))
-		assert.Equal(t, 1, m.Count())
-	})
-
-	t.Run("malformed payload is rejected", func(t *testing.T) {
-		err := m.Add(&cmd.ApplyRequest{SubCommand: []byte("not-json")})
-		require.Error(t, err)
-		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
-	})
+	require.NoError(t, m.Add(addCmd(t, "customer1")))
+	assert.Equal(t, 1, m.Count())
 }
 
 func TestManager_Delete(t *testing.T) {
 	m := newTestManager(t)
 	require.NoError(t, m.Add(addCmd(t, "customer1")))
+	require.NoError(t, m.Delete(deleteCmd(t, "customer1")))
+	assert.Equal(t, 0, m.Count())
+}
 
-	t.Run("happy path dispatches to controller", func(t *testing.T) {
-		require.NoError(t, m.Delete(deleteCmd(t, "customer1")))
-		assert.Equal(t, 0, m.Count())
-	})
+func TestManager_ChangeState(t *testing.T) {
+	tests := []struct {
+		name      string
+		seedState cmd.NamespaceState // empty = no namespace exists
+		target    cmd.NamespaceState
+		wantErr   error
+	}{
+		{name: "active -> deleting flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateDeleting},
+		{name: "active -> active is idempotent", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateActive},
+		{name: "deleting -> deleting is idempotent", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateDeleting},
+		{name: "deleting -> active is forbidden", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateActive, wantErr: usecasesNamespaces.ErrInvalidStateTransition},
+		{name: "missing namespace returns ErrNotFound", target: cmd.NamespaceStateDeleting, wantErr: usecasesNamespaces.ErrNotFound},
+	}
 
-	t.Run("malformed payload is rejected", func(t *testing.T) {
-		err := m.Delete(&cmd.ApplyRequest{SubCommand: []byte("not-json")})
-		require.Error(t, err)
-		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestManager(t)
+			seedNamespace(t, m, "customer1", tc.seedState)
+
+			err := m.ChangeState(changeStateCmd(t, "customer1", tc.target))
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, m.Exists("customer1"))
+			assert.Equal(t, tc.target == cmd.NamespaceStateActive, m.IsActive("customer1"))
+		})
+	}
+}
+
+func TestManager_RemoveEntity(t *testing.T) {
+	tests := []struct {
+		name      string
+		seedState cmd.NamespaceState // empty = no namespace exists
+		wantErr   error
+	}{
+		{name: "deleting namespace is removed", seedState: cmd.NamespaceStateDeleting},
+		{name: "active namespace returns ErrInvalidState", seedState: cmd.NamespaceStateActive, wantErr: usecasesNamespaces.ErrInvalidState},
+		{name: "missing namespace returns ErrNotFound", wantErr: usecasesNamespaces.ErrNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestManager(t)
+			seedNamespace(t, m, "customer1", tc.seedState)
+
+			err := m.RemoveEntity(removeEntityCmd(t, "customer1"))
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.False(t, m.Exists("customer1"))
+		})
+	}
+}
+
+func TestManager_RejectsMalformedApplyRequest(t *testing.T) {
+	bad := &cmd.ApplyRequest{SubCommand: []byte("not-json")}
+	tests := []struct {
+		name string
+		call func(*Manager) error
+	}{
+		{name: "Add", call: func(m *Manager) error { return m.Add(bad) }},
+		{name: "Delete", call: func(m *Manager) error { return m.Delete(bad) }},
+		{name: "ChangeState", call: func(m *Manager) error { return m.ChangeState(bad) }},
+		{name: "RemoveEntity", call: func(m *Manager) error { return m.RemoveEntity(bad) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestManager(t)
+			err := tc.call(m)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+		})
+	}
+}
+
+func TestManager_ExistsAndIsActiveProxies(t *testing.T) {
+	m := newTestManager(t)
+	require.NoError(t, m.Add(addCmd(t, "customer1")))
+
+	assert.True(t, m.Exists("customer1"))
+	assert.True(t, m.IsActive("customer1"))
+	assert.False(t, m.Exists("never-existed"))
+	assert.False(t, m.IsActive("never-existed"))
+
+	require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting)))
+	assert.True(t, m.Exists("customer1"))
+	assert.False(t, m.IsActive("customer1"))
 }
 
 func TestManager_Get(t *testing.T) {

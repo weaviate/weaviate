@@ -425,6 +425,12 @@ func (f *fakeExister) Exists(name string) bool {
 	return ok
 }
 
+// IsActive treats every known namespace as active.
+func (f *fakeExister) IsActive(name string) bool {
+	_, ok := f.known[name]
+	return ok
+}
+
 // TestClassifyPrincipal exercises the per-token classification matrix.
 // The fake exister recognizes only "customer1", covering the rejection path.
 func TestClassifyPrincipal(t *testing.T) {
