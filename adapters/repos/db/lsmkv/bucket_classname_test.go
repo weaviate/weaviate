@@ -40,17 +40,18 @@ import (
 // In both cases the test flushes the memtable to a real on-disk segment so the
 // read path is served from disk, then verifies both decoders:
 //
-//   - storobj.FromBinaryWithClassName(v, bucket.ClassName()) → bucket wins;
-//   - storobj.FromBinary(v) (legacy single-arg) → falls back to on-disk.
+//   - storobj.FromBinaryDisk(v, bucket.ClassName()) → bucket wins;
+//   - storobj.FromBinaryNetwork(v) (legacy single-arg) → falls back to on-disk.
 func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
-	const wantClass = "Movies"
-
 	cases := []struct {
 		name           string
 		marshaledClass string // value written into the on-disk class-name bytes
+		wantClass      string // expected class name after decoding
+		expectedErr    bool   // expected error substring, if any
 	}{
-		{name: "empty on-disk class", marshaledClass: ""},
-		{name: "different on-disk class", marshaledClass: "Books"},
+		{name: "empty on-disk class", marshaledClass: "", wantClass: "Movies", expectedErr: false},
+		{name: "different on-disk class", marshaledClass: "Books", wantClass: "Movies", expectedErr: false},
+		{name: "empty on-disk class, empty bucket class", marshaledClass: "", wantClass: "", expectedErr: true},
 	}
 
 	for _, tc := range cases {
@@ -60,14 +61,18 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 
 			bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
 				WithStrategy(StrategyReplace),
-				WithClassName(wantClass),
+				WithClassName(tc.wantClass),
 			)
 			require.NoError(t, err)
 			defer bucket.Shutdown(ctx)
 
 			className, err := bucket.ClassName()
+			if tc.expectedErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
-			require.Equal(t, wantClass, className, "ClassName() must return the value supplied via WithClassName")
+			require.Equal(t, tc.wantClass, className, "ClassName() must return the value supplied via WithClassName")
 
 			obj := storobj.FromObject(
 				&models.Object{
@@ -106,12 +111,10 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 
 				// Bucket-aware decode: the caller-supplied (bucket) className
 				// must win, regardless of what's on disk.
-				className, err := bucket.ClassName()
-				require.NoError(t, err, "cannot get bucket class name")
 				decodedWithClassName, err := storobj.FromBinaryDisk(v, className)
 				require.NoError(t, err, "cannot unmarshal object via FromBinaryWithClassName")
 				require.NotNil(t, decodedWithClassName)
-				assert.Equal(t, wantClass, decodedWithClassName.Object.Class,
+				assert.Equal(t, tc.wantClass, decodedWithClassName.Object.Class,
 					"bucket must stamp its canonical className on the decoded object")
 				assert.Equal(t, obj.ID(), decodedWithClassName.ID())
 				assert.Equal(t, obj.DocID, decodedWithClassName.DocID)
