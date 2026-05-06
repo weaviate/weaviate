@@ -50,14 +50,6 @@ type ChangeLog struct {
 
 // Open creates a new change-capture log file at path. Fails if the file
 // already exists — each op-id's log is expected to be fresh.
-//
-// TODO(phase-2): O_EXCL means a stale log file from a prior process crash
-// blocks Open for the same op-id. V1 doesn't support crash-resume (the op is
-// reissued with a new op-id on restart per plans/plan.md), so collisions
-// require orphan cleanup. Phase 2's Shard startup must scan
-// <shard>/changelog/ and remove any residual *.log files before any Open()
-// calls, otherwise a retry of a previously-interrupted op with a reused
-// op-id would fail here for a stale reason.
 func Open(path string, logger logrus.FieldLogger) (*ChangeLog, error) {
 	if logger == nil {
 		logger = logrus.New()
@@ -157,12 +149,6 @@ func (l *ChangeLog) Finalize() (uint64, error) {
 // wakes any blocked tailers (which will return ErrLogDeactivated). Safe to
 // call multiple times. Tailers that already hold their own *os.File handle
 // may continue to read on POSIX systems until they call Close themselves.
-//
-// TODO(phase-2): Deactivate only cleans up logs it owns in-memory. If the
-// process crashes between Open and Deactivate, the .log file stays on disk
-// orphaned. Phase 2 must sweep <shard>/changelog/ on Shard startup and
-// delete any files there — V1 doesn't restart-resume movements, so any
-// file present at startup is guaranteed to be orphaned.
 func (l *ChangeLog) Deactivate() error {
 	if err := func() error {
 		l.mu.Lock()
