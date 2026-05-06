@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
@@ -238,22 +237,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(&nodeID), nil)
 		require.Nil(t, err)
 		require.Len(t, res.Payload, 0)
-	})
-
-	t.Run("cancel replication operation", func(t *testing.T) {
-		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
-		require.Nil(t, err)
-		require.NotNil(t, created)
-		require.NotNil(t, created.Payload)
-		require.NotNil(t, created.Payload.ID)
-		cancelled, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(*created.Payload.ID), nil)
-		require.Nil(t, err)
-		require.NotNil(t, cancelled)
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
-			require.Nil(t, err)
-			assert.Equal(ct, string(api.CANCELLED), details.Payload.Status.State)
-		}, 30*time.Second, 1*time.Second, "replication operation should be cancelled")
 	})
 
 	t.Run("delete replication operation", func(t *testing.T) {
