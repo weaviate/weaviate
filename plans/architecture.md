@@ -350,9 +350,7 @@ deadlock against the four existing primitives.
 
 ---
 
-## 8. What changes, what doesn't
-
-**Changes:**
+## 8. What changes
 
 - New package `cluster/replication/changelog` (Phase 1).
 - `Shard` gains `changeLogs atomic.Pointer[Set]`, a quiesce latch, three lifecycle
@@ -363,13 +361,3 @@ deadlock against the four existing primitives.
   (Phase 4).
 - The three movement state handlers in `consumer.go` switch from hashtree/timing to
   log-based catchup (Phase 5).
-
-**Does NOT change:**
-
-- REST / GraphQL / gRPC query APIs.
-- Existing `CopyReplicaFiles` / `GetFile` streaming.
-- Non-movement async replication convergence.
-- RAFT commands, sharding state propagation, membership.
-- LSM bucket strategies, vector indexes, inverted index, modules.
-- The replica movement state machine's state names or ordering
-  (`REGISTERED → HYDRATING → FINALIZING → [DEHYDRATING →] READY`).
