@@ -216,7 +216,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -317,7 +317,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("check vector", func(t *testing.T) {
@@ -378,7 +378,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		require.Nil(t, err)
 
 		after := &Object{}
-		after.UnmarshalBinary(asBinary)
+		after.UnmarshalBinaryNetwork(asBinary)
 		require.Nil(t, err)
 
 		t.Run("check vector", func(t *testing.T) {

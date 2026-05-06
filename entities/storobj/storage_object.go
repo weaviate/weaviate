@@ -121,15 +121,23 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 // callers that genuinely have no class context (e.g. wire-receive decode
 // where the surrounding protocol carries the class out-of-band).
 func FromBinaryNetwork(data []byte) (*Object, error) {
-	return FromBinaryDisk(data, "")
+	ko := &Object{}
+	if err := ko.UnmarshalBinaryDisk(data, ""); err != nil {
+		return nil, err
+	}
+
+	return ko, nil
 }
 
 // FromBinaryDisk decodes a payload using the caller-supplied class
 // name in place of the on-disk value. An empty className falls back to the
 // on-disk bytes (matching FromBinary).
 func FromBinaryDisk(data []byte, className string) (*Object, error) {
+	if className == "" {
+		return nil, errors.New("className is required for FromBinaryDisk; use FromBinaryNetwork or FromBinary if you want to fall back to on-disk value")
+	}
 	ko := &Object{}
-	if err := ko.UnmarshalBinaryWithClassName(data, className); err != nil {
+	if err := ko.UnmarshalBinaryDisk(data, className); err != nil {
 		return nil, err
 	}
 
@@ -1264,7 +1272,7 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 	}
 }
 
-// UnmarshalBinary implements encoding.BinaryUnmarshaler.
+// UnmarshalBinaryNetwork implements encoding.BinaryUnmarshaler.
 //
 // WARNING: the class name read from on-disk bytes is NOT authoritative. The
 // objects bucket may contain payloads written under a different class
@@ -1275,19 +1283,19 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 //
 // Callers that read from a shard's objects bucket and have an authoritative
 // class name in scope (typically shard.index.Config.ClassName) MUST use
-// UnmarshalBinaryWithClassName instead, which stamps the supplied class name
-// on the decoded object and ignores the on-disk value. Reserve UnmarshalBinary
+// UnmarshalBinaryDisk instead, which stamps the supplied class name
+// on the decoded object and ignores the on-disk value. Reserve UnmarshalBinaryNetwork
 // for callers that genuinely have no class context (it remains the entry
 // point for the standard encoding.BinaryUnmarshaler interface).
-func (ko *Object) UnmarshalBinary(data []byte) error {
-	return ko.UnmarshalBinaryWithClassName(data, "")
+func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
+	return ko.UnmarshalBinaryDisk(data, "")
 }
 
-// UnmarshalBinaryWithClassName is the versioned way to unmarshal a kind object
+// UnmarshalBinaryDisk is the versioned way to unmarshal a kind object
 // from binary. A non-empty className takes precedence over the on-disk class
 // name; an empty className falls back to the on-disk bytes (matching
 // UnmarshalBinary).
-func (ko *Object) UnmarshalBinaryWithClassName(data []byte, className string) error {
+func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
 	version := data[0]
 	if version != 1 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
