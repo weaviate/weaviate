@@ -191,6 +191,21 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				assert.Equal(t, obj.Properties(), unmarshalNet.Properties())
 			}
 			require.Equal(t, 1, count, "expected exactly one object in the bucket")
+
+			// bucket.IterateObjects: bucket-side helper. Internally calls
+			// bucket.ClassName() + FromBinaryDisk, so the canonical class
+			// must be stamped on every yielded object regardless of what
+			// the on-disk bytes carry.
+			var iterated []*storobj.Object
+			require.NoError(t, bucket.IterateObjects(ctx, func(o *storobj.Object) error {
+				iterated = append(iterated, o)
+				return nil
+			}))
+			require.Len(t, iterated, 1)
+			assert.Equal(t, tc.wantClass, iterated[0].Object.Class,
+				"IterateObjects must stamp the bucket's canonical className")
+			assert.Equal(t, obj.ID(), iterated[0].ID())
+			assert.Equal(t, obj.DocID, iterated[0].DocID)
 		})
 	}
 }
