@@ -9303,3 +9303,392 @@ func TestNestedFilteringScalarArrayIndex(t *testing.T) {
 		runScenario(t, docs, filter, []strfmt.UUID{})
 	})
 }
+
+// TestNestedFilteringComprehensive ports the lower-level
+// TestNestedFilteringComprehensive smoke test to the DB level. It exercises
+// basic filters, simple/complex AND with same-element enforcement, OR
+// (no same-element), nested AND/OR mix, and deep nesting (cars.tires.bolts)
+// — all driven through the production write+search pipeline. Two root
+// variants (DataTypeObject "doc" and DataTypeObjectArray "docs") share
+// the same nested shape but differ on doc3, which has data within a
+// single root for "doc" and split across two roots for "docs".
+//
+// Doc setup (per variant):
+//   - d1: addresses, tags=premium, cars[0]={bmw, tires=[width:205,bolts.size=10], accessories=[sunroof]}
+//   - d2: cars=[{bmw}, {tires:[width:205], accessories:[sunroof]}] — bmw and tires/acc in different cars; no bolts
+//   - d3 (doc):  addresses + cars[0]={bmw} — same root, no tires/acc/bolts
+//   - d3 (docs): docs[0]={cars:[{bmw}]}, docs[1]={addresses, cars:[{tires:[width:205], accessories:[sunroof]}]} — cross-root split
+//   - d4: addresses, cars[0]={honda, tires:[width:205], accessories:[sunroof]} — wrong make, no bolts
+func TestNestedFilteringComprehensive(t *testing.T) {
+	const nestedClass = "ComprehensiveNested"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "addresses", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+						{
+							Name: "bolts", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "size", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+							},
+						},
+					},
+				},
+				{
+					Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "type", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+			{Name: "docs", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tagsAny := func(tags ...string) []any {
+		out := make([]any, len(tags))
+		for i, t := range tags {
+			out[i] = t
+		}
+		return out
+	}
+	addr := func(city, postcode string) map[string]any {
+		return map[string]any{"city": city, "postcode": postcode}
+	}
+	bolt := func(size int) map[string]any { return map[string]any{"size": size} }
+	tireSimple := func(width int) map[string]any {
+		return map[string]any{"width": width}
+	}
+	tireWithBolts := func(width int, bolts ...map[string]any) map[string]any {
+		anyBolts := make([]any, len(bolts))
+		for i, b := range bolts {
+			anyBolts[i] = b
+		}
+		return map[string]any{"width": width, "bolts": anyBolts}
+	}
+	accessory := func(type_ string) map[string]any { return map[string]any{"type": type_} }
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type variantSpec struct {
+		name    string
+		propKey string
+		// d3Props returns doc3's variant-specific props.
+		d3Props func() map[string]any
+		// wrap takes the body (addresses/tags/cars) and produces top-level Properties.
+		wrap func(body map[string]any) map[string]any
+	}
+
+	variants := []variantSpec{
+		{
+			name:    "doc_object",
+			propKey: "doc",
+			d3Props: func() map[string]any {
+				return map[string]any{"doc": map[string]any{
+					"addresses": asArr(addr("berlin", "10115")),
+					"cars":      asArr(map[string]any{"make": "bmw"}),
+				}}
+			},
+			wrap: func(body map[string]any) map[string]any { return map[string]any{"doc": body} },
+		},
+		{
+			name:    "docs_array",
+			propKey: "docs",
+			d3Props: func() map[string]any {
+				return map[string]any{"docs": asArr(
+					map[string]any{"cars": asArr(map[string]any{"make": "bmw"})},
+					map[string]any{
+						"addresses": asArr(addr("berlin", "10115")),
+						"cars":      asArr(map[string]any{"tires": asArr(tireSimple(205)), "accessories": asArr(accessory("sunroof"))}),
+					},
+				)}
+			},
+			wrap: func(body map[string]any) map[string]any { return map[string]any{"docs": asArr(body)} },
+		},
+	}
+
+	for _, v := range variants {
+		v := v
+		t.Run(v.name, func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+
+			d1 := uuid(1)
+			d2 := uuid(2)
+			d3 := uuid(3)
+			d4 := uuid(4)
+
+			d1Body := map[string]any{
+				"addresses": asArr(addr("berlin", "10115")),
+				"tags":      tagsAny("premium"),
+				"cars": asArr(map[string]any{
+					"make":        "bmw",
+					"tires":       asArr(tireWithBolts(205, bolt(10))),
+					"accessories": asArr(accessory("sunroof")),
+				}),
+			}
+			d2Body := map[string]any{
+				"cars": asArr(
+					map[string]any{"make": "bmw"},
+					map[string]any{"tires": asArr(tireSimple(205)), "accessories": asArr(accessory("sunroof"))},
+				),
+			}
+			d4Body := map[string]any{
+				"addresses": asArr(addr("berlin", "10115")),
+				"cars": asArr(map[string]any{
+					"make":        "honda",
+					"tires":       asArr(tireSimple(205)),
+					"accessories": asArr(accessory("sunroof")),
+				}),
+			}
+
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: d1, Properties: v.wrap(d1Body)}, nil, nil, nil, nil, 0), "put d1")
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: d2, Properties: v.wrap(d2Body)}, nil, nil, nil, nil, 0), "put d2")
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: d3, Properties: v.d3Props()}, nil, nil, nil, nil, 0), "put d3")
+			require.NoError(t, db.PutObject(ctx, &models.Object{Class: nestedClass, ID: d4, Properties: v.wrap(d4Body)}, nil, nil, nil, nil, 0), "put d4")
+
+			runFilter := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+				t.Helper()
+				res, err := db.Search(ctx, dto.GetParams{
+					ClassName:  nestedClass,
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    filter,
+				})
+				require.NoError(t, err)
+				got := make([]strfmt.UUID, len(res))
+				for i, r := range res {
+					got[i] = r.ID
+				}
+				assert.ElementsMatch(t, want, got)
+			}
+			want := func(forDoc, forDocs []strfmt.UUID) []strfmt.UUID {
+				if v.name == "doc_object" {
+					return forDoc
+				}
+				return forDocs
+			}
+			pk := v.propKey
+
+			// ----- Basic single-condition filters -----
+			t.Run("basic_cars.make_eq_bmw", func(t *testing.T) {
+				runFilter(t, textFilter(pk+".cars.make", "bmw"), []strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("basic_cars.make_eq_honda", func(t *testing.T) {
+				runFilter(t, textFilter(pk+".cars.make", "honda"), []strfmt.UUID{d4})
+			})
+			t.Run("basic_cars.tires.width_eq_205", func(t *testing.T) {
+				// doc:  d3 has no tires → [d1,d2,d4]
+				// docs: d3 has tires in docs[1] → [d1,d2,d3,d4]
+				runFilter(t, intFilter(pk+".cars.tires.width", 205),
+					want([]strfmt.UUID{d1, d2, d4}, []strfmt.UUID{d1, d2, d3, d4}))
+			})
+			t.Run("basic_addresses.city_eq_berlin", func(t *testing.T) {
+				runFilter(t, textFilter(pk+".addresses.city", "berlin"), []strfmt.UUID{d1, d3, d4})
+			})
+			t.Run("basic_tags_eq_premium", func(t *testing.T) {
+				runFilter(t, textFilter(pk+".tags", "premium"), []strfmt.UUID{d1})
+			})
+
+			// ----- Simple AND with same-element enforcement -----
+			t.Run("AND_make_bmw_AND_tires.width_205_same_car", func(t *testing.T) {
+				// d1 only — d2's bmw is in cars[0], tires in cars[1].
+				runFilter(t, andFilter(textFilter(pk+".cars.make", "bmw"), intFilter(pk+".cars.tires.width", 205)),
+					[]strfmt.UUID{d1})
+			})
+			t.Run("AND_make_bmw_AND_accessories_sunroof_same_car", func(t *testing.T) {
+				runFilter(t, andFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".cars.accessories.type", "sunroof")),
+					[]strfmt.UUID{d1})
+			})
+			t.Run("AND_tires.width_AND_accessories_sunroof_same_car", func(t *testing.T) {
+				// doc:  d3 has no tires → [d1,d2,d4]
+				// docs: d3 has both in docs[1].cars[0] → [d1,d2,d3,d4]
+				runFilter(t, andFilter(intFilter(pk+".cars.tires.width", 205), textFilter(pk+".cars.accessories.type", "sunroof")),
+					want([]strfmt.UUID{d1, d2, d4}, []strfmt.UUID{d1, d2, d3, d4}))
+			})
+			t.Run("AND_3clause_make_tires_accessories_same_car", func(t *testing.T) {
+				runFilter(t, andFilter(
+					textFilter(pk+".cars.make", "bmw"),
+					intFilter(pk+".cars.tires.width", 205),
+					textFilter(pk+".cars.accessories.type", "sunroof"),
+				), []strfmt.UUID{d1})
+			})
+			t.Run("AND_make_bmw_AND_addresses.city_berlin_same_root", func(t *testing.T) {
+				// doc:  d3 has bmw+berlin in same root → [d1,d3]
+				// docs: d3 has bmw in docs[0], berlin in docs[1] (cross-root) → [d1]
+				runFilter(t, andFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".addresses.city", "berlin")),
+					want([]strfmt.UUID{d1, d3}, []strfmt.UUID{d1}))
+			})
+			t.Run("AND_addresses.city_AND_postcode_same_address", func(t *testing.T) {
+				runFilter(t, andFilter(textFilter(pk+".addresses.city", "berlin"), textFilter(pk+".addresses.postcode", "10115")),
+					[]strfmt.UUID{d1, d3, d4})
+			})
+			t.Run("AND_make_AND_address_pair_same_root", func(t *testing.T) {
+				runFilter(t, andFilter(
+					textFilter(pk+".cars.make", "bmw"),
+					textFilter(pk+".addresses.city", "berlin"),
+					textFilter(pk+".addresses.postcode", "10115"),
+				), want([]strfmt.UUID{d1, d3}, []strfmt.UUID{d1}))
+			})
+			t.Run("AND_tags_premium_AND_make_bmw_same_root", func(t *testing.T) {
+				runFilter(t, andFilter(textFilter(pk+".tags", "premium"), textFilter(pk+".cars.make", "bmw")),
+					[]strfmt.UUID{d1})
+			})
+			t.Run("AND_tires_AND_accessories_AND_address_pair", func(t *testing.T) {
+				// doc:  d3 no tires/acc → [d1,d4]
+				// docs: d3 docs[1] has all → [d1,d3,d4]
+				runFilter(t, andFilter(
+					intFilter(pk+".cars.tires.width", 205),
+					textFilter(pk+".cars.accessories.type", "sunroof"),
+					textFilter(pk+".addresses.city", "berlin"),
+					textFilter(pk+".addresses.postcode", "10115"),
+				), want([]strfmt.UUID{d1, d4}, []strfmt.UUID{d1, d3, d4}))
+			})
+
+			// ----- Simple OR -----
+			t.Run("OR_make_bmw_OR_make_honda", func(t *testing.T) {
+				runFilter(t, orFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".cars.make", "honda")),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			t.Run("OR_make_bmw_OR_tires.width_205", func(t *testing.T) {
+				runFilter(t, orFilter(textFilter(pk+".cars.make", "bmw"), intFilter(pk+".cars.tires.width", 205)),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			t.Run("OR_tags_premium_OR_addresses.city_berlin", func(t *testing.T) {
+				runFilter(t, orFilter(textFilter(pk+".tags", "premium"), textFilter(pk+".addresses.city", "berlin")),
+					[]strfmt.UUID{d1, d3, d4})
+			})
+			t.Run("OR_make_bmw_OR_addresses.city_paris_absent", func(t *testing.T) {
+				runFilter(t, orFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".addresses.city", "paris")),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+
+			// ----- Complex multi-condition AND/OR mix -----
+			t.Run("complex_AND_make_tires_OR_make_honda", func(t *testing.T) {
+				runFilter(t, orFilter(
+					andFilter(textFilter(pk+".cars.make", "bmw"), intFilter(pk+".cars.tires.width", 205)),
+					textFilter(pk+".cars.make", "honda"),
+				), []strfmt.UUID{d1, d4})
+			})
+			t.Run("complex_make_bmw_AND_OR_tires_OR_accessories", func(t *testing.T) {
+				runFilter(t, andFilter(
+					textFilter(pk+".cars.make", "bmw"),
+					orFilter(intFilter(pk+".cars.tires.width", 205), textFilter(pk+".cars.accessories.type", "sunroof")),
+				), want([]strfmt.UUID{d1, d2}, []strfmt.UUID{d1, d2, d3}))
+			})
+			t.Run("complex_make_AND_tires_AND_addresses_all_same_root", func(t *testing.T) {
+				runFilter(t, andFilter(
+					textFilter(pk+".cars.make", "bmw"),
+					intFilter(pk+".cars.tires.width", 205),
+					textFilter(pk+".addresses.city", "berlin"),
+				), []strfmt.UUID{d1})
+			})
+			t.Run("complex_OR_makes_AND_addresses", func(t *testing.T) {
+				runFilter(t, andFilter(
+					orFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".cars.make", "honda")),
+					textFilter(pk+".addresses.city", "berlin"),
+				), []strfmt.UUID{d1, d3, d4})
+			})
+			t.Run("complex_4clause_tags_make_tires_accessories", func(t *testing.T) {
+				runFilter(t, andFilter(
+					textFilter(pk+".tags", "premium"),
+					textFilter(pk+".cars.make", "bmw"),
+					intFilter(pk+".cars.tires.width", 205),
+					textFilter(pk+".cars.accessories.type", "sunroof"),
+				), []strfmt.UUID{d1})
+			})
+
+			// ----- Deep nesting (cars.tires.bolts) — only d1 has bolts -----
+			t.Run("deep_bolts.size_alone", func(t *testing.T) {
+				runFilter(t, intFilter(pk+".cars.tires.bolts.size", 10), []strfmt.UUID{d1})
+			})
+			t.Run("deep_bolts.size_AND_tires.width_same_tires", func(t *testing.T) {
+				runFilter(t, andFilter(
+					intFilter(pk+".cars.tires.bolts.size", 10),
+					intFilter(pk+".cars.tires.width", 205),
+				), []strfmt.UUID{d1})
+			})
+			t.Run("deep_bolts.size_AND_tires.width_AND_make_bmw", func(t *testing.T) {
+				runFilter(t, andFilter(
+					intFilter(pk+".cars.tires.bolts.size", 10),
+					intFilter(pk+".cars.tires.width", 205),
+					textFilter(pk+".cars.make", "bmw"),
+				), []strfmt.UUID{d1})
+			})
+
+			// ----- Edge cases -----
+			// Same-path AND on different values: a single value at the same path
+			// can't equal two distinct constants, so the result must be empty
+			// regardless of doc shape.
+			t.Run("edge_same_path_contradiction_make_bmw_AND_make_honda", func(t *testing.T) {
+				runFilter(t, andFilter(
+					textFilter(pk+".cars.make", "bmw"),
+					textFilter(pk+".cars.make", "honda"),
+				), []strfmt.UUID{})
+			})
+			// Filter on a value no doc carries — verifies empty-bitmap handling.
+			t.Run("edge_empty_result_make_ferrari", func(t *testing.T) {
+				runFilter(t, textFilter(pk+".cars.make", "ferrari"), []strfmt.UUID{})
+			})
+		})
+	}
+}
