@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 )
 
@@ -28,10 +29,8 @@ const (
 	changelogDirName       = "changelog"
 	changelogFileExtension = ".log"
 	// Kept small because retries run under docIdLock + the two RLocks.
-	changelogRetryAttempts = 3
+	changelogRetryAttempts = 2
 )
-
-var changelogRetryBackoffs = []time.Duration{1 * time.Millisecond, 5 * time.Millisecond}
 
 // ActivateChangeLog opens a fresh log for opID and registers it. It first
 // sweeps any .log files whose op-id is not registered — the safety net for
@@ -154,19 +153,24 @@ func (s *Shard) appendWithRetry(attempt func() (uint64, error)) (uint64, error) 
 		lsn uint64
 		err error
 	)
-	for i := range changelogRetryAttempts {
+	exp := backoff.NewExponentialBackOff(
+		backoff.WithInitialInterval(1*time.Millisecond),
+		backoff.WithMultiplier(5),
+	)
+	retry := backoff.WithMaxRetries(exp, uint64(changelogRetryAttempts))
+	if err := backoff.Retry(func() error {
 		lsn, err = attempt()
 		if err == nil {
-			return lsn, nil
+			return nil
 		}
 		if errors.Is(err, changelog.ErrLogFinalized) || errors.Is(err, changelog.ErrLogDeactivated) {
-			return 0, err
+			return backoff.Permanent(err)
 		}
-		if i < len(changelogRetryBackoffs) {
-			time.Sleep(changelogRetryBackoffs[i])
-		}
+		return err
+	}, retry); err != nil {
+		return 0, fmt.Errorf("append with retry: %w", err)
 	}
-	return 0, fmt.Errorf("changelog append: %d attempts exhausted: %w", changelogRetryAttempts, err)
+	return lsn, nil
 }
 
 func (s *Shard) dispatchAppendResult(opID string, log *changelog.ChangeLog, err error) {
