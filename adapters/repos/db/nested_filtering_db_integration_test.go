@@ -3819,7 +3819,14 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// ----- Constraint at countries[1] -----
 
 	// 1a: countries[1].name = "germany" AND countries[1].garages.cars.model IS NULL
-	t.Run("1a_countries_value_and_isNull_cars_model", func(t *testing.T) {
+	// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
+	// semantics on the deep path `countries[1].garages.cars.model`. When
+	// the planned existential IsNull rewrite lands, expectations flip:
+	// idMatchNoGarages/idMatchEmptyGarages/idMatchGarageNoCars STOP
+	// matching (vacuous matches go away); idNoMatchModelInOtherGarage
+	// STARTS matching (cross-garage absent satisfies existential). Could
+	// also be obviated by explicit ANY/ALL/NONE quantifiers.
+	t.Run("regression_1a_countries_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatch := uuid(1)
 		idMatchNoGarages := uuid(2)
 		idMatchEmptyGarages := uuid(3)
@@ -4261,7 +4268,13 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// ----- Constraint at countries.garages[1] -----
 
 	// 3a: countries.garages[1].city = "berlin" AND countries.garages[1].cars.model IS NULL
-	t.Run("3a_garages_value_and_isNull_cars_model", func(t *testing.T) {
+	// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
+	// semantics on the deep path `countries.garages[1].cars.model`. When
+	// the planned existential IsNull rewrite lands, vacuous matches
+	// (no cars / no model anywhere) are removed and cross-car-with-model
+	// matches are added. A missing discriminator doc should be added at
+	// that time.
+	t.Run("regression_3a_garages_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatchMinimal := uuid(1)
 		idMatchNoCars := uuid(2)
 		idMatchEmptyCars := uuid(3)
@@ -4498,7 +4511,11 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// ----- Constraint at countries.garages.cars[1] -----
 
 	// 5: cars[1].make = "honda" AND cars[1].model IS NULL
-	t.Run("5_cars_value_and_isNull_model", func(t *testing.T) {
+	// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
+	// semantics on the deep path `cars[1].model`. When the planned
+	// existential IsNull rewrite lands, expectations flip — vacuous
+	// matches removed, cross-element absent matches added.
+	t.Run("regression_5_cars_value_and_isNull_model", func(t *testing.T) {
 		idMatchMinimal := uuid(1)
 		idMatchExtraCar := uuid(2)
 		idNoMatchModelPresent := uuid(3)
@@ -4665,8 +4682,8 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 //   - Docs that don't set the top-level nested property at all.
 //
 // This documents the current universal IsNull-on-deep-path behaviour. The
-// existential-semantics plan (memory: plan_isnull_existential_semantics.md)
-// would change some of these assertions before release.
+// planned existential IsNull rewrite would change some of these assertions
+// before release.
 func TestNestedFilteringIsNullStandalone(t *testing.T) {
 	const nestedClass = "Article"
 	vTrue := true
@@ -4833,11 +4850,13 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				})
 		})
 
-		t.Run("addresses_city_is_null_universal", func(t *testing.T) {
-			// Universal: matches docs where city is absent everywhere within
-			// nested.addresses. idMixedCities and idMixedTagsAndCities both have
-			// at least one address with city, so they are NOT returned — the
-			// existential plan would change this.
+		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull
+		// on the deep path `nested.addresses.city`. When the planned
+		// existential IsNull rewrite lands, idMixedCities and
+		// idMixedTagsAndCities (some address has city, some doesn't)
+		// would match — only docs with NO addresses or where every
+		// address has city should be excluded under existential.
+		t.Run("regression_addresses_city_is_null_universal", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nested.addresses.city", true),
 				[]strfmt.UUID{
 					idAddrNoCity, idEmptyAddresses, idNoAddresses, idNoNestedProp,
@@ -4850,9 +4869,12 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				[]strfmt.UUID{idAddrWithTags, idAddrCityAndTags, idMixedTagsAndCities})
 		})
 
-		t.Run("addresses_tags_is_null_universal", func(t *testing.T) {
-			// Universal: matches docs with no tags anywhere. idMixedTagsAndCities
-			// has tags in one address, so NOT returned (existential would).
+		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull on
+		// `nested.addresses.tags` (text[]). Under the existential IsNull
+		// rewrite, idMixedTagsAndCities (some address has tags, some
+		// doesn't) would match. Verify scalar-array IsNull semantics in
+		// the rewrite plan.
+		t.Run("regression_addresses_tags_is_null_universal", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nested.addresses.tags", true),
 				[]strfmt.UUID{
 					idAddrWithCity, idAddrNoCity, idMixedCities,
@@ -4955,7 +4977,12 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				})
 		})
 
-		t.Run("addresses_city_is_null_universal", func(t *testing.T) {
+		// TODO aliszka:nested_filtering: docs_array variant of universal
+		// IsNull on `nestedArray.addresses.city`. Locks in CURRENT
+		// behavior; flips under the existential IsNull rewrite.
+		// Discriminator docs (idArrMixedAcrossElems etc.) document
+		// expected post-rewrite matches.
+		t.Run("regression_addresses_city_is_null_universal", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nestedArray.addresses.city", true),
 				[]strfmt.UUID{
 					idArrAddrNoCity, idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp,
@@ -4968,7 +4995,10 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				[]strfmt.UUID{idArrAddrWithTags, idArrAddrCityAndTags, idArrTagsInSecondElem})
 		})
 
-		t.Run("addresses_tags_is_null_universal", func(t *testing.T) {
+		// TODO aliszka:nested_filtering: docs_array variant of universal
+		// IsNull on `nestedArray.addresses.tags` (text[]). Locks in
+		// CURRENT behavior; flips under the existential IsNull rewrite.
+		t.Run("regression_addresses_tags_is_null_universal", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nestedArray.addresses.tags", true),
 				[]strfmt.UUID{
 					idArrAddrWithCity, idArrAddrNoCity, idArrMixedAcrossElems, idArrCityInSecondElem,
@@ -8832,7 +8862,11 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0].width", false),
 				[]strfmt.UUID{idCar1HasTireWithWidth})
 		})
-		t.Run("cars[1].tires[0].width_IsNull", func(t *testing.T) {
+		// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
+		// semantics on the deep path `cars[1].tires[0].width`. The planned
+		// existential IsNull rewrite would flip vacuous matches and add
+		// cross-element absent matches.
+		t.Run("regression_cars[1].tires[0].width_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0].width", true),
 				[]strfmt.UUID{idCar1HasEmptyTire, idCar1NoTires, idNoCar1, idAbsent})
 		})
@@ -8867,7 +8901,12 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars.tires.width", false),
 				[]strfmt.UUID{idAllTires, idSecondCarTires})
 		})
-		t.Run("cars.tires.width_IsNull_universal", func(t *testing.T) {
+		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull
+		// on the deep path `cars.tires.width`. Flips when the planned
+		// existential IsNull rewrite lands: docs with any tire having a
+		// width would no longer match — only docs where at least one tire
+		// is missing a width.
+		t.Run("regression_cars.tires.width_IsNull_universal", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars.tires.width", true),
 				[]strfmt.UUID{idTiresNoWidth, idCarsNoTires, idAbsent})
 		})
@@ -8921,7 +8960,12 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses.tags[2]", false),
 				[]strfmt.UUID{idHasThirdTag, idHasThirdInSecond})
 		})
-		t.Run("addresses.tags[2]_IsNull", func(t *testing.T) {
+		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull
+		// for scalar-array positional access (`addresses.tags[2]`). Under
+		// the planned existential IsNull rewrite, the expected list would
+		// shift — empty/absent docs no longer match, docs where ANY
+		// address has a missing tags[2] would match.
+		t.Run("regression_addresses.tags[2]_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses.tags[2]", true),
 				[]strfmt.UUID{idTwoTagsOnly, idEmptyTags, idNoTags, idAbsent})
 		})
@@ -9629,6 +9673,15 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 					textFilter(pk+".cars.make", "honda"),
 				), []strfmt.UUID{d1, d4})
 			})
+			// TODO aliszka:nested_filtering: this sub-test asserts CURRENT
+			// docID-level AND-of-OR behavior. The d2 expectation (cars[0]=bmw
+			// alone, cars[1]=tires+accessories alone) depends on AND not
+			// propagating same-element correlation across the OR boundary.
+			// When OR distribution lands (OR-in-AND distribution rewrite),
+			// d2 will no longer match — only docs with a single car satisfying
+			// (bmw AND 205) or (bmw AND sunroof) would match.
+			// See TestNestedFilteringAndOfOrRegression for a dedicated
+			// discriminator test.
 			t.Run("complex_make_bmw_AND_OR_tires_OR_accessories", func(t *testing.T) {
 				runFilter(t, andFilter(
 					textFilter(pk+".cars.make", "bmw"),
@@ -9642,6 +9695,14 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 					textFilter(pk+".addresses.city", "berlin"),
 				), []strfmt.UUID{d1})
 			})
+			// TODO aliszka:nested_filtering: this sub-test asserts CURRENT
+			// docID-level AND-of-OR behavior. d3 in docs_array variant has
+			// bmw in docs[0] and berlin in docs[1] (cross-root) — currently
+			// matches via docID-level intersection. When OR distribution
+			// lands (OR-in-AND distribution rewrite), the
+			// rewritten filter `(bmw AND berlin) OR (honda AND berlin)`
+			// requires same-root for each branch, so d3 (docs_array) would
+			// no longer match. doc_object expectation unchanged (single root).
 			t.Run("complex_OR_makes_AND_addresses", func(t *testing.T) {
 				runFilter(t, andFilter(
 					orFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".cars.make", "honda")),
@@ -10548,8 +10609,7 @@ func TestNestedFilteringContextCancellation(t *testing.T) {
 // where each AND side is a same-element correlated AND. Verifies that the
 // OR combinator correctly unions docID-level results from two independent
 // correlated AND groups — neither side's positions should bleed into the
-// other's same-element evaluation. Closes a gap noted in
-// project_correlated_and_test_followups.md.
+// other's same-element evaluation.
 //
 // Two sub-tests:
 //
@@ -10943,7 +11003,7 @@ func TestNestedFilteringNotOfCorrelatedAnd(t *testing.T) {
 	// Two docs (idSomeTeslaWithout205 and idTwoTeslasOneHas205) discriminate
 	// between universal and per-element semantics — they would flip from "no
 	// match" to "match" if NOT inside a correlated AND were rewritten to per-
-	// element evaluation. See plan_not_per_element_semantics.md.
+	// element evaluation. See per-element NOT-in-AND rewrite.
 	//
 	// Universal interpretation (current):
 	//   A = docs with some tesla car
@@ -10953,6 +11013,11 @@ func TestNestedFilteringNotOfCorrelatedAnd(t *testing.T) {
 	// Per-element interpretation (future, if implemented):
 	//   For each car element K: this car is tesla AND this car doesn't have width=205
 	//   Result = docs where ANY car satisfies the per-element condition
+	//
+	// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
+	// behavior. Flips when per-element NOT lands
+	// (per-element NOT-in-AND rewrite) — discriminator docs
+	// idSomeTeslaWithout205 and idTwoTeslasOneHas205 will start matching.
 	t.Run("regression_NOT_inside_AND_universal_docID_level", func(t *testing.T) {
 		idTeslaNo205 := uuid(1)          // single tesla car w/o 205 — both interpretations: match
 		idTeslaWith205 := uuid(2)        // single tesla car with 205 — both: no match
@@ -11002,7 +11067,7 @@ func TestNestedFilteringNotOfCorrelatedAnd(t *testing.T) {
 //
 // Discriminator docs (idMixed, idEmpty, idEmptyArr) flip from match-or-not
 // when the uniform-existential switch in
-// plan_explicit_array_quantifiers.md lands.
+// explicit ANY/ALL/NONE quantifiers lands.
 //
 // Sub-test 2 mirrors regression_NOT_inside_AND_universal_docID_level for
 // NotEqual inside a correlated AND, showing that NOT and NotEqual share
@@ -11117,6 +11182,13 @@ func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
 	//
 	// Universal (current): match docs where NO car has make=bmw.
 	// Existential (proposed): match docs where ANY car has make≠bmw.
+	//
+	// TODO aliszka:nested_filtering: locks in CURRENT universal NotEqual
+	// behavior. Discriminators idMixed/idEmpty/idEmptyArr flip when
+	// uniform-existential rewrite lands (explicit ANY/ALL/NONE quantifiers).
+	// The recommended NotEqual → NOT(Equal) rewrite would inherit whatever
+	// NOT does (currently universal) — this expectation flips together with
+	// regression_NOT_inside_AND_universal_docID_level.
 	t.Run("regression_basic_NotEqual_universal_docID_level", func(t *testing.T) {
 		idOnlyBmw := uuid(1)
 		idOnlyTesla := uuid(2)
@@ -11162,8 +11234,18 @@ func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
 	//   - Universal-correct fix: [idTeslaNo205, idEmpty]
 	//   - Uniform-existential fix: [idTeslaNo205, idSomeTeslaWO205, idTwoTeslas1@205]
 	//
-	// Filed alongside plan_explicit_array_quantifiers.md as a separate bug
+	// Filed alongside explicit ANY/ALL/NONE quantifiers as a separate bug
 	// requiring fix regardless of the existential-semantics direction.
+	//
+	// TODO aliszka:nested_filtering: this is a CORRECTNESS BUG (not a
+	// semantics decision). NotEqual returns the OPPOSITE of expected
+	// inside a nested correlated AND. Fix path:
+	// `NotEqual → NOT(Equal) rewrite` recommends rewriting
+	// NotEqual → NOT(Equal) at extractPropValuePair (~0.5 day, independent
+	// of any existential-semantics decision). When fixed, expected list
+	// flips to [idTeslaNo205, idEmpty] (universal-correct) or
+	// [idTeslaNo205, idSomeTeslaWithout205, idTwoTeslasOneHas205]
+	// (uniform-existential).
 	t.Run("regression_BUG_NotEqual_inside_AND_treated_as_Equal", func(t *testing.T) {
 		idTeslaNo205 := uuid(1)
 		idTeslaWith205 := uuid(2)
@@ -11191,5 +11273,688 @@ func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
 		runScenario(t, docs, filter, []strfmt.UUID{
 			idTeslaWith205, idTeslaWith205PlusBmw, idTwoTeslasOneHas205,
 		})
+	})
+}
+
+// TestNestedFilteringOrOfCorrelatedAndsWithArrN tests OR-of-correlated-ANDs
+// shapes where one or both AND sides are pinned to specific arr[N] indices.
+// The combinator boundary tested: groupChildrenByArrayIndicesKey
+// partitions/correlates per-K within an AND; the OR combinator must union
+// independent partition groups at the docID level (not at per-position
+// level).
+//
+// Coverage matrix: 5 LCA depths × 2 OR shapes = 10 sub-tests.
+//
+// LCA depths (path: countries.garages.cars):
+//   - country (object) root, L1 garages[N]
+//   - country (object) root, L2 cars[N]
+//   - countries (object[]) root[N]
+//   - countries (object[]) root, L1 garages[N]
+//   - countries (object[]) root, L2 cars[N]
+//
+// Shapes:
+//   - Shape 1: simple arr[N] clause OR (correlated AND at different K)
+//   - Shape 2: (correlated AND at K=0) OR (correlated AND at K=1)
+//
+// Each sub-test includes a "values at wrong index" partition discriminator
+// — a doc where the values that *would* match each side exist, but at the
+// wrong arr[N] positions. If the OR combinator incorrectly unioned
+// per-position bitmaps across operands, this doc would falsely match.
+func TestNestedFilteringOrOfCorrelatedAndsWithArrN(t *testing.T) {
+	const nestedClass = "OrCorrelatedAndsArrN"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	garageProps := []*models.NestedProperty{
+		{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "postcode", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	rootInner := []*models.NestedProperty{
+		{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: garageProps},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	carM := func(make string) map[string]any { return map[string]any{"make": make} }
+	carMW := func(make string, width int) map[string]any {
+		return map[string]any{"make": make, "tires": asArr(tire(width))}
+	}
+	carW := func(width int) map[string]any { return map[string]any{"tires": asArr(tire(width))} }
+	garageCity := func(city string) map[string]any { return map[string]any{"city": city} }
+	garageCP := func(city, postcode string) map[string]any {
+		return map[string]any{"city": city, "postcode": postcode}
+	}
+	garageP := func(postcode string) map[string]any { return map[string]any{"postcode": postcode} }
+	garageWithCars := func(cars ...map[string]any) map[string]any {
+		anyCars := make([]any, len(cars))
+		for i, c := range cars {
+			anyCars[i] = c
+		}
+		return map[string]any{"cars": anyCars}
+	}
+	countryWithGarages := func(garages ...map[string]any) map[string]any {
+		anyG := make([]any, len(garages))
+		for i, g := range garages {
+			anyG[i] = g
+		}
+		return map[string]any{"garages": anyG}
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	withCountry := func(garages ...map[string]any) map[string]any {
+		return map[string]any{"country": countryWithGarages(garages...)}
+	}
+	withCountries := func(countries ...map[string]any) map[string]any {
+		anyC := make([]any, len(countries))
+		for i, c := range countries {
+			anyC[i] = c
+		}
+		return map[string]any{"countries": anyC}
+	}
+
+	// =========================================================================
+	// country (object) root, L1 garages[N]
+	// =========================================================================
+
+	t.Run("country_object_L1_garages[N]_Shape1_simple_OR_correlated", func(t *testing.T) {
+		// Filter: country.garages[0].city="berlin"
+		//      OR (country.garages[1].city="munich" AND country.garages[1].postcode="80331")
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idNeitherWrongPostcode := uuid(4)
+		idNeitherSplitClauses := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(garageCity("berlin")), note: "garages[0]=berlin; no [1]"},
+			{id: idRightOnly, props: withCountry(garageCity("paris"), garageCP("munich", "80331")), note: "[0]=paris; [1]=munich+80331"},
+			{id: idBoth, props: withCountry(garageCity("berlin"), garageCP("munich", "80331")), note: "both"},
+			{id: idNeitherWrongPostcode, props: withCountry(garageCity("paris"), garageCP("munich", "99999")), note: "[1] munich but wrong postcode"},
+			{id: idNeitherSplitClauses, props: withCountry(garageCity("paris"), garageCity("munich"), garageP("80331")), note: "[1] munich no postcode; [2] postcode but not pinned"},
+			{id: idValuesAtWrongIndex, props: withCountry(garageCP("munich", "80331"), garageCity("berlin")), note: "DISCRIMINATOR: values swapped"},
+		}
+		filter := orFilter(
+			textFilter("country.garages[0].city", "berlin"),
+			andFilter(
+				textFilter("country.garages[1].city", "munich"),
+				textFilter("country.garages[1].postcode", "80331"),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	t.Run("country_object_L1_garages[N]_Shape2_correlated_OR_correlated", func(t *testing.T) {
+		// Filter: (country.garages[0].city="berlin" AND country.garages[0].postcode="10115")
+		//      OR (country.garages[1].city="munich" AND country.garages[1].postcode="80331")
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftWrongPostcode := uuid(4)
+		idRightWrongPostcode := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(garageCP("berlin", "10115")), note: "[0]=berlin+10115"},
+			{id: idRightOnly, props: withCountry(garageCity("paris"), garageCP("munich", "80331")), note: "[1]=munich+80331"},
+			{id: idBoth, props: withCountry(garageCP("berlin", "10115"), garageCP("munich", "80331")), note: "both"},
+			{id: idLeftWrongPostcode, props: withCountry(garageCP("berlin", "99999")), note: "[0] berlin but wrong postcode"},
+			{id: idRightWrongPostcode, props: withCountry(garageCity("paris"), garageCP("munich", "99999")), note: "[1] munich but wrong postcode"},
+			{id: idValuesAtWrongIndex, props: withCountry(garageCP("munich", "80331"), garageCP("berlin", "10115")), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("country.garages[0].city", "berlin"), textFilter("country.garages[0].postcode", "10115")),
+			andFilter(textFilter("country.garages[1].city", "munich"), textFilter("country.garages[1].postcode", "80331")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	// =========================================================================
+	// country (object) root, L2 cars[N]
+	// =========================================================================
+
+	t.Run("country_object_L2_cars[N]_Shape1_simple_OR_correlated", func(t *testing.T) {
+		// Filter: country.garages.cars[0].make="tesla"
+		//      OR (country.garages.cars[1].make="bmw" AND country.garages.cars[1].tires.width=205)
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idNeitherWrongWidth := uuid(4)
+		idNeitherSplitClauses := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(garageWithCars(carM("tesla"))), note: "cars[0]=tesla; no [1]"},
+			{id: idRightOnly, props: withCountry(garageWithCars(carM("volvo"), carMW("bmw", 205))), note: "cars[0]=volvo; cars[1]=bmw+205"},
+			{id: idBoth, props: withCountry(garageWithCars(carM("tesla"), carMW("bmw", 205))), note: "both"},
+			{id: idNeitherWrongWidth, props: withCountry(garageWithCars(carM("volvo"), carMW("bmw", 225))), note: "cars[1] bmw but width=225"},
+			{id: idNeitherSplitClauses, props: withCountry(garageWithCars(carM("volvo"), carM("bmw"), carW(205))), note: "cars[1] bmw no tires; cars[2] tires but not pinned"},
+			{id: idValuesAtWrongIndex, props: withCountry(garageWithCars(carMW("bmw", 205), carM("tesla"))), note: "DISCRIMINATOR: cars[0]=bmw+205, cars[1]=tesla"},
+		}
+		filter := orFilter(
+			textFilter("country.garages.cars[0].make", "tesla"),
+			andFilter(
+				textFilter("country.garages.cars[1].make", "bmw"),
+				intFilter("country.garages.cars[1].tires.width", 205),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	t.Run("country_object_L2_cars[N]_Shape2_correlated_OR_correlated", func(t *testing.T) {
+		// Filter: (country.garages.cars[0].make="tesla" AND .tires.width=205)
+		//      OR (country.garages.cars[1].make="bmw"   AND .tires.width=305)
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftWrongWidth := uuid(4)
+		idRightWrongWidth := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(garageWithCars(carMW("tesla", 205))), note: "cars[0]=tesla+205"},
+			{id: idRightOnly, props: withCountry(garageWithCars(carM("volvo"), carMW("bmw", 305))), note: "cars[1]=bmw+305"},
+			{id: idBoth, props: withCountry(garageWithCars(carMW("tesla", 205), carMW("bmw", 305))), note: "both"},
+			{id: idLeftWrongWidth, props: withCountry(garageWithCars(carMW("tesla", 225))), note: "cars[0] tesla but 225"},
+			{id: idRightWrongWidth, props: withCountry(garageWithCars(carM("volvo"), carMW("bmw", 225))), note: "cars[1] bmw but 225"},
+			{id: idValuesAtWrongIndex, props: withCountry(garageWithCars(carMW("bmw", 305), carMW("tesla", 205))), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("country.garages.cars[0].make", "tesla"), intFilter("country.garages.cars[0].tires.width", 205)),
+			andFilter(textFilter("country.garages.cars[1].make", "bmw"), intFilter("country.garages.cars[1].tires.width", 305)),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	// =========================================================================
+	// countries (object[]) root[N]
+	// =========================================================================
+
+	t.Run("countries_array_root[N]_Shape1_simple_OR_correlated", func(t *testing.T) {
+		// Filter: countries[0].garages.cars.make="tesla"
+		//      OR (countries[1].garages.cars.make="bmw" AND countries[1].garages.cars.tires.width=205)
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idNeitherWrongWidth := uuid(4)
+		idNeitherSplitInsideRight := uuid(5)
+		idValuesAtWrongCountry := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWithGarages(garageWithCars(carM("tesla")))), note: "countries[0] tesla; no [1]"},
+			{id: idRightOnly, props: withCountries(
+				countryWithGarages(garageWithCars(carM("volvo"))),
+				countryWithGarages(garageWithCars(carMW("bmw", 205))),
+			), note: "countries[1]=bmw+205"},
+			{id: idBoth, props: withCountries(
+				countryWithGarages(garageWithCars(carM("tesla"))),
+				countryWithGarages(garageWithCars(carMW("bmw", 205))),
+			), note: "both"},
+			{id: idNeitherWrongWidth, props: withCountries(
+				countryWithGarages(garageWithCars(carM("volvo"))),
+				countryWithGarages(garageWithCars(carMW("bmw", 225))),
+			), note: "countries[1] bmw but 225"},
+			{id: idNeitherSplitInsideRight, props: withCountries(
+				countryWithGarages(garageWithCars(carM("volvo"))),
+				countryWithGarages(garageWithCars(carM("bmw")), garageWithCars(carW(205))),
+			), note: "countries[1] bmw and 205 in different garages"},
+			{id: idValuesAtWrongCountry, props: withCountries(
+				countryWithGarages(garageWithCars(carMW("bmw", 205))),
+				countryWithGarages(garageWithCars(carM("tesla"))),
+			), note: "DISCRIMINATOR: countries[0]=bmw+205, countries[1]=tesla"},
+		}
+		filter := orFilter(
+			textFilter("countries[0].garages.cars.make", "tesla"),
+			andFilter(
+				textFilter("countries[1].garages.cars.make", "bmw"),
+				intFilter("countries[1].garages.cars.tires.width", 205),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	t.Run("countries_array_root[N]_Shape2_correlated_OR_correlated", func(t *testing.T) {
+		// Filter: (countries[0].garages.cars.make="tesla" AND countries[0].garages.cars.tires.width=205)
+		//      OR (countries[1].garages.cars.make="bmw"   AND countries[1].garages.cars.tires.width=305)
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftWrongWidth := uuid(4)
+		idRightWrongWidth := uuid(5)
+		idValuesAtWrongCountry := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWithGarages(garageWithCars(carMW("tesla", 205)))), note: "countries[0]=tesla+205"},
+			{id: idRightOnly, props: withCountries(
+				countryWithGarages(garageWithCars(carM("volvo"))),
+				countryWithGarages(garageWithCars(carMW("bmw", 305))),
+			), note: "countries[1]=bmw+305"},
+			{id: idBoth, props: withCountries(
+				countryWithGarages(garageWithCars(carMW("tesla", 205))),
+				countryWithGarages(garageWithCars(carMW("bmw", 305))),
+			), note: "both"},
+			{id: idLeftWrongWidth, props: withCountries(countryWithGarages(garageWithCars(carMW("tesla", 225)))), note: "tesla but 225"},
+			{id: idRightWrongWidth, props: withCountries(
+				countryWithGarages(garageWithCars(carM("volvo"))),
+				countryWithGarages(garageWithCars(carMW("bmw", 225))),
+			), note: "bmw but 225"},
+			{id: idValuesAtWrongCountry, props: withCountries(
+				countryWithGarages(garageWithCars(carMW("bmw", 305))),
+				countryWithGarages(garageWithCars(carMW("tesla", 205))),
+			), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("countries[0].garages.cars.make", "tesla"), intFilter("countries[0].garages.cars.tires.width", 205)),
+			andFilter(textFilter("countries[1].garages.cars.make", "bmw"), intFilter("countries[1].garages.cars.tires.width", 305)),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	// =========================================================================
+	// countries (object[]) L1 garages[N]
+	// =========================================================================
+
+	t.Run("countries_array_L1_garages[N]_Shape1_simple_OR_correlated", func(t *testing.T) {
+		// Filter: countries.garages[0].city="berlin"
+		//      OR (countries.garages[1].city="munich" AND countries.garages[1].postcode="80331")
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idNeitherWrongPostcode := uuid(4)
+		idAcrossCountries := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWithGarages(garageCity("berlin"))), note: "garages[0]=berlin"},
+			{id: idRightOnly, props: withCountries(countryWithGarages(garageCity("paris"), garageCP("munich", "80331"))), note: "garages[1]=munich+80331"},
+			{id: idBoth, props: withCountries(countryWithGarages(garageCity("berlin"), garageCP("munich", "80331"))), note: "both"},
+			{id: idNeitherWrongPostcode, props: withCountries(countryWithGarages(garageCity("paris"), garageCP("munich", "99999"))), note: "garages[1] munich wrong postcode"},
+			{id: idAcrossCountries, props: withCountries(
+				countryWithGarages(garageCity("paris")),
+				countryWithGarages(garageCity("paris"), garageCP("munich", "80331")),
+			), note: "countries[1].garages[1] satisfies right (existential over countries)"},
+			{id: idValuesAtWrongIndex, props: withCountries(countryWithGarages(garageCP("munich", "80331"), garageCity("berlin"))), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			textFilter("countries.garages[0].city", "berlin"),
+			andFilter(
+				textFilter("countries.garages[1].city", "munich"),
+				textFilter("countries.garages[1].postcode", "80331"),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth, idAcrossCountries})
+	})
+
+	t.Run("countries_array_L1_garages[N]_Shape2_correlated_OR_correlated", func(t *testing.T) {
+		// Filter: (countries.garages[0].city="berlin" AND countries.garages[0].postcode="10115")
+		//      OR (countries.garages[1].city="munich" AND countries.garages[1].postcode="80331")
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftWrongPostcode := uuid(4)
+		idRightWrongPostcode := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWithGarages(garageCP("berlin", "10115"))), note: "garages[0]=berlin+10115"},
+			{id: idRightOnly, props: withCountries(countryWithGarages(garageCity("paris"), garageCP("munich", "80331"))), note: "garages[1]=munich+80331"},
+			{id: idBoth, props: withCountries(countryWithGarages(garageCP("berlin", "10115"), garageCP("munich", "80331"))), note: "both"},
+			{id: idLeftWrongPostcode, props: withCountries(countryWithGarages(garageCP("berlin", "99999"))), note: "berlin but wrong postcode"},
+			{id: idRightWrongPostcode, props: withCountries(countryWithGarages(garageCity("paris"), garageCP("munich", "99999"))), note: "munich but wrong postcode"},
+			{id: idValuesAtWrongIndex, props: withCountries(countryWithGarages(garageCP("munich", "80331"), garageCP("berlin", "10115"))), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("countries.garages[0].city", "berlin"), textFilter("countries.garages[0].postcode", "10115")),
+			andFilter(textFilter("countries.garages[1].city", "munich"), textFilter("countries.garages[1].postcode", "80331")),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	// =========================================================================
+	// countries (object[]) L2 cars[N]
+	// =========================================================================
+
+	t.Run("countries_array_L2_cars[N]_Shape1_simple_OR_correlated", func(t *testing.T) {
+		// Filter: countries.garages.cars[0].make="tesla"
+		//      OR (countries.garages.cars[1].make="bmw" AND countries.garages.cars[1].tires.width=205)
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idNeitherWrongWidth := uuid(4)
+		idNeitherSplitClauses := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWithGarages(garageWithCars(carM("tesla")))), note: "cars[0]=tesla"},
+			{id: idRightOnly, props: withCountries(countryWithGarages(garageWithCars(carM("volvo"), carMW("bmw", 205)))), note: "cars[1]=bmw+205"},
+			{id: idBoth, props: withCountries(countryWithGarages(garageWithCars(carM("tesla"), carMW("bmw", 205)))), note: "both"},
+			{id: idNeitherWrongWidth, props: withCountries(countryWithGarages(garageWithCars(carM("volvo"), carMW("bmw", 225)))), note: "cars[1] bmw but 225"},
+			{id: idNeitherSplitClauses, props: withCountries(countryWithGarages(garageWithCars(carM("volvo"), carM("bmw"), carW(205)))), note: "cars[1] bmw no tires; cars[2] not pinned"},
+			{id: idValuesAtWrongIndex, props: withCountries(countryWithGarages(garageWithCars(carMW("bmw", 205), carM("tesla")))), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			textFilter("countries.garages.cars[0].make", "tesla"),
+			andFilter(
+				textFilter("countries.garages.cars[1].make", "bmw"),
+				intFilter("countries.garages.cars[1].tires.width", 205),
+			),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+
+	t.Run("countries_array_L2_cars[N]_Shape2_correlated_OR_correlated", func(t *testing.T) {
+		// Filter: (countries.garages.cars[0].make="tesla" AND .tires.width=205)
+		//      OR (countries.garages.cars[1].make="bmw"   AND .tires.width=305)
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBoth := uuid(3)
+		idLeftWrongWidth := uuid(4)
+		idRightWrongWidth := uuid(5)
+		idValuesAtWrongIndex := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWithGarages(garageWithCars(carMW("tesla", 205)))), note: "cars[0]=tesla+205"},
+			{id: idRightOnly, props: withCountries(countryWithGarages(garageWithCars(carM("volvo"), carMW("bmw", 305)))), note: "cars[1]=bmw+305"},
+			{id: idBoth, props: withCountries(countryWithGarages(garageWithCars(carMW("tesla", 205), carMW("bmw", 305)))), note: "both"},
+			{id: idLeftWrongWidth, props: withCountries(countryWithGarages(garageWithCars(carMW("tesla", 225)))), note: "tesla but 225"},
+			{id: idRightWrongWidth, props: withCountries(countryWithGarages(garageWithCars(carM("volvo"), carMW("bmw", 225)))), note: "bmw but 225"},
+			{id: idValuesAtWrongIndex, props: withCountries(countryWithGarages(garageWithCars(carMW("bmw", 305), carMW("tesla", 205)))), note: "DISCRIMINATOR: swapped"},
+		}
+		filter := orFilter(
+			andFilter(textFilter("countries.garages.cars[0].make", "tesla"), intFilter("countries.garages.cars[0].tires.width", 205)),
+			andFilter(textFilter("countries.garages.cars[1].make", "bmw"), intFilter("countries.garages.cars[1].tires.width", 305)),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth})
+	})
+}
+
+// TestNestedFilteringAndOfOrRegression locks in the *current* docID-level
+// semantics of `A AND (B OR C)` for nested-leaf paths. Today the OR child
+// resolves to a docID set independently and the outer AND intersects at
+// docID level — same-element correlation does NOT propagate across the OR
+// boundary. See OR-in-AND distribution rewrite for the proposed
+// fix (distribute OR over AND at extractPropValuePair time, giving same-
+// element semantics per DNF branch).
+//
+// The discriminator docs (idDiscriminator*) currently MATCH because the
+// dispatch only requires "honda exists somewhere AND (205 or 225 exists
+// somewhere)". Under per-element AND-of-OR (the proposed direction), they
+// would NOT match because no single car satisfies (honda AND 205) or
+// (honda AND 225).
+//
+// When OR distribution lands, this test will fail and the expected list
+// must flip from [idSameCarMatch, idSameCarMatchAlt, idDiscriminatorSplit*,
+// idDiscriminatorAcrossCars] (current docID-level) to
+// [idSameCarMatch, idSameCarMatchAlt] (per-element).
+//
+// A companion sub-test in TestNestedFilteringComprehensive
+// (`complex_make_bmw_AND_OR_tires_OR_accessories`) carries an inline
+// cross-reference comment pointing back to this regression test.
+func TestNestedFilteringAndOfOrRegression(t *testing.T) {
+	const nestedClass = "AndOfOrRegression"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	carM := func(make string) map[string]any { return map[string]any{"make": make} }
+	carMW := func(make string, width int) map[string]any {
+		return map[string]any{"make": make, "tires": asArr(tire(width))}
+	}
+	carW := func(width int) map[string]any { return map[string]any{"tires": asArr(tire(width))} }
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// Filter: cars.make = "honda" AND (cars.tires.width = 205 OR cars.tires.width = 225)
+	//
+	// Current (docID-level): match if SOME car has honda AND SOME car has
+	// (205 or 225) — honda and width may be in different cars.
+	//
+	// Per-element (proposed): match if SOME car has both honda AND (205 or
+	// 225) at that same car. Equivalent to distributing the OR:
+	//   (cars.make=honda AND cars.tires.width=205)
+	//      OR (cars.make=honda AND cars.tires.width=225)
+	//
+	// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND-of-OR
+	// behavior. Flips when OR distribution lands
+	// (OR-in-AND distribution rewrite) — discriminator docs
+	// (idDiscriminatorSplit205, idDiscriminatorSplit225,
+	// idDiscriminatorAcrossCars) stop matching, expected list shrinks to
+	// [idSameCarMatch, idSameCarMatchAlt] (per-element same-car).
+	t.Run("regression_AND_of_OR_universal_docID_level_simple", func(t *testing.T) {
+		idSameCarMatch := uuid(1)            // [{honda,205}] — both interpretations: match
+		idSameCarMatchAlt := uuid(2)         // [{honda,225}] — both: match
+		idDiscriminatorSplit205 := uuid(3)   // [{honda},{tires:205}] — DISCRIMINATOR
+		idDiscriminatorSplit225 := uuid(4)   // [{honda},{tires:225}] — DISCRIMINATOR
+		idHondaWrongWidth := uuid(5)         // [{honda,300}] — both: no match
+		idDiscriminatorAcrossCars := uuid(6) // [{honda,300},{volvo,205}] — DISCRIMINATOR
+		idNoHonda := uuid(7)                 // [{volvo,205}] — both: no match
+		idEmpty := uuid(8)                   // no cars — both: no match
+		docs := []docDef{
+			{id: idSameCarMatch, props: map[string]any{"doc": map[string]any{"cars": asArr(carMW("honda", 205))}}, note: "honda+205"},
+			{id: idSameCarMatchAlt, props: map[string]any{"doc": map[string]any{"cars": asArr(carMW("honda", 225))}}, note: "honda+225"},
+			{id: idDiscriminatorSplit205, props: map[string]any{"doc": map[string]any{"cars": asArr(carM("honda"), carW(205))}}, note: "DISCRIMINATOR: honda alone + tires:205 in different car"},
+			{id: idDiscriminatorSplit225, props: map[string]any{"doc": map[string]any{"cars": asArr(carM("honda"), carW(225))}}, note: "DISCRIMINATOR: honda alone + tires:225 in different car"},
+			{id: idHondaWrongWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(carMW("honda", 300))}}, note: "honda but 300"},
+			{id: idDiscriminatorAcrossCars, props: map[string]any{"doc": map[string]any{"cars": asArr(carMW("honda", 300), carMW("volvo", 205))}}, note: "DISCRIMINATOR: honda+300 in cars[0]; 205 in cars[1] (volvo)"},
+			{id: idNoHonda, props: map[string]any{"doc": map[string]any{"cars": asArr(carMW("volvo", 205))}}, note: "volvo+205, no honda"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars.make", "honda"),
+			orFilter(
+				intFilter("doc.cars.tires.width", 205),
+				intFilter("doc.cars.tires.width", 225),
+			),
+		)
+		// Current: discriminators match (docID-level intersection succeeds).
+		// Per-element (after distribution): only the same-car matches survive.
+		// Expected list must flip if OR distribution lands.
+		runScenario(t, docs, filter, []strfmt.UUID{
+			idSameCarMatch, idSameCarMatchAlt,
+			idDiscriminatorSplit205, idDiscriminatorSplit225, idDiscriminatorAcrossCars,
+		})
+	})
+
+	// Variant: arr[N]-pinned outer AND with OR child also pinned to same K.
+	// Filter: cars[1].make = "honda" AND (cars[1].tires.width=205 OR cars[1].tires.width=225)
+	//
+	// Both clauses are pinned to cars[1], so the same-element question is
+	// already constrained — cars[1] is the only candidate. Per-element vs
+	// docID-level should produce IDENTICAL results when both clauses pin
+	// the same K (they always reference the same physical position).
+	//
+	// This sub-test verifies that pre-existing arr[N]-pin semantics keep
+	// working under the current implementation. After OR distribution
+	// lands, results should remain identical (no flip).
+	//
+	// TODO aliszka:nested_filtering: companion baseline for the AND-of-OR
+	// regression — verifies arr[N]-pinned AND-of-OR is unchanged by OR
+	// distribution (OR-in-AND distribution rewrite). No
+	// expected-list flip when distribution lands.
+	t.Run("regression_AND_of_OR_with_same_arrN_pin_unchanged", func(t *testing.T) {
+		idCars1Match205 := uuid(1)         // [{volvo},{honda,205}]
+		idCars1Match225 := uuid(2)         // [{volvo},{honda,225}]
+		idCars1WrongWidth := uuid(3)       // [{volvo},{honda,300}]
+		idCars1WrongMake := uuid(4)        // [{volvo},{volvo,205}]
+		idValuesAtCars0NotCars1 := uuid(5) // [{honda,205},{volvo,300}]
+		idEmpty := uuid(6)
+		docs := []docDef{
+			{id: idCars1Match205, props: map[string]any{"doc": map[string]any{"cars": asArr(carM("volvo"), carMW("honda", 205))}}, note: "cars[1]=honda+205"},
+			{id: idCars1Match225, props: map[string]any{"doc": map[string]any{"cars": asArr(carM("volvo"), carMW("honda", 225))}}, note: "cars[1]=honda+225"},
+			{id: idCars1WrongWidth, props: map[string]any{"doc": map[string]any{"cars": asArr(carM("volvo"), carMW("honda", 300))}}, note: "cars[1] honda but 300"},
+			{id: idCars1WrongMake, props: map[string]any{"doc": map[string]any{"cars": asArr(carM("volvo"), carMW("volvo", 205))}}, note: "cars[1] volvo not honda"},
+			{id: idValuesAtCars0NotCars1, props: map[string]any{"doc": map[string]any{"cars": asArr(carMW("honda", 205), carMW("volvo", 300))}}, note: "honda+205 in cars[0], not cars[1]"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+		}
+		filter := andFilter(
+			textFilter("doc.cars[1].make", "honda"),
+			orFilter(
+				intFilter("doc.cars[1].tires.width", 205),
+				intFilter("doc.cars[1].tires.width", 225),
+			),
+		)
+		// Both pinned to cars[1] → same-element implicit. No discriminators
+		// expected to flip when distribution lands.
+		runScenario(t, docs, filter, []strfmt.UUID{idCars1Match205, idCars1Match225})
 	})
 }
