@@ -93,7 +93,8 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
-			return newLimitExceededResponder(le)
+			return objects.NewObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
 		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().

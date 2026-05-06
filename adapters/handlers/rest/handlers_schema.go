@@ -43,7 +43,8 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
-			return newLimitExceededResponder(le)
+			return schema.NewSchemaObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
 		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
@@ -279,7 +280,8 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
-			return newLimitExceededResponder(le)
+			return schema.NewTenantsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
 		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):

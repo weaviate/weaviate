@@ -50,7 +50,8 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
-			return newLimitExceededResponder(le)
+			return batch.NewBatchObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
 		}
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
