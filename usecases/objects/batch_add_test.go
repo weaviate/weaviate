@@ -74,7 +74,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), nil)
 	}
 
 	reset := func() {
@@ -327,7 +327,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), nil)
 	}
 
 	ctx := context.Background()
@@ -471,7 +471,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger, prometheus.NewPedanticRegistry()), nil)
 	}
 	reset()
 	objects := []*models.Object{

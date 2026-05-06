@@ -559,6 +559,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+	// Now that the DB is constructed, install it as the ObjectCounter on
+	// the usage-limits Manager so the runtime CheckObjects path has a
+	// real counter to query.
+	appState.UsageLimits.SetObjectCounter(repo)
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
@@ -780,7 +784,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager,
+		appState.UsageLimits)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
@@ -1037,7 +1042,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager)
+		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager,
+		appState.UsageLimits)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)

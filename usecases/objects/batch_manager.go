@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects/alias"
@@ -36,6 +37,11 @@ type BatchManager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *AutoSchemaManager
 	metrics           *Metrics
+
+	// usageLimits is the Free-Tier guardrail gate. AddObjects calls
+	// CheckObjects(ctx, len(batch)) after batch authorization and before
+	// persistence — whole-batch rejection on miss, no partial fill.
+	usageLimits *usagelimits.Manager
 }
 
 type BatchVectorRepo interface {
@@ -57,6 +63,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	prom *monitoring.PrometheusMetrics, autoSchemaManager *AutoSchemaManager,
+	usageLimits *usagelimits.Manager,
 ) *BatchManager {
 	return &BatchManager{
 		config:            config,
@@ -68,6 +75,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		authorizer:        authorizer,
 		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
+		usageLimits:       usageLimits,
 	}
 }
 

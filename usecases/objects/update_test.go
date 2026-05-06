@@ -74,7 +74,7 @@ func Test_UpdateAction(t *testing.T) {
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(schemaManager, cfg,
 			logger, authorizer, db, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, db, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, db, cfg, authorizer, logger, prometheus.NewPedanticRegistry()), nil)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {

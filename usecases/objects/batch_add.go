@@ -64,6 +64,14 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 	}
 
+	// Free-Tier guardrail: whole-batch rejection if this batch would push
+	// the per-instance live object count above MAXIMUM_ALLOWED_OBJECTS_COUNT.
+	// We deliberately do not partial-fill (server picking which objects
+	// survived would be surprising); the client decides what to retry.
+	if err := b.usageLimits.CheckObjects(ctx, int64(len(objects))); err != nil {
+		return nil, err
+	}
+
 	return b.addObjects(ctx, principal, objects, repl, knownClasses)
 }
 
@@ -71,6 +79,13 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
+	// Same Free-Tier guardrail as the REST entry point — gRPC has its
+	// own auth path but limit enforcement must run on every coordinator
+	// write entry. Whole-batch rejection on miss; the gRPC handler maps
+	// *LimitExceededError to a top-level codes.ResourceExhausted reply.
+	if err := b.usageLimits.CheckObjects(ctx, int64(len(objects))); err != nil {
+		return nil, err
+	}
 	return b.addObjects(ctx, principal, objects, repl, fetchedClasses)
 }
 
