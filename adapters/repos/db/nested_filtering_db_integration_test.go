@@ -12202,3 +12202,238 @@ func TestNestedFilteringOrOfCorrelatedAndsWithMultiToken(t *testing.T) {
 		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBothInOneCountry, idBothInDifferentCountries})
 	})
 }
+
+// TestNestedFilteringOrAndNotWithScalarArrayPositional tests OR over two
+// scalar-array positional clauses, and NOT over a scalar-array positional
+// clause. Scalar-array (text[]) positional access (`cars.colors[N]=red`)
+// is fully covered inside AND by TestNestedFilteringScalarArrayIndex; the
+// combinator-layer interaction with OR/NOT was the gap closed here.
+//
+// Coverage matrix: 2 root variants × 2 combinator shapes = 4 sub-tests.
+//
+// Root variants:
+//   - country (DataTypeObject) wrapping cars (object[]) > colors (text[])
+//   - countries (DataTypeObjectArray) wrapping the same
+//
+// Shapes:
+//   - OR: cars.colors[0]=red OR cars.colors[1]=blue
+//   - NOT: NOT cars.colors[2]=red (top-level negation, docID-level
+//     complement under current universal semantics — locks in the same
+//     behavior as regression_basic_NotEqual_universal_docID_level)
+func TestNestedFilteringOrAndNotWithScalarArrayPositional(t *testing.T) {
+	const nestedClass = "OrNotScalarArrPositional"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	colorsProps := []*models.NestedProperty{
+		{Name: "colors", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+	rootInner := []*models.NestedProperty{
+		{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: colorsProps},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	colorsAny := func(colors ...string) []any {
+		out := make([]any, len(colors))
+		for i, c := range colors {
+			out[i] = c
+		}
+		return out
+	}
+	carColors := func(colors ...string) map[string]any {
+		return map[string]any{"colors": colorsAny(colors...)}
+	}
+	countryWith := func(cars ...map[string]any) map[string]any {
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	withCountry := func(cars ...map[string]any) map[string]any {
+		return map[string]any{"country": countryWith(cars...)}
+	}
+	withCountries := func(countries ...map[string]any) map[string]any {
+		anyC := make([]any, len(countries))
+		for i, c := range countries {
+			anyC[i] = c
+		}
+		return map[string]any{"countries": anyC}
+	}
+
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	orFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: operands}}
+	}
+	notFilter := func(inner *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorNot,
+			Operands: []filters.Clause{*inner.Root},
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// =========================================================================
+	// country (object) root
+	// =========================================================================
+
+	// Filter: country.cars.colors[0]=red OR country.cars.colors[1]=blue
+	// Each clause resolves independently to a docID set; the OR unions.
+	// Existential over cars within country: any car satisfying the
+	// positional clause matches.
+	t.Run("country_object_OR_scalar_array_positional", func(t *testing.T) {
+		idLeftOnly := uuid(1)       // [{colors:[red]}] — colors[0]=red
+		idRightOnly := uuid(2)      // [{colors:[green,blue]}] — colors[1]=blue
+		idBoth := uuid(3)           // [{colors:[red,blue]}]
+		idMatchSecondCar := uuid(4) // [{colors:[green]},{colors:[red]}] — cars[1] satisfies left
+		idNoneMatch := uuid(5)      // [{colors:[green,green]}]
+		idEmpty := uuid(6)          // no cars
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountry(carColors("red")), note: "colors[0]=red"},
+			{id: idRightOnly, props: withCountry(carColors("green", "blue")), note: "colors[1]=blue"},
+			{id: idBoth, props: withCountry(carColors("red", "blue")), note: "both"},
+			{id: idMatchSecondCar, props: withCountry(carColors("green"), carColors("red")), note: "cars[1] satisfies left"},
+			{id: idNoneMatch, props: withCountry(carColors("green", "green")), note: "neither"},
+			{id: idEmpty, props: map[string]any{"country": map[string]any{}}, note: "no cars"},
+		}
+		filter := orFilter(
+			textFilter("country.cars.colors[0]", "red"),
+			textFilter("country.cars.colors[1]", "blue"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBoth, idMatchSecondCar})
+	})
+
+	// Filter: NOT country.cars.colors[2]=red
+	// NOT inverts the docID-level set "docs with at least one car having
+	// colors[2]=red". Universal semantics: matches docs where NO car has
+	// colors[2]=red. Locks in current behavior — would flip under the
+	// uniform-existential rewrite (analogous to NotEqual top-level).
+	t.Run("country_object_NOT_scalar_array_positional", func(t *testing.T) {
+		idHasColors2Red := uuid(1)         // [{colors:[blue,green,red]}] — colors[2]=red → excluded
+		idShortColors := uuid(2)           // [{colors:[red]}] — no colors[2] → match
+		idColors2NotRed := uuid(3)         // [{colors:[blue,green,blue]}] — colors[2]=blue → match
+		idColors2RedInSecondCar := uuid(4) // [{colors:[blue]},{colors:[green,green,red]}] — cars[1].colors[2]=red → excluded
+		idEmpty := uuid(5)                 // no cars → match (vacuous)
+		docs := []docDef{
+			{id: idHasColors2Red, props: withCountry(carColors("blue", "green", "red")), note: "colors[2]=red"},
+			{id: idShortColors, props: withCountry(carColors("red")), note: "no colors[2]"},
+			{id: idColors2NotRed, props: withCountry(carColors("blue", "green", "blue")), note: "colors[2]=blue"},
+			{id: idColors2RedInSecondCar, props: withCountry(carColors("blue"), carColors("green", "green", "red")), note: "cars[1].colors[2]=red"},
+			{id: idEmpty, props: map[string]any{"country": map[string]any{}}, note: "no cars"},
+		}
+		// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
+		// behavior on a scalar-array positional clause. idEmpty (no cars)
+		// matches vacuously; under the planned uniform-existential rewrite
+		// (analogous to NotEqual / NOT semantics flip), empty docs and
+		// some other discriminator shapes would change. Combinator
+		// behavior follows whatever NOT does — flips together with the
+		// regression_NOT_inside_AND_universal_docID_level baseline.
+		runScenario(t, docs, notFilter(textFilter("country.cars.colors[2]", "red")),
+			[]strfmt.UUID{idShortColors, idColors2NotRed, idEmpty})
+	})
+
+	// =========================================================================
+	// countries (object[]) root
+	// =========================================================================
+
+	// Filter: countries.cars.colors[0]=red OR countries.cars.colors[1]=blue
+	// Existential over countries × cars; positional over colors. Each OR
+	// branch resolves independently.
+	t.Run("countries_array_OR_scalar_array_positional", func(t *testing.T) {
+		idLeftOnly := uuid(1)
+		idRightOnly := uuid(2)
+		idBothInOneCountry := uuid(3)
+		idBothAcrossCountries := uuid(4)
+		idNoneMatch := uuid(5)
+		idEmpty := uuid(6)
+		docs := []docDef{
+			{id: idLeftOnly, props: withCountries(countryWith(carColors("red"))), note: "countries[0].cars[0].colors[0]=red"},
+			{id: idRightOnly, props: withCountries(countryWith(carColors("green", "blue"))), note: "colors[1]=blue"},
+			{id: idBothInOneCountry, props: withCountries(countryWith(carColors("red", "blue"))), note: "both in same country"},
+			{id: idBothAcrossCountries, props: withCountries(
+				countryWith(carColors("red")),
+				countryWith(carColors("green", "blue")),
+			), note: "left in countries[0], right in countries[1]"},
+			{id: idNoneMatch, props: withCountries(countryWith(carColors("green", "green"))), note: "neither"},
+			{id: idEmpty, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+		}
+		filter := orFilter(
+			textFilter("countries.cars.colors[0]", "red"),
+			textFilter("countries.cars.colors[1]", "blue"),
+		)
+		runScenario(t, docs, filter, []strfmt.UUID{idLeftOnly, idRightOnly, idBothInOneCountry, idBothAcrossCountries})
+	})
+
+	// Filter: NOT countries.cars.colors[2]=red
+	// Universal NOT at docID level across the existential over countries.
+	t.Run("countries_array_NOT_scalar_array_positional", func(t *testing.T) {
+		idColors2RedInCountry0 := uuid(1)
+		idColors2RedInCountry1 := uuid(2)
+		idShortColors := uuid(3)
+		idColors2NotRed := uuid(4)
+		idEmpty := uuid(5)
+		docs := []docDef{
+			{id: idColors2RedInCountry0, props: withCountries(countryWith(carColors("blue", "green", "red"))), note: "countries[0] has colors[2]=red"},
+			{id: idColors2RedInCountry1, props: withCountries(countryWith(carColors("blue")), countryWith(carColors("blue", "green", "red"))), note: "countries[1] has it"},
+			{id: idShortColors, props: withCountries(countryWith(carColors("red"))), note: "no colors[2] anywhere"},
+			{id: idColors2NotRed, props: withCountries(countryWith(carColors("blue", "green", "blue"))), note: "colors[2]=blue"},
+			{id: idEmpty, props: map[string]any{"countries": []any{}}, note: "empty countries — vacuous match"},
+		}
+		// TODO aliszka:nested_filtering: locks in CURRENT universal NOT on
+		// scalar-array positional under multi-root existential. Behavior
+		// flips together with the regression_NOT_inside_AND_universal_docID_level
+		// and regression_basic_NotEqual_universal_docID_level baselines
+		// when uniform-existential semantics lands.
+		runScenario(t, docs, notFilter(textFilter("countries.cars.colors[2]", "red")),
+			[]strfmt.UUID{idShortColors, idColors2NotRed, idEmpty})
+	})
+}
