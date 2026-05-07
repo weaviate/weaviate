@@ -51,6 +51,19 @@ func deleteVectorIndexAuth(t *testing.T, className, vectorIndexName, key string)
 	return err
 }
 
+func tokenizePropertyAuth(t *testing.T, className, propName, text, key string) (*models.TokenizeResponse, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsPropertiesTokenizeParams().
+		WithClassName(className).
+		WithPropertyName(propName).
+		WithBody(&models.PropertyTokenizeRequest{Text: &text})
+	resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesTokenize(params, helper.CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 // findProp returns the property with the given name (case-insensitive), or nil.
 func findProp(class *models.Class, name string) *models.Property {
 	for _, p := range class.Properties {
@@ -276,5 +289,57 @@ func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
 		require.Error(t, err, "DeleteClassVectorIndex must not resolve aliases on namespaced clusters")
 
 		assert.Equal(t, "hnsw", vectorIndexType(t, "customer1:Concerts", "vec1"))
+	})
+}
+
+func TestNamespaces_PropertyTokenize(t *testing.T) {
+	const ns1 = "customer1"
+
+	helper.CreateNamespace(t, ns1, adminKey)
+	defer helper.DeleteNamespace(t, ns1, adminKey)
+
+	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
+
+	// classWithTokenizedTitle returns a class with a `title` text property using
+	// the "word" tokenization, so propertyTokenize has something to split on.
+	classWithTokenizedTitle := func(name string) *models.Class {
+		return &models.Class{
+			Class: name,
+			Properties: []*models.Property{{
+				Name:         "title",
+				DataType:     []string{"text"},
+				Tokenization: "word",
+			}},
+		}
+	}
+
+	t.Run("namespaced user tokenizes property by short class name", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithTokenizedTitle("Movies"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+
+		got, err := tokenizePropertyAuth(t, "Movies", "title", "Hello World", user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"hello", "world"}, got.Indexed)
+	})
+
+	t.Run("namespaced user tokenizes property via alias resolves to underlying class", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithTokenizedTitle("Concerts"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+
+		got, err := tokenizePropertyAuth(t, "Gigs", "title", "Hello World", user1Key)
+		require.NoError(t, err, "propertyTokenize should resolve alias to underlying class")
+		assert.Equal(t, []string{"hello", "world"}, got.Indexed)
+	})
+
+	t.Run("global admin tokenizes property by qualified class name", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithTokenizedTitle("Shows"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+
+		got, err := tokenizePropertyAuth(t, "customer1:Shows", "title", "Hello World", adminKey)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"hello", "world"}, got.Indexed)
 	})
 }

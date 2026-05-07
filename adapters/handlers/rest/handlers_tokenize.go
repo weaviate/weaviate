@@ -33,9 +33,10 @@ import (
 	schemaops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	tokenizeops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, logger logrus.FieldLogger) {
+func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, nsEnabled bool, logger logrus.FieldLogger) {
 	api.TokenizeTokenizeHandler = tokenizeops.TokenizeHandlerFunc(
 		func(params tokenizeops.TokenizeParams, principal *models.Principal) middleware.Responder {
 			return genericTokenize(params)
@@ -43,7 +44,7 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 
 	api.SchemaSchemaObjectsPropertiesTokenizeHandler = schemaops.SchemaObjectsPropertiesTokenizeHandlerFunc(
 		func(params schemaops.SchemaObjectsPropertiesTokenizeParams, principal *models.Principal) middleware.Responder {
-			return propertyTokenize(params, principal, schemaManager, logger)
+			return propertyTokenize(params, principal, schemaManager, nsEnabled, logger)
 		})
 }
 
@@ -170,15 +171,13 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 }
 
 func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
-	principal *models.Principal, schemaManager *schemaUC.Manager, logger logrus.FieldLogger,
+	principal *models.Principal, schemaManager *schemaUC.Manager, nsEnabled bool, logger logrus.FieldLogger,
 ) middleware.Responder {
 	className := schema.UppercaseClassName(params.ClassName)
 
-	// Resolve alias before authorization so authz uses the real collection name
+	// Resolve before authorization so authz uses the real collection name
 	// for permissions and error UX (matches Handler.ShardsStatus).
-	if resolved := schemaManager.ResolveAlias(className); resolved != "" {
-		className = resolved
-	}
+	className, _ = namespacing.Resolve(principal, schemaManager, nsEnabled, className)
 
 	// Authorize: reading collection metadata (same as other schema read operations)
 	err := schemaManager.Authorizer.Authorize(
