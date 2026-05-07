@@ -12878,3 +12878,830 @@ func TestNestedFilteringOperatorSweep(t *testing.T) {
 		), []strfmt.UUID{idMatchTesla})
 	})
 }
+
+// TestNestedFilteringContainsOperators verifies ContainsAll / ContainsAny /
+// ContainsNone on nested properties at three depths (root, garages, cars)
+// for both text[] (field-tokenized) and word-tokenized text fields. Each
+// operator desugars at extractContains time:
+//
+//   - ContainsAll  → AND of Equal clauses
+//   - ContainsAny  → OR  of Equal clauses
+//   - ContainsNone → NOT(OR of Equal clauses)
+//
+// CURRENT BEHAVIOR — OBSERVED 2026-05-07:
+//
+// ContainsAll on a nested array path performs **docID-level AND** — it
+// intersects the "doc has A anywhere" set with "doc has B anywhere".
+// This means a doc whose nested elements collectively cover both values
+// matches even if no single element contains both. Sub-tests where the
+// path traverses one or more object[] levels are marked
+// regression_ContainsAll: under a future planner improvement that
+// recognizes same-path AND as a correlated AND, these would tighten to
+// same-element AND and the discriminator docs would stop matching. See
+// plan_contains_all_same_element_semantics for the fix direction.
+//
+// ContainsAny resolves at docID level (matches if any element has any
+// listed value) — natural existential semantics, no regression marker.
+//
+// ContainsNone is universal at docID level today; sub-tests where the
+// array prop sits inside object[] levels are marked
+// regression_ContainsNone because that universal behavior would flip
+// under the planned uniform-existential rewrite for negation.
+//
+// Coverage matrix: 2 root variants (country, countries) × 3 levels (root,
+// garages, cars) × 2 field types (text[]/field, text/word) × 3 operators
+// = 36 sub-tests.
+func TestNestedFilteringContainsOperators(t *testing.T) {
+	const nestedClass = "ContainsOperators"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{
+			Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "city", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+				{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+				{
+					Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+						{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+	car := func(make string, tags ...string) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if len(tags) > 0 {
+			out["tags"] = asTextArr(tags...)
+		}
+		return out
+	}
+	garage := func(city string, tags []string, cars ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if city != "" {
+			out["city"] = city
+		}
+		if len(tags) > 0 {
+			out["tags"] = asTextArr(tags...)
+		}
+		if len(cars) > 0 {
+			out["cars"] = asArr(cars...)
+		}
+		return out
+	}
+	countryBody := func(name string, tags []string, garages ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if name != "" {
+			out["name"] = name
+		}
+		if len(tags) > 0 {
+			out["tags"] = asTextArr(tags...)
+		}
+		if len(garages) > 0 {
+			out["garages"] = asArr(garages...)
+		}
+		return out
+	}
+	wrapCountry := func(body map[string]any) map[string]any {
+		return map[string]any{"country": body}
+	}
+	wrapCountries := func(bodies ...map[string]any) map[string]any {
+		arr := make([]any, len(bodies))
+		for i, b := range bodies {
+			arr[i] = b
+		}
+		return map[string]any{"countries": arr}
+	}
+
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// =========================================================================
+	// country (object) root
+	// =========================================================================
+	t.Run("country_object", func(t *testing.T) {
+		// L0: country.tags (text[] / field). Single root object, so
+		// ContainsNone is unambiguous (universal == existential — only one
+		// element). No regression marker.
+		t.Run("L0_tags", func(t *testing.T) {
+			d1, d2, d3, d4, d5 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5)
+			docs := []docDef{
+				{id: d1, props: wrapCountry(countryBody("", []string{"sport", "luxury"})), note: "tags=[sport,luxury]"},
+				{id: d2, props: wrapCountry(countryBody("", []string{"sport", "cargo"})), note: "tags=[sport,cargo]"},
+				{id: d3, props: wrapCountry(countryBody("", []string{"luxury", "cargo"})), note: "tags=[luxury,cargo]"},
+				{id: d4, props: wrapCountry(countryBody("", []string{"muscle"})), note: "tags=[muscle]"},
+				{id: d5, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			t.Run("ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.tags", filters.ContainsAll, "sport", "luxury"),
+					[]strfmt.UUID{d1})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.tags", filters.ContainsAny, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.tags", filters.ContainsNone, "sport", "luxury"),
+					[]strfmt.UUID{d4, d5})
+			})
+		})
+
+		// L0: country.name (text / word). Same as L0_tags — single root
+		// object, ContainsNone unambiguous.
+		t.Run("L0_name", func(t *testing.T) {
+			d1, d2, d3, d4, d5 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5)
+			docs := []docDef{
+				{id: d1, props: wrapCountry(countryBody("new york", nil)), note: "name='new york'"},
+				{id: d2, props: wrapCountry(countryBody("new orleans", nil)), note: "name='new orleans'"},
+				{id: d3, props: wrapCountry(countryBody("york town", nil)), note: "name='york town'"},
+				{id: d4, props: wrapCountry(countryBody("boston", nil)), note: "name='boston'"},
+				{id: d5, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			t.Run("ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.name", filters.ContainsAll, "new", "york"),
+					[]strfmt.UUID{d1})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.name", filters.ContainsAny, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.name", filters.ContainsNone, "new", "york"),
+					[]strfmt.UUID{d4, d5})
+			})
+		})
+
+		// L1: country.garages.tags (text[] / field). One object[] level
+		// (garages) above the array prop.
+		t.Run("L1_garages_tags", func(t *testing.T) {
+			d1, d2, d3, d4, d5 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5)
+			docs := []docDef{
+				{id: d1, props: wrapCountry(countryBody("", nil,
+					garage("", []string{"sport", "luxury"}),
+				)), note: "g0.tags=[sport,luxury]"},
+				{id: d2, props: wrapCountry(countryBody("", nil,
+					garage("", []string{"sport"}),
+					garage("", []string{"luxury"}),
+				)), note: "split: g0=[sport]; g1=[luxury]"},
+				{id: d3, props: wrapCountry(countryBody("", nil,
+					garage("", []string{"sport", "cargo"}),
+				)), note: "g0.tags=[sport,cargo]"},
+				{id: d4, props: wrapCountry(countryBody("", nil,
+					garage("", []string{"muscle"}),
+				)), note: "g0.tags=[muscle]"},
+				{id: d5, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
+			// for ContainsAll on a same-path pair where the array prop sits
+			// inside one object[] level (garages). d2 (split-garages within
+			// the single country) currently matches because the doc has both
+			// 'sport' and 'luxury' somewhere; under the planned same-path
+			// correlated-AND fix, only d1 (single garage with both) would
+			// match.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsAll, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsAny, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
+			// semantics for ContainsNone where the array prop sits inside one
+			// object[] level. d4 (single garage with [muscle]) and d5 (empty)
+			// match because no garage anywhere has either listed value. Under
+			// the planned uniform-existential rewrite, expectation flips to
+			// docs where SOME garage has none of the listed tags (per-garage
+			// existential).
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsNone, "sport", "luxury"),
+					[]strfmt.UUID{d4, d5})
+			})
+		})
+
+		// L1: country.garages.city (text / word).
+		t.Run("L1_garages_city", func(t *testing.T) {
+			d1, d2, d3, d4, d5 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5)
+			docs := []docDef{
+				{id: d1, props: wrapCountry(countryBody("", nil,
+					garage("new york", nil),
+				)), note: "g0.city='new york'"},
+				{id: d2, props: wrapCountry(countryBody("", nil,
+					garage("new orleans", nil),
+					garage("york town", nil),
+				)), note: "split: 'new' in g0; 'york' in g1"},
+				{id: d3, props: wrapCountry(countryBody("", nil,
+					garage("new", nil),
+				)), note: "g0.city='new'"},
+				{id: d4, props: wrapCountry(countryBody("", nil,
+					garage("boston", nil),
+				)), note: "g0.city='boston'"},
+				{id: d5, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			// TODO aliszka:nested_filtering: same shape as L1_garages_tags
+			// regression_ContainsAll — locks in CURRENT docID-level AND
+			// under one object[] level. d2 (split tokens across garages)
+			// currently matches; under same-path correlated-AND fix only d1
+			// (both tokens in single garage's city) would match.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsAll, "new", "york"),
+					[]strfmt.UUID{d1, d2})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsAny, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			// TODO aliszka:nested_filtering: same shape as L1_garages_tags
+			// ContainsNone — locks in CURRENT universal NOT under one
+			// object[] level. Expectation flips under uniform-existential
+			// rewrite.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsNone, "new", "york"),
+					[]strfmt.UUID{d4, d5})
+			})
+		})
+
+		// L2: country.garages.cars.tags (text[] / field). Two object[] levels
+		// (garages, cars) above the array prop.
+		t.Run("L2_cars_tags", func(t *testing.T) {
+			d1, d2, d3, d4, d5, d6 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6)
+			docs := []docDef{
+				{id: d1, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("", "sport", "luxury")),
+				)), note: "g0.cars[0].tags=[sport,luxury]"},
+				{id: d2, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("", "sport"), car("", "luxury")),
+				)), note: "split-cars in same garage"},
+				{id: d3, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("", "sport")),
+					garage("", nil, car("", "luxury")),
+				)), note: "split across garages"},
+				{id: d4, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("", "sport", "cargo")),
+				)), note: "g0.cars[0].tags=[sport,cargo]"},
+				{id: d5, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("", "muscle")),
+				)), note: "g0.cars[0].tags=[muscle]"},
+				{id: d6, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
+			// for ContainsAll under two object[] levels. d2 (split-cars in
+			// single garage) and d3 (split-garages in single country) match
+			// because the doc has both values somewhere; under same-path
+			// correlated-AND fix only d1 (single car with both) would match.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsAll, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsAny, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
+			// semantics with two object[] levels above the array prop. Under
+			// uniform-existential rewrite, expectation flips to per-car
+			// existential.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsNone, "sport", "luxury"),
+					[]strfmt.UUID{d5, d6})
+			})
+		})
+
+		// L2: country.garages.cars.make (text / word).
+		t.Run("L2_cars_make", func(t *testing.T) {
+			d1, d2, d3, d4, d5, d6 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6)
+			docs := []docDef{
+				{id: d1, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("new york")),
+				)), note: "single car make='new york'"},
+				{id: d2, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("new"), car("york")),
+				)), note: "split-cars in same garage"},
+				{id: d3, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("new")),
+					garage("", nil, car("york")),
+				)), note: "split across garages"},
+				{id: d4, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("new")),
+				)), note: "make='new' only"},
+				{id: d5, props: wrapCountry(countryBody("", nil,
+					garage("", nil, car("boston")),
+				)), note: "make='boston' (neither)"},
+				{id: d6, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
+			}
+			// TODO aliszka:nested_filtering: same shape as L2_cars_tags
+			// regression_ContainsAll — locks in CURRENT docID-level AND
+			// under two object[] levels. Splits across cars/garages match
+			// today; same-path correlated-AND fix would tighten to d1 only.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsAll, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsAny, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			// TODO aliszka:nested_filtering: same as L2_cars_tags
+			// ContainsNone — universal NOT under two object[] levels, flips
+			// under uniform-existential rewrite.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsNone, "new", "york"),
+					[]strfmt.UUID{d5, d6})
+			})
+		})
+	})
+
+	// =========================================================================
+	// countries (object[]) root
+	// =========================================================================
+	t.Run("countries_array", func(t *testing.T) {
+		// L0: countries.tags (text[] / field). One object[] level (countries)
+		// above the array prop.
+		t.Run("L0_tags", func(t *testing.T) {
+			d1, d2, d3, d4, d5 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5)
+			docs := []docDef{
+				{id: d1, props: wrapCountries(countryBody("", []string{"sport", "luxury"})), note: "single country [sport,luxury]"},
+				{id: d2, props: wrapCountries(
+					countryBody("", []string{"sport"}),
+					countryBody("", []string{"luxury"}),
+				), note: "split: c0=[sport]; c1=[luxury]"},
+				{id: d3, props: wrapCountries(countryBody("", []string{"sport", "cargo"})), note: "single country [sport,cargo]"},
+				{id: d4, props: wrapCountries(countryBody("", []string{"muscle"})), note: "[muscle]"},
+				{id: d5, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
+			// for ContainsAll under one object[] level (countries). d2
+			// (split-countries) currently matches because the doc has both
+			// 'sport' and 'luxury' somewhere; under same-path correlated-AND
+			// fix only d1 (single country with both tags) would match.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsAll, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsAny, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
+			// semantics with one object[] level above the array prop. Flips
+			// to per-country existential under the uniform-existential
+			// rewrite for negation.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsNone, "sport", "luxury"),
+					[]strfmt.UUID{d4, d5})
+			})
+		})
+
+		// L0: countries.name (text / word).
+		t.Run("L0_name", func(t *testing.T) {
+			d1, d2, d3, d4, d5 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5)
+			docs := []docDef{
+				{id: d1, props: wrapCountries(countryBody("new york", nil)), note: "single 'new york'"},
+				{id: d2, props: wrapCountries(
+					countryBody("new", nil),
+					countryBody("york", nil),
+				), note: "split: c0='new'; c1='york'"},
+				{id: d3, props: wrapCountries(countryBody("new", nil)), note: "single 'new'"},
+				{id: d4, props: wrapCountries(countryBody("boston", nil)), note: "boston"},
+				{id: d5, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			// TODO aliszka:nested_filtering: same shape as L0_tags
+			// regression_ContainsAll — docID-level AND under one object[]
+			// level. d2 (split-countries) currently matches; fix would
+			// tighten to d1 only.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.name", filters.ContainsAll, "new", "york"),
+					[]strfmt.UUID{d1, d2})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.name", filters.ContainsAny, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			// TODO aliszka:nested_filtering: same shape as L0_tags ContainsNone
+			// — universal NOT under one object[] level, flips under
+			// uniform-existential rewrite.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.name", filters.ContainsNone, "new", "york"),
+					[]strfmt.UUID{d4, d5})
+			})
+		})
+
+		// L1: countries.garages.tags (text[] / field). Two object[] levels.
+		t.Run("L1_garages_tags", func(t *testing.T) {
+			d1, d2, d3, d4, d5, d6 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6)
+			docs := []docDef{
+				{id: d1, props: wrapCountries(countryBody("", nil,
+					garage("", []string{"sport", "luxury"}),
+				)), note: "single garage [sport,luxury]"},
+				{id: d2, props: wrapCountries(countryBody("", nil,
+					garage("", []string{"sport"}),
+					garage("", []string{"luxury"}),
+				)), note: "split-garages in single country"},
+				{id: d3, props: wrapCountries(
+					countryBody("", nil, garage("", []string{"sport"})),
+					countryBody("", nil, garage("", []string{"luxury"})),
+				), note: "split across countries"},
+				{id: d4, props: wrapCountries(countryBody("", nil,
+					garage("", []string{"sport", "cargo"}),
+				)), note: "single garage [sport,cargo]"},
+				{id: d5, props: wrapCountries(countryBody("", nil,
+					garage("", []string{"muscle"}),
+				)), note: "[muscle]"},
+				{id: d6, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
+			// for ContainsAll under two object[] levels. d2 (split-garages
+			// in single country) and d3 (split-countries) currently match;
+			// fix to same-path correlated-AND would tighten to d1 only.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsAll, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsAny, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
+			// semantics with two object[] levels above the array prop. Flips
+			// under uniform-existential rewrite.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsNone, "sport", "luxury"),
+					[]strfmt.UUID{d5, d6})
+			})
+		})
+
+		// L1: countries.garages.city (text / word).
+		t.Run("L1_garages_city", func(t *testing.T) {
+			d1, d2, d3, d4, d5, d6 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6)
+			docs := []docDef{
+				{id: d1, props: wrapCountries(countryBody("", nil, garage("new york", nil))), note: "single garage 'new york'"},
+				{id: d2, props: wrapCountries(countryBody("", nil,
+					garage("new orleans", nil),
+					garage("york town", nil),
+				)), note: "split-garages in single country"},
+				{id: d3, props: wrapCountries(
+					countryBody("", nil, garage("new", nil)),
+					countryBody("", nil, garage("york", nil)),
+				), note: "split across countries"},
+				{id: d4, props: wrapCountries(countryBody("", nil, garage("new", nil))), note: "single 'new'"},
+				{id: d5, props: wrapCountries(countryBody("", nil, garage("boston", nil))), note: "boston"},
+				{id: d6, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			// TODO aliszka:nested_filtering: same shape as L1_garages_tags
+			// regression_ContainsAll — docID-level AND under two object[]
+			// levels. Splits across garages or countries currently match;
+			// fix tightens to single-garage matches only.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsAll, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsAny, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			// TODO aliszka:nested_filtering: same as L1_garages_tags ContainsNone.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsNone, "new", "york"),
+					[]strfmt.UUID{d5, d6})
+			})
+		})
+
+		// L2: countries.garages.cars.tags (text[] / field). Three object[]
+		// levels above the array prop.
+		t.Run("L2_cars_tags", func(t *testing.T) {
+			d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+			docs := []docDef{
+				{id: d1, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("", "sport", "luxury")),
+				)), note: "single car [sport,luxury]"},
+				{id: d2, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("", "sport"), car("", "luxury")),
+				)), note: "split-cars in same garage"},
+				{id: d3, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("", "sport")),
+					garage("", nil, car("", "luxury")),
+				)), note: "split-garages in single country"},
+				{id: d4, props: wrapCountries(
+					countryBody("", nil, garage("", nil, car("", "sport"))),
+					countryBody("", nil, garage("", nil, car("", "luxury"))),
+				), note: "split across countries"},
+				{id: d5, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("", "sport", "cargo")),
+				)), note: "single car [sport,cargo]"},
+				{id: d6, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("", "muscle")),
+				)), note: "[muscle]"},
+				{id: d7, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
+			// for ContainsAll under three object[] levels. All three split
+			// shapes (split-cars, split-garages, split-countries) currently
+			// match; fix to same-path correlated-AND would tighten to d1
+			// only (single car with both tags).
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsAll, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsAny, "sport", "luxury"),
+					[]strfmt.UUID{d1, d2, d3, d4, d5})
+			})
+			// TODO aliszka:nested_filtering: universal NOT under three
+			// object[] levels above the array prop. Flips under
+			// uniform-existential rewrite.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsNone, "sport", "luxury"),
+					[]strfmt.UUID{d6, d7})
+			})
+		})
+
+		// L2: countries.garages.cars.make (text / word).
+		t.Run("L2_cars_make", func(t *testing.T) {
+			d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+			docs := []docDef{
+				{id: d1, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("new york")),
+				)), note: "single car 'new york'"},
+				{id: d2, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("new"), car("york")),
+				)), note: "split-cars in same garage"},
+				{id: d3, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("new")),
+					garage("", nil, car("york")),
+				)), note: "split-garages in single country"},
+				{id: d4, props: wrapCountries(
+					countryBody("", nil, garage("", nil, car("new"))),
+					countryBody("", nil, garage("", nil, car("york"))),
+				), note: "split across countries"},
+				{id: d5, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("new")),
+				)), note: "make='new' only"},
+				{id: d6, props: wrapCountries(countryBody("", nil,
+					garage("", nil, car("boston")),
+				)), note: "make='boston' (neither)"},
+				{id: d7, props: map[string]any{"countries": []any{}}, note: "empty countries"},
+			}
+			// TODO aliszka:nested_filtering: same shape as L2_cars_tags
+			// regression_ContainsAll — docID-level AND under three object[]
+			// levels. Splits across cars/garages/countries match today; fix
+			// would tighten to d1 only.
+			t.Run("regression_ContainsAll", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsAll, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3, d4})
+			})
+			t.Run("ContainsAny", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsAny, "new", "york"),
+					[]strfmt.UUID{d1, d2, d3, d4, d5})
+			})
+			// TODO aliszka:nested_filtering: same as L2_cars_tags ContainsNone.
+			t.Run("regression_ContainsNone", func(t *testing.T) {
+				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsNone, "new", "york"),
+					[]strfmt.UUID{d6, d7})
+			})
+		})
+	})
+}
+
+// TestNestedFilteringAndShapeFlatVsAndOfAnd contrasts two AND shapes that
+// are logically equivalent under classical boolean associativity but
+// produce DIFFERENT results in the nested-filter dispatch:
+//
+//	flat:   AND(f1, f2, f3, f4)
+//	nested: AND(AND(f1, f2), AND(f3, f4))
+//
+// All four leaf filters target the same nested root (cars). The dispatch
+// runs `groupNestedByProp` at each AND level, scoping same-element
+// correlation to that AND's children. Sibling ANDs are then combined at
+// docID level, never crossed.
+//
+// Effect on the same data:
+//
+//   - Flat: ONE car must satisfy all four leaves.
+//   - Nested: ONE car must satisfy (f1 AND f2); some — possibly different —
+//     car must satisfy (f3 AND f4).
+//
+// Verified 2026-05-07. Same root cause family as the OR-in-AND
+// distribution gap (plan_or_in_correlated_and_distribution): correlation
+// doesn't cross combinator boundaries, even associatively-equivalent
+// ones.
+func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
+	const nestedClass = "AndShapeFlatVsAndOfAnd"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	rootInner := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+		{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+		{Name: "fuel", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(props ...any) map[string]any {
+		out := map[string]any{}
+		for i := 0; i < len(props); i += 2 {
+			out[props[i].(string)] = props[i+1]
+		}
+		return out
+	}
+	textFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	idAllOneCar := uuid(1)        // single car has all four leaves
+	idSplitPairs := uuid(2)       // cars[0]=make+year, cars[1]=color+fuel
+	idGroupedDiffMakes := uuid(3) // cars[0]=tesla+2022, cars[1]=bmw+red+electric
+	idSplitOneEach := uuid(4)     // each car has only one leaf
+	idOnlyMakeYearCar := uuid(5)  // satisfies inner1 only
+	idOnlyColorFuelCar := uuid(6) // satisfies inner2 only
+	idNonMatchingCars := uuid(7)  // wrong values everywhere
+	idEmpty := uuid(8)            // no cars
+
+	// Shared docs — both shapes evaluated on the same data set.
+	docs := []docDef{
+		{id: idAllOneCar, props: map[string]any{"cars": asArr(
+			car("make", "tesla", "year", 2022, "color", "red", "fuel", "electric"),
+		)}, note: "single car satisfies all four leaves"},
+		{id: idSplitPairs, props: map[string]any{"cars": asArr(
+			car("make", "tesla", "year", 2022),
+			car("color", "red", "fuel", "electric"),
+		)}, note: "cars[0]=make+year; cars[1]=color+fuel"},
+		{id: idGroupedDiffMakes, props: map[string]any{"cars": asArr(
+			car("make", "tesla", "year", 2022),
+			car("make", "bmw", "color", "red", "fuel", "electric"),
+		)}, note: "cars[0]=tesla+2022; cars[1]=bmw+red+electric (different makes)"},
+		{id: idSplitOneEach, props: map[string]any{"cars": asArr(
+			car("make", "tesla"),
+			car("year", 2022),
+			car("color", "red"),
+			car("fuel", "electric"),
+		)}, note: "each car has only one leaf — neither inner AND can be satisfied"},
+		{id: idOnlyMakeYearCar, props: map[string]any{"cars": asArr(
+			car("make", "tesla", "year", 2022),
+		)}, note: "only inner1 (make+year) satisfiable"},
+		{id: idOnlyColorFuelCar, props: map[string]any{"cars": asArr(
+			car("color", "red", "fuel", "electric"),
+		)}, note: "only inner2 (color+fuel) satisfiable"},
+		{id: idNonMatchingCars, props: map[string]any{"cars": asArr(
+			car("make", "bmw", "year", 2018, "color", "blue", "fuel", "diesel"),
+		)}, note: "single car, wrong values"},
+		{id: idEmpty, props: map[string]any{}, note: "no cars"},
+	}
+
+	f1 := textFilter("cars.make", "tesla")
+	f2 := intFilter("cars.year", 2022)
+	f3 := textFilter("cars.color", "red")
+	f4 := textFilter("cars.fuel", "electric")
+
+	runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// Flat: AND(f1, f2, f3, f4) — groupNestedByProp folds all four leaves
+	// into one isCorrelated wrapper at LCA cars. The executor enforces
+	// same-element AND across all four — ONE car must satisfy every leaf.
+	t.Run("flat_AND_requires_single_car_for_all_four", func(t *testing.T) {
+		runScenario(t, andFilter(f1, f2, f3, f4),
+			[]strfmt.UUID{idAllOneCar})
+	})
+
+	// Nested: AND(AND(f1,f2), AND(f3,f4)) — each inner AND becomes its own
+	// isCorrelated wrapper at LCA cars. The outer AND combines the two
+	// inner results at docID level. So a doc matches when SOME car has
+	// (make+year) AND SOME — possibly different — car has (color+fuel).
+	//
+	// idSplitPairs and idGroupedDiffMakes are the contrast docs: they
+	// match the nested shape but NOT the flat shape, demonstrating that
+	// parenthesization scopes same-element correlation.
+	t.Run("nested_AND_of_AND_allows_split_across_cars", func(t *testing.T) {
+		runScenario(t, andFilter(
+			andFilter(f1, f2),
+			andFilter(f3, f4),
+		), []strfmt.UUID{idAllOneCar, idSplitPairs, idGroupedDiffMakes})
+	})
+}
