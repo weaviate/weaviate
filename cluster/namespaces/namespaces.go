@@ -80,18 +80,6 @@ func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	return m.controller.Create(req.Namespace)
 }
 
-// Delete applies a DeleteNamespace RAFT command. It returns
-// [usecasesNamespaces.ErrNotFound] when the target namespace does not
-// exist, and [usecasesNamespaces.ErrBadRequest] when the payload is
-// malformed.
-func (m *Manager) Delete(c *cmd.ApplyRequest) error {
-	req := &cmd.DeleteNamespaceRequest{}
-	if err := json.Unmarshal(c.SubCommand, req); err != nil {
-		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
-	}
-	return m.controller.Delete(req.Name)
-}
-
 // ChangeState applies a ChangeNamespaceState RAFT command, transitioning
 // the namespace into the target state. Returns
 // [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown

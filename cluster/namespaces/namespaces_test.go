@@ -45,13 +45,6 @@ func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
 
-func deleteCmd(t *testing.T, name string) *cmd.ApplyRequest {
-	t.Helper()
-	payload, err := json.Marshal(cmd.DeleteNamespaceRequest{Name: name})
-	require.NoError(t, err)
-	return &cmd.ApplyRequest{SubCommand: payload}
-}
-
 func changeStateCmd(t *testing.T, name string, target cmd.NamespaceState) *cmd.ApplyRequest {
 	t.Helper()
 	payload, err := json.Marshal(cmd.ChangeNamespaceStateRequest{Name: name, TargetState: target})
@@ -104,13 +97,6 @@ func TestManager_Add(t *testing.T) {
 	m := newTestManager(t)
 	require.NoError(t, m.Add(addCmd(t, "customer1")))
 	assert.Equal(t, 1, m.Count())
-}
-
-func TestManager_Delete(t *testing.T) {
-	m := newTestManager(t)
-	require.NoError(t, m.Add(addCmd(t, "customer1")))
-	require.NoError(t, m.Delete(deleteCmd(t, "customer1")))
-	assert.Equal(t, 0, m.Count())
 }
 
 func TestManager_ChangeState(t *testing.T) {
@@ -221,7 +207,6 @@ func TestManager_RejectsMalformedApplyRequest(t *testing.T) {
 		call func(*Manager) error
 	}{
 		{name: "Add", call: func(m *Manager) error { return m.Add(bad) }},
-		{name: "Delete", call: func(m *Manager) error { return m.Delete(bad) }},
 		{name: "ChangeState", call: func(m *Manager) error { return m.ChangeState(bad) }},
 		{name: "RemoveEntity", call: func(m *Manager) error { return m.RemoveEntity(bad) }},
 	}

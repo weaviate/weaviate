@@ -267,30 +267,6 @@ func TestController_RestoreNormalizesEmptyState(t *testing.T) {
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
 }
 
-func TestController_Delete(t *testing.T) {
-	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2"}))
-
-	t.Run("delete existing", func(t *testing.T) {
-		require.NoError(t, c.Delete("customer1"))
-		assert.Equal(t, 1, c.Count())
-	})
-
-	t.Run("delete missing returns ErrNotFound", func(t *testing.T) {
-		err := c.Delete("customer1") // already deleted above
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrNotFound)
-
-		err = c.Delete("never-existed")
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrNotFound)
-
-		// State was not altered by the failed deletes.
-		assert.Equal(t, 1, c.Count())
-	})
-}
-
 func TestController_Get(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
@@ -332,7 +308,8 @@ func TestController_Exists(t *testing.T) {
 	assert.True(t, c.Exists("customer1"))
 	assert.False(t, c.Exists("never-existed"))
 
-	require.NoError(t, c.Delete("customer1"))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.RemoveEntity("customer1"))
 	assert.False(t, c.Exists("customer1"))
 }
 

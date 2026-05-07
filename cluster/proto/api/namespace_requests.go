@@ -46,12 +46,6 @@ type AddNamespaceRequest struct {
 	Version   int
 }
 
-// DeleteNamespaceRequest is the RAFT apply payload for deleting a namespace.
-type DeleteNamespaceRequest struct {
-	Name    string
-	Version int
-}
-
 // ChangeNamespaceStateRequest transitions a namespace into TargetState.
 // Same-state transitions are idempotent.
 type ChangeNamespaceStateRequest struct {

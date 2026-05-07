@@ -53,35 +53,6 @@ func (s *Raft) AddNamespace(ns cmd.Namespace) error {
 	return nil
 }
 
-// DeleteNamespace proposes a DeleteNamespace RAFT command. The apply side
-// returns [namespaces.ErrNotFound] when the target namespace does not exist;
-// callers that want idempotent semantics should swallow that error.
-//
-// On success the call blocks until the local node has applied the entry so
-// subsequent local reads observe the namespace as gone.
-func (s *Raft) DeleteNamespace(name string) error {
-	req := cmd.DeleteNamespaceRequest{
-		Name:    name,
-		Version: cmd.NamespaceLatestCommandPolicyVersion,
-	}
-	subCommand, err := json.Marshal(&req)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_DELETE_NAMESPACE,
-		SubCommand: subCommand,
-	}
-	version, err := s.Execute(context.Background(), command)
-	if err != nil {
-		return rewrapNamespaceApplyError(err)
-	}
-	if err := s.WaitForUpdate(context.Background(), version); err != nil {
-		return fmt.Errorf("wait for local apply: %w", err)
-	}
-	return nil
-}
-
 // ChangeNamespaceState proposes a ChangeNamespaceState RAFT command. The
 // apply side returns [namespaces.ErrNotFound] when the namespace does not
 // exist and [namespaces.ErrInvalidStateTransition] when the transition is

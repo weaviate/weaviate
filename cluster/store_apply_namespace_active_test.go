@@ -66,7 +66,6 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:                                       {},
 	api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:                                  {},
 	api.ApplyRequest_TYPE_ADD_NAMESPACE:                                              {},
-	api.ApplyRequest_TYPE_DELETE_NAMESPACE:                                           {},
 	api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:                                     {},
 	api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:                                    {},
 	api.ApplyRequest_TYPE_REPLICATION_REPLICATE:                                      {},

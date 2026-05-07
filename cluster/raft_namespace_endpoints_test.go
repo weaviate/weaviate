@@ -28,8 +28,8 @@ import (
 
 // setupRaftForNamespaceTests spins up a single-node RAFT cluster wired through
 // NewMockStore and waits until it has leadership. Tests can then exercise the
-// AddNamespace / DeleteNamespace / GetNamespaces endpoints end-to-end (from
-// client call through Execute/Query, RAFT apply, back up).
+// namespace endpoints end-to-end (from client call through Execute/Query,
+// RAFT apply, back up).
 func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -106,17 +106,17 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 		assert.Equal(t, "customer1", got[0].Name)
 	})
 
-	t.Run("delete an existing namespace", func(t *testing.T) {
-		require.NoError(t, srv.DeleteNamespace("customer1"))
+	t.Run("two-phase delete an existing namespace", func(t *testing.T) {
+		require.NoError(t, srv.ChangeNamespaceState("customer1", cmd.NamespaceStateDeleting))
+		assert.Equal(t, 2, srv.NamespaceCount(), "entity stays until RemoveNamespaceEntity")
+		require.NoError(t, srv.RemoveNamespaceEntity("customer1"))
 		assert.Equal(t, 1, srv.NamespaceCount())
 	})
 
-	t.Run("delete a missing namespace returns ErrNotFound", func(t *testing.T) {
-		err := srv.DeleteNamespace("never-existed")
+	t.Run("ChangeNamespaceState on missing returns ErrNotFound", func(t *testing.T) {
+		err := srv.ChangeNamespaceState("never-existed", cmd.NamespaceStateDeleting)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
-
-		// State was not altered.
 		assert.Equal(t, 1, srv.NamespaceCount())
 	})
 }

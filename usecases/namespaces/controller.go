@@ -139,19 +139,6 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	return nil
 }
 
-// Delete removes a namespace. Returns [ErrNotFound] when the target
-// namespace does not exist. Non-idempotent by design: callers that need
-// idempotent semantics should swallow ErrNotFound at their layer.
-func (c *Controller) Delete(name string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.namespaces[name]; !ok {
-		return fmt.Errorf("%w: %q", ErrNotFound, name)
-	}
-	delete(c.namespaces, name)
-	return nil
-}
-
 // ChangeState transitions a namespace into target. Same-state transitions
 // are idempotent and return nil. Returns [ErrBadRequest] when target is not
 // a recognized state, [ErrNotFound] when the namespace does not exist, and

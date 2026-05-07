@@ -347,10 +347,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.namespaceManager.Add(&cmd)
 		}
-	case api.ApplyRequest_TYPE_DELETE_NAMESPACE:
-		f = func() {
-			ret.Error = st.namespaceManager.Delete(&cmd)
-		}
 	case api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:
 		f = func() {
 			ret.Error = st.namespaceManager.ChangeState(&cmd)
