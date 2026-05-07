@@ -529,6 +529,20 @@ func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.Sha
 	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
 }
 
+func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CreateReplicaSnapshot(ctx, stagingRoot)
+}
+
+func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
+}
+
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err

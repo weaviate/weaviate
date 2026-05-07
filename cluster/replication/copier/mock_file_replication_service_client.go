@@ -36,8 +36,8 @@ func (_m *MockFileReplicationServiceClient) EXPECT() *MockFileReplicationService
 	return &MockFileReplicationServiceClient_Expecter{mock: &_m.Mock}
 }
 
-// GetFile provides a mock function with given fields: ctx, in, opts
-func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, in *protocol.GetFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error) {
+// CreateReplicaSnapshot provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) CreateReplicaSnapshot(ctx context.Context, in *protocol.CreateReplicaSnapshotRequest, opts ...grpc.CallOption) (*protocol.CreateReplicaSnapshotResponse, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
@@ -48,15 +48,89 @@ func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, in *pro
 	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetFile")
+		panic("no return value specified for CreateReplicaSnapshot")
+	}
+
+	var r0 *protocol.CreateReplicaSnapshotResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.CreateReplicaSnapshotRequest, ...grpc.CallOption) (*protocol.CreateReplicaSnapshotResponse, error)); ok {
+		return rf(ctx, in, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.CreateReplicaSnapshotRequest, ...grpc.CallOption) *protocol.CreateReplicaSnapshotResponse); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protocol.CreateReplicaSnapshotResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.CreateReplicaSnapshotRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFileReplicationServiceClient_CreateReplicaSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateReplicaSnapshot'
+type MockFileReplicationServiceClient_CreateReplicaSnapshot_Call struct {
+	*mock.Call
+}
+
+// CreateReplicaSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in *protocol.CreateReplicaSnapshotRequest
+//   - opts ...grpc.CallOption
+func (_e *MockFileReplicationServiceClient_Expecter) CreateReplicaSnapshot(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call {
+	return &MockFileReplicationServiceClient_CreateReplicaSnapshot_Call{Call: _e.mock.On("CreateReplicaSnapshot",
+		append([]interface{}{ctx, in}, opts...)...)}
+}
+
+func (_c *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call) Run(run func(ctx context.Context, in *protocol.CreateReplicaSnapshotRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(grpc.CallOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*protocol.CreateReplicaSnapshotRequest), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call) Return(_a0 *protocol.CreateReplicaSnapshotResponse, _a1 error) *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call) RunAndReturn(run func(context.Context, *protocol.CreateReplicaSnapshotRequest, ...grpc.CallOption) (*protocol.CreateReplicaSnapshotResponse, error)) *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetReplicaSnapshotFile provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) GetReplicaSnapshotFile(ctx context.Context, in *protocol.GetReplicaSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplicaSnapshotFile")
 	}
 
 	var r0 grpc.ServerStreamingClient[protocol.FileChunk]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetReplicaSnapshotFileRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error)); ok {
 		return rf(ctx, in, opts...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) grpc.ServerStreamingClient[protocol.FileChunk]); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetReplicaSnapshotFileRequest, ...grpc.CallOption) grpc.ServerStreamingClient[protocol.FileChunk]); ok {
 		r0 = rf(ctx, in, opts...)
 	} else {
 		if ret.Get(0) != nil {
@@ -64,7 +138,7 @@ func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, in *pro
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetReplicaSnapshotFileRequest, ...grpc.CallOption) error); ok {
 		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
@@ -73,21 +147,21 @@ func (_m *MockFileReplicationServiceClient) GetFile(ctx context.Context, in *pro
 	return r0, r1
 }
 
-// MockFileReplicationServiceClient_GetFile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetFile'
-type MockFileReplicationServiceClient_GetFile_Call struct {
+// MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicaSnapshotFile'
+type MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call struct {
 	*mock.Call
 }
 
-// GetFile is a helper method to define mock.On call
+// GetReplicaSnapshotFile is a helper method to define mock.On call
 //   - ctx context.Context
-//   - in *protocol.GetFileRequest
+//   - in *protocol.GetReplicaSnapshotFileRequest
 //   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) GetFile(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetFile_Call {
-	return &MockFileReplicationServiceClient_GetFile_Call{Call: _e.mock.On("GetFile",
+func (_e *MockFileReplicationServiceClient_Expecter) GetReplicaSnapshotFile(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call {
+	return &MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call{Call: _e.mock.On("GetReplicaSnapshotFile",
 		append([]interface{}{ctx, in}, opts...)...)}
 }
 
-func (_c *MockFileReplicationServiceClient_GetFile_Call) Run(run func(ctx context.Context, in *protocol.GetFileRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetFile_Call {
+func (_c *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call) Run(run func(ctx context.Context, in *protocol.GetReplicaSnapshotFileRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		variadicArgs := make([]grpc.CallOption, len(args)-2)
 		for i, a := range args[2:] {
@@ -95,23 +169,23 @@ func (_c *MockFileReplicationServiceClient_GetFile_Call) Run(run func(ctx contex
 				variadicArgs[i] = a.(grpc.CallOption)
 			}
 		}
-		run(args[0].(context.Context), args[1].(*protocol.GetFileRequest), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*protocol.GetReplicaSnapshotFileRequest), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFile_Call) Return(_a0 grpc.ServerStreamingClient[protocol.FileChunk], _a1 error) *MockFileReplicationServiceClient_GetFile_Call {
+func (_c *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call) Return(_a0 grpc.ServerStreamingClient[protocol.FileChunk], _a1 error) *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFile_Call) RunAndReturn(run func(context.Context, *protocol.GetFileRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error)) *MockFileReplicationServiceClient_GetFile_Call {
+func (_c *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call) RunAndReturn(run func(context.Context, *protocol.GetReplicaSnapshotFileRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error)) *MockFileReplicationServiceClient_GetReplicaSnapshotFile_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetFileMetadata provides a mock function with given fields: ctx, in, opts
-func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context, in *protocol.GetFileMetadataRequest, opts ...grpc.CallOption) (*protocol.FileMetadata, error) {
+// GetReplicaSnapshotFileMetadata provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) GetReplicaSnapshotFileMetadata(ctx context.Context, in *protocol.GetReplicaSnapshotFileMetadataRequest, opts ...grpc.CallOption) (*protocol.FileMetadata, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
@@ -122,15 +196,15 @@ func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context,
 	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetFileMetadata")
+		panic("no return value specified for GetReplicaSnapshotFileMetadata")
 	}
 
 	var r0 *protocol.FileMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) (*protocol.FileMetadata, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetReplicaSnapshotFileMetadataRequest, ...grpc.CallOption) (*protocol.FileMetadata, error)); ok {
 		return rf(ctx, in, opts...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) *protocol.FileMetadata); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetReplicaSnapshotFileMetadataRequest, ...grpc.CallOption) *protocol.FileMetadata); ok {
 		r0 = rf(ctx, in, opts...)
 	} else {
 		if ret.Get(0) != nil {
@@ -138,7 +212,7 @@ func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context,
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetReplicaSnapshotFileMetadataRequest, ...grpc.CallOption) error); ok {
 		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
@@ -147,21 +221,21 @@ func (_m *MockFileReplicationServiceClient) GetFileMetadata(ctx context.Context,
 	return r0, r1
 }
 
-// MockFileReplicationServiceClient_GetFileMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetFileMetadata'
-type MockFileReplicationServiceClient_GetFileMetadata_Call struct {
+// MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicaSnapshotFileMetadata'
+type MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call struct {
 	*mock.Call
 }
 
-// GetFileMetadata is a helper method to define mock.On call
+// GetReplicaSnapshotFileMetadata is a helper method to define mock.On call
 //   - ctx context.Context
-//   - in *protocol.GetFileMetadataRequest
+//   - in *protocol.GetReplicaSnapshotFileMetadataRequest
 //   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) GetFileMetadata(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetFileMetadata_Call {
-	return &MockFileReplicationServiceClient_GetFileMetadata_Call{Call: _e.mock.On("GetFileMetadata",
+func (_e *MockFileReplicationServiceClient_Expecter) GetReplicaSnapshotFileMetadata(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call {
+	return &MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call{Call: _e.mock.On("GetReplicaSnapshotFileMetadata",
 		append([]interface{}{ctx, in}, opts...)...)}
 }
 
-func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Run(run func(ctx context.Context, in *protocol.GetFileMetadataRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_c *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call) Run(run func(ctx context.Context, in *protocol.GetReplicaSnapshotFileMetadataRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		variadicArgs := make([]grpc.CallOption, len(args)-2)
 		for i, a := range args[2:] {
@@ -169,23 +243,23 @@ func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Run(run func(ct
 				variadicArgs[i] = a.(grpc.CallOption)
 			}
 		}
-		run(args[0].(context.Context), args[1].(*protocol.GetFileMetadataRequest), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*protocol.GetReplicaSnapshotFileMetadataRequest), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) Return(_a0 *protocol.FileMetadata, _a1 error) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_c *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call) Return(_a0 *protocol.FileMetadata, _a1 error) *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_GetFileMetadata_Call) RunAndReturn(run func(context.Context, *protocol.GetFileMetadataRequest, ...grpc.CallOption) (*protocol.FileMetadata, error)) *MockFileReplicationServiceClient_GetFileMetadata_Call {
+func (_c *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call) RunAndReturn(run func(context.Context, *protocol.GetReplicaSnapshotFileMetadataRequest, ...grpc.CallOption) (*protocol.FileMetadata, error)) *MockFileReplicationServiceClient_GetReplicaSnapshotFileMetadata_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListFiles provides a mock function with given fields: ctx, in, opts
-func (_m *MockFileReplicationServiceClient) ListFiles(ctx context.Context, in *protocol.ListFilesRequest, opts ...grpc.CallOption) (*protocol.ListFilesResponse, error) {
+// ReleaseReplicaSnapshot provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) ReleaseReplicaSnapshot(ctx context.Context, in *protocol.ReleaseReplicaSnapshotRequest, opts ...grpc.CallOption) (*protocol.ReleaseReplicaSnapshotResponse, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
@@ -196,23 +270,23 @@ func (_m *MockFileReplicationServiceClient) ListFiles(ctx context.Context, in *p
 	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListFiles")
+		panic("no return value specified for ReleaseReplicaSnapshot")
 	}
 
-	var r0 *protocol.ListFilesResponse
+	var r0 *protocol.ReleaseReplicaSnapshotResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.ListFilesRequest, ...grpc.CallOption) (*protocol.ListFilesResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.ReleaseReplicaSnapshotRequest, ...grpc.CallOption) (*protocol.ReleaseReplicaSnapshotResponse, error)); ok {
 		return rf(ctx, in, opts...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.ListFilesRequest, ...grpc.CallOption) *protocol.ListFilesResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.ReleaseReplicaSnapshotRequest, ...grpc.CallOption) *protocol.ReleaseReplicaSnapshotResponse); ok {
 		r0 = rf(ctx, in, opts...)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protocol.ListFilesResponse)
+			r0 = ret.Get(0).(*protocol.ReleaseReplicaSnapshotResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *protocol.ListFilesRequest, ...grpc.CallOption) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.ReleaseReplicaSnapshotRequest, ...grpc.CallOption) error); ok {
 		r1 = rf(ctx, in, opts...)
 	} else {
 		r1 = ret.Error(1)
@@ -221,21 +295,21 @@ func (_m *MockFileReplicationServiceClient) ListFiles(ctx context.Context, in *p
 	return r0, r1
 }
 
-// MockFileReplicationServiceClient_ListFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFiles'
-type MockFileReplicationServiceClient_ListFiles_Call struct {
+// MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReleaseReplicaSnapshot'
+type MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call struct {
 	*mock.Call
 }
 
-// ListFiles is a helper method to define mock.On call
+// ReleaseReplicaSnapshot is a helper method to define mock.On call
 //   - ctx context.Context
-//   - in *protocol.ListFilesRequest
+//   - in *protocol.ReleaseReplicaSnapshotRequest
 //   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) ListFiles(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_ListFiles_Call {
-	return &MockFileReplicationServiceClient_ListFiles_Call{Call: _e.mock.On("ListFiles",
+func (_e *MockFileReplicationServiceClient_Expecter) ReleaseReplicaSnapshot(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call {
+	return &MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call{Call: _e.mock.On("ReleaseReplicaSnapshot",
 		append([]interface{}{ctx, in}, opts...)...)}
 }
 
-func (_c *MockFileReplicationServiceClient_ListFiles_Call) Run(run func(ctx context.Context, in *protocol.ListFilesRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_ListFiles_Call {
+func (_c *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call) Run(run func(ctx context.Context, in *protocol.ReleaseReplicaSnapshotRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		variadicArgs := make([]grpc.CallOption, len(args)-2)
 		for i, a := range args[2:] {
@@ -243,165 +317,17 @@ func (_c *MockFileReplicationServiceClient_ListFiles_Call) Run(run func(ctx cont
 				variadicArgs[i] = a.(grpc.CallOption)
 			}
 		}
-		run(args[0].(context.Context), args[1].(*protocol.ListFilesRequest), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*protocol.ReleaseReplicaSnapshotRequest), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_ListFiles_Call) Return(_a0 *protocol.ListFilesResponse, _a1 error) *MockFileReplicationServiceClient_ListFiles_Call {
+func (_c *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call) Return(_a0 *protocol.ReleaseReplicaSnapshotResponse, _a1 error) *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFileReplicationServiceClient_ListFiles_Call) RunAndReturn(run func(context.Context, *protocol.ListFilesRequest, ...grpc.CallOption) (*protocol.ListFilesResponse, error)) *MockFileReplicationServiceClient_ListFiles_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// PauseFileActivity provides a mock function with given fields: ctx, in, opts
-func (_m *MockFileReplicationServiceClient) PauseFileActivity(ctx context.Context, in *protocol.PauseFileActivityRequest, opts ...grpc.CallOption) (*protocol.PauseFileActivityResponse, error) {
-	_va := make([]interface{}, len(opts))
-	for _i := range opts {
-		_va[_i] = opts[_i]
-	}
-	var _ca []interface{}
-	_ca = append(_ca, ctx, in)
-	_ca = append(_ca, _va...)
-	ret := _m.Called(_ca...)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PauseFileActivity")
-	}
-
-	var r0 *protocol.PauseFileActivityResponse
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.PauseFileActivityRequest, ...grpc.CallOption) (*protocol.PauseFileActivityResponse, error)); ok {
-		return rf(ctx, in, opts...)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.PauseFileActivityRequest, ...grpc.CallOption) *protocol.PauseFileActivityResponse); ok {
-		r0 = rf(ctx, in, opts...)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protocol.PauseFileActivityResponse)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *protocol.PauseFileActivityRequest, ...grpc.CallOption) error); ok {
-		r1 = rf(ctx, in, opts...)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockFileReplicationServiceClient_PauseFileActivity_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PauseFileActivity'
-type MockFileReplicationServiceClient_PauseFileActivity_Call struct {
-	*mock.Call
-}
-
-// PauseFileActivity is a helper method to define mock.On call
-//   - ctx context.Context
-//   - in *protocol.PauseFileActivityRequest
-//   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) PauseFileActivity(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_PauseFileActivity_Call {
-	return &MockFileReplicationServiceClient_PauseFileActivity_Call{Call: _e.mock.On("PauseFileActivity",
-		append([]interface{}{ctx, in}, opts...)...)}
-}
-
-func (_c *MockFileReplicationServiceClient_PauseFileActivity_Call) Run(run func(ctx context.Context, in *protocol.PauseFileActivityRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_PauseFileActivity_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]grpc.CallOption, len(args)-2)
-		for i, a := range args[2:] {
-			if a != nil {
-				variadicArgs[i] = a.(grpc.CallOption)
-			}
-		}
-		run(args[0].(context.Context), args[1].(*protocol.PauseFileActivityRequest), variadicArgs...)
-	})
-	return _c
-}
-
-func (_c *MockFileReplicationServiceClient_PauseFileActivity_Call) Return(_a0 *protocol.PauseFileActivityResponse, _a1 error) *MockFileReplicationServiceClient_PauseFileActivity_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockFileReplicationServiceClient_PauseFileActivity_Call) RunAndReturn(run func(context.Context, *protocol.PauseFileActivityRequest, ...grpc.CallOption) (*protocol.PauseFileActivityResponse, error)) *MockFileReplicationServiceClient_PauseFileActivity_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ResumeFileActivity provides a mock function with given fields: ctx, in, opts
-func (_m *MockFileReplicationServiceClient) ResumeFileActivity(ctx context.Context, in *protocol.ResumeFileActivityRequest, opts ...grpc.CallOption) (*protocol.ResumeFileActivityResponse, error) {
-	_va := make([]interface{}, len(opts))
-	for _i := range opts {
-		_va[_i] = opts[_i]
-	}
-	var _ca []interface{}
-	_ca = append(_ca, ctx, in)
-	_ca = append(_ca, _va...)
-	ret := _m.Called(_ca...)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ResumeFileActivity")
-	}
-
-	var r0 *protocol.ResumeFileActivityResponse
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.ResumeFileActivityRequest, ...grpc.CallOption) (*protocol.ResumeFileActivityResponse, error)); ok {
-		return rf(ctx, in, opts...)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *protocol.ResumeFileActivityRequest, ...grpc.CallOption) *protocol.ResumeFileActivityResponse); ok {
-		r0 = rf(ctx, in, opts...)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protocol.ResumeFileActivityResponse)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *protocol.ResumeFileActivityRequest, ...grpc.CallOption) error); ok {
-		r1 = rf(ctx, in, opts...)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockFileReplicationServiceClient_ResumeFileActivity_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResumeFileActivity'
-type MockFileReplicationServiceClient_ResumeFileActivity_Call struct {
-	*mock.Call
-}
-
-// ResumeFileActivity is a helper method to define mock.On call
-//   - ctx context.Context
-//   - in *protocol.ResumeFileActivityRequest
-//   - opts ...grpc.CallOption
-func (_e *MockFileReplicationServiceClient_Expecter) ResumeFileActivity(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_ResumeFileActivity_Call {
-	return &MockFileReplicationServiceClient_ResumeFileActivity_Call{Call: _e.mock.On("ResumeFileActivity",
-		append([]interface{}{ctx, in}, opts...)...)}
-}
-
-func (_c *MockFileReplicationServiceClient_ResumeFileActivity_Call) Run(run func(ctx context.Context, in *protocol.ResumeFileActivityRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_ResumeFileActivity_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]grpc.CallOption, len(args)-2)
-		for i, a := range args[2:] {
-			if a != nil {
-				variadicArgs[i] = a.(grpc.CallOption)
-			}
-		}
-		run(args[0].(context.Context), args[1].(*protocol.ResumeFileActivityRequest), variadicArgs...)
-	})
-	return _c
-}
-
-func (_c *MockFileReplicationServiceClient_ResumeFileActivity_Call) Return(_a0 *protocol.ResumeFileActivityResponse, _a1 error) *MockFileReplicationServiceClient_ResumeFileActivity_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockFileReplicationServiceClient_ResumeFileActivity_Call) RunAndReturn(run func(context.Context, *protocol.ResumeFileActivityRequest, ...grpc.CallOption) (*protocol.ResumeFileActivityResponse, error)) *MockFileReplicationServiceClient_ResumeFileActivity_Call {
+func (_c *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call) RunAndReturn(run func(context.Context, *protocol.ReleaseReplicaSnapshotRequest, ...grpc.CallOption) (*protocol.ReleaseReplicaSnapshotResponse, error)) *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call {
 	_c.Call.Return(run)
 	return _c
 }

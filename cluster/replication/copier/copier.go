@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
@@ -83,8 +84,9 @@ func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.Re
 	}
 }
 
-// CopyReplicaFiles copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
+// opID keys the source-side staging dir so retries reuse the same path and
+// release is unambiguous on cancellation.
+func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
 
 	sourceNodeGRPCPort, err := c.nodeSelector.NodeGRPCPort(srcNodeId)
@@ -97,31 +99,32 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}
 
-	_, err = client.PauseFileActivity(ctx, &protocol.PauseFileActivityRequest{
+	snapResp, err := client.CreateReplicaSnapshot(ctx, &protocol.CreateReplicaSnapshotRequest{
 		IndexName:     collectionName,
 		ShardName:     shardName,
+		OpId:          string(opID),
 		SchemaVersion: schemaVersion,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to pause file activity: %w", err)
+		return fmt.Errorf("failed to create replica snapshot: %w", err)
 	}
-	defer client.ResumeFileActivity(ctx, &protocol.ResumeFileActivityRequest{
-		IndexName: collectionName,
-		ShardName: shardName,
-	})
-
-	fileListResp, err := client.ListFiles(ctx, &protocol.ListFilesRequest{
-		IndexName: collectionName,
-		ShardName: shardName,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list files: %w", err)
-	}
+	defer func() {
+		// Background ctx so release fires even on request cancellation, otherwise
+		// the source would leak the staging dir on every cancelled transfer.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, rerr := client.ReleaseReplicaSnapshot(releaseCtx, &protocol.ReleaseReplicaSnapshotRequest{
+			IndexName: collectionName,
+			OpId:      string(opID),
+		}); rerr != nil {
+			c.logger.WithError(rerr).Warn("failed to release replica snapshot")
+		}
+	}()
 
 	fileNameChan := make(chan string, 1000)
 	enterrors.GoWrapper(func() {
 		defer close(fileNameChan)
-		for _, name := range fileListResp.FileNames {
+		for _, name := range snapResp.FileNames {
 			fileNameChan <- name
 		}
 	}, c.logger)
@@ -138,7 +141,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		time.Sleep(sleepTime)
 	}
 
-	err = c.prepareLocalFolder(collectionName, shardName, fileListResp.FileNames)
+	err = c.prepareLocalFolder(collectionName, shardName, snapResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
@@ -147,7 +150,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	mWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
 		mWg.Go(func() error {
-			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan)
+			err := c.metadataWorker(ctx, client, opID, collectionName, fileNameChan, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to get files metadata")
 			}
@@ -158,7 +161,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	dWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
 		dWg.Go(func() error {
-			err := c.downloadWorker(ctx, client, metadataChan)
+			err := c.downloadWorker(ctx, client, opID, collectionName, shardName, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to download files")
 			}
@@ -177,7 +180,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to download files: %w", err)
 	}
 
-	err = c.validateLocalFolder(collectionName, shardName, fileListResp.FileNames)
+	err = c.validateLocalFolder(collectionName, shardName, snapResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
@@ -213,7 +216,7 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 			return nil
 		}
 
-		localRelFilePath, err := filepath.Rel(c.rootDataPath, path)
+		localRelFilePath, err := filepath.Rel(basePath, path)
 		if err != nil {
 			return fmt.Errorf("failed to get relative path: %w", err)
 		}
@@ -253,16 +256,16 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 }
 
 func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServiceClient,
-	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *protocol.FileMetadata,
+	opID strfmt.UUID, collectionName string, fileNameChan <-chan string, metadataChan chan<- *protocol.FileMetadata,
 ) error {
 	for fileName := range fileNameChan {
-		meta, err := client.GetFileMetadata(ctx, &protocol.GetFileMetadataRequest{
+		meta, err := client.GetReplicaSnapshotFileMetadata(ctx, &protocol.GetReplicaSnapshotFileMetadataRequest{
 			IndexName: collectionName,
-			ShardName: shardName,
+			OpId:      string(opID),
 			FileName:  fileName,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to send GetFileMetadata request for %q: %w", fileName, err)
+			return fmt.Errorf("failed to send GetReplicaSnapshotFileMetadata request for %q: %w", fileName, err)
 		}
 
 		metadataChan <- meta
@@ -272,10 +275,11 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 }
 
 func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServiceClient,
-	metadataChan <-chan *protocol.FileMetadata,
+	opID strfmt.UUID, collectionName, shardName string, metadataChan <-chan *protocol.FileMetadata,
 ) error {
+	shardBase := c.shardPath(collectionName, shardName)
 	for meta := range metadataChan {
-		localFilePath := filepath.Join(c.rootDataPath, meta.FileName)
+		localFilePath := filepath.Join(shardBase, meta.FileName)
 
 		_, checksum, err := integrity.CRC32(localFilePath)
 		if err != nil {
@@ -287,9 +291,9 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			continue
 		}
 
-		stream, err := client.GetFile(ctx, &protocol.GetFileRequest{
+		stream, err := client.GetReplicaSnapshotFile(ctx, &protocol.GetReplicaSnapshotFileRequest{
 			IndexName: meta.IndexName,
-			ShardName: meta.ShardName,
+			OpId:      string(opID),
 			FileName:  meta.FileName,
 		})
 		if err != nil {
@@ -408,7 +412,7 @@ func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames
 			return nil
 		}
 
-		localRelFilePath, err := filepath.Rel(c.rootDataPath, path)
+		localRelFilePath, err := filepath.Rel(basePath, path)
 		if err != nil {
 			return fmt.Errorf("failed to get relative path: %w", err)
 		}

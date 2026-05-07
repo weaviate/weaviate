@@ -104,6 +104,8 @@ type ShardLike interface {
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
 	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error)
+	ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)

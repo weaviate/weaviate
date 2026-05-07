@@ -73,29 +73,30 @@ func (CompressionType) EnumDescriptor() ([]byte, []int) {
 	return file_protocol_file_replication_proto_rawDescGZIP(), []int{0}
 }
 
-type PauseFileActivityRequest struct {
+type CreateReplicaSnapshotRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
 	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	SchemaVersion uint64                 `protobuf:"varint,3,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
+	OpId          string                 `protobuf:"bytes,3,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
+	SchemaVersion uint64                 `protobuf:"varint,4,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PauseFileActivityRequest) Reset() {
-	*x = PauseFileActivityRequest{}
+func (x *CreateReplicaSnapshotRequest) Reset() {
+	*x = CreateReplicaSnapshotRequest{}
 	mi := &file_protocol_file_replication_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PauseFileActivityRequest) String() string {
+func (x *CreateReplicaSnapshotRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PauseFileActivityRequest) ProtoMessage() {}
+func (*CreateReplicaSnapshotRequest) ProtoMessage() {}
 
-func (x *PauseFileActivityRequest) ProtoReflect() protoreflect.Message {
+func (x *CreateReplicaSnapshotRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_protocol_file_replication_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -107,241 +108,42 @@ func (x *PauseFileActivityRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PauseFileActivityRequest.ProtoReflect.Descriptor instead.
-func (*PauseFileActivityRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateReplicaSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*CreateReplicaSnapshotRequest) Descriptor() ([]byte, []int) {
 	return file_protocol_file_replication_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *PauseFileActivityRequest) GetIndexName() string {
+func (x *CreateReplicaSnapshotRequest) GetIndexName() string {
 	if x != nil {
 		return x.IndexName
 	}
 	return ""
 }
 
-func (x *PauseFileActivityRequest) GetShardName() string {
+func (x *CreateReplicaSnapshotRequest) GetShardName() string {
 	if x != nil {
 		return x.ShardName
 	}
 	return ""
 }
 
-func (x *PauseFileActivityRequest) GetSchemaVersion() uint64 {
+func (x *CreateReplicaSnapshotRequest) GetOpId() string {
+	if x != nil {
+		return x.OpId
+	}
+	return ""
+}
+
+func (x *CreateReplicaSnapshotRequest) GetSchemaVersion() uint64 {
 	if x != nil {
 		return x.SchemaVersion
 	}
 	return 0
 }
 
-type PauseFileActivityResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PauseFileActivityResponse) Reset() {
-	*x = PauseFileActivityResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PauseFileActivityResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PauseFileActivityResponse) ProtoMessage() {}
-
-func (x *PauseFileActivityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PauseFileActivityResponse.ProtoReflect.Descriptor instead.
-func (*PauseFileActivityResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *PauseFileActivityResponse) GetIndexName() string {
-	if x != nil {
-		return x.IndexName
-	}
-	return ""
-}
-
-func (x *PauseFileActivityResponse) GetShardName() string {
-	if x != nil {
-		return x.ShardName
-	}
-	return ""
-}
-
-type ResumeFileActivityRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResumeFileActivityRequest) Reset() {
-	*x = ResumeFileActivityRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResumeFileActivityRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResumeFileActivityRequest) ProtoMessage() {}
-
-func (x *ResumeFileActivityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResumeFileActivityRequest.ProtoReflect.Descriptor instead.
-func (*ResumeFileActivityRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ResumeFileActivityRequest) GetIndexName() string {
-	if x != nil {
-		return x.IndexName
-	}
-	return ""
-}
-
-func (x *ResumeFileActivityRequest) GetShardName() string {
-	if x != nil {
-		return x.ShardName
-	}
-	return ""
-}
-
-type ResumeFileActivityResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ResumeFileActivityResponse) Reset() {
-	*x = ResumeFileActivityResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResumeFileActivityResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResumeFileActivityResponse) ProtoMessage() {}
-
-func (x *ResumeFileActivityResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ResumeFileActivityResponse.ProtoReflect.Descriptor instead.
-func (*ResumeFileActivityResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *ResumeFileActivityResponse) GetIndexName() string {
-	if x != nil {
-		return x.IndexName
-	}
-	return ""
-}
-
-func (x *ResumeFileActivityResponse) GetShardName() string {
-	if x != nil {
-		return x.ShardName
-	}
-	return ""
-}
-
-type ListFilesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListFilesRequest) Reset() {
-	*x = ListFilesRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListFilesRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListFilesRequest) ProtoMessage() {}
-
-func (x *ListFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListFilesRequest.ProtoReflect.Descriptor instead.
-func (*ListFilesRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ListFilesRequest) GetIndexName() string {
-	if x != nil {
-		return x.IndexName
-	}
-	return ""
-}
-
-func (x *ListFilesRequest) GetShardName() string {
-	if x != nil {
-		return x.ShardName
-	}
-	return ""
-}
-
-type ListFilesResponse struct {
+// file_names are shard-relative (no class/shard prefix); the source resolves
+// them against the registered op's shard subtree.
+type CreateReplicaSnapshotResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
 	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
@@ -350,21 +152,21 @@ type ListFilesResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListFilesResponse) Reset() {
-	*x = ListFilesResponse{}
-	mi := &file_protocol_file_replication_proto_msgTypes[5]
+func (x *CreateReplicaSnapshotResponse) Reset() {
+	*x = CreateReplicaSnapshotResponse{}
+	mi := &file_protocol_file_replication_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListFilesResponse) String() string {
+func (x *CreateReplicaSnapshotResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListFilesResponse) ProtoMessage() {}
+func (*CreateReplicaSnapshotResponse) ProtoMessage() {}
 
-func (x *ListFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[5]
+func (x *CreateReplicaSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -375,56 +177,55 @@ func (x *ListFilesResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListFilesResponse.ProtoReflect.Descriptor instead.
-func (*ListFilesResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{5}
+// Deprecated: Use CreateReplicaSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*CreateReplicaSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ListFilesResponse) GetIndexName() string {
+func (x *CreateReplicaSnapshotResponse) GetIndexName() string {
 	if x != nil {
 		return x.IndexName
 	}
 	return ""
 }
 
-func (x *ListFilesResponse) GetShardName() string {
+func (x *CreateReplicaSnapshotResponse) GetShardName() string {
 	if x != nil {
 		return x.ShardName
 	}
 	return ""
 }
 
-func (x *ListFilesResponse) GetFileNames() []string {
+func (x *CreateReplicaSnapshotResponse) GetFileNames() []string {
 	if x != nil {
 		return x.FileNames
 	}
 	return nil
 }
 
-type GetFileMetadataRequest struct {
+type ReleaseReplicaSnapshotRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	FileName      string                 `protobuf:"bytes,3,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	OpId          string                 `protobuf:"bytes,2,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetFileMetadataRequest) Reset() {
-	*x = GetFileMetadataRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[6]
+func (x *ReleaseReplicaSnapshotRequest) Reset() {
+	*x = ReleaseReplicaSnapshotRequest{}
+	mi := &file_protocol_file_replication_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetFileMetadataRequest) String() string {
+func (x *ReleaseReplicaSnapshotRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetFileMetadataRequest) ProtoMessage() {}
+func (*ReleaseReplicaSnapshotRequest) ProtoMessage() {}
 
-func (x *GetFileMetadataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[6]
+func (x *ReleaseReplicaSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -435,26 +236,123 @@ func (x *GetFileMetadataRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetFileMetadataRequest.ProtoReflect.Descriptor instead.
-func (*GetFileMetadataRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{6}
+// Deprecated: Use ReleaseReplicaSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseReplicaSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *GetFileMetadataRequest) GetIndexName() string {
+func (x *ReleaseReplicaSnapshotRequest) GetIndexName() string {
 	if x != nil {
 		return x.IndexName
 	}
 	return ""
 }
 
-func (x *GetFileMetadataRequest) GetShardName() string {
+func (x *ReleaseReplicaSnapshotRequest) GetOpId() string {
 	if x != nil {
-		return x.ShardName
+		return x.OpId
 	}
 	return ""
 }
 
-func (x *GetFileMetadataRequest) GetFileName() string {
+type ReleaseReplicaSnapshotResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseReplicaSnapshotResponse) Reset() {
+	*x = ReleaseReplicaSnapshotResponse{}
+	mi := &file_protocol_file_replication_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseReplicaSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseReplicaSnapshotResponse) ProtoMessage() {}
+
+func (x *ReleaseReplicaSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseReplicaSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseReplicaSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ReleaseReplicaSnapshotResponse) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+type GetReplicaSnapshotFileMetadataRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	OpId          string                 `protobuf:"bytes,2,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
+	FileName      string                 `protobuf:"bytes,3,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetReplicaSnapshotFileMetadataRequest) Reset() {
+	*x = GetReplicaSnapshotFileMetadataRequest{}
+	mi := &file_protocol_file_replication_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetReplicaSnapshotFileMetadataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetReplicaSnapshotFileMetadataRequest) ProtoMessage() {}
+
+func (x *GetReplicaSnapshotFileMetadataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetReplicaSnapshotFileMetadataRequest.ProtoReflect.Descriptor instead.
+func (*GetReplicaSnapshotFileMetadataRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetReplicaSnapshotFileMetadataRequest) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+func (x *GetReplicaSnapshotFileMetadataRequest) GetOpId() string {
+	if x != nil {
+		return x.OpId
+	}
+	return ""
+}
+
+func (x *GetReplicaSnapshotFileMetadataRequest) GetFileName() string {
 	if x != nil {
 		return x.FileName
 	}
@@ -464,17 +362,16 @@ func (x *GetFileMetadataRequest) GetFileName() string {
 type FileMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
-	FileName      string                 `protobuf:"bytes,3,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
-	Size          int64                  `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`
-	Crc32         uint32                 `protobuf:"varint,5,opt,name=crc32,proto3" json:"crc32,omitempty"`
+	FileName      string                 `protobuf:"bytes,2,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
+	Size          int64                  `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	Crc32         uint32                 `protobuf:"varint,4,opt,name=crc32,proto3" json:"crc32,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FileMetadata) Reset() {
 	*x = FileMetadata{}
-	mi := &file_protocol_file_replication_proto_msgTypes[7]
+	mi := &file_protocol_file_replication_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -486,7 +383,7 @@ func (x *FileMetadata) String() string {
 func (*FileMetadata) ProtoMessage() {}
 
 func (x *FileMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[7]
+	mi := &file_protocol_file_replication_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -499,19 +396,12 @@ func (x *FileMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileMetadata.ProtoReflect.Descriptor instead.
 func (*FileMetadata) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{7}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FileMetadata) GetIndexName() string {
 	if x != nil {
 		return x.IndexName
-	}
-	return ""
-}
-
-func (x *FileMetadata) GetShardName() string {
-	if x != nil {
-		return x.ShardName
 	}
 	return ""
 }
@@ -537,31 +427,31 @@ func (x *FileMetadata) GetCrc32() uint32 {
 	return 0
 }
 
-type GetFileRequest struct {
+type GetReplicaSnapshotFileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
-	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
+	OpId          string                 `protobuf:"bytes,2,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
 	FileName      string                 `protobuf:"bytes,3,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
 	Compression   CompressionType        `protobuf:"varint,4,opt,name=compression,proto3,enum=clusterapi.CompressionType" json:"compression,omitempty"` // Requested compression algorithm for streamed chunks
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *GetFileRequest) Reset() {
-	*x = GetFileRequest{}
-	mi := &file_protocol_file_replication_proto_msgTypes[8]
+func (x *GetReplicaSnapshotFileRequest) Reset() {
+	*x = GetReplicaSnapshotFileRequest{}
+	mi := &file_protocol_file_replication_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *GetFileRequest) String() string {
+func (x *GetReplicaSnapshotFileRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetFileRequest) ProtoMessage() {}
+func (*GetReplicaSnapshotFileRequest) ProtoMessage() {}
 
-func (x *GetFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[8]
+func (x *GetReplicaSnapshotFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -572,33 +462,33 @@ func (x *GetFileRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetFileRequest.ProtoReflect.Descriptor instead.
-func (*GetFileRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{8}
+// Deprecated: Use GetReplicaSnapshotFileRequest.ProtoReflect.Descriptor instead.
+func (*GetReplicaSnapshotFileRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *GetFileRequest) GetIndexName() string {
+func (x *GetReplicaSnapshotFileRequest) GetIndexName() string {
 	if x != nil {
 		return x.IndexName
 	}
 	return ""
 }
 
-func (x *GetFileRequest) GetShardName() string {
+func (x *GetReplicaSnapshotFileRequest) GetOpId() string {
 	if x != nil {
-		return x.ShardName
+		return x.OpId
 	}
 	return ""
 }
 
-func (x *GetFileRequest) GetFileName() string {
+func (x *GetReplicaSnapshotFileRequest) GetFileName() string {
 	if x != nil {
 		return x.FileName
 	}
 	return ""
 }
 
-func (x *GetFileRequest) GetCompression() CompressionType {
+func (x *GetReplicaSnapshotFileRequest) GetCompression() CompressionType {
 	if x != nil {
 		return x.Compression
 	}
@@ -616,7 +506,7 @@ type FileChunk struct {
 
 func (x *FileChunk) Reset() {
 	*x = FileChunk{}
-	mi := &file_protocol_file_replication_proto_msgTypes[9]
+	mi := &file_protocol_file_replication_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +518,7 @@ func (x *FileChunk) String() string {
 func (*FileChunk) ProtoMessage() {}
 
 func (x *FileChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_file_replication_proto_msgTypes[9]
+	mi := &file_protocol_file_replication_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +531,7 @@ func (x *FileChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileChunk.ProtoReflect.Descriptor instead.
 func (*FileChunk) Descriptor() ([]byte, []int) {
-	return file_protocol_file_replication_proto_rawDescGZIP(), []int{9}
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *FileChunk) GetOffset() int64 {
@@ -670,59 +560,43 @@ var File_protocol_file_replication_proto protoreflect.FileDescriptor
 const file_protocol_file_replication_proto_rawDesc = "" +
 	"\n" +
 	"\x1fprotocol/file_replication.proto\x12\n" +
-	"clusterapi\"\x7f\n" +
-	"\x18PauseFileActivityRequest\x12\x1d\n" +
+	"clusterapi\"\x98\x01\n" +
+	"\x1cCreateReplicaSnapshotRequest\x12\x1d\n" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
 	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\x12%\n" +
-	"\x0eschema_version\x18\x03 \x01(\x04R\rschemaVersion\"Y\n" +
-	"\x19PauseFileActivityResponse\x12\x1d\n" +
-	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
-	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\"Y\n" +
-	"\x19ResumeFileActivityRequest\x12\x1d\n" +
-	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
-	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\"Z\n" +
-	"\x1aResumeFileActivityResponse\x12\x1d\n" +
-	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
-	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\"P\n" +
-	"\x10ListFilesRequest\x12\x1d\n" +
-	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
-	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\"p\n" +
-	"\x11ListFilesResponse\x12\x1d\n" +
+	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x13\n" +
+	"\x05op_id\x18\x03 \x01(\tR\x04opId\x12%\n" +
+	"\x0eschema_version\x18\x04 \x01(\x04R\rschemaVersion\"|\n" +
+	"\x1dCreateReplicaSnapshotResponse\x12\x1d\n" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
 	"\n" +
 	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x1d\n" +
 	"\n" +
-	"file_names\x18\x03 \x03(\tR\tfileNames\"s\n" +
-	"\x16GetFileMetadataRequest\x12\x1d\n" +
+	"file_names\x18\x03 \x03(\tR\tfileNames\"S\n" +
+	"\x1dReleaseReplicaSnapshotRequest\x12\x1d\n" +
 	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x13\n" +
+	"\x05op_id\x18\x02 \x01(\tR\x04opId\"?\n" +
+	"\x1eReleaseReplicaSnapshotResponse\x12\x1d\n" +
 	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x1b\n" +
-	"\tfile_name\x18\x03 \x01(\tR\bfileName\"\x93\x01\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\"x\n" +
+	"%GetReplicaSnapshotFileMetadataRequest\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x13\n" +
+	"\x05op_id\x18\x02 \x01(\tR\x04opId\x12\x1b\n" +
+	"\tfile_name\x18\x03 \x01(\tR\bfileName\"t\n" +
 	"\fFileMetadata\x12\x1d\n" +
 	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1b\n" +
+	"\tfile_name\x18\x02 \x01(\tR\bfileName\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x14\n" +
+	"\x05crc32\x18\x04 \x01(\rR\x05crc32\"\xaf\x01\n" +
+	"\x1dGetReplicaSnapshotFileRequest\x12\x1d\n" +
 	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x1b\n" +
-	"\tfile_name\x18\x03 \x01(\tR\bfileName\x12\x12\n" +
-	"\x04size\x18\x04 \x01(\x03R\x04size\x12\x14\n" +
-	"\x05crc32\x18\x05 \x01(\rR\x05crc32\"\xaa\x01\n" +
-	"\x0eGetFileRequest\x12\x1d\n" +
-	"\n" +
-	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
-	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x1b\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x13\n" +
+	"\x05op_id\x18\x02 \x01(\tR\x04opId\x12\x1b\n" +
 	"\tfile_name\x18\x03 \x01(\tR\bfileName\x12=\n" +
 	"\vcompression\x18\x04 \x01(\x0e2\x1b.clusterapi.CompressionTypeR\vcompression\"I\n" +
 	"\tFileChunk\x12\x16\n" +
@@ -733,13 +607,12 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\x1cCOMPRESSION_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_GZIP\x10\x01\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_ZLIB\x10\x02\x12\x1c\n" +
-	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\xba\x03\n" +
-	"\x16FileReplicationService\x12`\n" +
-	"\x11PauseFileActivity\x12$.clusterapi.PauseFileActivityRequest\x1a%.clusterapi.PauseFileActivityResponse\x12c\n" +
-	"\x12ResumeFileActivity\x12%.clusterapi.ResumeFileActivityRequest\x1a&.clusterapi.ResumeFileActivityResponse\x12H\n" +
-	"\tListFiles\x12\x1c.clusterapi.ListFilesRequest\x1a\x1d.clusterapi.ListFilesResponse\x12O\n" +
-	"\x0fGetFileMetadata\x12\".clusterapi.GetFileMetadataRequest\x1a\x18.clusterapi.FileMetadata\x12>\n" +
-	"\aGetFile\x12\x1a.clusterapi.GetFileRequest\x1a\x15.clusterapi.FileChunk0\x01B\xa1\x01\n" +
+	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\xc4\x03\n" +
+	"\x16FileReplicationService\x12l\n" +
+	"\x15CreateReplicaSnapshot\x12(.clusterapi.CreateReplicaSnapshotRequest\x1a).clusterapi.CreateReplicaSnapshotResponse\x12o\n" +
+	"\x16ReleaseReplicaSnapshot\x12).clusterapi.ReleaseReplicaSnapshotRequest\x1a*.clusterapi.ReleaseReplicaSnapshotResponse\x12m\n" +
+	"\x1eGetReplicaSnapshotFileMetadata\x121.clusterapi.GetReplicaSnapshotFileMetadataRequest\x1a\x18.clusterapi.FileMetadata\x12\\\n" +
+	"\x16GetReplicaSnapshotFile\x12).clusterapi.GetReplicaSnapshotFileRequest\x1a\x15.clusterapi.FileChunk0\x01B\xa1\x01\n" +
 	"\x0ecom.clusterapiB\x14FileReplicationProtoP\x01Z1github.com/weaviate/weaviate/cloud/proto/protocol\xa2\x02\x03CXX\xaa\x02\n" +
 	"Clusterapi\xca\x02\n" +
 	"Clusterapi\xe2\x02\x16Clusterapi\\GPBMetadata\xea\x02\n" +
@@ -758,37 +631,33 @@ func file_protocol_file_replication_proto_rawDescGZIP() []byte {
 }
 
 var file_protocol_file_replication_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_protocol_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_protocol_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_protocol_file_replication_proto_goTypes = []any{
-	(CompressionType)(0),               // 0: clusterapi.CompressionType
-	(*PauseFileActivityRequest)(nil),   // 1: clusterapi.PauseFileActivityRequest
-	(*PauseFileActivityResponse)(nil),  // 2: clusterapi.PauseFileActivityResponse
-	(*ResumeFileActivityRequest)(nil),  // 3: clusterapi.ResumeFileActivityRequest
-	(*ResumeFileActivityResponse)(nil), // 4: clusterapi.ResumeFileActivityResponse
-	(*ListFilesRequest)(nil),           // 5: clusterapi.ListFilesRequest
-	(*ListFilesResponse)(nil),          // 6: clusterapi.ListFilesResponse
-	(*GetFileMetadataRequest)(nil),     // 7: clusterapi.GetFileMetadataRequest
-	(*FileMetadata)(nil),               // 8: clusterapi.FileMetadata
-	(*GetFileRequest)(nil),             // 9: clusterapi.GetFileRequest
-	(*FileChunk)(nil),                  // 10: clusterapi.FileChunk
+	(CompressionType)(0),                          // 0: clusterapi.CompressionType
+	(*CreateReplicaSnapshotRequest)(nil),          // 1: clusterapi.CreateReplicaSnapshotRequest
+	(*CreateReplicaSnapshotResponse)(nil),         // 2: clusterapi.CreateReplicaSnapshotResponse
+	(*ReleaseReplicaSnapshotRequest)(nil),         // 3: clusterapi.ReleaseReplicaSnapshotRequest
+	(*ReleaseReplicaSnapshotResponse)(nil),        // 4: clusterapi.ReleaseReplicaSnapshotResponse
+	(*GetReplicaSnapshotFileMetadataRequest)(nil), // 5: clusterapi.GetReplicaSnapshotFileMetadataRequest
+	(*FileMetadata)(nil),                          // 6: clusterapi.FileMetadata
+	(*GetReplicaSnapshotFileRequest)(nil),         // 7: clusterapi.GetReplicaSnapshotFileRequest
+	(*FileChunk)(nil),                             // 8: clusterapi.FileChunk
 }
 var file_protocol_file_replication_proto_depIdxs = []int32{
-	0,  // 0: clusterapi.GetFileRequest.compression:type_name -> clusterapi.CompressionType
-	1,  // 1: clusterapi.FileReplicationService.PauseFileActivity:input_type -> clusterapi.PauseFileActivityRequest
-	3,  // 2: clusterapi.FileReplicationService.ResumeFileActivity:input_type -> clusterapi.ResumeFileActivityRequest
-	5,  // 3: clusterapi.FileReplicationService.ListFiles:input_type -> clusterapi.ListFilesRequest
-	7,  // 4: clusterapi.FileReplicationService.GetFileMetadata:input_type -> clusterapi.GetFileMetadataRequest
-	9,  // 5: clusterapi.FileReplicationService.GetFile:input_type -> clusterapi.GetFileRequest
-	2,  // 6: clusterapi.FileReplicationService.PauseFileActivity:output_type -> clusterapi.PauseFileActivityResponse
-	4,  // 7: clusterapi.FileReplicationService.ResumeFileActivity:output_type -> clusterapi.ResumeFileActivityResponse
-	6,  // 8: clusterapi.FileReplicationService.ListFiles:output_type -> clusterapi.ListFilesResponse
-	8,  // 9: clusterapi.FileReplicationService.GetFileMetadata:output_type -> clusterapi.FileMetadata
-	10, // 10: clusterapi.FileReplicationService.GetFile:output_type -> clusterapi.FileChunk
-	6,  // [6:11] is the sub-list for method output_type
-	1,  // [1:6] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	0, // 0: clusterapi.GetReplicaSnapshotFileRequest.compression:type_name -> clusterapi.CompressionType
+	1, // 1: clusterapi.FileReplicationService.CreateReplicaSnapshot:input_type -> clusterapi.CreateReplicaSnapshotRequest
+	3, // 2: clusterapi.FileReplicationService.ReleaseReplicaSnapshot:input_type -> clusterapi.ReleaseReplicaSnapshotRequest
+	5, // 3: clusterapi.FileReplicationService.GetReplicaSnapshotFileMetadata:input_type -> clusterapi.GetReplicaSnapshotFileMetadataRequest
+	7, // 4: clusterapi.FileReplicationService.GetReplicaSnapshotFile:input_type -> clusterapi.GetReplicaSnapshotFileRequest
+	2, // 5: clusterapi.FileReplicationService.CreateReplicaSnapshot:output_type -> clusterapi.CreateReplicaSnapshotResponse
+	4, // 6: clusterapi.FileReplicationService.ReleaseReplicaSnapshot:output_type -> clusterapi.ReleaseReplicaSnapshotResponse
+	6, // 7: clusterapi.FileReplicationService.GetReplicaSnapshotFileMetadata:output_type -> clusterapi.FileMetadata
+	8, // 8: clusterapi.FileReplicationService.GetReplicaSnapshotFile:output_type -> clusterapi.FileChunk
+	5, // [5:9] is the sub-list for method output_type
+	1, // [1:5] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_protocol_file_replication_proto_init() }
@@ -802,7 +671,7 @@ func file_protocol_file_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protocol_file_replication_proto_rawDesc), len(file_protocol_file_replication_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

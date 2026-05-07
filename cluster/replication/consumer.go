@@ -577,7 +577,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.UUID, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.WithError(err).Error("failure while copying replica shard")
 		return api.ShardReplicationState(""), err
 	}

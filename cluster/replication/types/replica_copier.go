@@ -14,6 +14,7 @@ package types
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -21,7 +22,7 @@ import (
 // ReplicaCopier see cluster/replication/copier.Copier
 type ReplicaCopier interface {
 	// CopyReplicaFiles see cluster/replication/copier.Copier.CopyReplicaFiles
-	CopyReplicaFiles(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
+	CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
 
 	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
 	LoadLocalShard(ctx context.Context, collectionName, shardName string) error

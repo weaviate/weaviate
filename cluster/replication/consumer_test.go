@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -87,6 +88,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Times(1)
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
+				mock.Anything,
 				mock.Anything,
 				"node1",
 				"TestCollection",
@@ -243,6 +245,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
 				mock.Anything,
+				mock.Anything,
 				"node1",
 				"TestCollection",
 				"shard1",
@@ -390,7 +393,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
 				LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -704,7 +707,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.READY).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplicaFiles(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -926,8 +929,8 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, opID strfmt.UUID, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -1062,8 +1065,8 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, opID strfmt.UUID, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -1462,8 +1465,8 @@ func TestConsumerShutdown(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, opID strfmt.UUID, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {

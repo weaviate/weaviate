@@ -10,66 +10,52 @@ enum CompressionType {
 }
 
 service FileReplicationService {
-  rpc PauseFileActivity (PauseFileActivityRequest) returns (PauseFileActivityResponse);
-
-  rpc ResumeFileActivity (ResumeFileActivityRequest) returns (ResumeFileActivityResponse);
-
-  rpc ListFiles (ListFilesRequest) returns (ListFilesResponse);
-
-  rpc GetFileMetadata (GetFileMetadataRequest) returns (FileMetadata);
-
-  rpc GetFile (GetFileRequest) returns (stream FileChunk);
+  rpc CreateReplicaSnapshot (CreateReplicaSnapshotRequest) returns (CreateReplicaSnapshotResponse);
+  rpc ReleaseReplicaSnapshot (ReleaseReplicaSnapshotRequest) returns (ReleaseReplicaSnapshotResponse);
+  rpc GetReplicaSnapshotFileMetadata (GetReplicaSnapshotFileMetadataRequest) returns (FileMetadata);
+  rpc GetReplicaSnapshotFile (GetReplicaSnapshotFileRequest) returns (stream FileChunk);
 }
 
-message PauseFileActivityRequest {
+message CreateReplicaSnapshotRequest {
   string index_name = 1;
   string shard_name = 2;
-  uint64 schema_version = 3;
+  string op_id = 3;
+  uint64 schema_version = 4;
 }
 
-message PauseFileActivityResponse {
-  string index_name = 1;
-  string shard_name = 2;
-}
-
-message ResumeFileActivityRequest {
-  string index_name = 1;
-  string shard_name = 2;
-}
-
-message ResumeFileActivityResponse {
-  string index_name = 1;
-  string shard_name = 2;
-}
-
-message ListFilesRequest {
-  string index_name = 1;
-  string shard_name = 2;
-}
-
-message ListFilesResponse {
+// file_names are shard-relative (no class/shard prefix); the source resolves
+// them against the registered op's shard subtree.
+message CreateReplicaSnapshotResponse {
   string index_name = 1;
   string shard_name = 2;
   repeated string file_names = 3;
 }
 
-message GetFileMetadataRequest {
+message ReleaseReplicaSnapshotRequest {
   string index_name = 1;
-  string shard_name = 2;
+  string op_id = 2;
+}
+
+message ReleaseReplicaSnapshotResponse {
+  string index_name = 1;
+}
+
+message GetReplicaSnapshotFileMetadataRequest {
+  string index_name = 1;
+  string op_id = 2;
   string file_name = 3;
 }
 
 message FileMetadata {
   string index_name = 1;
-  string shard_name = 2;
-  string file_name = 3;
-  int64 size = 4;
-  uint32 crc32 = 5;
+  string file_name = 2;
+  int64 size = 3;
+  uint32 crc32 = 4;
 }
 
-message GetFileRequest {
+message GetReplicaSnapshotFileRequest {
   string index_name = 1;
-  string shard_name = 2;
+  string op_id = 2;
   string file_name = 3;
   CompressionType compression = 4; // Requested compression algorithm for streamed chunks
 }

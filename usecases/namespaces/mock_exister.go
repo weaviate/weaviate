@@ -79,8 +79,7 @@ func (_c *MockExister_Exists_Call) RunAndReturn(run func(string) bool) *MockExis
 func NewMockExister(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockExister {
+}) *MockExister {
 	mock := &MockExister{}
 	mock.Mock.Test(t)
 
