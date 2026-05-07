@@ -76,7 +76,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "AddClassProperty",
-			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", false, &models.Property{}},
+			additionalArgs:    []any{"classname", false, &models.Property{}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},

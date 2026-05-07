@@ -24,13 +24,16 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddClassProperty it is upsert operation. it adds properties to a class and updates
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
@@ -45,8 +48,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
+	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+		return nil, 0, fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if len(newProps) == 0 {

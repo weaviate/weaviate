@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestHandler_AddProperty(t *testing.T) {
@@ -39,6 +40,7 @@ func TestHandler_AddProperty(t *testing.T) {
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
@@ -69,7 +71,7 @@ func TestHandler_AddProperty(t *testing.T) {
 						DataType: dt.PropString(),
 					}
 					fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 					require.NoError(t, err)
 				})
 			}
@@ -97,6 +99,7 @@ func TestHandler_AddProperty(t *testing.T) {
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 
@@ -115,7 +118,7 @@ func TestHandler_AddProperty(t *testing.T) {
 						Name:     propName,
 						DataType: schema.DataTypeText.PropString(),
 					}
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 					require.ErrorContains(t, err, "conflict for property")
 					require.ErrorContains(t, err, "already in use or provided multiple times")
 				})
@@ -140,6 +143,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
@@ -156,7 +160,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 						NestedProperties: []*models.NestedProperty{{Name: "test", DataType: schema.DataTypeInt.PropString()}},
 					}
 					fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 					require.NoError(t, err)
 				})
 			}
@@ -185,7 +189,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 		for _, tc := range testCases {
 			// Set up schema independently for each test
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 
 			strTokenization := "empty"
 			if tc.tokenization != "" {
@@ -207,14 +211,14 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 
 				// If we expect no error, assert that the call is made with the property, else assert that no call was made to add the
 				// property
-				fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
+				fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 				if len(tc.expectedErrContains) == 0 {
 					fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
 				} else {
 					fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
 				}
 
-				_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+				_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 				if len(tc.expectedErrContains) == 0 {
 					require.NoError(t, err)
 				} else {
@@ -413,10 +417,10 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 		Vectorizer:        "none",
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
+	fakeSchemaManager.On("ReadOnlyClass", refClass.Class).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
 	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil).Twice()
-	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
+	fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)
 	_, _, err = handler.AddClass(ctx, nil, &refClass)
@@ -428,7 +432,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	for _, tokenization := range tokenizer.Tokenizations {
 		propName := fmt.Sprintf("ref_%s", tokenization)
 		t.Run(propName, func(t *testing.T) {
-			_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
+			_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false,
 				&models.Property{
 					Name:         propName,
 					DataType:     dataType,
@@ -444,7 +448,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	// non-existent tokenization
 	propName := "ref_nonExistent"
 	t.Run(propName, func(t *testing.T) {
-		_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
+		_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false,
 			&models.Property{
 				Name:         propName,
 				DataType:     dataType,
@@ -460,7 +464,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	propName = "ref_empty"
 	t.Run(propName, func(t *testing.T) {
 		fakeSchemaManager.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
-		_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
+		_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false,
 			&models.Property{
 				Name:         propName,
 				DataType:     dataType,
@@ -878,4 +882,81 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 		fakeSchemaManager.AssertExpectations(t)
 	})
+}
+
+func TestAddClassProperty_Namespacing(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name         string
+		enabled      bool
+		principal    *models.Principal
+		inputName    string
+		stored       string // class name present in storage, "" if absent
+		wantAuthName string // qualified name authorized + persisted
+		wantErrIs    error
+	}{
+		{
+			name:         "namespaced: short input qualifies and authorizes against qualified",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			inputName:    "Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+		},
+		{
+			name:         "global on namespaces enabled: qualified input passes through",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+		},
+		{
+			name:         "namespaces disabled: input passes through",
+			enabled:      false,
+			principal:    nil,
+			inputName:    "Movies",
+			stored:       "Movies",
+			wantAuthName: "Movies",
+		},
+		{
+			name:      "namespaced: alias name is not a backdoor (no class at qualified alias name)",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			inputName: "Films",
+			stored:    "customer1:Movies",
+			wantErrIs: ErrNotFound,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+
+			lookup := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			if lookup == tt.stored {
+				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
+					Class:             tt.stored,
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				})
+			} else {
+				sm.On("ReadOnlyClass", lookup).Return((*models.Class)(nil))
+			}
+			if tt.wantErrIs == nil {
+				sm.On("AddProperty", tt.wantAuthName, mock.Anything).Return(nil)
+			}
+
+			prop := &models.Property{Name: "genre", DataType: schema.DataTypeText.PropString()}
+			_, _, err := handler.AddClassProperty(context.Background(), tt.principal,
+				tt.inputName, false, prop)
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+				return
+			}
+			require.NoError(t, err)
+			sm.AssertExpectations(t)
+		})
+	}
 }
