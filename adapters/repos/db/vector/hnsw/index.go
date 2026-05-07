@@ -755,6 +755,8 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "commit log drop")
 	}
 
+	h.metrics.Close()
+
 	return nil
 }
 
@@ -777,6 +779,8 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	} else {
 		h.cache.Drop()
 	}
+
+	h.metrics.Close()
 
 	return nil
 }

@@ -20,14 +20,14 @@ import (
 
 type Metrics struct {
 	enabled                       bool
-	tombstones                    prometheus.Gauge
+	tombstones                    monitoring.SettableGauge
 	threads                       prometheus.Gauge
 	insert                        prometheus.Gauge
 	insertTime                    prometheus.ObserverVec
 	delete                        prometheus.Gauge
 	deleteTime                    prometheus.ObserverVec
 	cleaned                       prometheus.Counter
-	size                          prometheus.Gauge
+	size                          monitoring.SettableGauge
 	grow                          prometheus.Observer
 	startupProgress               prometheus.Gauge
 	startupDurations              prometheus.ObserverVec
@@ -35,7 +35,7 @@ type Metrics struct {
 	tombstoneReassignNeighbors    prometheus.Counter
 	tombstoneFindGlobalEntrypoint prometheus.Counter
 	tombstoneFindLocalEntrypoint  prometheus.Counter
-	tombstoneDeleteListSize       prometheus.Gauge
+	tombstoneDeleteListSize       monitoring.SettableGauge
 	tombstoneUnexpected           prometheus.CounterVec
 	tombstoneStart                prometheus.Gauge
 	tombstoneEnd                  prometheus.Gauge
@@ -67,7 +67,7 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 		}
 	}
 
-	tombstones := prom.VectorIndexTombstones.With(baseLabels)
+	tombstones := monitoring.AsSettable(prom.VectorIndexTombstones.With(baseLabels), prom.Group)
 	threads := prom.VectorIndexTombstoneCleanupThreads.With(baseLabels)
 	cleaned := prom.VectorIndexTombstoneCleanedCount.With(baseLabels)
 
@@ -78,14 +78,14 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	var insertTime prometheus.ObserverVec
 	var del prometheus.Gauge
 	var deleteTime prometheus.ObserverVec
-	var size prometheus.Gauge
+	var size monitoring.SettableGauge
 
 	if !hfreshMode {
 		insert = prom.VectorIndexOperations.With(opLabels("create"))
 		insertTime = prom.VectorIndexDurations.MustCurryWith(opLabels("create"))
 		del = prom.VectorIndexOperations.With(opLabels("delete"))
 		deleteTime = prom.VectorIndexDurations.MustCurryWith(opLabels("delete"))
-		size = prom.VectorIndexSize.With(baseLabels)
+		size = monitoring.AsSettable(prom.VectorIndexSize.With(baseLabels), prom.Group)
 	}
 
 	grow := prom.VectorIndexMaintenanceDurations.With(opLabels("grow"))
@@ -100,7 +100,7 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(baseLabels)
 	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(baseLabels)
 	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(baseLabels)
-	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(baseLabels)
+	tombstoneDeleteListSize := monitoring.AsSettable(prom.TombstoneDeleteListSize.With(baseLabels), prom.Group)
 
 	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
@@ -128,6 +128,13 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 		tombstoneProgress:             tombstoneProgress,
 		memoryAllocationRejected:      memoryAllocationRejected,
 	}
+}
+
+func (m *Metrics) Close() {
+	if m == nil {
+		return
+	}
+	monitoring.ResetGrouped(m.tombstones, m.size, m.tombstoneDeleteListSize)
 }
 
 func (m *Metrics) TombstoneReassignNeighbor() {

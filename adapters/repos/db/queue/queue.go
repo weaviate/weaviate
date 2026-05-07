@@ -238,6 +238,8 @@ func (q *DiskQueue) Close(ctx context.Context) error {
 		}
 	}
 
+	q.metrics.Close()
+
 	return stderrors.Join(errs...)
 }
 

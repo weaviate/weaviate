@@ -110,16 +110,19 @@ type Metrics struct {
 	SegmentUnloaded              *prometheus.GaugeVec
 	startupDurations             prometheus.ObserverVec
 	startupDiskIO                prometheus.ObserverVec
-	objectCount                  prometheus.Gauge
-	memtableDurations            prometheus.ObserverVec
-	memtableSize                 *prometheus.GaugeVec
-	DimensionSum                 *prometheus.GaugeVec
-	IOWrite                      *prometheus.SummaryVec
-	IORead                       *prometheus.SummaryVec
-	LazySegmentUnLoad            prometheus.Gauge
-	LazySegmentLoad              prometheus.Gauge
-	LazySegmentClose             prometheus.Gauge
-	LazySegmentInit              prometheus.Gauge
+	// nil in grouped mode; observeObjectCount in node_wide_metrics.go is
+	// the sole writer of object_count{class="n/a",shard="n/a"}, and
+	// per-shard writes here would clobber the sum.
+	objectCount       prometheus.Gauge
+	memtableDurations prometheus.ObserverVec
+	memtableSize      *prometheus.GaugeVec
+	DimensionSum      *prometheus.GaugeVec
+	IOWrite           *prometheus.SummaryVec
+	IORead            *prometheus.SummaryVec
+	LazySegmentUnLoad prometheus.Gauge
+	LazySegmentLoad   prometheus.Gauge
+	LazySegmentClose  prometheus.Gauge
+	LazySegmentInit   prometheus.Gauge
 
 	groupClasses        bool
 	criticalBucketsOnly bool
@@ -627,7 +630,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		"path":       "n/a",
 	})
 
-	return &Metrics{
+	m := &Metrics{
 		register:            register,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
@@ -711,10 +714,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		objectCount: promMetrics.ObjectCount.With(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
 		memtableDurations: promMetrics.LSMMemtableDurations.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
@@ -733,7 +732,14 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		LazySegmentClose:  lazySegmentClose,
 		LazySegmentInit:   lazySegmentInit,
 		LazySegmentUnLoad: lazySegmentUnload,
-	}, nil
+	}
+	if !promMetrics.Group {
+		m.objectCount = promMetrics.ObjectCount.With(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		})
+	}
+	return m, nil
 }
 
 // bucket metrics
@@ -1104,7 +1110,7 @@ func (m *Metrics) TrackStartupBucket(start time.Time) {
 }
 
 func (m *Metrics) ObjectCount(count int) {
-	if m == nil {
+	if m == nil || m.objectCount == nil {
 		return
 	}
 

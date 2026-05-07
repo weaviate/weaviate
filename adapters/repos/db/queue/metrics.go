@@ -23,8 +23,8 @@ type Metrics struct {
 	logger                      *logrus.Entry
 	baseMetrics                 *monitoring.PrometheusMetrics
 	monitoring                  bool
-	queueSize                   prometheus.Gauge
-	queueDiskUsage              prometheus.Gauge
+	queueSize                   monitoring.SettableGauge
+	queueDiskUsage              monitoring.SettableGauge
 	partitionProcessingDuration prometheus.Observer
 }
 
@@ -45,11 +45,18 @@ func NewMetrics(
 
 	m.monitoring = true
 
-	m.queueSize = prom.QueueSize.With(labels)
-	m.queueDiskUsage = prom.QueueDiskUsage.With(labels)
+	m.queueSize = monitoring.AsSettable(prom.QueueSize.With(labels), prom.Group)
+	m.queueDiskUsage = monitoring.AsSettable(prom.QueueDiskUsage.With(labels), prom.Group)
 	m.partitionProcessingDuration = prom.QueuePartitionProcessingDuration.With(labels)
 
 	return &m
+}
+
+func (m *Metrics) Close() {
+	if m == nil {
+		return
+	}
+	monitoring.ResetGrouped(m.queueSize, m.queueDiskUsage)
 }
 
 func (m *Metrics) TasksProcessed(start time.Time, count int) {
