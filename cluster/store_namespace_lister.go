@@ -14,29 +14,28 @@ package cluster
 import (
 	"strings"
 
-	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// schemaSource is the subset of [schema.SchemaReader] used here; it is an
-// interface so tests can substitute a stub.
-type schemaSource interface {
+// SchemaSource is the subset of [schema.SchemaReader] consumed by
+// [SchemaNamespaceLister]; defined as an interface so tests can stub it.
+type SchemaSource interface {
 	ReadSchema(reader func(models.Class, uint64)) error
 	Aliases() map[string]string
 }
 
-// schemaNamespaceLister returns the classes and aliases whose name starts
+// SchemaNamespaceLister returns the classes and aliases whose name starts
 // with "<namespace>:".
-type schemaNamespaceLister struct {
-	src schemaSource
+type SchemaNamespaceLister struct {
+	src SchemaSource
 }
 
-func newSchemaNamespaceLister(manager *schema.SchemaManager) *schemaNamespaceLister {
-	return &schemaNamespaceLister{src: manager.NewSchemaReader()}
+func NewSchemaNamespaceLister(src SchemaSource) *SchemaNamespaceLister {
+	return &SchemaNamespaceLister{src: src}
 }
 
-func (a *schemaNamespaceLister) ClassesInNamespace(namespace string) []string {
+func (a *SchemaNamespaceLister) ClassesInNamespace(namespace string) []string {
 	if namespace == "" {
 		return nil
 	}
@@ -50,7 +49,7 @@ func (a *schemaNamespaceLister) ClassesInNamespace(namespace string) []string {
 	return out
 }
 
-func (a *schemaNamespaceLister) AliasesInNamespace(namespace string) []string {
+func (a *SchemaNamespaceLister) AliasesInNamespace(namespace string) []string {
 	if namespace == "" {
 		return nil
 	}

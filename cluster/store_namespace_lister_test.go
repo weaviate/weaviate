@@ -40,7 +40,7 @@ func TestSchemaNamespaceLister_ClassesInNamespace(t *testing.T) {
 		"beta:Baz",
 		"Unscoped",
 	}}
-	a := &schemaNamespaceLister{src: src}
+	a := &SchemaNamespaceLister{src: src}
 
 	tests := []struct {
 		name      string
@@ -67,7 +67,7 @@ func TestSchemaNamespaceLister_AliasesInNamespace(t *testing.T) {
 		"beta:B1":  "beta:Baz",
 		"Unscoped": "SomeClass",
 	}}
-	a := &schemaNamespaceLister{src: src}
+	a := &SchemaNamespaceLister{src: src}
 
 	tests := []struct {
 		name      string
@@ -92,7 +92,7 @@ func TestSchemaNamespaceLister_PrefixIsExact(t *testing.T) {
 		classes: []string{"alpha:Foo", "alphabet:Bar"},
 		aliases: map[string]string{"alpha:A1": "alpha:Foo", "alphabet:B1": "alphabet:Bar"},
 	}
-	a := &schemaNamespaceLister{src: src}
+	a := &SchemaNamespaceLister{src: src}
 
 	assert.Equal(t, []string{"alpha:Foo"}, a.ClassesInNamespace("alpha"))
 	assert.ElementsMatch(t, []string{"alpha:A1"}, a.AliasesInNamespace("alpha"))

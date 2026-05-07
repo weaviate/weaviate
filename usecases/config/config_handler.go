@@ -729,6 +729,10 @@ type Export struct {
 // already-populated cluster; startup invariants refuse such configurations.
 type Namespaces struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// CleanupInterval drives the deleting-namespace sweep on the leader.
+	// NAMESPACE_CLEANUP_INTERVAL; <= 0 disables.
+	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
 }
 
 const (
