@@ -751,32 +751,6 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	})
 }
 
-func doThreadSafeRequest(build func() (*http.Request, error)) (status int, body []byte, isRetry bool, err error) {
-	const maxAttempts = 4
-	for attempt := range maxAttempts {
-		if attempt > 0 {
-			time.Sleep(time.Duration(50<<(attempt-1)) * time.Millisecond)
-		}
-		req, buildErr := build()
-		if buildErr != nil {
-			return 0, nil, attempt > 0, buildErr
-		}
-		resp, doErr := http.DefaultClient.Do(req)
-		if doErr != nil {
-			err = doErr
-			continue
-		}
-		body, _ = io.ReadAll(resp.Body)
-		resp.Body.Close()
-		status = resp.StatusCode
-		if status < 500 {
-			return status, body, attempt > 0, nil
-		}
-		err = fmt.Errorf("status: %s", resp.Status)
-	}
-	return status, body, true, err
-}
-
 func createObjectThreadSafe(uri string, class string, properties map[string]interface{}, id string, tenant string) error {
 	type Object struct {
 		Class      string                 `json:"class"`
@@ -789,27 +763,25 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	if err != nil {
 		return fmt.Errorf("error marshalling JSON: %w", err)
 	}
-	url := "http://" + uri + "/v1/objects"
-	status, body, isRetry, err := doThreadSafeRequest(func() (*http.Request, error) {
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		return req, nil
-	})
+	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error sending request: %w", err)
 	}
-	if status == http.StatusOK {
-		return nil
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		res, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("request failed with status: %s, and error reading body: %w", resp.Status, err)
+		}
+		return fmt.Errorf("request failed with status: %s, and body: %s", resp.Status, string(res))
 	}
-	// A 5xx on the first attempt may have actually persisted the object, in
-	// which case a retry surfaces 422 (already exists). Treat that as success.
-	if isRetry && status == http.StatusUnprocessableEntity {
-		return nil
-	}
-	return fmt.Errorf("request failed with status: %d, and body: %s", status, string(body))
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
 }
 
 // patchObjectThreadSafe issues a PATCH against /v1/objects/{class}/{id}.
@@ -828,21 +800,25 @@ func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]
 		return fmt.Errorf("error marshalling JSON: %w", err)
 	}
 	url := fmt.Sprintf("http://%s/v1/objects/%s/%s", uri, class, id)
-	status, _, _, err := doThreadSafeRequest(func() (*http.Request, error) {
-		req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		return req, nil
-	})
+	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error sending request: %w", err)
 	}
+	defer resp.Body.Close()
 	// 204 No Content is the documented success for PATCH; accept 200 too.
-	if status != http.StatusOK && status != http.StatusNoContent {
-		return fmt.Errorf("request failed with status: %d", status)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		res, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("request failed with status: %s, and error reading body: %w", resp.Status, readErr)
+		}
+		return fmt.Errorf("request failed with status: %s, and body: %s", resp.Status, string(res))
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
@@ -851,19 +827,22 @@ func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]
 // objects).
 func deleteObjectThreadSafe(uri, class, id, tenant string) error {
 	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s", uri, class, id, tenant)
-	status, _, isRetry, err := doThreadSafeRequest(func() (*http.Request, error) {
-		return http.NewRequest("DELETE", url, nil)
-	})
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error sending request: %w", err)
 	}
-	if status == http.StatusNoContent || status == http.StatusOK {
-		return nil
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		res, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("request failed with status: %s, and error reading body: %w", resp.Status, readErr)
+		}
+		return fmt.Errorf("request failed with status: %s, and body: %s", resp.Status, string(res))
 	}
-	// A 5xx on the first attempt may have actually deleted the object, in
-	// which case a retry surfaces 404. Treat that as success.
-	if isRetry && status == http.StatusNotFound {
-		return nil
-	}
-	return fmt.Errorf("request failed with status: %d", status)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
 }
