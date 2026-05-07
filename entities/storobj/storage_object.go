@@ -105,9 +105,10 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	}
 }
 
-// FromBinaryNetwork decodes a payload and reads Object.Class from the on-disk
-// bytes. The on-disk class is not authoritative; use FromBinaryDisk when you
-// have a className in scope.
+// FromBinaryNetwork decodes a payload and reads Object.Class from the data
+// bytes. Network methods are used for node to node communication.
+// Use FromBinaryDisk when reading from disk, as the on-disk class-name may
+// be empty.
 func FromBinaryNetwork(data []byte) (*Object, error) {
 	ko := &Object{}
 	if err := ko.UnmarshalBinaryNetwork(data); err != nil {
@@ -1273,10 +1274,10 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 }
 
 // UnmarshalBinaryNetwork is the object-method form of FromBinaryNetwork: it
-// decodes onto ko and reads Object.Class from the on-disk bytes. The on-disk
-// class is not authoritative; use UnmarshalBinaryDisk when you have a
-// className in scope. The method name does not satisfy
-// encoding.BinaryUnmarshaler.
+// decodes onto ko and reads Object.Class from the data bytes.
+// Network methods are used for node to node communication.
+// Use UnmarshalBinaryDisk when reading from disk, as the on-disk class-name
+// may be empty.
 func (ko *Object) UnmarshalBinaryNetwork(data []byte) error {
 	return ko.unmarshalInternal(data, "")
 }
