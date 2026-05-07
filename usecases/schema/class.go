@@ -336,11 +336,6 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	// Only the path is qualified; updated.Class is left verbatim because
-	// GET returns it already qualified and validateImmutableFields needs
-	// it to compare against initial.Class (also qualified). Aliases are
-	// not resolved: an alias name must not be a backdoor for mutating
-	// the underlying class.
 	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 
 	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
@@ -352,11 +347,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// but not when the user is updating other collection settings without
 	// touching TTL configuration.
 	initial := h.schemaReader.ReadOnlyClass(className)
-	var initialTTLConfig *models.ObjectTTLConfig
-	if initial != nil {
-		initialTTLConfig = initial.ObjectTTLConfig
+	if initial == nil {
+		// Reject here so the body's Class field can't redirect the
+		// update to a different, existing class.
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
-	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+	if ttl.IsTtlConfigChanged(initial.ObjectTTLConfig, updated.ObjectTTLConfig) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
 			return err
 		}
