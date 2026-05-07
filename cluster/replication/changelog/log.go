@@ -105,7 +105,10 @@ func (l *ChangeLog) append(e *Entry) (uint64, error) {
 
 	nextLSN := l.lsn + 1
 	e.LSN = nextLSN
-	frame := Encode(l.scratch[:0], e)
+	frame, err := Encode(l.scratch[:0], e)
+	if err != nil {
+		return 0, fmt.Errorf("changelog: encode frame: %w", err)
+	}
 	l.scratch = frame
 
 	offset := l.flushedSize
