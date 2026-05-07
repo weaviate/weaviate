@@ -643,6 +643,19 @@ func Test_AliasesAPI(t *testing.T) {
 			assertGetObject(t, objID)
 		})
 
+		t.Run("tokenize property with alias", func(t *testing.T) {
+			text := "Hello World"
+			resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesTokenize(
+				schema.NewSchemaObjectsPropertiesTokenizeParams().
+					WithClassName(aliasName).
+					WithPropertyName("title").
+					WithBody(&models.PropertyTokenizeRequest{Text: &text}),
+				nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"Hello", "World"}, resp.Payload.Indexed)
+		})
+
 		t.Run("batch insert with alias", func(t *testing.T) {
 			objID1 := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
 			obj1 := &models.Object{
