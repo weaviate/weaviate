@@ -773,10 +773,14 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 		return fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("request failed with status: %s", resp.Status)
+		res, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("request failed with status: %s, and error reading body: %w", resp.Status, err)
+		}
+		return fmt.Errorf("request failed with status: %s, and body: %s", resp.Status, string(res))
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
