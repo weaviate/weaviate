@@ -102,14 +102,17 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 // DeleteClassPropertyIndex deletes collection's property index
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
-	class *models.Class, className, propertyName, indexName string,
+	className, propertyName, indexName string,
 ) error {
+	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
 
+	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return fmt.Errorf("class is nil: %w", ErrNotFound)
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if propertyName == "" {

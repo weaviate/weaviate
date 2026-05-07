@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,26 @@ func addPropertyAuth(t *testing.T, className string, prop *models.Property, key 
 		WithBody(prop)
 	_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, helper.CreateAuth(key))
 	return err
+}
+
+func deletePropertyIndexAuth(t *testing.T, className, propName, indexName, key string) error {
+	t.Helper()
+	params := schema.NewSchemaObjectsPropertiesDeleteParams().
+		WithClassName(className).
+		WithPropertyName(propName).
+		WithIndexName(indexName)
+	_, err := helper.Client(t).Schema.SchemaObjectsPropertiesDelete(params, helper.CreateAuth(key))
+	return err
+}
+
+// findProp returns the property with the given name (case-insensitive), or nil.
+func findProp(class *models.Class, name string) *models.Property {
+	for _, p := range class.Properties {
+		if strings.EqualFold(p.Name, name) {
+			return p
+		}
+	}
+	return nil
 }
 
 func TestNamespaces_AddClassProperty(t *testing.T) {
@@ -107,5 +128,73 @@ func TestNamespaces_AddClassProperty(t *testing.T) {
 
 		got := helper.GetClassAuth(t, "customer1:Concerts", adminKey)
 		assert.Empty(t, got.Properties, "underlying class must be unchanged")
+	})
+}
+
+func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
+	const ns1 = "customer1"
+
+	helper.CreateNamespace(t, ns1, adminKey)
+	defer helper.DeleteNamespace(t, ns1, adminKey)
+
+	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
+
+	// Helper: build a class with a `title` text property that has the
+	// filterable index enabled (the index this test toggles off).
+	indexed := true
+	classWithFilterable := func(name string) *models.Class {
+		return &models.Class{
+			Class: name,
+			Properties: []*models.Property{{
+				Name:            "title",
+				DataType:        []string{"text"},
+				IndexFilterable: &indexed,
+			}},
+		}
+	}
+
+	// requireFilterable asserts that class `qualified` has property `title`
+	// with IndexFilterable set to `want`.
+	requireFilterable := func(t *testing.T, qualified string, want bool) {
+		t.Helper()
+		got := helper.GetClassAuth(t, qualified, adminKey)
+		prop := findProp(got, "title")
+		require.NotNil(t, prop)
+		require.NotNil(t, prop.IndexFilterable)
+		assert.Equal(t, want, *prop.IndexFilterable)
+	}
+
+	t.Run("namespaced user drops filterable index by short name", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithFilterable("Movies"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+		requireFilterable(t, "customer1:Movies", true)
+
+		require.NoError(t, deletePropertyIndexAuth(t, "Movies", "title", "filterable", user1Key))
+
+		requireFilterable(t, "customer1:Movies", false)
+	})
+
+	t.Run("global admin drops filterable index by qualified name", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithFilterable("Shows"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+		requireFilterable(t, "customer1:Shows", true)
+
+		require.NoError(t, deletePropertyIndexAuth(t, "customer1:Shows", "title", "filterable", adminKey))
+
+		requireFilterable(t, "customer1:Shows", false)
+	})
+
+	t.Run("alias is not a backdoor: DeleteClassPropertyIndex by alias name fails and underlying class unchanged", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithFilterable("Concerts"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		requireFilterable(t, "customer1:Concerts", true)
+
+		err := deletePropertyIndexAuth(t, "Gigs", "title", "filterable", user1Key)
+		require.Error(t, err, "DeleteClassPropertyIndex must not resolve aliases on namespaced clusters")
+
+		requireFilterable(t, "customer1:Concerts", true)
 	})
 }

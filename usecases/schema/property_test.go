@@ -960,3 +960,85 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name         string
+		enabled      bool
+		principal    *models.Principal
+		inputName    string
+		stored       string
+		wantAuthName string
+		wantErrIs    error
+	}{
+		{
+			name:         "namespaced: short input qualifies and authorizes against qualified",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			inputName:    "Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+		},
+		{
+			name:         "global on namespaces enabled: qualified input passes through",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+		},
+		{
+			name:         "namespaces disabled: input passes through",
+			enabled:      false,
+			principal:    nil,
+			inputName:    "Movies",
+			stored:       "Movies",
+			wantAuthName: "Movies",
+		},
+		{
+			name:      "namespaced: alias name is not a backdoor (no class at qualified alias name)",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			inputName: "Films",
+			stored:    "customer1:Movies",
+			wantErrIs: ErrNotFound,
+		},
+	}
+
+	indexed := true
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+
+			lookup := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			prop := &models.Property{
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: &indexed,
+			}
+			if lookup == tt.stored {
+				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
+					Class:      tt.stored,
+					Vectorizer: "none",
+					Properties: []*models.Property{prop},
+				})
+			} else {
+				sm.On("ReadOnlyClass", lookup).Return((*models.Class)(nil))
+			}
+			if tt.wantErrIs == nil {
+				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything).Return(nil)
+			}
+
+			err := handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
+				tt.inputName, "title", "filterable")
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+				return
+			}
+			require.NoError(t, err)
+			sm.AssertExpectations(t)
+		})
+	}
+}
