@@ -56,7 +56,8 @@ func TestEncodeDecode_Roundtrip(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			buf := changelog.Encode(nil, &tc.entry)
+			buf, err := changelog.Encode(nil, &tc.entry)
+			require.NoError(t, err)
 			got, err := changelog.DecodeFrame(bytes.NewReader(buf))
 			require.NoError(t, err)
 			require.Equal(t, tc.entry.LSN, got.LSN)
@@ -70,9 +71,10 @@ func TestEncodeDecode_Roundtrip(t *testing.T) {
 }
 
 func TestDecodeFrame_TornTailAndCorruption(t *testing.T) {
-	frame := changelog.Encode(nil, &changelog.Entry{
+	frame, err := changelog.Encode(nil, &changelog.Entry{
 		LSN: 7, UpdateTimeMillis: 100, UUID: [16]byte{9}, Payload: []byte("payload"),
 	})
+	require.NoError(t, err)
 
 	t.Run("clean EOF at start", func(t *testing.T) {
 		_, err := changelog.DecodeFrame(bytes.NewReader(nil))
