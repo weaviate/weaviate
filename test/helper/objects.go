@@ -181,10 +181,17 @@ func GetClassAuthWithReturn(t *testing.T, class string, key string) (*schema.Sch
 	return Client(t).Schema.SchemaObjectsGet(params, CreateAuth(key))
 }
 
-func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
+// GetClassWithoutAssert fetches a class without asserting on the result.
+// An empty key skips authentication; otherwise the call is made with the
+// given API key.
+func GetClassWithoutAssert(t *testing.T, class, key string) (*models.Class, error) {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
-	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	var auth runtime.ClientAuthInfoWriter
+	if key != "" {
+		auth = CreateAuth(key)
+	}
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -405,6 +412,19 @@ func DeleteClassAuth(t *testing.T, class string, key string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, CreateAuth(key))
 	AssertRequestOk(t, delRes, err, nil)
+}
+
+// DeleteClassWithoutAssert deletes a class without asserting on the
+// result. Use it for best-effort cleanup where the class may already
+// have been removed by another path (e.g. a cascading namespace delete).
+func DeleteClassWithoutAssert(t *testing.T, class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	var auth runtime.ClientAuthInfoWriter
+	if key != "" {
+		auth = CreateAuth(key)
+	}
+	_, _ = Client(t).Schema.SchemaObjectsDelete(params, auth)
 }
 
 func DeleteObject(t *testing.T, object *models.Object) {
