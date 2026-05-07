@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -40,6 +41,8 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
+	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+
 	tenantNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
 		tenantNames[i] = tenant.Name
@@ -145,6 +148,8 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
+	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+
 	shardNames := make([]string, len(tenants))
 	for idx := range tenants {
 		shardNames[idx] = tenants[idx].Name
@@ -202,6 +207,8 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
+	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return err
 	}
@@ -227,11 +234,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
-	// support getting tenants via alias
-	class = schema.UppercaseClassName(class)
-	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
-		class = rclass
-	}
+	class, _ = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
 	if consistency {
 		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
 	} else {
@@ -258,6 +261,8 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
+	class, _ = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, err
 	}
@@ -299,6 +304,8 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
+	class, _ = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return err
 	}

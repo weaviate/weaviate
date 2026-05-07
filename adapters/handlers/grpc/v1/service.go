@@ -135,10 +135,6 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
 	before := time.Now()
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
-
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)

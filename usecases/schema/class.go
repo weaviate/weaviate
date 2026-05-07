@@ -66,7 +66,6 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	name = schema.UppercaseClassName(name)
 	resolved, _ := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
 	name = resolved
 
