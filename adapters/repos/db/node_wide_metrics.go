@@ -161,9 +161,23 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 // Sum per-shard gauges that are otherwise written under the shared n/a labels
 // in grouped mode. Per-shard write paths are no-ops when grouping is enabled,
 // so this sweep is the sole writer.
+//
+// Locking discipline (matches publishVectorMetrics): copy the indices map
+// under a brief indexLock.RLock and release it before iterating, so a long
+// sweep cannot starve schema writers. Per-shard work uses
+// index.dropIndex.RLock + index.shardCreateLocks.RLock, the same shape the
+// dimensions sweep already uses. ForEachLoadedShard skips cold tenants —
+// no force activation. Component reads (h.RLock, h.tombstoneLock.RLock,
+// queue.m.RLock) hold their locks just long enough to read a length and
+// contend with hot-path writers only briefly.
 func (o *nodeWideMetricsObserver) observeAggregateGauges() {
-	o.db.indexLock.RLock()
-	defer o.db.indexLock.RUnlock()
+	var indices map[string]*Index
+	func() {
+		o.db.indexLock.RLock()
+		defer o.db.indexLock.RUnlock()
+		indices = make(map[string]*Index, len(o.db.indices))
+		maps.Copy(indices, o.db.indices)
+	}()
 
 	var (
 		vectorIndexSize         int
@@ -173,31 +187,43 @@ func (o *nodeWideMetricsObserver) observeAggregateGauges() {
 		queueDiskUsage          int64
 	)
 
-	for _, index := range o.db.indices {
-		index.ForEachLoadedShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
+	for _, index := range indices {
+		func() {
+			index.dropIndex.RLock()
+			defer index.dropIndex.RUnlock()
 
-			shard.ForEachVectorIndex(func(_ string, vi VectorIndex) error {
-				switch v := vi.(type) {
-				case *hnsw.HNSW:
-					vectorIndexSize += v.Size()
-					vectorIndexTombstones += v.TombstoneCount()
-					tombstoneDeleteListSize += v.TombstoneDeleteListSize()
-				case *hfresh.HFresh:
-					vectorIndexSize += int(v.PostingMap.TotalVectors())
-				}
+			index.closeLock.RLock()
+			closed := index.closed
+			index.closeLock.RUnlock()
+			if closed {
+				return
+			}
+
+			index.ForEachLoadedShard(func(name string, shard ShardLike) error {
+				index.shardCreateLocks.RLock(name)
+				defer index.shardCreateLocks.RUnlock(name)
+
+				shard.ForEachVectorIndex(func(_ string, vi VectorIndex) error {
+					switch v := vi.(type) {
+					case *hnsw.HNSW:
+						vectorIndexSize += v.Size()
+						vectorIndexTombstones += v.TombstoneCount()
+						tombstoneDeleteListSize += v.TombstoneDeleteListSize()
+					case *hfresh.HFresh:
+						vectorIndexSize += int(v.PostingMap.TotalVectors())
+					}
+					return nil
+				})
+
+				shard.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+					queueSize += q.Size()
+					queueDiskUsage += q.DiskUsage()
+					return nil
+				})
+
 				return nil
 			})
-
-			shard.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-				queueSize += q.Size()
-				queueDiskUsage += q.DiskUsage()
-				return nil
-			})
-
-			return nil
-		})
+		}()
 	}
 
 	naLabels := prometheus.Labels{"class_name": "n/a", "shard_name": "n/a"}
