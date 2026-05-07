@@ -1042,3 +1042,84 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
+	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
+	cases := []struct {
+		name         string
+		enabled      bool
+		principal    *models.Principal
+		inputName    string
+		stored       string
+		wantAuthName string
+		wantErrIs    error
+	}{
+		{
+			name:         "namespaced: short input qualifies and authorizes against qualified",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			inputName:    "Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+		},
+		{
+			name:         "global on namespaces enabled: qualified input passes through",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+		},
+		{
+			name:         "namespaces disabled: input passes through",
+			enabled:      false,
+			principal:    nil,
+			inputName:    "Movies",
+			stored:       "Movies",
+			wantAuthName: "Movies",
+		},
+		{
+			name:      "namespaced: alias name is not a backdoor (no class at qualified alias name)",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			inputName: "Films",
+			stored:    "customer1:Movies",
+			wantErrIs: ErrNotFound,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+
+			lookup := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			storedClass := &models.Class{
+				Class: tt.stored,
+				VectorConfig: map[string]models.VectorConfig{
+					"vec1": {VectorIndexType: "hnsw", Vectorizer: "none"},
+				},
+			}
+			if lookup == tt.stored {
+				sm.On("QueryReadOnlyClasses", []string{lookup}).
+					Return(map[string]versioned.Class{lookup: {Class: storedClass}}, nil)
+			} else {
+				sm.On("QueryReadOnlyClasses", []string{lookup}).
+					Return(map[string]versioned.Class{}, nil)
+			}
+			if tt.wantErrIs == nil {
+				sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
+					return c.Class == tt.wantAuthName
+				}), mock.Anything).Return(nil)
+			}
+
+			err := handler.DeleteClassVectorIndex(context.Background(), tt.principal,
+				tt.inputName, "vec1")
+			if tt.wantErrIs != nil {
+				require.ErrorIs(t, err, tt.wantErrIs)
+				return
+			}
+			require.NoError(t, err)
+			sm.AssertExpectations(t)
+		})
+	}
+}

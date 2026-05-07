@@ -42,6 +42,15 @@ func deletePropertyIndexAuth(t *testing.T, className, propName, indexName, key s
 	return err
 }
 
+func deleteVectorIndexAuth(t *testing.T, className, vectorIndexName, key string) error {
+	t.Helper()
+	params := schema.NewSchemaObjectsVectorsDeleteParams().
+		WithClassName(className).
+		WithVectorIndexName(vectorIndexName)
+	_, err := helper.Client(t).Schema.SchemaObjectsVectorsDelete(params, helper.CreateAuth(key))
+	return err
+}
+
 // findProp returns the property with the given name (case-insensitive), or nil.
 func findProp(class *models.Class, name string) *models.Property {
 	for _, p := range class.Properties {
@@ -196,5 +205,76 @@ func TestNamespaces_DeleteClassPropertyIndex(t *testing.T) {
 		require.Error(t, err, "DeleteClassPropertyIndex must not resolve aliases on namespaced clusters")
 
 		requireFilterable(t, "customer1:Concerts", true)
+	})
+}
+
+func TestNamespaces_DeleteClassVectorIndex(t *testing.T) {
+	const ns1 = "customer1"
+
+	helper.CreateNamespace(t, ns1, adminKey)
+	defer helper.DeleteNamespace(t, ns1, adminKey)
+
+	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
+
+	// classWithTwoVectors returns a class with two named vectors (vec1, vec2),
+	// both backed by HNSW. Dropping one toggles its VectorIndexType to "none".
+	classWithTwoVectors := func(name string) *models.Class {
+		return &models.Class{
+			Class: name,
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					Vectorizer:      map[string]any{"none": map[string]any{}},
+					VectorIndexType: "hnsw",
+				},
+				"vec2": {
+					Vectorizer:      map[string]any{"none": map[string]any{}},
+					VectorIndexType: "hnsw",
+				},
+			},
+		}
+	}
+
+	// vectorIndexType returns the VectorIndexType of `vec` on `qualified`.
+	vectorIndexType := func(t *testing.T, qualified, vec string) string {
+		t.Helper()
+		got := helper.GetClassAuth(t, qualified, adminKey)
+		cfg, ok := got.VectorConfig[vec]
+		require.True(t, ok, "vector config %q missing on %q", vec, qualified)
+		return cfg.VectorIndexType
+	}
+
+	t.Run("namespaced user drops named vector by short name", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithTwoVectors("Movies"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+		require.Equal(t, "hnsw", vectorIndexType(t, "customer1:Movies", "vec1"))
+
+		require.NoError(t, deleteVectorIndexAuth(t, "Movies", "vec1", user1Key))
+
+		assert.Equal(t, "none", vectorIndexType(t, "customer1:Movies", "vec1"))
+		assert.Equal(t, "hnsw", vectorIndexType(t, "customer1:Movies", "vec2"))
+	})
+
+	t.Run("global admin drops named vector by qualified name", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithTwoVectors("Shows"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+		require.Equal(t, "hnsw", vectorIndexType(t, "customer1:Shows", "vec1"))
+
+		require.NoError(t, deleteVectorIndexAuth(t, "customer1:Shows", "vec1", adminKey))
+
+		assert.Equal(t, "none", vectorIndexType(t, "customer1:Shows", "vec1"))
+	})
+
+	t.Run("alias is not a backdoor: DeleteClassVectorIndex by alias name fails and underlying class unchanged", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithTwoVectors("Concerts"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		require.Equal(t, "hnsw", vectorIndexType(t, "customer1:Concerts", "vec1"))
+
+		err := deleteVectorIndexAuth(t, "Gigs", "vec1", user1Key)
+		require.Error(t, err, "DeleteClassVectorIndex must not resolve aliases on namespaced clusters")
+
+		assert.Equal(t, "hnsw", vectorIndexType(t, "customer1:Concerts", "vec1"))
 	})
 }

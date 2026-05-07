@@ -174,6 +174,8 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
 		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
 	}
+	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
