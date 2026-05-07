@@ -2969,7 +2969,7 @@ func init() {
             }
           },
           "409": {
-            "description": "A namespace with the specified name already exists.",
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2989,7 +2989,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Hard-delete a namespace by its name.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -3005,8 +3005,8 @@ func init() {
           }
         ],
         "responses": {
-          "204": {
-            "description": "Successfully deleted."
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -8242,6 +8242,14 @@ func init() {
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations; \"deleting\" namespaces are being torn down by the leader and reject create-like operations until the entry is fully removed.",
+          "type": "string",
+          "enum": [
+            "active",
+            "deleting"
+          ]
         }
       }
     },
@@ -13341,7 +13349,7 @@ func init() {
             }
           },
           "409": {
-            "description": "A namespace with the specified name already exists.",
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13361,7 +13369,7 @@ func init() {
         }
       },
       "delete": {
-        "description": "Hard-delete a namespace by its name.",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
         "tags": [
           "namespaces"
         ],
@@ -13377,8 +13385,8 @@ func init() {
           }
         ],
         "responses": {
-          "204": {
-            "description": "Successfully deleted."
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -18909,6 +18917,14 @@ func init() {
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations; \"deleting\" namespaces are being torn down by the leader and reject create-like operations until the entry is fully removed.",
+          "type": "string",
+          "enum": [
+            "active",
+            "deleting"
+          ]
         }
       }
     },

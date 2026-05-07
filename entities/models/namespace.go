@@ -30,6 +30,10 @@ type Namespace struct {
 
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
+
+	// Lifecycle state. "active" namespaces accept all operations; "deleting" namespaces are being torn down by the leader and reject create-like operations until the entry is fully removed.
+	// Enum: [active deleting]
+	State string `json:"state,omitempty"`
 }
 
 // Validate validates this namespace

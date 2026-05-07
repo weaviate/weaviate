@@ -43,7 +43,7 @@ type ClientOption func(*runtime.ClientOperation)
 type ClientService interface {
 	CreateNamespace(params *CreateNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateNamespaceCreated, error)
 
-	DeleteNamespace(params *DeleteNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteNamespaceNoContent, error)
+	DeleteNamespace(params *DeleteNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteNamespaceAccepted, error)
 
 	GetNamespace(params *GetNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetNamespaceOK, error)
 
@@ -98,7 +98,7 @@ DeleteNamespace deletes a namespace
 
 Hard-delete a namespace by its name.
 */
-func (a *Client) DeleteNamespace(params *DeleteNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteNamespaceNoContent, error) {
+func (a *Client) DeleteNamespace(params *DeleteNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteNamespaceAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewDeleteNamespaceParams()
@@ -124,7 +124,7 @@ func (a *Client) DeleteNamespace(params *DeleteNamespaceParams, authInfo runtime
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*DeleteNamespaceNoContent)
+	success, ok := result.(*DeleteNamespaceAccepted)
 	if ok {
 		return success, nil
 	}

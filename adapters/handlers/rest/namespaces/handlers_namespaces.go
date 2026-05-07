@@ -34,7 +34,8 @@ import (
 // it narrow makes the unit tests easy to mock.
 type NamespaceRaftGetter interface {
 	AddNamespace(ns cmd.Namespace) error
-	DeleteNamespace(name string) error
+	ChangeNamespaceState(name string, target cmd.NamespaceState) error
+	DeleteUsersInNamespace(name string) error
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
 }
 
@@ -111,6 +112,9 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q already exists", name)))
+		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
+			return nsops.NewCreateNamespaceConflict().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q is being deleted; retry after cleanup completes", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		default:
@@ -119,7 +123,10 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		}
 	}
 
-	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{Name: name})
+	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{
+		Name:  name,
+		State: string(cmd.NamespaceStateActive),
+	})
 }
 
 func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -148,7 +155,10 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
 	}
 
-	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{Name: got[0].Name})
+	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{
+		Name:  got[0].Name,
+		State: string(got[0].State),
+	})
 }
 
 func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -167,10 +177,12 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 		return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// No pre-check for existence: the RAFT apply layer returns ErrNotFound
-	// for missing entries, so we translate directly. Avoids a TOCTOU where
-	// two concurrent deletes would both see the entry and only one succeeds.
-	if err := h.raft.DeleteNamespace(name); err != nil {
+	// Two-phase delete. First flip to deleting; the apply handler is
+	// idempotent on already-deleting (returns nil). Then issue the
+	// namespace-scoped user delete. Order matters: marking first ensures
+	// the dynusers active-namespace gate rejects any concurrent CreateUser
+	// before we drain the user list.
+	if err := h.raft.ChangeNamespaceState(name, cmd.NamespaceStateDeleting); err != nil {
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrNotFound):
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
@@ -179,11 +191,15 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 			return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		default:
 			return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deleting namespace: %w", err)))
+				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("marking namespace for deletion: %w", err)))
 		}
 	}
+	if err := h.raft.DeleteUsersInNamespace(name); err != nil {
+		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deleting users in namespace: %w", err)))
+	}
 
-	return nsops.NewDeleteNamespaceNoContent()
+	return nsops.NewDeleteNamespaceAccepted()
 }
 
 // listNamespaces never returns 403. Callers without any applicable
@@ -224,7 +240,7 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	out := make([]*models.Namespace, 0, len(allowed))
 	for _, ns := range all {
 		if _, ok := allowedSet[authorization.Namespaces(ns.Name)[0]]; ok {
-			out = append(out, &models.Namespace{Name: ns.Name})
+			out = append(out, &models.Namespace{Name: ns.Name, State: string(ns.State)})
 		}
 	}
 	return nsops.NewListNamespacesOK().WithPayload(out)

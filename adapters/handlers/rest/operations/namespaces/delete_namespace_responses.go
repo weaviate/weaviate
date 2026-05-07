@@ -24,29 +24,29 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// DeleteNamespaceNoContentCode is the HTTP code returned for type DeleteNamespaceNoContent
-const DeleteNamespaceNoContentCode int = 204
+// DeleteNamespaceAcceptedCode is the HTTP code returned for type DeleteNamespaceAccepted
+const DeleteNamespaceAcceptedCode int = 202
 
 /*
-DeleteNamespaceNoContent Successfully deleted.
+DeleteNamespaceAccepted The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously.
 
-swagger:response deleteNamespaceNoContent
+swagger:response deleteNamespaceAccepted
 */
-type DeleteNamespaceNoContent struct {
+type DeleteNamespaceAccepted struct {
 }
 
-// NewDeleteNamespaceNoContent creates DeleteNamespaceNoContent with default headers values
-func NewDeleteNamespaceNoContent() *DeleteNamespaceNoContent {
+// NewDeleteNamespaceAccepted creates DeleteNamespaceAccepted with default headers values
+func NewDeleteNamespaceAccepted() *DeleteNamespaceAccepted {
 
-	return &DeleteNamespaceNoContent{}
+	return &DeleteNamespaceAccepted{}
 }
 
 // WriteResponse to the client
-func (o *DeleteNamespaceNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *DeleteNamespaceAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(202)
 }
 
 // DeleteNamespaceUnauthorizedCode is the HTTP code returned for type DeleteNamespaceUnauthorized
