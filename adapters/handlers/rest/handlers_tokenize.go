@@ -176,7 +176,7 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	className := schema.UppercaseClassName(params.ClassName)
 
 	// Resolve before authorization so authz uses the real collection name
-	// for permissions and error UX (matches Handler.ShardsStatus).
+	// for permissions and error UX.
 	className, _ = namespacing.Resolve(principal, schemaManager, nsEnabled, className)
 
 	// Authorize: reading collection metadata (same as other schema read operations)
