@@ -163,13 +163,9 @@ func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 	ko.Object.CreationTimeUnix = int64(rw.ReadUint64())
 	ko.Object.LastUpdateTimeUnix = int64(rw.ReadUint64())
 
-	vecLen := rw.ReadUint16()
-	rw.MoveBufferPositionForward(uint64(vecLen * 4))
-
-	// On-disk class-name bytes are skipped: className is guaranteed non-empty
+	// Vector bytes are ignored, as are all vector bytes, because this is a header-only fast path
+	// On-disk class-name bytes are ignored: className is guaranteed non-empty
 	// by the entry guard above, so the caller-supplied value is what we use.
-	classNameLength := uint64(rw.ReadUint16())
-	rw.MoveBufferPositionForward(classNameLength)
 	ko.Object.Class = className
 
 	return ko, nil
