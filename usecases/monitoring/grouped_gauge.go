@@ -38,7 +38,7 @@ type SettableGauge interface {
 // would clobber the others.
 //
 // On upgrade, grouped-mode users will see step changes upward in the affected
-// metrics — values now reflect the per-node sum across all shards rather than
+// metrics: values now reflect the per-node sum across all shards rather than
 // one arbitrary shard's value.
 type GroupedGauge struct {
 	gauge prometheus.Gauge
