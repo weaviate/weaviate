@@ -23,8 +23,8 @@ type Metrics struct {
 	logger                      *logrus.Entry
 	baseMetrics                 *monitoring.PrometheusMetrics
 	monitoring                  bool
-	queueSize                   monitoring.SettableGauge
-	queueDiskUsage              monitoring.SettableGauge
+	queueSize                   prometheus.Gauge
+	queueDiskUsage              prometheus.Gauge
 	partitionProcessingDuration prometheus.Observer
 }
 
@@ -45,18 +45,13 @@ func NewMetrics(
 
 	m.monitoring = true
 
-	m.queueSize = monitoring.AsSettable(prom.QueueSize.With(labels), prom.Group)
-	m.queueDiskUsage = monitoring.AsSettable(prom.QueueDiskUsage.With(labels), prom.Group)
+	if !prom.Group {
+		m.queueSize = prom.QueueSize.With(labels)
+		m.queueDiskUsage = prom.QueueDiskUsage.With(labels)
+	}
 	m.partitionProcessingDuration = prom.QueuePartitionProcessingDuration.With(labels)
 
 	return &m
-}
-
-func (m *Metrics) Close() {
-	if m == nil {
-		return
-	}
-	monitoring.ResetGrouped(m.queueSize, m.queueDiskUsage)
 }
 
 func (m *Metrics) TasksProcessed(start time.Time, count int) {
@@ -76,7 +71,7 @@ func (m *Metrics) TasksProcessed(start time.Time, count int) {
 func (m *Metrics) Size(size uint64) {
 	m.logger.WithField("size", size).Tracef("queue size %d", size)
 
-	if !m.monitoring {
+	if !m.monitoring || m.queueSize == nil {
 		return
 	}
 
@@ -86,7 +81,7 @@ func (m *Metrics) Size(size uint64) {
 func (m *Metrics) DiskUsage(size int64) {
 	m.logger.WithField("disk_usage", size).Tracef("disk usage of queue %d", size)
 
-	if !m.monitoring {
+	if !m.monitoring || m.queueDiskUsage == nil {
 		return
 	}
 

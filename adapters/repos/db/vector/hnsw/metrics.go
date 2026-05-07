@@ -20,14 +20,14 @@ import (
 
 type Metrics struct {
 	enabled                       bool
-	tombstones                    monitoring.SettableGauge
+	tombstones                    prometheus.Gauge
 	threads                       prometheus.Gauge
 	insert                        prometheus.Gauge
 	insertTime                    prometheus.ObserverVec
 	delete                        prometheus.Gauge
 	deleteTime                    prometheus.ObserverVec
 	cleaned                       prometheus.Counter
-	size                          monitoring.SettableGauge
+	size                          prometheus.Gauge
 	grow                          prometheus.Observer
 	startupProgress               prometheus.Gauge
 	startupDurations              prometheus.ObserverVec
@@ -35,7 +35,7 @@ type Metrics struct {
 	tombstoneReassignNeighbors    prometheus.Counter
 	tombstoneFindGlobalEntrypoint prometheus.Counter
 	tombstoneFindLocalEntrypoint  prometheus.Counter
-	tombstoneDeleteListSize       monitoring.SettableGauge
+	tombstoneDeleteListSize       prometheus.Gauge
 	tombstoneUnexpected           prometheus.CounterVec
 	tombstoneStart                prometheus.Gauge
 	tombstoneEnd                  prometheus.Gauge
@@ -67,7 +67,10 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 		}
 	}
 
-	tombstones := monitoring.AsSettable(prom.VectorIndexTombstones.With(baseLabels), prom.Group)
+	var tombstones prometheus.Gauge
+	if !prom.Group {
+		tombstones = prom.VectorIndexTombstones.With(baseLabels)
+	}
 	threads := prom.VectorIndexTombstoneCleanupThreads.With(baseLabels)
 	cleaned := prom.VectorIndexTombstoneCleanedCount.With(baseLabels)
 
@@ -78,14 +81,16 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	var insertTime prometheus.ObserverVec
 	var del prometheus.Gauge
 	var deleteTime prometheus.ObserverVec
-	var size monitoring.SettableGauge
+	var size prometheus.Gauge
 
 	if !hfreshMode {
 		insert = prom.VectorIndexOperations.With(opLabels("create"))
 		insertTime = prom.VectorIndexDurations.MustCurryWith(opLabels("create"))
 		del = prom.VectorIndexOperations.With(opLabels("delete"))
 		deleteTime = prom.VectorIndexDurations.MustCurryWith(opLabels("delete"))
-		size = monitoring.AsSettable(prom.VectorIndexSize.With(baseLabels), prom.Group)
+		if !prom.Group {
+			size = prom.VectorIndexSize.With(baseLabels)
+		}
 	}
 
 	grow := prom.VectorIndexMaintenanceDurations.With(opLabels("grow"))
@@ -100,7 +105,10 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(baseLabels)
 	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(baseLabels)
 	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(baseLabels)
-	tombstoneDeleteListSize := monitoring.AsSettable(prom.TombstoneDeleteListSize.With(baseLabels), prom.Group)
+	var tombstoneDeleteListSize prometheus.Gauge
+	if !prom.Group {
+		tombstoneDeleteListSize = prom.TombstoneDeleteListSize.With(baseLabels)
+	}
 
 	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
@@ -130,13 +138,6 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	}
 }
 
-func (m *Metrics) Close() {
-	if m == nil {
-		return
-	}
-	monitoring.ResetGrouped(m.tombstones, m.size, m.tombstoneDeleteListSize)
-}
-
 func (m *Metrics) TombstoneReassignNeighbor() {
 	if !m.enabled {
 		return
@@ -162,7 +163,7 @@ func (m *Metrics) TombstoneFindLocalEntrypoint() {
 }
 
 func (m *Metrics) SetTombstoneDeleteListSize(size int) {
-	if !m.enabled {
+	if !m.enabled || m.tombstoneDeleteListSize == nil {
 		return
 	}
 
@@ -170,7 +171,7 @@ func (m *Metrics) SetTombstoneDeleteListSize(size int) {
 }
 
 func (m *Metrics) AddTombstone() {
-	if !m.enabled {
+	if !m.enabled || m.tombstones == nil {
 		return
 	}
 
@@ -178,7 +179,7 @@ func (m *Metrics) AddTombstone() {
 }
 
 func (m *Metrics) SetTombstone(count int) {
-	if !m.enabled {
+	if !m.enabled || m.tombstones == nil {
 		return
 	}
 
@@ -220,7 +221,7 @@ func (m *Metrics) TombstoneCycleProgress(progress float64) {
 }
 
 func (m *Metrics) RemoveTombstone() {
-	if !m.enabled {
+	if !m.enabled || m.tombstones == nil {
 		return
 	}
 

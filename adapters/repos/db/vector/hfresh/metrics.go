@@ -20,7 +20,7 @@ import (
 
 type Metrics struct {
 	enabled          bool
-	size             monitoring.SettableGauge
+	size             prometheus.Gauge
 	insert           prometheus.Gauge
 	insertTime       prometheus.Observer
 	delete           prometheus.Gauge
@@ -77,7 +77,10 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		}
 	}
 
-	size := monitoring.AsSettable(prom.VectorIndexSize.With(baseLabels), prom.Group)
+	var size prometheus.Gauge
+	if !prom.Group {
+		size = prom.VectorIndexSize.With(baseLabels)
+	}
 	insert := prom.VectorIndexOperations.With(opLabels("create"))
 	insertTime := prom.VectorIndexDurations.With(opStepLabels("create", "n/a"))
 	del := prom.VectorIndexOperations.With(opLabels("delete"))
@@ -135,15 +138,8 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	}
 }
 
-func (m *Metrics) Close() {
-	if m == nil {
-		return
-	}
-	monitoring.ResetGrouped(m.size)
-}
-
 func (m *Metrics) SetSize(size int) {
-	if !m.enabled {
+	if !m.enabled || m.size == nil {
 		return
 	}
 

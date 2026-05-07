@@ -237,8 +237,6 @@ func (h *HFresh) Shutdown(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
-	h.metrics.Close()
-
 	return stderrors.Join(errs...)
 }
 

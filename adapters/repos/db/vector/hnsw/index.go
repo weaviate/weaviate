@@ -115,6 +115,7 @@ type hnsw struct {
 	trackMuveraOnce                   sync.Once
 	trackRQOnce                       sync.Once
 	dims                              atomic.Int32
+	tombstoneDeleteListSize           atomic.Int64
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -755,8 +756,6 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 		return errors.Wrap(err, "commit log drop")
 	}
 
-	h.metrics.Close()
-
 	return nil
 }
 
@@ -779,8 +778,6 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	} else {
 		h.cache.Drop()
 	}
-
-	h.metrics.Close()
 
 	return nil
 }
@@ -929,6 +926,22 @@ func (h *hnsw) CurrentVectorsLen() uint64 {
 		return h.compressor.MaxVectorID()
 	}
 	return uint64(h.cache.Len())
+}
+
+func (h *hnsw) Size() int {
+	h.RLock()
+	defer h.RUnlock()
+	return len(h.nodes)
+}
+
+func (h *hnsw) TombstoneCount() int {
+	h.tombstoneLock.RLock()
+	defer h.tombstoneLock.RUnlock()
+	return len(h.tombstones)
+}
+
+func (h *hnsw) TombstoneDeleteListSize() int {
+	return int(h.tombstoneDeleteListSize.Load())
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {

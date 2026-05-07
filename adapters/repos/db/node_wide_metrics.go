@@ -21,6 +21,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
@@ -92,6 +94,7 @@ func (o *nodeWideMetricsObserver) observeShards() {
 			o.observeActivity()
 		case <-t30.C:
 			o.observeObjectCount()
+			o.observeAggregateGauges()
 		}
 	}
 }
@@ -153,6 +156,56 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 		"took":         took,
 		"object_count": totalObjectCount,
 	}).Debug("observed node wide metrics")
+}
+
+// Sum per-shard gauges that are otherwise written under the shared n/a labels
+// in grouped mode. Per-shard write paths are no-ops when grouping is enabled,
+// so this sweep is the sole writer.
+func (o *nodeWideMetricsObserver) observeAggregateGauges() {
+	o.db.indexLock.RLock()
+	defer o.db.indexLock.RUnlock()
+
+	var (
+		vectorIndexSize         int
+		vectorIndexTombstones   int
+		tombstoneDeleteListSize int
+		queueSize               int64
+		queueDiskUsage          int64
+	)
+
+	for _, index := range o.db.indices {
+		index.ForEachLoadedShard(func(name string, shard ShardLike) error {
+			index.shardCreateLocks.RLock(name)
+			defer index.shardCreateLocks.RUnlock(name)
+
+			shard.ForEachVectorIndex(func(_ string, vi VectorIndex) error {
+				switch v := vi.(type) {
+				case *hnsw.HNSW:
+					vectorIndexSize += v.Size()
+					vectorIndexTombstones += v.TombstoneCount()
+					tombstoneDeleteListSize += v.TombstoneDeleteListSize()
+				case *hfresh.HFresh:
+					vectorIndexSize += int(v.PostingMap.TotalVectors())
+				}
+				return nil
+			})
+
+			shard.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
+				queueSize += q.Size()
+				queueDiskUsage += q.DiskUsage()
+				return nil
+			})
+
+			return nil
+		})
+	}
+
+	naLabels := prometheus.Labels{"class_name": "n/a", "shard_name": "n/a"}
+	o.db.promMetrics.VectorIndexSize.With(naLabels).Set(float64(vectorIndexSize))
+	o.db.promMetrics.VectorIndexTombstones.With(naLabels).Set(float64(vectorIndexTombstones))
+	o.db.promMetrics.TombstoneDeleteListSize.With(naLabels).Set(float64(tombstoneDeleteListSize))
+	o.db.promMetrics.QueueSize.With(naLabels).Set(float64(queueSize))
+	o.db.promMetrics.QueueDiskUsage.With(naLabels).Set(float64(queueDiskUsage))
 }
 
 // NOTE(dyma): should this also chech that all indices report allShardsReady == true?
