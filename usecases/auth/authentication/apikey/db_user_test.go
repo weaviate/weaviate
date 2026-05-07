@@ -557,6 +557,30 @@ func TestValidateAndExtractReturnsNamespace(t *testing.T) {
 	}
 }
 
+func TestUsersInNamespace(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), false, log)
+	require.NoError(t, err)
+
+	seeds := []struct {
+		id, namespace string
+	}{
+		{"u-alpha-1", "alpha"},
+		{"u-alpha-2", "alpha"},
+		{"u-beta", "beta"},
+		{"u-unscoped", ""},
+	}
+	for _, s := range seeds {
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
+	}
+
+	require.ElementsMatch(t, []string{"u-alpha-1", "u-alpha-2"}, dynUsers.UsersInNamespace("alpha"))
+	require.ElementsMatch(t, []string{"u-beta"}, dynUsers.UsersInNamespace("beta"))
+	require.Empty(t, dynUsers.UsersInNamespace("never-existed"))
+	require.Nil(t, dynUsers.UsersInNamespace(""))
+}
+
 func TestDeleteUsersInNamespace(t *testing.T) {
 	t.Run("removes only matching users", func(t *testing.T) {
 		dynUsers, err := NewDBUser(t.TempDir(), false, log)

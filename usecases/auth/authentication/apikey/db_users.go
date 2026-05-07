@@ -285,6 +285,24 @@ func (c *DBUser) deleteUserLocked(userId string) {
 	delete(c.data.ImportedApiKeysWeakHash, userId)
 }
 
+// UsersInNamespace returns the IDs of users bound to namespace in
+// unspecified order. An empty namespace returns nil.
+func (c *DBUser) UsersInNamespace(namespace string) []string {
+	if namespace == "" {
+		return nil
+	}
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	out := make([]string, 0)
+	for id, u := range c.data.Users {
+		if u != nil && u.Namespace == namespace {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // DeleteUsersInNamespace removes every user bound to namespace. An empty
 // namespace argument is rejected so the helper cannot wipe unscoped users.
 func (c *DBUser) DeleteUsersInNamespace(namespace string) error {

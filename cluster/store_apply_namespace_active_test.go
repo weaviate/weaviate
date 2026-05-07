@@ -117,7 +117,7 @@ func TestRequireNamespaceActive(t *testing.T) {
 	require.NoError(t, controller.Create(api.Namespace{Name: "active1"}))
 	require.NoError(t, controller.Create(api.Namespace{Name: "deleting1"}))
 	require.NoError(t, controller.ChangeState("deleting1", api.NamespaceStateDeleting))
-	exister := clusternamespaces.NewManager(controller, logger)
+	exister := clusternamespaces.NewManager(controller, emptySchemaLister{}, nil, logger)
 
 	tests := []struct {
 		name      string
@@ -264,3 +264,8 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceDeleting)
 	require.NotErrorIs(t, resp.Error, namespaces.ErrNamespaceGone)
 }
+
+type emptySchemaLister struct{}
+
+func (emptySchemaLister) ClassesInNamespace(string) []string { return nil }
+func (emptySchemaLister) AliasesInNamespace(string) []string { return nil }
