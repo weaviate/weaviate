@@ -105,63 +105,61 @@ func TestQualifiedName(t *testing.T) {
 	}
 }
 
-func TestResolveClass(t *testing.T) {
+func TestQualifyClass(t *testing.T) {
 	cases := []struct {
 		testName  string
 		principal *models.Principal
-		sm        SchemaManager
 		nsEnabled bool
 		input     string
-		wantClass string
-		wantAlias string
+		want      string
 	}{
 		{
 			testName:  "namespaced principal lowercase short input is uppercased and qualified",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
 			nsEnabled: true,
 			input:     "movies",
-			wantClass: "customer1:Movies",
+			want:      "customer1:Movies",
 		},
 		{
 			testName:  "operator full name preserves namespace and uppercases only the class",
 			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
 			nsEnabled: true,
 			input:     "customer1:movies",
-			wantClass: "customer1:Movies",
+			want:      "customer1:Movies",
 		},
 		{
 			testName:  "operator already-uppercase full name passthrough",
 			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
 			nsEnabled: true,
 			input:     "customer1:Movies",
-			wantClass: "customer1:Movies",
+			want:      "customer1:Movies",
 		},
 		{
 			testName:  "ns disabled lowercase input still uppercased",
 			principal: &models.Principal{Username: "u"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
 			nsEnabled: false,
 			input:     "movies",
-			wantClass: "Movies",
+			want:      "Movies",
 		},
 		{
-			testName:  "namespaced principal alias lookup uses qualified+uppercased form",
+			testName:  "alias-shaped input is not resolved (qualified, not retargeted)",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{"customer1:Films": "customer1:Movies"}},
 			nsEnabled: true,
 			input:     "films",
-			wantClass: "customer1:Movies",
-			wantAlias: "customer1:Films",
+			want:      "customer1:Films",
+		},
+		{
+			testName:  "alias-shaped raw input on ns-disabled is not resolved",
+			principal: &models.Principal{Username: "u"},
+			nsEnabled: false,
+			input:     "films",
+			want:      "Films",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			gotClass, gotAlias := ResolveClass(tc.principal, tc.sm, tc.nsEnabled, tc.input)
-			assert.Equal(t, tc.wantClass, gotClass)
-			assert.Equal(t, tc.wantAlias, gotAlias)
+			got := QualifyClass(tc.principal, tc.nsEnabled, tc.input)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

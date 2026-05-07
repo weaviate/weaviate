@@ -75,13 +75,12 @@ func Resolve(principal *models.Principal, sm SchemaManager, nsEnabled bool, name
 	return qualified, ""
 }
 
-// ResolveClass is the same as Resolve, but first title-cases the class
-// portion of the input only. If a "<namespace>:" prefix is present
-// (operator path), it is preserved verbatim and only the class name's
-// first letter is uppercased; otherwise the whole input is treated as a
-// short class name. Use this from class-name handlers that previously
-// chained schema.UppercaseClassName + Resolve.
-func ResolveClass(principal *models.Principal, sm SchemaManager, nsEnabled bool, name string) (class, originalAlias string) {
+// QualifyClass title-cases the class portion of the input and qualifies
+// it with the principal's namespace when namespaces are enabled. Aliases
+// are not resolved. If a "<namespace>:" prefix is present, it is
+// preserved verbatim and only the class portion's first letter is
+// uppercased.
+func QualifyClass(principal *models.Principal, nsEnabled bool, name string) string {
 	prefix := ""
 	short := name
 	if ns, cls, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
@@ -91,5 +90,9 @@ func ResolveClass(principal *models.Principal, sm SchemaManager, nsEnabled bool,
 	if short != "" {
 		short = strings.ToUpper(short[:1]) + short[1:]
 	}
-	return Resolve(principal, sm, nsEnabled, prefix+short)
+	qualified := prefix + short
+	if nsEnabled {
+		qualified = qualify(principal, qualified)
+	}
+	return qualified
 }

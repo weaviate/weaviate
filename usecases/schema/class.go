@@ -316,9 +316,11 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	return nil
 }
 
-// DeleteClass from the schema
+// DeleteClass from the schema. Aliases are intentionally not resolved
+// here: deleting via an alias name must be a no-op on the underlying
+// class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	class, _ = namespacing.ResolveClass(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
@@ -334,10 +336,12 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	// Only the path is resolved; updated.Class is left verbatim because
+	// Only the path is qualified; updated.Class is left verbatim because
 	// GET returns it already qualified and validateImmutableFields needs
-	// it to compare against initial.Class (also qualified).
-	className, _ = namespacing.ResolveClass(principal, h.schemaReader, h.config.Namespaces.Enabled, className)
+	// it to compare against initial.Class (also qualified). Aliases are
+	// not resolved: an alias name must not be a backdoor for mutating
+	// the underlying class.
+	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 
 	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
