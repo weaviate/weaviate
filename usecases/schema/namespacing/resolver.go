@@ -12,8 +12,6 @@
 package namespacing
 
 import (
-	"strings"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -81,16 +79,7 @@ func Resolve(principal *models.Principal, sm SchemaManager, nsEnabled bool, name
 // preserved verbatim and only the class portion's first letter is
 // uppercased.
 func QualifyClass(principal *models.Principal, nsEnabled bool, name string) string {
-	prefix := ""
-	short := name
-	if ns, cls, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
-		prefix = ns + schema.NamespaceSeparator
-		short = cls
-	}
-	if short != "" {
-		short = strings.ToUpper(short[:1]) + short[1:]
-	}
-	qualified := prefix + short
+	qualified := schema.UppercaseClassName(name)
 	if nsEnabled {
 		qualified = qualify(principal, qualified)
 	}
