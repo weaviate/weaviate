@@ -28,6 +28,20 @@ const (
 	quantizationKey    = "quantization"
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
+	indexVersionKey    = "index_version"
+)
+
+// HFresh index version constants.
+// V1: centroid-based representatives, RQ8 compression for centroid HNSW, no medoid rescoring.
+// V2: medoid-based representatives, RQ1 compression for centroid HNSW, medoid rescoring enabled.
+//
+// Existing indexes without stored version are treated as V1 for backward compatibility.
+// V1 indexes remain readable but are not automatically upgraded to V2.
+// Users who want the new medoid/RQ1/rescoring behavior must manually reindex.
+const (
+	HFreshIndexVersion1       = 1 // Legacy: centroid-based, RQ8, no medoid rescoring
+	HFreshIndexVersion2       = 2 // Current: medoid-based, RQ1, medoid rescoring
+	CurrentHFreshIndexVersion = HFreshIndexVersion2
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -133,6 +147,34 @@ func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
 	}
 
 	return &qData, nil
+}
+
+// SetVersion persists the index version to storage.
+func (i *IndexMetadataStore) SetVersion(version uint8) error {
+	return i.bucket.Put(i.key(indexVersionKey), []byte{version})
+}
+
+// GetVersion returns the stored index version.
+// Returns HFreshIndexVersion1 if no version is stored (backward compatibility).
+// Returns an error if the stored version is newer than supported.
+func (i *IndexMetadataStore) GetVersion() (uint8, error) {
+	data, err := i.bucket.Get(i.key(indexVersionKey))
+	if err != nil {
+		return 0, errors.Wrap(err, "get index version")
+	}
+	if data == nil {
+		// No version stored - this is a legacy V1 index
+		return HFreshIndexVersion1, nil
+	}
+	if len(data) != 1 {
+		return 0, fmt.Errorf("invalid index version data length: %d", len(data))
+	}
+	version := data[0]
+	if version > CurrentHFreshIndexVersion {
+		return 0, fmt.Errorf("unsupported HFresh index version %d (max supported: %d); "+
+			"this index was created with a newer version of Weaviate", version, CurrentHFreshIndexVersion)
+	}
+	return version, nil
 }
 
 type QuantizationData struct {

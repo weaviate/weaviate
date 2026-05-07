@@ -143,12 +143,16 @@ func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
 		return fmt.Errorf("rq only supports 1 bit, got %d", bits)
 	}
 
+	var rescoreLimitSet bool
 	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
-		if v >= 0 {
-			uc.RQ.RescoreLimit = v
-		}
+		rescoreLimitSet = true
+		uc.RQ.RescoreLimit = v
 	}); err != nil {
 		return err
+	}
+	// Validate rescoreLimit if explicitly set
+	if rescoreLimitSet && uc.RQ.RescoreLimit <= 0 {
+		return fmt.Errorf("rescoreLimit must be a positive integer, got %d", uc.RQ.RescoreLimit)
 	}
 
 	return nil

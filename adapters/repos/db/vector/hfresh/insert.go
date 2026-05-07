@@ -109,6 +109,11 @@ func (h *HFresh) initDimensions(vector []float32) error {
 		return errors.Wrap(err, "could not persist dimensions")
 	}
 
+	// Persist index version for new indexes
+	if err := h.IndexMetadata.SetVersion(h.version); err != nil {
+		return errors.Wrap(err, "could not persist index version")
+	}
+
 	quantizer, err := compressionhelpers.NewBinaryRotationalQuantizer(int(h.dims), 42, h.config.DistanceProvider)
 	if err != nil {
 		return errors.Wrap(err, "could not create quantizer")
@@ -135,8 +140,8 @@ func (h *HFresh) normalizeVec(vec []float32) []float32 {
 }
 
 // ensureInitialPosting creates a new posting for vector v if the index is empty.
-// The vectorID is the ID of the vector being inserted, which becomes the medoid
-// of the initial posting (since it's the only vector in the cluster).
+// For V2+ indexes, the vectorID becomes the medoid of the initial posting.
+// For V1 indexes, the vector is used as a centroid without medoid tracking.
 func (h *HFresh) ensureInitialPosting(vectorID uint64, v []float32, compressed []byte) (*ResultSet, error) {
 	h.initialPostingLock.Lock()
 	defer h.initialPostingLock.Unlock()
@@ -154,19 +159,25 @@ func (h *HFresh) ensureInitialPosting(vectorID uint64, v []float32, compressed [
 			return nil, err
 		}
 
-		// Store the medoid ID for this posting (the first vector is the medoid)
-		err = h.MedoidStore.Set(h.ctx, postingID, vectorID)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to set medoid for initial posting %d", postingID)
+		var medoidID uint64
+		if h.version >= HFreshIndexVersion2 {
+			// V2+: Store the medoid ID for this posting (the first vector is the medoid)
+			medoidID = vectorID
+			err = h.MedoidStore.Set(h.ctx, postingID, vectorID)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to set medoid for initial posting %d", postingID)
+			}
 		}
+		// V1: No medoid mapping stored; medoidID remains 0
 
 		// use the vector as the centroid and register it in the SPTAG
-		// For the initial posting, the inserting vector is both the centroid and medoid
+		// For V2+, the inserting vector is both the centroid and medoid
+		// For V1, the vector is just a centroid
 		err = h.Centroids.Insert(postingID, &Centroid{
 			Uncompressed: v,
 			Compressed:   compressed,
 			Deleted:      false,
-			MedoidID:     vectorID,
+			MedoidID:     medoidID,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to upsert new centroid %d", postingID)

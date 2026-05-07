@@ -118,14 +118,17 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 			return errors.Wrapf(err, "failed to set posting size for posting %d after split operation", newPostingID)
 		}
 
-		// store the medoid ID for this posting
-		err = h.MedoidStore.Set(ctx, newPostingID, result[i].MedoidID)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set medoid for posting %d after split operation", newPostingID)
+		// V2+: store the medoid ID for rescoring; V1 uses centroids without medoid mapping
+		if h.version >= HFreshIndexVersion2 {
+			err = h.MedoidStore.Set(ctx, newPostingID, result[i].MedoidID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to set medoid for posting %d after split operation", newPostingID)
+			}
 		}
 
 		// add the new centroid to the SPTAG index
-		// The centroid uses the medoid's real vector for accurate HNSW search
+		// V2+: uses medoid's real vector for accurate HNSW search
+		// V1: uses computed k-means centroid
 		err = h.Centroids.Insert(newPostingID, &Centroid{
 			Uncompressed: result[i].Uncompressed,
 			Compressed:   result[i].Centroid,
@@ -142,9 +145,12 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 	if err != nil {
 		return errors.Wrapf(err, "failed to delete old centroid %d after split operation", postingID)
 	}
-	err = h.MedoidStore.Delete(ctx, postingID)
-	if err != nil {
-		return errors.Wrapf(err, "failed to delete medoid for posting %d after split operation", postingID)
+	// V2+: clean up medoid mapping; V1 doesn't use medoid mappings
+	if h.version >= HFreshIndexVersion2 {
+		err = h.MedoidStore.Delete(ctx, postingID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to delete medoid for posting %d after split operation", postingID)
+		}
 	}
 	err = h.PostingMap.SetVectorIDs(ctx, postingID, Posting{})
 	if err != nil {
@@ -176,10 +182,12 @@ func (h *HFresh) doSplit(ctx context.Context, postingID uint64, reassign bool) e
 }
 
 // splitPosting takes a posting and returns two groups.
-// It uses k-means to cluster the vectors, but instead of using the computed
-// centroids (which are based on decompressed/approximated vectors), it uses
-// the medoid - the real vector closest to the centroid in each cluster.
-// This eliminates the approximation error from RQ decompression.
+// Behavior depends on index version:
+// - V1: Uses computed k-means centroids as cluster representatives (centroid-based)
+// - V2+: Uses medoids (real vectors closest to centroids) as representatives
+//
+// V2's medoid approach eliminates the approximation error from RQ decompression
+// since it uses actual stored vectors rather than computed averages.
 func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 	enc := compressionhelpers.NewKMeansEncoder(2, int(h.dims), 0)
 
@@ -197,36 +205,53 @@ func (h *HFresh) splitPosting(posting Posting) ([]SplitResult, error) {
 		results[v].Posting = results[v].Posting.AddVector(posting[i])
 	}
 
-	// Now set up the medoid for each cluster
+	// Set up the representative for each cluster based on version
 	for i := range results {
 		medoidIdx := medoidIndices[i]
 		medoidVector := posting[medoidIdx]
 		results[i].MedoidIndex = medoidIdx
-		results[i].MedoidID = medoidVector.ID()
 
-		var realVector []float32
+		if h.version >= HFreshIndexVersion2 {
+			// V2+: Use medoid (real vector) as cluster representative
+			results[i].MedoidID = medoidVector.ID()
 
-		// Get the real (uncompressed) vector for the medoid from the store
-		if h.vectorForId != nil {
-			var err error
-			realVector, err = h.vectorForId(h.ctx, results[i].MedoidID)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to get real vector for medoid %d", results[i].MedoidID)
+			var realVector []float32
+
+			// Get the real (uncompressed) vector for the medoid from the store
+			if h.vectorForId != nil {
+				var err error
+				realVector, err = h.vectorForId(h.ctx, results[i].MedoidID)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to get real vector for medoid %d", results[i].MedoidID)
+				}
 			}
+
+			// Fallback to decompressed vector if vectorForId is not available or returned nil
+			// This can happen in tests or if the vector was deleted
+			if realVector == nil {
+				realVector = data[medoidIdx]
+			}
+
+			// Normalize if needed (same as in Add)
+			realVector = h.normalizeVec(realVector)
+
+			// Use the real medoid vector as the cluster representative
+			results[i].Uncompressed = realVector
+			results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(realVector))
+		} else {
+			// V1: Use computed k-means centroid as cluster representative
+			// No medoid ID is stored for V1 indexes
+			results[i].MedoidID = 0
+
+			// Get the computed centroid from k-means
+			centroidVector := enc.Centroid(byte(i))
+
+			// Normalize if needed (same as in Add)
+			centroidVector = h.normalizeVec(centroidVector)
+
+			results[i].Uncompressed = centroidVector
+			results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(centroidVector))
 		}
-
-		// Fallback to decompressed vector if vectorForId is not available or returned nil
-		// This can happen in tests or if the vector was deleted
-		if realVector == nil {
-			realVector = data[medoidIdx]
-		}
-
-		// Normalize if needed (same as in Add)
-		realVector = h.normalizeVec(realVector)
-
-		// Use the real medoid vector as the cluster representative
-		results[i].Uncompressed = realVector
-		results[i].Centroid = h.quantizer.CompressedBytes(h.quantizer.Encode(realVector))
 	}
 
 	return results, nil

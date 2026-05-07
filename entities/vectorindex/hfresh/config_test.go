@@ -202,17 +202,18 @@ func Test_UserConfig(t *testing.T) {
 					"rescoreLimit": json.Number("0"),
 				},
 			},
-			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
-				RQ: hnsw.RQConfig{
-					Enabled:      true,
-					Bits:         1,
-					RescoreLimit: 0,
+			expectErr:    true,
+			expectErrMsg: "rescoreLimit must be a positive integer, got 0",
+		},
+		{
+			name: "with rescoreLimit negative",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("-10"),
 				},
 			},
+			expectErr:    true,
+			expectErrMsg: "rescoreLimit must be a positive integer, got -10",
 		},
 		{
 			name: "with invalid distance manhattan",
