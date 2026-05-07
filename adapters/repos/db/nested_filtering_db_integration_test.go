@@ -12678,3 +12678,203 @@ func TestNestedFilteringDeeplyNestedAndOrTree(t *testing.T) {
 		})
 	})
 }
+
+// TestNestedFilteringOperatorSweep verifies that non-equality filter
+// operators (GreaterThan/GreaterThanEqual/LessThan/LessThanEqual/Like)
+// work correctly in nested correlated AND contexts. Each sub-test pairs
+// the operator under test with a sibling Equal clause at the same LCA
+// to assert same-element semantics — the same car must satisfy both
+// clauses.
+//
+// All previous nested-filter tests use Equal exclusively. This sweep
+// closes the gap noted in the deferred follow-ups.
+//
+// Operators NOT covered here:
+//   - Equal: covered exhaustively by other tests
+//   - NotEqual: deferred — known fix path is rewrite to NOT(Equal),
+//     captured by regression_BUG_NotEqual_inside_AND_treated_as_Equal
+//   - IsNull / IsNotNull: covered by the IsNull cluster
+//   - ContainsAny / ContainsAll / ContainsNone: deferred for separate
+//     consideration (semantics interact with the universal/existential
+//     question for nested arrays)
+func TestNestedFilteringOperatorSweep(t *testing.T) {
+	const nestedClass = "OperatorSweep"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	carFull := func(make string, year, width int) map[string]any {
+		return map[string]any{
+			"make":  make,
+			"year":  year,
+			"tires": asArr(tire(width)),
+		}
+	}
+	carMakeYear := func(make string, year int) map[string]any {
+		return map[string]any{"make": make, "year": year}
+	}
+	carWidthOnly := func(width int) map[string]any {
+		return map[string]any{"tires": asArr(tire(width))}
+	}
+
+	intFilter := func(path string, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	intOpFilter := func(path string, op filters.Operator, val int) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	likeFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorLike,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+		operands := make([]filters.Clause, len(parts))
+		for i, p := range parts {
+			operands[i] = *p.Root
+		}
+		return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: operands}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	// Shared doc set used across all operator sub-tests.
+	idMatchTesla := uuid(1)      // tesla, 2022, width 205
+	idMatchBmw := uuid(2)        // bmw, 2018, width 225
+	idMatchHondaOlder := uuid(3) // honda, 2015, width 205
+	idSplitCars := uuid(4)       // tesla/2022 in cars[0]; width 205 in cars[1] — same-element AND must reject
+	idNoCars := uuid(5)
+	sharedDocs := []docDef{
+		{id: idMatchTesla, props: map[string]any{"doc": map[string]any{"cars": asArr(carFull("tesla", 2022, 205))}}, note: "tesla,2022,205"},
+		{id: idMatchBmw, props: map[string]any{"doc": map[string]any{"cars": asArr(carFull("bmw", 2018, 225))}}, note: "bmw,2018,225"},
+		{id: idMatchHondaOlder, props: map[string]any{"doc": map[string]any{"cars": asArr(carFull("honda", 2015, 205))}}, note: "honda,2015,205"},
+		{id: idSplitCars, props: map[string]any{"doc": map[string]any{"cars": asArr(carMakeYear("tesla", 2022), carWidthOnly(205))}}, note: "tesla/2022 in cars[0]; width=205 in cars[1] — DISCRIMINATOR"},
+		{id: idNoCars, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	// Filter shape for each sub-test: cars.<X> <Op> <value> AND cars.tires.width = 205
+	// Same-element AND at LCA=cars: same car must satisfy both clauses.
+	// idSplitCars (operator-side in cars[0]; width=205 in cars[1]) must be
+	// rejected by every sub-test.
+
+	t.Run("GreaterThan_cars.year", func(t *testing.T) {
+		// year > 2020: tesla (2022) ✓, bmw (2018) ✗, honda (2015) ✗
+		// AND width = 205: tesla ✓, honda ✓ (but year fails for honda)
+		// Same-car: idMatchTesla only.
+		runScenario(t, sharedDocs, andFilter(
+			intOpFilter("doc.cars.year", filters.OperatorGreaterThan, 2020),
+			intFilter("doc.cars.tires.width", 205),
+		), []strfmt.UUID{idMatchTesla})
+	})
+
+	t.Run("GreaterThanEqual_cars.year", func(t *testing.T) {
+		// year >= 2018: tesla, bmw ✓; honda ✗
+		// AND width = 205: tesla (205 ✓), bmw (225 ✗), honda (year fails).
+		// Same-car: idMatchTesla only.
+		runScenario(t, sharedDocs, andFilter(
+			intOpFilter("doc.cars.year", filters.OperatorGreaterThanEqual, 2018),
+			intFilter("doc.cars.tires.width", 205),
+		), []strfmt.UUID{idMatchTesla})
+	})
+
+	t.Run("LessThan_cars.year", func(t *testing.T) {
+		// year < 2020: bmw (2018) ✓, honda (2015) ✓; tesla (2022) ✗
+		// AND width = 205: honda (205 ✓), bmw (225 ✗).
+		// Same-car: idMatchHondaOlder only.
+		runScenario(t, sharedDocs, andFilter(
+			intOpFilter("doc.cars.year", filters.OperatorLessThan, 2020),
+			intFilter("doc.cars.tires.width", 205),
+		), []strfmt.UUID{idMatchHondaOlder})
+	})
+
+	t.Run("LessThanEqual_cars.year", func(t *testing.T) {
+		// year <= 2018: bmw, honda ✓; tesla ✗
+		// AND width = 205: honda (205 ✓), bmw (225 ✗).
+		// Same-car: idMatchHondaOlder only.
+		runScenario(t, sharedDocs, andFilter(
+			intOpFilter("doc.cars.year", filters.OperatorLessThanEqual, 2018),
+			intFilter("doc.cars.tires.width", 205),
+		), []strfmt.UUID{idMatchHondaOlder})
+	})
+
+	t.Run("Like_cars.make_prefix", func(t *testing.T) {
+		// make Like "tes*": tesla ✓; bmw, honda ✗
+		// AND width = 205: tesla (205 ✓).
+		// Same-car: idMatchTesla only.
+		// idSplitCars has tesla in cars[0] but width=205 only in cars[1]
+		// → same-element AND rejects.
+		runScenario(t, sharedDocs, andFilter(
+			likeFilter("doc.cars.make", "tes*"),
+			intFilter("doc.cars.tires.width", 205),
+		), []strfmt.UUID{idMatchTesla})
+	})
+}
