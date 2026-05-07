@@ -194,9 +194,11 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 }
 
 func canHardlinkInContainer(ctx context.Context, c testcontainers.Container) bool {
-	code, _, err := c.Exec(ctx, []string{"sh", "-c",
+	code, _, err := c.Exec(ctx, []string{
+		"sh", "-c",
 		"touch /data/.repl-probe && " +
 			"ln /data/.repl-probe /data/.repl-probe2 && " +
-			"rm -f /data/.repl-probe /data/.repl-probe2"})
+			"rm -f /data/.repl-probe /data/.repl-probe2",
+	})
 	return err == nil && code == 0
 }
