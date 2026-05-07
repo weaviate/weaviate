@@ -110,19 +110,16 @@ type Metrics struct {
 	SegmentUnloaded              *prometheus.GaugeVec
 	startupDurations             prometheus.ObserverVec
 	startupDiskIO                prometheus.ObserverVec
-	// nil in grouped mode; observeObjectCount in node_wide_metrics.go is
-	// the sole writer of object_count{class="n/a",shard="n/a"}, and
-	// per-shard writes here would clobber the sum.
-	objectCount       prometheus.Gauge
-	memtableDurations prometheus.ObserverVec
-	memtableSize      *prometheus.GaugeVec
-	DimensionSum      *prometheus.GaugeVec
-	IOWrite           *prometheus.SummaryVec
-	IORead            *prometheus.SummaryVec
-	LazySegmentUnLoad prometheus.Gauge
-	LazySegmentLoad   prometheus.Gauge
-	LazySegmentClose  prometheus.Gauge
-	LazySegmentInit   prometheus.Gauge
+	objectCount                  prometheus.Gauge
+	memtableDurations            prometheus.ObserverVec
+	memtableSize                 *prometheus.GaugeVec
+	DimensionSum                 *prometheus.GaugeVec
+	IOWrite                      *prometheus.SummaryVec
+	IORead                       *prometheus.SummaryVec
+	LazySegmentUnLoad            prometheus.Gauge
+	LazySegmentLoad              prometheus.Gauge
+	LazySegmentClose             prometheus.Gauge
+	LazySegmentInit              prometheus.Gauge
 
 	groupClasses        bool
 	criticalBucketsOnly bool
