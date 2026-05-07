@@ -316,16 +316,17 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	return nil
 }
 
-// DeleteClass from the schema
+// DeleteClass from the schema. Aliases are intentionally not resolved
+// here: deleting via an alias name must be a no-op on the underlying
+// class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
-	if err != nil {
+	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
 	}
 
-	class = schema.UppercaseClassName(class)
-
-	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+	if _, err := h.schemaManager.DeleteClass(ctx, class); err != nil {
 		return err
 	}
 
@@ -335,6 +336,8 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
+	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+
 	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
@@ -344,11 +347,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// but not when the user is updating other collection settings without
 	// touching TTL configuration.
 	initial := h.schemaReader.ReadOnlyClass(className)
-	var initialTTLConfig *models.ObjectTTLConfig
-	if initial != nil {
-		initialTTLConfig = initial.ObjectTTLConfig
+	if initial == nil {
+		// Reject here so the body's Class field can't redirect the
+		// update to a different, existing class.
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
-	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+	if ttl.IsTtlConfigChanged(initial.ObjectTTLConfig, updated.ObjectTTLConfig) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
 			return err
 		}
