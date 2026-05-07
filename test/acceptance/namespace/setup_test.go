@@ -49,6 +49,7 @@ func TestMain(m *testing.M) {
 		WithUserApiKey(noPermsUser, noPermsKey).
 		WithDbUsers().
 		WithNamespaces().
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateWithGRPC().
 		Start(ctx)
 	if err != nil {

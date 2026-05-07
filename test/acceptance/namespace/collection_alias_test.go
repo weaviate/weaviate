@@ -91,8 +91,15 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	t.Run("end-to-end: insert and get object via alias, with cross-namespace isolation", func(t *testing.T) {
 		// Create the same class name in both namespaces so the only thing
 		// keeping user2 from reading user1's object is the resolver.
+		// The "title" property is declared up front so this test does not
+		// exercise auto-schema.
 		for _, key := range []string{user1Key, user2Key} {
-			helper.CreateClassAuth(t, &models.Class{Class: "E2EFilmsTarget"}, key)
+			helper.CreateClassAuth(t, &models.Class{
+				Class: "E2EFilmsTarget",
+				Properties: []*models.Property{
+					{Name: "title", DataType: []string{"text"}},
+				},
+			}, key)
 		}
 		defer helper.DeleteClassAuth(t, "customer1:E2EFilmsTarget", adminKey)
 		defer helper.DeleteClassAuth(t, "customer2:E2EFilmsTarget", adminKey)
