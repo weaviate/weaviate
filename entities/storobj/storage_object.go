@@ -230,11 +230,16 @@ func fromBinaryOptionalInternal(data []byte, className string,
 	}
 	ko.Vector = ko.Object.Vector
 
-	// When the caller supplies a non-empty className it wins and the on-disk
-	// bytes are skipped; an empty argument falls back to the on-disk value
-	// (callers without a canonical class to supply, e.g. wire-receive paths).
+	// className precedence: a non-empty caller-supplied className wins and
+	// the on-disk class-name bytes are skipped. An empty caller className
+	// falls back to the on-disk value. If both are empty there is no class
+	// to attach to the decoded object — return an error rather than produce
+	// a silent empty Class.
 	classNameLength := uint64(rw.ReadUint16())
-	if className == "" && classNameLength > 0 {
+	if className == "" {
+		if classNameLength == 0 {
+			return nil, errors.New("storobj: cannot decode object with empty className: caller supplied no className and on-disk class-name field is empty")
+		}
 		className = string(rw.ReadBytesFromBuffer(classNameLength))
 	} else {
 		rw.MoveBufferPositionForward(classNameLength)
@@ -1321,10 +1326,15 @@ func (ko *Object) unmarshalInternal(data []byte, className string) error {
 	byteops.CopyBytesToSlice(ko.Vector, rw.ReadBytesFromBuffer(uint64(vectorLength)*byteops.Uint32Len))
 
 	// className precedence: a non-empty caller-supplied className wins and
-	// the on-disk class-name bytes are skipped. An empty className falls back
-	// to the on-disk value — that's the path UnmarshalBinaryNetwork uses.
+	// the on-disk class-name bytes are skipped. An empty caller className
+	// falls back to the on-disk value (the UnmarshalBinaryNetwork path). If
+	// both are empty there is no class to attach to the decoded object —
+	// return an error rather than produce a silent empty Class.
 	classNameLength := uint64(rw.ReadUint16())
-	if className == "" && classNameLength > 0 {
+	if className == "" {
+		if classNameLength == 0 {
+			return errors.New("storobj: cannot decode object with empty className: caller supplied no className and on-disk class-name field is empty")
+		}
 		className = string(rw.ReadBytesFromBuffer(classNameLength))
 	} else {
 		rw.MoveBufferPositionForward(classNameLength)
