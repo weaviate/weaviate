@@ -120,16 +120,20 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				assert.Equal(t, obj.Properties(), decodedDisk.Properties())
 
 				// FromBinaryNetwork: no caller className; reflects the
-				// on-disk value.
+				// on-disk value, or errors if the on-disk class is empty too.
 				decodedNet, err := storobj.FromBinaryNetwork(v)
-				require.NoError(t, err, "cannot unmarshal via FromBinaryNetwork")
-				require.NotNil(t, decodedNet)
-				assert.Equal(t, tc.marshaledClass, decodedNet.Object.Class,
-					"FromBinaryNetwork must reflect the on-disk class-name value")
-				assert.Equal(t, obj.ID(), decodedNet.ID())
-				assert.Equal(t, obj.DocID, decodedNet.DocID)
-				assert.Equal(t, obj.Vector, decodedNet.Vector)
-				assert.Equal(t, obj.Properties(), decodedNet.Properties())
+				if tc.marshaledClass == "" {
+					require.Error(t, err, "FromBinaryNetwork must error when caller and on-disk classes are both empty")
+				} else {
+					require.NoError(t, err, "cannot unmarshal via FromBinaryNetwork")
+					require.NotNil(t, decodedNet)
+					assert.Equal(t, tc.marshaledClass, decodedNet.Object.Class,
+						"FromBinaryNetwork must reflect the on-disk class-name value")
+					assert.Equal(t, obj.ID(), decodedNet.ID())
+					assert.Equal(t, obj.DocID, decodedNet.DocID)
+					assert.Equal(t, obj.Vector, decodedNet.Vector)
+					assert.Equal(t, obj.Properties(), decodedNet.Properties())
+				}
 
 				// FromBinaryOptionalDisk: same Disk-side contract for the
 				// optional/additional decoder.
@@ -144,16 +148,21 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				assert.Equal(t, obj.Vector, decodedOptDisk.Vector)
 
 				// FromBinaryOptionalNetwork: optional/additional decoder
-				// without a caller className — falls back to on-disk.
+				// without a caller className — falls back to on-disk, or
+				// errors if the on-disk class is empty too.
 				decodedOptNet, err := storobj.FromBinaryOptionalNetwork(v,
 					additional.Properties{Vector: true}, nil)
-				require.NoError(t, err, "cannot unmarshal via FromBinaryOptionalNetwork")
-				require.NotNil(t, decodedOptNet)
-				assert.Equal(t, tc.marshaledClass, decodedOptNet.Object.Class,
-					"FromBinaryOptionalNetwork must reflect the on-disk class-name value")
-				assert.Equal(t, obj.ID(), decodedOptNet.ID())
-				assert.Equal(t, obj.DocID, decodedOptNet.DocID)
-				assert.Equal(t, obj.Vector, decodedOptNet.Vector)
+				if tc.marshaledClass == "" {
+					require.Error(t, err, "FromBinaryOptionalNetwork must error when caller and on-disk classes are both empty")
+				} else {
+					require.NoError(t, err, "cannot unmarshal via FromBinaryOptionalNetwork")
+					require.NotNil(t, decodedOptNet)
+					assert.Equal(t, tc.marshaledClass, decodedOptNet.Object.Class,
+						"FromBinaryOptionalNetwork must reflect the on-disk class-name value")
+					assert.Equal(t, obj.ID(), decodedOptNet.ID())
+					assert.Equal(t, obj.DocID, decodedOptNet.DocID)
+					assert.Equal(t, obj.Vector, decodedOptNet.Vector)
+				}
 
 				// FromBinaryUUIDOnlyDisk: header-only fast path. Decodes ID,
 				// DocID, timestamps, and class. Vector and Properties are
@@ -179,16 +188,22 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 				assert.Equal(t, obj.Properties(), unmarshalDisk.Properties())
 
 				// (*Object).UnmarshalBinaryNetwork: object-method form of the
-				// Network decoder. Falls back to on-disk class.
+				// Network decoder. Falls back to on-disk class, or errors
+				// if the on-disk class is empty too.
 				var unmarshalNet storobj.Object
-				require.NoError(t, unmarshalNet.UnmarshalBinaryNetwork(v),
-					"cannot unmarshal via UnmarshalBinaryNetwork")
-				assert.Equal(t, tc.marshaledClass, unmarshalNet.Object.Class,
-					"UnmarshalBinaryNetwork must reflect the on-disk class-name value")
-				assert.Equal(t, obj.ID(), unmarshalNet.ID())
-				assert.Equal(t, obj.DocID, unmarshalNet.DocID)
-				assert.Equal(t, obj.Vector, unmarshalNet.Vector)
-				assert.Equal(t, obj.Properties(), unmarshalNet.Properties())
+				if tc.marshaledClass == "" {
+					require.Error(t, unmarshalNet.UnmarshalBinaryNetwork(v),
+						"UnmarshalBinaryNetwork must error when caller and on-disk classes are both empty")
+				} else {
+					require.NoError(t, unmarshalNet.UnmarshalBinaryNetwork(v),
+						"cannot unmarshal via UnmarshalBinaryNetwork")
+					assert.Equal(t, tc.marshaledClass, unmarshalNet.Object.Class,
+						"UnmarshalBinaryNetwork must reflect the on-disk class-name value")
+					assert.Equal(t, obj.ID(), unmarshalNet.ID())
+					assert.Equal(t, obj.DocID, unmarshalNet.DocID)
+					assert.Equal(t, obj.Vector, unmarshalNet.Vector)
+					assert.Equal(t, obj.Properties(), unmarshalNet.Properties())
+				}
 			}
 			require.Equal(t, 1, count, "expected exactly one object in the bucket")
 
