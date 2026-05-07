@@ -105,6 +105,65 @@ func TestQualifiedName(t *testing.T) {
 	}
 }
 
+func TestQualifyClass(t *testing.T) {
+	cases := []struct {
+		testName  string
+		principal *models.Principal
+		nsEnabled bool
+		input     string
+		want      string
+	}{
+		{
+			testName:  "namespaced principal lowercase short input is uppercased and qualified",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			nsEnabled: true,
+			input:     "movies",
+			want:      "customer1:Movies",
+		},
+		{
+			testName:  "operator full name preserves namespace and uppercases only the class",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			nsEnabled: true,
+			input:     "customer1:movies",
+			want:      "customer1:Movies",
+		},
+		{
+			testName:  "operator already-uppercase full name passthrough",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			nsEnabled: true,
+			input:     "customer1:Movies",
+			want:      "customer1:Movies",
+		},
+		{
+			testName:  "ns disabled lowercase input still uppercased",
+			principal: &models.Principal{Username: "u"},
+			nsEnabled: false,
+			input:     "movies",
+			want:      "Movies",
+		},
+		{
+			testName:  "alias-shaped input is not resolved (qualified, not retargeted)",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			nsEnabled: true,
+			input:     "films",
+			want:      "customer1:Films",
+		},
+		{
+			testName:  "alias-shaped raw input on ns-disabled is not resolved",
+			principal: &models.Principal{Username: "u"},
+			nsEnabled: false,
+			input:     "films",
+			want:      "Films",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.testName, func(t *testing.T) {
+			got := QualifyClass(tc.principal, tc.nsEnabled, tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestResolve(t *testing.T) {
 	cases := []struct {
 		testName  string

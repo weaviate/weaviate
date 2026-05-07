@@ -72,3 +72,16 @@ func Resolve(principal *models.Principal, sm SchemaManager, nsEnabled bool, name
 	// Not an alias, return the qualified name
 	return qualified, ""
 }
+
+// QualifyClass title-cases the class portion of the input and qualifies
+// it with the principal's namespace when namespaces are enabled. Aliases
+// are not resolved. If a "<namespace>:" prefix is present, it is
+// preserved verbatim and only the class portion's first letter is
+// uppercased.
+func QualifyClass(principal *models.Principal, nsEnabled bool, name string) string {
+	qualified := schema.UppercaseClassName(name)
+	if nsEnabled {
+		qualified = qualify(principal, qualified)
+	}
+	return qualified
+}
