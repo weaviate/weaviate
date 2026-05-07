@@ -311,7 +311,7 @@ func TestNamespaces_TenantOps(t *testing.T) {
 		assert.Equal(t, models.TenantActivityStatusHOT, listed[0].ActivityStatus)
 	})
 
-	t.Run("namespaced caller submitting :-qualified class double-prefixes", func(t *testing.T) {
+	t.Run("namespaced caller submitting namespace-qualified class double-prefixes", func(t *testing.T) {
 		const class = "TenantsDoublePrefix"
 		setupMTClassInNs1(t, class, user1Key)
 

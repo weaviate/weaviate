@@ -273,6 +273,15 @@ func TestResolve(t *testing.T) {
 			wantClass: "customer1:Movies",
 			wantAlias: "",
 		},
+		{
+			testName:  "ns disabled still uppercases lowercase input",
+			principal: &models.Principal{Username: "u"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			nsEnabled: false,
+			input:     "movies",
+			wantClass: "Movies",
+			wantAlias: "",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
