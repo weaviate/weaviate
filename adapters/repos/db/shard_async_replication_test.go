@@ -16,6 +16,7 @@ package db
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,17 +68,49 @@ func testObjWithTime(class string, id strfmt.UUID, updateTime int64) *storobj.Ob
 }
 
 // fixedDigestsClient is a test double whose DigestObjectsInRange always
-// returns a pre-configured slice of digests, letting tests control what the
-// "remote" shard appears to hold.
+// returns a pre-configured slice of digests. It also mirrors that "remote"
+// state through CompareDigests by returning every source digest absent from
+// `digests` as missing (UpdateTime=0) and every source digest with a strictly
+// newer source UpdateTime as stale (UpdateTime=remote's value). This lets
+// pre-existing tests retain their "remote-knowledge" semantics under the new
+// CompareDigests protocol.
 type fixedDigestsClient struct {
 	FakeReplicationClient
-	digests []routerTypes.RepairResponse
+	digests          []routerTypes.RepairResponse
+	compareDigestErr error // if non-nil, CompareDigests returns this error instead of comparing
 }
 
 func (c *fixedDigestsClient) DigestObjectsInRange(
 	_ context.Context, _, _, _ string, _, _ strfmt.UUID, _ int,
 ) ([]routerTypes.RepairResponse, error) {
 	return c.digests, nil
+}
+
+func (c *fixedDigestsClient) CompareDigests(
+	_ context.Context, _, _, _ string, source []routerTypes.RepairResponse,
+) ([]routerTypes.RepairResponse, error) {
+	if c.compareDigestErr != nil {
+		return nil, c.compareDigestErr
+	}
+	remote := make(map[string]int64, len(c.digests))
+	for _, d := range c.digests {
+		remote[d.ID] = d.UpdateTime
+	}
+	out := make([]routerTypes.RepairResponse, 0, len(source))
+	for _, s := range source {
+		rt, ok := remote[s.ID]
+		if !ok {
+			// Missing on remote.
+			out = append(out, routerTypes.RepairResponse{ID: s.ID, UpdateTime: 0})
+			continue
+		}
+		if s.UpdateTime > rt {
+			// Source is strictly newer than remote — stale on target.
+			out = append(out, routerTypes.RepairResponse{ID: s.ID, UpdateTime: rt})
+		}
+		// Equal or remote-newer → no action needed.
+	}
+	return out, nil
 }
 
 // withReplicationClient returns an indexOpt that replaces the index's
@@ -169,12 +202,11 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		s := concreteShard(t, sl)
 		cfg := fullRangeConfig(100)
 
-		local, remote, objs, err := s.objectsToPropagateWithinRange(
+		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local)
-		assert.Equal(t, 0, remote)
 		assert.Empty(t, objs)
 		_ = idx
 	})
@@ -183,19 +215,18 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 	// (not yet flushed to disk) are visible to DigestObjectsInRange because the
 	// bucket cursor includes both memtable and on-disk segments.
 	t.Run("MemtableObjectsArePropagated", func(t *testing.T) {
-		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &FakeReplicationClient{}))
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{}))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
 
 		s := concreteShard(t, sl)
 		cfg := fullRangeConfig(100)
 
-		local, remote, objs, err := s.objectsToPropagateWithinRange(
+		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local, "memtable objects must be visible to the merged bucket cursor")
-		assert.Equal(t, 0, remote, "remote returns empty digests (FakeReplicationClient returns nil)")
 		assert.Len(t, objs, 2, "both memtable objects must be queued for propagation")
 		_ = idx
 	})
@@ -216,12 +247,11 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		local, remote, objs, err := s.objectsToPropagateWithinRange(
+		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local)
-		assert.Equal(t, 2, remote, "remote must return the same number of digests")
 		assert.Empty(t, objs, "remote is up-to-date → nothing to propagate")
 		_ = idx
 	})
@@ -232,8 +262,10 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 	// missing and is queued for propagation.
 	t.Run("LimitEnforcement", func(t *testing.T) {
 		const limit = 1
-		// Default FakeReplicationClient.DigestObjectsInRange returns nil → remote empty.
-		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &FakeReplicationClient{}))
+		// fixedDigestsClient with no preconfigured digests → CompareDigests
+		// reports every source UUID as missing on remote, so each local
+		// object is queued for propagation (subject to the limit).
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{}))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
 
@@ -241,7 +273,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 		require.NoError(t, s.store.FlushMemtables(ctx))
 		cfg := fullRangeConfig(100)
 
-		_, _, objs, err := s.objectsToPropagateWithinRange(
+		_, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, limit, nil,
 		)
 		require.NoError(t, err)
@@ -259,7 +291,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 	t.Run("PropagationDelayExcludesRecentObjects", func(t *testing.T) {
 		// Remote has no objects, so every local object would normally appear as
 		// missing and be queued for propagation.
-		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &FakeReplicationClient{}))
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{}))
 
 		// Use a timestamp very close to now so that it is definitely within the
 		// propagation delay window for any realistic clock skew.
@@ -275,7 +307,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			propagationDelay: 30 * time.Second,
 		}
 
-		local, _, objs, err := s.objectsToPropagateWithinRange(
+		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
@@ -292,7 +324,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 	// into its own batch, so the cursor-advance branch in the filtered path is
 	// exercised and uuidHigh (which is old) must still be found and queued.
 	t.Run("PropagationDelayCursorAdvancesPastFilteredBatch", func(t *testing.T) {
-		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &FakeReplicationClient{}))
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{}))
 
 		recentTS := time.Now().UnixMilli()
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, recentTS)))
@@ -307,7 +339,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			propagationDelay: 30 * time.Second,
 		}
 
-		local, _, objs, err := s.objectsToPropagateWithinRange(
+		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
 		)
 		require.NoError(t, err)
@@ -317,6 +349,31 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 			"cursor must advance past the all-filtered uuidLow batch and find uuidHigh")
 		assert.Equal(t, uuidHigh, objs[0].uuid,
 			"the queued object must be uuidHigh, not the recent uuidLow")
+		_ = idx
+	})
+
+	// CompareDigestsTransportError verifies that a wire failure on CompareDigests
+	// is wrapped, surfaces no propagated objects, and does not corrupt the local
+	// scan counters (local count reflects what was scanned before the wire call).
+	t.Run("CompareDigestsTransportError", func(t *testing.T) {
+		client := &fixedDigestsClient{compareDigestErr: errors.New("simulated rpc unavailable")}
+		sl, idx := testShard(t, ctx, class, withReplicationClient(t, client))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
+
+		s := concreteShard(t, sl)
+		require.NoError(t, s.store.FlushMemtables(ctx))
+		cfg := fullRangeConfig(100)
+
+		_, objs, err := s.objectsToPropagateWithinRange(
+			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+		)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "comparing digests with remote",
+			"transport error must be wrapped with the scheduler's prefix")
+		assert.Contains(t, err.Error(), "simulated rpc unavailable",
+			"original error must be preserved via %w wrapping")
+		assert.Empty(t, objs, "no objects must be queued when CompareDigests fails")
 		_ = idx
 	})
 }
