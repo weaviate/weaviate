@@ -18522,3 +18522,344 @@ func TestNestedFilteringIsNullNotConsistency3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringAndParenthesization3Levels covers gap #16: same
+// 3-condition AND tree expressed three ways:
+//
+//	flat:  cars.make=tesla AND cars.year=2020 AND cars.color=red
+//	left:  (cars.make=tesla AND cars.year=2020) AND cars.color=red
+//	right: cars.make=tesla AND (cars.year=2020 AND cars.color=red)
+//
+// Today the planner correlates same-element only within a single AND
+// group. Wrapping two of the three conditions in a sub-AND breaks the
+// correlation across the boundary: the inner sub-AND finds a car
+// satisfying its two conditions and the outer AND only requires a doc
+// to also contain (anywhere) a car satisfying the third — same-element
+// no longer required. Result: parenthesization flips the result on
+// docs where conditions split across cars. Under associative AND
+// flattening, all three forms collapse to the flat plan and produce
+// the same (most restrictive) result.
+func TestNestedFilteringAndParenthesization3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(make string, year int, color string) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if year != 0 {
+			out["year"] = year
+		}
+		if color != "" {
+			out["color"] = color
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, yearPath, colorPath string,
+		docs []docDef,
+		wantFlat, wantLeft, wantRight []strfmt.UUID,
+	) {
+		t.Helper()
+		makeF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "tesla"},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(makePath)},
+			}}
+		}
+		yearF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: 2020},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(yearPath)},
+			}}
+		}
+		colorF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(colorPath)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT flat 3-AND
+		// behavior — same-element correlation across all three
+		// operands at one cars[] LCA. Only docs with a single car
+		// satisfying make=tesla AND year=2020 AND color=red match.
+		// Under associative AND flattening this is the canonical
+		// result that all three forms collapse to.
+		t.Run("regression_flat_3_and", func(t *testing.T) {
+			runScenario(t, andF(makeF(), yearF(), colorF()), wantFlat)
+		})
+
+		// TODO aliszka:nested_filtering: locks in CURRENT
+		// left-grouped behavior — inner (make AND year) correlates
+		// at cars[], producing a docID set; outer AND with color=red
+		// intersects at docID. Cars satisfying inner and cars with
+		// color=red can be different elements. Under associative
+		// AND flattening this collapses to the flat plan.
+		t.Run("regression_left_grouped_and", func(t *testing.T) {
+			runScenario(t, andF(andF(makeF(), yearF()), colorF()), wantLeft)
+		})
+
+		// TODO aliszka:nested_filtering: locks in CURRENT
+		// right-grouped behavior — inner (year AND color) correlates
+		// at cars[]; outer AND with make=tesla intersects at docID.
+		// Different from left-grouped on docs where the inner pair
+		// can only be satisfied by one shape (e.g., year+color in a
+		// non-tesla car) but the outer leaf is satisfied by another
+		// car. Under associative AND flattening this collapses to
+		// the flat plan.
+		t.Run("regression_right_grouped_and", func(t *testing.T) {
+			runScenario(t, andF(makeF(), andF(yearF(), colorF())), wantRight)
+		})
+	}
+
+	// Doc set per level. Discriminator matrix:
+	//
+	// d1 [tesla,2020,red]                       — single car all 3,
+	//                                              all forms incl
+	// d2 [tesla,2020,blue]+[bmw,2020,red]       — flat excl, both
+	//                                              parenthesized incl
+	// d3 [tesla,2020,blue]+[bmw,1990,red]       — only LEFT incl
+	// d4 [bmw,2020,red]+[tesla,1990,blue]       — only RIGHT incl
+	// d5 [tesla,2020,blue]+[bmw,2020,blue]      — no red, all excl
+	// d6 [bmw,2020,red]                         — no tesla, all excl
+	// empty                                     — all excl
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "AndParenL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idAllInOne := uuid(1)            // [tesla,2020,red]
+		idSplitTeslaYearVsRed := uuid(2) // [tesla,2020,blue]+[bmw,2020,red] — KEY both parenthesized incl
+		idLeftOnly := uuid(3)            // [tesla,2020,blue]+[bmw,1990,red] — KEY left only
+		idRightOnly := uuid(4)           // [bmw,2020,red]+[tesla,1990,blue] — KEY right only
+		idNoRed := uuid(5)               // [tesla,2020,blue]+[bmw,2020,blue]
+		idNoTesla := uuid(6)             // [bmw,2020,red]
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idAllInOne, props: wrap(car("tesla", 2020, "red")), note: "tesla,2020,red — single car all 3"},
+			{id: idSplitTeslaYearVsRed, props: wrap(car("tesla", 2020, "blue"), car("bmw", 2020, "red")), note: "tesla+2020 in [0]; red in [1] — KEY"},
+			{id: idLeftOnly, props: wrap(car("tesla", 2020, "blue"), car("bmw", 1990, "red")), note: "tesla+2020 in [0]; red but no 2020 in [1] — left only"},
+			{id: idRightOnly, props: wrap(car("bmw", 2020, "red"), car("tesla", 1990, "blue")), note: "2020+red in [0]; tesla but no 2020 in [1] — right only"},
+			{id: idNoRed, props: wrap(car("tesla", 2020, "blue"), car("bmw", 2020, "blue")), note: "no red"},
+			{id: idNoTesla, props: wrap(car("bmw", 2020, "red")), note: "no tesla"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.year", "cars.color",
+			docs,
+			// today flat: only single-car-all-3.
+			[]strfmt.UUID{idAllInOne},
+			// today left-grouped: inner (tesla AND 2020) correlated;
+			// outer AND color=red docID-intersect. Mixed docs where
+			// some car has tesla+2020 AND some car has red satisfy.
+			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRed, idLeftOnly},
+			// today right-grouped: inner (2020 AND red) correlated;
+			// outer AND make=tesla docID-intersect.
+			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRed, idRightOnly},
+			// expected after AND associative flattening: all three
+			// forms collapse to the flat plan -> []strfmt.UUID{idAllInOne}.
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "AndParenL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idAllInOne := uuid(1)
+		idSplitTeslaYearVsRedSameGarage := uuid(2)
+		idLeftOnlySameGarage := uuid(3)
+		idRightOnlySameGarage := uuid(4)
+		idNoRed := uuid(5)
+		idNoTesla := uuid(6)
+		idEmpty := uuid(7)
+		idSplitTeslaYearVsRedSplitGarages := uuid(8) // L1: g[0]=[tesla,2020,blue]; g[1]=[bmw,2020,red]
+		docs := []docDef{
+			{id: idAllInOne, props: wrapG(garage(car("tesla", 2020, "red"))), note: "1g tesla,2020,red"},
+			{id: idSplitTeslaYearVsRedSameGarage, props: wrapG(garage(car("tesla", 2020, "blue"), car("bmw", 2020, "red"))), note: "1g split same garage"},
+			{id: idLeftOnlySameGarage, props: wrapG(garage(car("tesla", 2020, "blue"), car("bmw", 1990, "red"))), note: "1g left only"},
+			{id: idRightOnlySameGarage, props: wrapG(garage(car("bmw", 2020, "red"), car("tesla", 1990, "blue"))), note: "1g right only"},
+			{id: idNoRed, props: wrapG(garage(car("tesla", 2020, "blue"), car("bmw", 2020, "blue"))), note: "1g no red"},
+			{id: idNoTesla, props: wrapG(garage(car("bmw", 2020, "red"))), note: "1g no tesla"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idSplitTeslaYearVsRedSplitGarages, props: wrapG(garage(car("tesla", 2020, "blue")), garage(car("bmw", 2020, "red"))), note: "g[0]=[tesla,2020]; g[1]=[bmw,red]"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.year", "garages.cars.color",
+			docs,
+			// today flat: single-car all 3 (anywhere in any garage).
+			[]strfmt.UUID{idAllInOne},
+			// today left-grouped: inner (make AND year) correlates
+			// at the cars LCA; outer AND color=red docID. Mixed
+			// satisfies regardless of garage split.
+			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idLeftOnlySameGarage, idSplitTeslaYearVsRedSplitGarages},
+			// today right-grouped.
+			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idRightOnlySameGarage, idSplitTeslaYearVsRedSplitGarages},
+			// expected after AND associative flattening:
+			// []strfmt.UUID{idAllInOne}.
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "AndParenL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idAllInOne := uuid(1)
+		idSplitTeslaYearVsRedSameGarage := uuid(2)
+		idLeftOnlySameGarage := uuid(3)
+		idRightOnlySameGarage := uuid(4)
+		idNoRed := uuid(5)
+		idNoTesla := uuid(6)
+		idEmpty := uuid(7)
+		idSplitTeslaYearVsRedSplitGarages := uuid(8)
+		idSplitTeslaYearVsRedSplitCountries := uuid(9) // L2 KEY split across countries
+		docs := []docDef{
+			{id: idAllInOne, props: wrapC(country(garage(car("tesla", 2020, "red")))), note: "single chain tesla,2020,red"},
+			{id: idSplitTeslaYearVsRedSameGarage, props: wrapC(country(garage(car("tesla", 2020, "blue"), car("bmw", 2020, "red")))), note: "split same garage"},
+			{id: idLeftOnlySameGarage, props: wrapC(country(garage(car("tesla", 2020, "blue"), car("bmw", 1990, "red")))), note: "left only same garage"},
+			{id: idRightOnlySameGarage, props: wrapC(country(garage(car("bmw", 2020, "red"), car("tesla", 1990, "blue")))), note: "right only same garage"},
+			{id: idNoRed, props: wrapC(country(garage(car("tesla", 2020, "blue"), car("bmw", 2020, "blue")))), note: "no red"},
+			{id: idNoTesla, props: wrapC(country(garage(car("bmw", 2020, "red")))), note: "no tesla"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idSplitTeslaYearVsRedSplitGarages, props: wrapC(country(garage(car("tesla", 2020, "blue")), garage(car("bmw", 2020, "red")))), note: "split garages within country"},
+			{id: idSplitTeslaYearVsRedSplitCountries, props: wrapC(country(garage(car("tesla", 2020, "blue"))), country(garage(car("bmw", 2020, "red")))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color",
+			docs,
+			// today flat
+			[]strfmt.UUID{idAllInOne},
+			// today left-grouped: docID intersection ignores the
+			// cross-country split.
+			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idLeftOnlySameGarage, idSplitTeslaYearVsRedSplitGarages, idSplitTeslaYearVsRedSplitCountries},
+			// today right-grouped
+			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idRightOnlySameGarage, idSplitTeslaYearVsRedSplitGarages, idSplitTeslaYearVsRedSplitCountries},
+			// expected after AND associative flattening:
+			// []strfmt.UUID{idAllInOne} — at all 3 levels the three
+			// forms agree on the most restrictive (single-car-
+			// all-3) result.
+		)
+	})
+}
