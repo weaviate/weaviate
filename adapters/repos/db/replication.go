@@ -253,7 +253,7 @@ func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func
 	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: name, Err: err},
+			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err)},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
@@ -338,14 +338,14 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
+			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err)},
 		}}
 	}
 	defer release()
 
 	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
+			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("shard %q does not exist locally", shard)},
 		}}
 	}
 
@@ -359,14 +359,14 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) a
 	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
+			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err)},
 		}}
 	}
 	defer release()
 
 	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
+			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("shard %q does not exist locally", shard)},
 		}}
 	}
 
