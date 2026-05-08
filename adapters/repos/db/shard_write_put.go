@@ -240,15 +240,19 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
+	// Wait for hashtree initialization before acquiring the RLock.
+	// waitForMinimalHashTreeInitialization must not be called while holding
+	// RLock: if initHashtree fails and retries, it needs write-lock to replace
+	// minimalHashtreeInitializationCh; a caller blocking under RLock would
+	// deadlock with the retry until the caller's context expired.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return objectInsertStatus{}, err
+	}
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
-
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
 
 		lock.Lock()
 		defer lock.Unlock()
@@ -335,14 +339,50 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	return nil
 }
 
-func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
-	hashtreeHeight := s.asyncReplicationConfig.hashtreeHeight
+// upsertHashTreeLeaf updates the hashtree leaf for a single object identified
+// by its raw UUID bytes and update timestamp. Unlike upsertObjectHashTree it
+// accepts the two primitive values directly, avoiding the storobj.Object
+// allocation that would otherwise be needed on the initHashtree hot path.
+// Acquires asyncReplicationRWMux.RLock internally so the height read by
+// hashtreeLeafFor is consistent with the live hashtree pointer.
+func (s *Shard) upsertHashTreeLeaf(uuidBytes []byte, updateTime int64) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+	if updateTime < 1 {
+		return fmt.Errorf("invalid object last update time")
+	}
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	if s.hashtree == nil {
+		return nil
+	}
+	leaf := s.hashtreeLeafFor(uuidBytes)
+	var objectDigest [16 + 8]byte
+	copy(objectDigest[:], uuidBytes)
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+	return nil
+}
 
-	if hashtreeHeight == 0 {
+func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
+	ht := s.hashtree
+	if ht == nil {
 		return 0
 	}
+	return hashtreeLeafForHeight(uuidBytes, ht.Height())
+}
 
-	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - hashtreeHeight)
+// hashtreeLeafForHeight computes the hashtree leaf index for the given UUID
+// bytes at the specified tree height. hashtreeLeafFor must be called under
+// asyncReplicationRWMux.RLock so that the height is consistent with the live
+// hashtree pointer and cannot race with a concurrent initAsyncReplication
+// replacing s.hashtree with a tree of a different height.
+func hashtreeLeafForHeight(uuidBytes []byte, height int) uint64 {
+	if height == 0 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - height)
 }
 
 type objectInsertStatus struct {

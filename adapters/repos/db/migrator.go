@@ -203,7 +203,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationWorkersLimiter:               m.db.asyncReplicationWorkersLimiter,
+			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,

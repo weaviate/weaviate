@@ -896,7 +896,7 @@ func (i *Index) HashTreeLevel(ctx context.Context,
 	}
 	defer release()
 	if shard == nil {
-		return nil, nil
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	return shard.HashTreeLevel(ctx, level, discriminant)

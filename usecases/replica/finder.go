@@ -340,45 +340,59 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
-		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
+		height := ht.Height()
+		digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
 
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
+		discriminant := hashtree.NewBitset(1) // nodesAtLevel(0) = 1
+		discriminant.Set(0)                   // seed at root
 
-		diff.Set(0) // init comparison at root level
+		var leaf *hashtree.Bitset
 
-		for l := 0; l <= ht.Height(); l++ {
-			_, err := ht.Level(l, diff, digests)
-			if err != nil {
+		for l := 0; l <= height; l++ {
+			if _, err := ht.Level(l, discriminant, digests); err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, discriminant)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 			if len(levelDigests) == 0 {
-				// no differences were found
+				// peer agrees at this level
 				break
 			}
 
-			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
-			if levelDiffCount == 0 {
-				// no differences were found
+			nextDiscriminant, levelDiffCount, err := hashtree.LevelDiff(l, height, discriminant, digests, levelDigests)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+			}
+
+			if l == height {
+				leaf = discriminant
 				break
 			}
+			if levelDiffCount == 0 {
+				break
+			}
+			discriminant = nextDiscriminant
 		}
 
-		if diff.SetCount() == 0 {
+		if leaf == nil || leaf.SetCount() == 0 {
 			return &ShardDifferenceReader{
 				TargetNodeName:    targetNodeName,
 				TargetNodeAddress: targetNodeAddress,
 			}, ErrNoDiffFound
 		}
 
+		rangeReader, err := ht.NewRangeReader(leaf)
+		if err != nil {
+			return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+		}
+
 		return &ShardDifferenceReader{
 			TargetNodeName:    targetNodeName,
 			TargetNodeAddress: targetNodeAddress,
-			RangeReader:       ht.NewRangeReader(diff),
+			RangeReader:       rangeReader,
 		}, nil
 	}
 
@@ -416,7 +430,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		})
 	}
 
-	localHostAddr, _ := f.nodeResolver.NodeHostname(localNodeName)
+	localHostAddr, ok := f.nodeResolver.NodeHostname(localNodeName)
+	if !ok {
+		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
+	}
 
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]

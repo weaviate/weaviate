@@ -606,7 +606,9 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		{0xdeadbeefcafebabe, 0x0123456789abcdef},
 	}
 
-	discriminant := hashtree.NewBitset(4)
+	// level-local discriminant: size must equal hashtree.LeavesCount(level)
+	// = 8 for level 3.
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
 	discriminant.Set(0)
 	discriminant.Set(2)
 
