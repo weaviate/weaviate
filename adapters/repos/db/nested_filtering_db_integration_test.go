@@ -18201,3 +18201,324 @@ func TestNestedFilteringNotInsideOrThreeWaySiblings3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringIsNullNotConsistency3Levels covers gap #6: NOT
+// wrapping IsNull stays equivalent to the inverted-IsNull flag in
+// both today's universal IsNull and the upcoming scope-aware
+// (per-element existential) rewrite. Pairs:
+//
+//	Pair 1: NOT(cars.make IS NULL)     == cars.make IS NOT NULL
+//	Pair 2: NOT(cars.make IS NOT NULL) == cars.make IS NULL
+//
+// Today the pairs are equal at docID level because today's IsNull
+// computes a doc-level set that partitions the universe, so
+// root-universe NOT inverts to the partner. Under scope-aware IsNull
+// (operand-LCA, per-element existential), each NOT inverts at the
+// same LCA as the corresponding flag flip, so the pairs stay equal
+// per-element too. Absolute expected lists DO change (docs with
+// mixed make/no-make and empty/no-cars docs flip), but the pair
+// equivalence is invariant.
+func TestNestedFilteringIsNullNotConsistency3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "model", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(make, model string) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if model != "" {
+			out["model"] = model
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath string,
+		docs []docDef,
+		wantIsNotNull, wantIsNull []strfmt.UUID,
+	) {
+		t.Helper()
+		isNullF := func(path string, isNull bool) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorIsNull,
+				Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+
+		runFilter := func(t *testing.T, filter *filters.LocalFilter) []strfmt.UUID {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			return got
+		}
+
+		// TODO aliszka:nested_filtering: consistency between
+		// NOT(IS NULL) and IS NOT NULL. Today's universal IsNull and
+		// the future per-element existential IsNull both preserve
+		// pair equivalence because NOT inverts at the same scope as
+		// the corresponding IsNull flag flip. Absolute lists flip on
+		// mixed/empty/empty-array docs but pair equality is
+		// invariant.
+		t.Run("regression_NOT_IS_NULL_eq_IS_NOT_NULL", func(t *testing.T) {
+			gotNotIsNull := runFilter(t, notF(isNullF(makePath, true)))
+			gotIsNotNull := runFilter(t, isNullF(makePath, false))
+			assert.ElementsMatch(t, wantIsNotNull, gotIsNotNull, "today IS NOT NULL list")
+			assert.ElementsMatch(t, wantIsNotNull, gotNotIsNull, "today NOT(IS NULL) list")
+			assert.ElementsMatch(t, gotIsNotNull, gotNotIsNull, "pair consistency: NOT(IS NULL) == IS NOT NULL")
+		})
+
+		// TODO aliszka:nested_filtering: consistency between
+		// NOT(IS NOT NULL) and IS NULL. Mirror of pair 1.
+		t.Run("regression_NOT_IS_NOT_NULL_eq_IS_NULL", func(t *testing.T) {
+			gotNotIsNotNull := runFilter(t, notF(isNullF(makePath, false)))
+			gotIsNull := runFilter(t, isNullF(makePath, true))
+			assert.ElementsMatch(t, wantIsNull, gotIsNull, "today IS NULL list")
+			assert.ElementsMatch(t, wantIsNull, gotNotIsNotNull, "today NOT(IS NOT NULL) list")
+			assert.ElementsMatch(t, gotIsNull, gotNotIsNotNull, "pair consistency: NOT(IS NOT NULL) == IS NULL")
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "IsNullNotConsistencyL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idTeslaS := uuid(1)          // [tesla,s] — has make
+		idNoMakeS := uuid(2)         // [no-make,s] — no make
+		idTeslaPlusNoMake := uuid(3) // [tesla,s]+[no-make,s] — mixed
+		idTwoNoMake := uuid(4)       // [no-make]+[no-make]
+		idEmpty := uuid(5)           // no cars at all
+		idTwoTesla := uuid(6)        // [tesla]+[tesla]
+		idCarsEmptyArray := uuid(7)  // cars=[]
+		docs := []docDef{
+			{id: idTeslaS, props: wrap(car("tesla", "s")), note: "tesla,s"},
+			{id: idNoMakeS, props: wrap(car("", "s")), note: "no-make,s"},
+			{id: idTeslaPlusNoMake, props: wrap(car("tesla", "s"), car("", "s")), note: "tesla,s + no-make,s — KEY mixed"},
+			{id: idTwoNoMake, props: wrap(car("", "s"), car("", "s")), note: "no-make + no-make"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars — KEY"},
+			{id: idTwoTesla, props: wrap(car("tesla", "s"), car("tesla", "3")), note: "tesla + tesla"},
+			{id: idCarsEmptyArray, props: map[string]any{"cars": []any{}}, note: "cars=[] — KEY"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make",
+			docs,
+			// today IS NOT NULL (universal flip): docs where at
+			// least one cars.make is present.
+			[]strfmt.UUID{idTeslaS, idTeslaPlusNoMake, idTwoTesla},
+			// today IS NULL (universal): every cars lacks make,
+			// or no cars at all (vacuous universal).
+			[]strfmt.UUID{idNoMakeS, idTwoNoMake, idEmpty, idCarsEmptyArray},
+			// expected after scope-aware IsNull (per-element
+			// existential):
+			//   IS NOT NULL: {idTeslaS, idTeslaPlusNoMake, idTwoTesla}
+			//     — exists element with make. Same as today.
+			//   IS NULL:     {idNoMakeS, idTeslaPlusNoMake, idTwoNoMake}
+			//     — exists element without make. idTeslaPlusNoMake
+			//     flips IN; idEmpty and idCarsEmptyArray flip OUT
+			//     (no element to satisfy existential).
+			//   Pair equality holds: NOT(IS NULL) per-element
+			//   inverts at cars[] LCA -> exists element with make
+			//   present == IS NOT NULL per-element. Same logic for
+			//   pair 2.
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "IsNullNotConsistencyL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idTeslaS := uuid(1)
+		idNoMakeS := uuid(2)
+		idTeslaPlusNoMakeSameGarage := uuid(3)
+		idTwoNoMake := uuid(4)
+		idEmpty := uuid(5)
+		idTwoTesla := uuid(6)
+		idCarsEmptyArray := uuid(7)
+		idTeslaPlusNoMakeSplitGarages := uuid(8) // L1: g[0]=tesla, g[1]=no-make
+		docs := []docDef{
+			{id: idTeslaS, props: wrapG(garage(car("tesla", "s"))), note: "1g tesla,s"},
+			{id: idNoMakeS, props: wrapG(garage(car("", "s"))), note: "1g no-make,s"},
+			{id: idTeslaPlusNoMakeSameGarage, props: wrapG(garage(car("tesla", "s"), car("", "s"))), note: "1g tesla + no-make"},
+			{id: idTwoNoMake, props: wrapG(garage(car("", "s"), car("", "s"))), note: "1g no-make + no-make"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idTwoTesla, props: wrapG(garage(car("tesla", "s"), car("tesla", "3"))), note: "1g tesla + tesla"},
+			{id: idCarsEmptyArray, props: wrapG(map[string]any{"cars": []any{}}), note: "1g cars=[]"},
+			{id: idTeslaPlusNoMakeSplitGarages, props: wrapG(garage(car("tesla", "s")), garage(car("", "s"))), note: "g[0]=tesla; g[1]=no-make"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make",
+			docs,
+			// today IS NOT NULL (existential at the cross-level
+			// scope): doc has at least one garages.cars.make set.
+			// Both same-garage and split-garages mixed docs satisfy.
+			[]strfmt.UUID{idTeslaS, idTeslaPlusNoMakeSameGarage, idTwoTesla, idTeslaPlusNoMakeSplitGarages},
+			// today IS NULL (universal): every garages.cars lacks
+			// make, plus empty / empty-array cases.
+			[]strfmt.UUID{idNoMakeS, idTwoNoMake, idEmpty, idCarsEmptyArray},
+			// expected after scope-aware IsNull (per-element):
+			//   IS NOT NULL: {idTeslaS, idTeslaPlusNoMakeSameGarage,
+			//                 idTwoTesla, idTeslaPlusNoMakeSplitGarages}
+			//     — same as today (existential matches today's
+			//     existential semantic).
+			//   IS NULL:     {idNoMakeS, idTeslaPlusNoMakeSameGarage,
+			//                 idTwoNoMake, idTeslaPlusNoMakeSplitGarages}
+			//     — mixed docs flip IN regardless of garage layout;
+			//     idEmpty and idCarsEmptyArray flip OUT.
+			//   Pair equality preserved.
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "IsNullNotConsistencyL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idTeslaS := uuid(1)
+		idNoMakeS := uuid(2)
+		idTeslaPlusNoMakeSameGarage := uuid(3)
+		idTwoNoMake := uuid(4)
+		idEmpty := uuid(5)
+		idTwoTesla := uuid(6)
+		idCarsEmptyArray := uuid(7)
+		idTeslaPlusNoMakeSplitGarages := uuid(8)
+		idTeslaPlusNoMakeSplitCountries := uuid(9) // L2 KEY split across countries
+		docs := []docDef{
+			{id: idTeslaS, props: wrapC(country(garage(car("tesla", "s")))), note: "single chain tesla,s"},
+			{id: idNoMakeS, props: wrapC(country(garage(car("", "s")))), note: "single chain no-make,s"},
+			{id: idTeslaPlusNoMakeSameGarage, props: wrapC(country(garage(car("tesla", "s"), car("", "s")))), note: "tesla + no-make same garage"},
+			{id: idTwoNoMake, props: wrapC(country(garage(car("", "s"), car("", "s")))), note: "no-make + no-make"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idTwoTesla, props: wrapC(country(garage(car("tesla", "s"), car("tesla", "3")))), note: "tesla + tesla"},
+			{id: idCarsEmptyArray, props: wrapC(country(garage(map[string]any{}))), note: "garages=[{}] (no cars field)"},
+			{id: idTeslaPlusNoMakeSplitGarages, props: wrapC(country(garage(car("tesla", "s")), garage(car("", "s")))), note: "split garages within country"},
+			{id: idTeslaPlusNoMakeSplitCountries, props: wrapC(country(garage(car("tesla", "s"))), country(garage(car("", "s")))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make",
+			docs,
+			// today IS NOT NULL: at least one make set anywhere
+			// across countries/garages/cars.
+			[]strfmt.UUID{idTeslaS, idTeslaPlusNoMakeSameGarage, idTwoTesla, idTeslaPlusNoMakeSplitGarages, idTeslaPlusNoMakeSplitCountries},
+			// today IS NULL (universal): no make anywhere across
+			// countries/garages/cars.
+			[]strfmt.UUID{idNoMakeS, idTwoNoMake, idEmpty, idCarsEmptyArray},
+			// expected after scope-aware IsNull (per-element):
+			//   IS NOT NULL: same as today (existential).
+			//   IS NULL:     {idNoMakeS, idTeslaPlusNoMakeSameGarage,
+			//                 idTwoNoMake,
+			//                 idTeslaPlusNoMakeSplitGarages,
+			//                 idTeslaPlusNoMakeSplitCountries}
+			//     — every mixed-layout doc flips IN; idEmpty and
+			//     idCarsEmptyArray flip OUT.
+			//   Pair equality preserved at all 3 levels.
+		)
+	})
+}
