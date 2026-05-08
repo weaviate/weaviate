@@ -120,7 +120,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			// it returns the newly created class and version
 			schemaClass, schemaVersion, err = m.createClass(ctx, principal, namespacing.StripOwnNS(principal, object.Class), properties)
 			if err != nil {
-				return 0, fmt.Errorf("auto schema: can't create collection: %w", err)
+				return 0, fmt.Errorf("auto-schema: create collection: %w", err)
 			}
 
 			classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
@@ -131,7 +131,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
 					principal, namespacing.StripOwnNS(principal, schemaClass.Class), true, newProperties...)
 				if err != nil {
-					return 0, fmt.Errorf("auto schema: can't update collection: %w", err)
+					return 0, fmt.Errorf("auto-schema: update collection: %w", err)
 				}
 				classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
@@ -546,7 +546,7 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 		addStart := time.Now()
 		autoTenantVersion, err := m.addTenants(ctx, principal, className, tenants)
 		if err != nil {
-			return 0, totalTenants, fmt.Errorf("auto-tenant creation: add tenants to class %q: %w", className, err)
+			return 0, totalTenants, fmt.Errorf("auto-tenant: add tenants to collection %q: %w", className, err)
 		}
 		m.tenantsCount.Add(float64(len(tenants)))
 		m.opsDuration.With(prometheus.Labels{
