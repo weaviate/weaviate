@@ -200,6 +200,21 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 	return uint32(count), nil
 }
 
+// Flush writes every in-memory posting entry to LSMKV. Entries added via
+// FastAddVectorID are memory-only until an analyze/split/merge task calls
+// SetVectorIDs; this method bridges that gap so they survive a shutdown.
+func (v *PostingMap) Flush(ctx context.Context) error {
+	for postingID, m := range v.data.AllRelaxed() {
+		m.RLock()
+		pm := m.PackedPostingMetadata
+		m.RUnlock()
+		if err := v.bucket.Set(ctx, postingID, pm); err != nil {
+			return errors.Wrapf(err, "failed to persist posting %d", postingID)
+		}
+	}
+	return ctx.Err()
+}
+
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
 func (v *PostingMap) Restore(ctx context.Context) error {
 	defer v.setSizeMetricIfDue(ctx)

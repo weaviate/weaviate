@@ -652,3 +652,37 @@ func TestOncePer(t *testing.T) {
 		require.EqualValues(t, 1, count.Load())
 	})
 }
+
+// TestPostingMapRestoreAfterFastAdd verifies that entries added via
+// FastAddVectorID (in-memory only) are recovered after a Flush+Restore cycle,
+// matching what happens during a graceful HFresh node shutdown/restart.
+func TestPostingMapRestoreAfterFastAdd(t *testing.T) {
+	ctx := t.Context()
+
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "flush-test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+
+	pm := NewPostingMap(bucket, makeTestMetrics())
+
+	const numPostings = 10
+	for i := uint64(0); i < numPostings; i++ {
+		_, err := pm.FastAddVectorID(ctx, i, i*10+1, 1)
+		require.NoError(t, err)
+	}
+	require.Equal(t, numPostings, pm.Size())
+
+	// Before Flush: a fresh PostingMap reading from the same bucket finds nothing,
+	// because FastAddVectorID writes only to the in-memory xsync.Map.
+	pmBefore := NewPostingMap(bucket, makeTestMetrics())
+	require.NoError(t, pmBefore.Restore(ctx))
+	require.Equal(t, 0, pmBefore.Size(), "FastAddVectorID entries must not appear in LSMKV before Flush")
+
+	// Flush writes all in-memory entries to LSMKV.
+	require.NoError(t, pm.Flush(ctx))
+
+	// After Flush: a fresh PostingMap reading from the same bucket recovers all entries.
+	pmAfter := NewPostingMap(bucket, makeTestMetrics())
+	require.NoError(t, pmAfter.Restore(ctx))
+	require.Equal(t, numPostings, pmAfter.Size(), "all FastAddVectorID entries must be visible after Flush+Restore")
+}

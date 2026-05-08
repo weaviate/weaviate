@@ -255,6 +255,14 @@ func (h *HFresh) Flush() error {
 		errs = append(errs, err)
 	}
 
+	// Persist all in-memory PostingMap entries to LSMKV. Entries added via
+	// FastAddVectorID are memory-only until their analyze task runs; flushing
+	// here ensures they survive a shutdown/restart even if the task queue has
+	// not yet processed them.
+	if err = h.PostingMap.Flush(context.Background()); err != nil {
+		errs = append(errs, errors.Wrap(err, "flush posting map"))
+	}
+
 	return stderrors.Join(errs...)
 }
 
