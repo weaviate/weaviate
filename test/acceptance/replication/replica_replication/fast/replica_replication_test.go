@@ -606,7 +606,6 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	sourceNode := nodeInfo{}
 	targetNode := nodeInfo{}
 	replicaNode := nodeInfo{}
-	allNodeInfos := []nodeInfo{}
 	// TODO test copy as well
 	transferType := api.MOVE.String()
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
@@ -622,7 +621,6 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 		// Find two source nodes that have shards
 		for i, node := range body.Payload.Nodes {
 			containerIndex := i + 1
-			allNodeInfos = append(allNodeInfos, nodeInfo{nodeURI: compose.ContainerURI(containerIndex), nodeName: node.Name, nodeContainerIndex: containerIndex})
 			if len(node.Shards) >= 1 {
 				hasFoundNode = true
 				for _, shard := range node.Shards {
@@ -713,45 +711,37 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 		parallelWriteWg.Wait()
 	})
 
-	t.Run("post-move object set matches the writer's tracked state", func(t *testing.T) {
-		for _, nodeInfo := range allNodeInfos {
-			// In a MOVE, the source no longer hosts the shard.
-			if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
+	// Only target is asserted: replicaNode can validly diverge under
+	// multi-coordinator LWW races; async repl converges that.
+	t.Run("post-move object set matches the writer's tracked state on target", func(t *testing.T) {
+		// give time for any pending replication to finish so that all parallel writes are replicated to the new node before we check for their existence
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assert.Equal(ct, int64(len(liveIDs)), common.CountTenantObjects(t, targetNode.nodeURI, paragraphClass.Class, "tenant0"))
+		}, 30*time.Second, 1*time.Second, "not all parallel writes are available on target %s", targetNode.nodeName)
+
+		for id, expectedContents := range liveIDs {
+			var obj *models.Object
+			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				obj, err = common.GetTenantObjectFromNode(t, targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, "tenant0")
+				assert.Nil(ct, err, "error getting live id %s from target %s", id, targetNode.nodeName)
+			}, 10*time.Second, 1*time.Second, "live id %s missing on target %s", id, targetNode.nodeName)
+			if !assert.NotNil(t, obj, "live id %s missing on target %s", id, targetNode.nodeName) {
 				continue
 			}
+			props, ok := obj.Properties.(map[string]any)
+			if !assert.True(t, ok, "object %s on target %s has unexpected properties shape", id, targetNode.nodeName) {
+				continue
+			}
+			assert.Equal(t, expectedContents, props["contents"],
+				"contents mismatch for id %s on target %s (LWW failure?)", id, targetNode.nodeName)
+		}
 
-			// give time for any pending replication to finish so that all parallel writes are replicated to the new node before we check for their existence
+		for id := range deletedIDs {
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				assert.Equal(ct, int64(len(liveIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"))
-			}, 30*time.Second, 1*time.Second, "not all parallel writes are available on node %s", nodeInfo.nodeName)
-
-			// Existence + content equality. Mismatch means a stale PUT won
-			// over a newer one — the LWW-by-timestamp guarantee is broken.
-			for id, expectedContents := range liveIDs {
-				var obj *models.Object
-				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-					obj, err = common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
-					assert.Nil(ct, err, "error getting live id %s from node %s", id, nodeInfo.nodeName)
-				}, 10*time.Second, 1*time.Second, "live id %s missing on node %s", id, nodeInfo.nodeName)
-				if !assert.NotNil(t, obj, "live id %s missing on node %s", id, nodeInfo.nodeName) {
-					continue
-				}
-				props, ok := obj.Properties.(map[string]any)
-				if !assert.True(t, ok, "object %s on node %s has unexpected properties shape", id, nodeInfo.nodeName) {
-					continue
-				}
-				assert.Equal(t, expectedContents, props["contents"],
-					"contents mismatch for id %s on node %s (LWW failure?)", id, nodeInfo.nodeName)
-			}
-
-			// Tombstone — every deleted id must read back as not-found.
-			for id := range deletedIDs {
-				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-					_, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
-					var notFound *objects.ObjectsClassGetNotFound
-					assert.ErrorAs(ct, err, &notFound, "deleted id %s unexpectedly present on node %s", id, nodeInfo.nodeName)
-				}, 10*time.Second, 1*time.Second, "deleted id %s still present on node %s", id, nodeInfo.nodeName)
-			}
+				_, err := common.GetTenantObjectFromNode(t, targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, "tenant0")
+				var notFound *objects.ObjectsClassGetNotFound
+				assert.ErrorAs(ct, err, &notFound, "deleted id %s unexpectedly present on target %s", id, targetNode.nodeName)
+			}, 10*time.Second, 1*time.Second, "deleted id %s still present on target %s", id, targetNode.nodeName)
 		}
 	})
 }
