@@ -18863,3 +18863,480 @@ func TestNestedFilteringAndParenthesization3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringNotContextSensitivity3Levels covers gap #17:
+// the same NOT clause (`NOT cars.color=red`) embedded in 5 surrounding
+// contexts, to lock in today's context-free NOT semantics and pin
+// down where option-A vs option-B scope-aware NOT would diverge.
+//
+// Today: NOT inverts at root-doc universe regardless of context. The
+// NOT clause's contribution to each context is the same set across
+// all 5 contexts; only the surrounding combinator changes the final
+// list.
+//
+// Under option A (NOT inverts at operand's natural LCA): NOT becomes
+// per-cars-element existential (exists cars element with color!=red);
+// also context-free, so all 5 contexts again share a consistent NOT
+// contribution — but a different one from today (mixed-color docs
+// flip IN; empty docs flip OUT).
+//
+// Under option B (NOT inverts at enclosing-scope LCA): the NOT
+// contribution depends on the enclosing combinator's LCA. Where the
+// enclosing LCA is cars[] (contexts 2/4/5), NOT matches option A.
+// Where the enclosing LCA is the doc (context 3, sibling at
+// top-level), NOT matches today. Context 3 is the discriminator
+// between options A and B.
+//
+// 5 contexts:
+//
+//  1. NOT cars.color=red                                  (standalone)
+//  2. cars.make=tesla AND NOT cars.color=red              (sibling at same root LCA)
+//  3. owner=alice AND NOT cars.color=red                  (sibling at outer doc scope)
+//  4. cars.make=tesla OR NOT cars.color=red               (OR with same-root sibling)
+//  5. cars.make=tesla AND (cars.year=2020 OR NOT cars.color=red) (mix)
+func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(make string, year int, color string) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if year != 0 {
+			out["year"] = year
+		}
+		if color != "" {
+			out["color"] = color
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	type wantSet struct {
+		standalone, andSameRoot, andOuterScope, orSameRoot, andOrMix []strfmt.UUID
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, yearPath, colorPath, ownerPath string,
+		docs []docDef, want wantSet,
+	) {
+		t.Helper()
+		makeF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "tesla"},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(makePath)},
+			}}
+		}
+		yearF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: 2020},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(yearPath)},
+			}}
+		}
+		colorRedF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(colorPath)},
+			}}
+		}
+		ownerAliceF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "alice"},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(ownerPath)},
+			}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: Context 1 — standalone NOT.
+		// Today: doc-level NOT (no cars with color=red anywhere; empty
+		// docs vacuously match). Option A: per-cars-element exists
+		// color!=red — empty docs lose the match; mixed-color docs
+		// gain it. Option B: with no enclosing combinator, behaves
+		// like today (NOT inverts at the doc universe).
+		t.Run("ctx1_standalone_NOT", func(t *testing.T) {
+			runScenario(t, notF(colorRedF()), want.standalone)
+		})
+
+		// TODO aliszka:nested_filtering: Context 2 — sibling at SAME
+		// root. Enclosing AND's LCA = cars[]. Today's contribution
+		// of NOT is doc-level. Option A and Option B both invert at
+		// cars[] (operand's natural LCA = enclosing LCA), so they
+		// agree here.
+		t.Run("ctx2_AND_same_root_sibling", func(t *testing.T) {
+			runScenario(t, andF(makeF(), notF(colorRedF())), want.andSameRoot)
+		})
+
+		// TODO aliszka:nested_filtering: Context 3 — sibling at OUTER
+		// scope (top-level owner). Enclosing AND's LCA = doc.
+		// Option A: NOT still inverts at cars[] (operand's natural
+		// LCA — context-free), so mixed-color docs flip IN.
+		// Option B: NOT inverts at the enclosing AND's LCA = doc,
+		// matching today's behavior. THIS IS THE A vs B
+		// discriminator across the 5 contexts.
+		t.Run("ctx3_AND_outer_scope_sibling", func(t *testing.T) {
+			runScenario(t, andF(ownerAliceF(), notF(colorRedF())), want.andOuterScope)
+		})
+
+		// TODO aliszka:nested_filtering: Context 4 — OR with
+		// same-root sibling. Today's NOT docID-unioned with cars.
+		// make=tesla. Option A and Option B both invert at cars[]
+		// (enclosing OR's LCA = cars[] = operand LCA).
+		t.Run("ctx4_OR_same_root_sibling", func(t *testing.T) {
+			runScenario(t, orF(makeF(), notF(colorRedF())), want.orSameRoot)
+		})
+
+		// TODO aliszka:nested_filtering: Context 5 — NOT inside an
+		// inner OR which is inside an outer AND. The NOT's enclosing
+		// scope is the inner OR (LCA = cars[]). Option A and Option
+		// B agree here.
+		t.Run("ctx5_AND_with_OR_containing_NOT", func(t *testing.T) {
+			runScenario(t, andF(makeF(), orF(yearF(), notF(colorRedF()))), want.andOrMix)
+		})
+	}
+
+	// Doc set per level (with cross-level discriminators added at
+	// L1/L2). Document attribute matrix:
+	//
+	// d1 [tesla,2020,red]                   make=tesla, year=2020, has-red, owner=alice
+	// d2 [tesla,2020,blue]                  make=tesla, year=2020, no-red,  owner=alice
+	// d3 [bmw,2020,red]                     make=bmw,   year=2020, has-red, owner=alice
+	// d4 [bmw,2020,blue]                    make=bmw,   year=2020, no-red,  owner=alice
+	// d5 [tesla,1990,blue]                  make=tesla, year=1990, no-red,  owner=alice
+	// d6 [tesla,2020,blue]+[bmw,2020,red]   mixed: tesla in [0], red in [1], owner=alice
+	// d7 empty (no cars)                    no make/year/color, owner=NIL
+	// d8 [tesla,2020,red] owner=bob         make=tesla, year=2020, has-red, owner=bob
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "NotContextL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+				{Name: "owner", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField, IndexFilterable: &vTrue},
+			},
+		}
+		wrap := func(owner string, cars ...map[string]any) map[string]any {
+			out := map[string]any{}
+			if owner != "" {
+				out["owner"] = owner
+			}
+			if len(cars) > 0 {
+				out["cars"] = asArr(cars...)
+			}
+			return out
+		}
+
+		idTesla2020Red := uuid(1)
+		idTesla2020Blue := uuid(2)
+		idBmw2020Red := uuid(3)
+		idBmw2020Blue := uuid(4)
+		idTesla1990Blue := uuid(5)
+		idMixed := uuid(6)
+		idEmpty := uuid(7)
+		idTesla2020RedOwnerBob := uuid(8)
+		docs := []docDef{
+			{id: idTesla2020Red, props: wrap("alice", car("tesla", 2020, "red")), note: "tesla,2020,red owner=alice"},
+			{id: idTesla2020Blue, props: wrap("alice", car("tesla", 2020, "blue")), note: "tesla,2020,blue owner=alice"},
+			{id: idBmw2020Red, props: wrap("alice", car("bmw", 2020, "red")), note: "bmw,2020,red owner=alice"},
+			{id: idBmw2020Blue, props: wrap("alice", car("bmw", 2020, "blue")), note: "bmw,2020,blue owner=alice"},
+			{id: idTesla1990Blue, props: wrap("alice", car("tesla", 1990, "blue")), note: "tesla,1990,blue owner=alice"},
+			{id: idMixed, props: wrap("alice", car("tesla", 2020, "blue"), car("bmw", 2020, "red")), note: "[tesla,2020,blue]+[bmw,2020,red] owner=alice — KEY mixed"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars, no owner"},
+			{id: idTesla2020RedOwnerBob, props: wrap("bob", car("tesla", 2020, "red")), note: "tesla,2020,red owner=bob"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.year", "cars.color", "owner",
+			docs,
+			wantSet{
+				// ctx1 standalone: NOT_today = no red anywhere.
+				// {d2, d4, d5, d7}.
+				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				// ctx2 AND same-root: T ∩ NOT_today = {d2, d5}.
+				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue},
+				// ctx3 AND outer-scope: O ∩ NOT_today = {d2,d4,d5}.
+				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
+				// ctx4 OR same-root: T ∪ NOT_today =
+				// {d1,d2,d4,d5,d6,d7,d8}.
+				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed, idEmpty, idTesla2020RedOwnerBob},
+				// ctx5 mix: T ∩ (Y ∪ NOT_today) =
+				// {d1,d2,d5,d6,d8}.
+				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixed, idTesla2020RedOwnerBob},
+			},
+			// expected after option A (per-element NOT, context-free):
+			//   ctx1: {d2,d4,d5,d6}        — d6 in, d7 out
+			//   ctx2: {d2,d5,d6}           — d6 in
+			//   ctx3: {d2,d4,d5,d6}        — d6 in
+			//   ctx4: {d1,d2,d4,d5,d6,d8}  — d6 in, d7 out
+			//   ctx5: {d1,d2,d5,d6,d8}     — same as today (the
+			//                                 union absorbs the
+			//                                 difference at d2,d4,
+			//                                 d5,d6 since these
+			//                                 appear in Y too)
+			//
+			// expected after option B (NOT at enclosing-scope LCA):
+			//   ctx1: same as today (no enclosing combinator)
+			//   ctx2: same as option A (enclosing LCA = cars[])
+			//   ctx3: same as today (enclosing LCA = doc)
+			//          — THIS is the A vs B discriminator
+			//   ctx4: same as option A
+			//   ctx5: same as option A
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "NotContextL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+				{Name: "owner", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField, IndexFilterable: &vTrue},
+			},
+		}
+		wrapG := func(owner string, garages ...map[string]any) map[string]any {
+			out := map[string]any{}
+			if owner != "" {
+				out["owner"] = owner
+			}
+			if len(garages) > 0 {
+				out["garages"] = asArr(garages...)
+			}
+			return out
+		}
+
+		idTesla2020Red := uuid(1)
+		idTesla2020Blue := uuid(2)
+		idBmw2020Red := uuid(3)
+		idBmw2020Blue := uuid(4)
+		idTesla1990Blue := uuid(5)
+		idMixedSameGarage := uuid(6)
+		idEmpty := uuid(7)
+		idTesla2020RedOwnerBob := uuid(8)
+		idMixedSplitGarages := uuid(9) // L1: g[0]=[tesla,2020,blue]; g[1]=[bmw,2020,red]
+		docs := []docDef{
+			{id: idTesla2020Red, props: wrapG("alice", garage(car("tesla", 2020, "red"))), note: "1g tesla,2020,red owner=alice"},
+			{id: idTesla2020Blue, props: wrapG("alice", garage(car("tesla", 2020, "blue"))), note: "1g tesla,2020,blue owner=alice"},
+			{id: idBmw2020Red, props: wrapG("alice", garage(car("bmw", 2020, "red"))), note: "1g bmw,2020,red owner=alice"},
+			{id: idBmw2020Blue, props: wrapG("alice", garage(car("bmw", 2020, "blue"))), note: "1g bmw,2020,blue owner=alice"},
+			{id: idTesla1990Blue, props: wrapG("alice", garage(car("tesla", 1990, "blue"))), note: "1g tesla,1990,blue owner=alice"},
+			{id: idMixedSameGarage, props: wrapG("alice", garage(car("tesla", 2020, "blue"), car("bmw", 2020, "red"))), note: "1g mixed same garage"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages, no owner"},
+			{id: idTesla2020RedOwnerBob, props: wrapG("bob", garage(car("tesla", 2020, "red"))), note: "1g tesla,2020,red owner=bob"},
+			{id: idMixedSplitGarages, props: wrapG("alice", garage(car("tesla", 2020, "blue")), garage(car("bmw", 2020, "red"))), note: "g[0]=[tesla,blue]; g[1]=[bmw,red] owner=alice"},
+		}
+
+		// today's filter sets at L1:
+		// T (cars.make=tesla anywhere) = {d1,d2,d5,d6,d8,d9}
+		// Y (cars.year=2020 anywhere) = {d1,d2,d3,d4,d6,d8,d9}
+		// O (owner=alice) = {d1,d2,d3,d4,d5,d6,d9}
+		// NOT_today (no cars.color=red anywhere) = {d2,d4,d5,d7}
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.year", "garages.cars.color", "owner",
+			docs,
+			wantSet{
+				// ctx1 standalone NOT_today
+				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				// ctx2 T ∩ NOT_today
+				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue},
+				// ctx3 O ∩ NOT_today
+				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
+				// ctx4 T ∪ NOT_today
+				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages},
+				// ctx5 T ∩ (Y ∪ NOT_today)
+				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages},
+			},
+			// expected after option A:
+			//   NOT_optA = exists garages.cars with color!=red =
+			//   {d2,d4,d5,d6,d9} (mixed docs flip IN, idEmpty
+			//   flips OUT).
+			//   ctx1: {d2,d4,d5,d6,d9}
+			//   ctx2: {d2,d5,d6,d9}
+			//   ctx3: {d2,d4,d5,d6,d9}
+			//   ctx4: {d1,d2,d4,d5,d6,d8,d9}
+			//   ctx5: {d1,d2,d5,d6,d8,d9} (same as today)
+			//
+			// option B: ctx1 and ctx3 collapse to today; ctx2/4/5
+			// match option A.
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "NotContextL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+				{Name: "owner", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField, IndexFilterable: &vTrue},
+			},
+		}
+		wrapC := func(owner string, countries ...map[string]any) map[string]any {
+			out := map[string]any{}
+			if owner != "" {
+				out["owner"] = owner
+			}
+			if len(countries) > 0 {
+				out["countries"] = asArr(countries...)
+			}
+			return out
+		}
+
+		idTesla2020Red := uuid(1)
+		idTesla2020Blue := uuid(2)
+		idBmw2020Red := uuid(3)
+		idBmw2020Blue := uuid(4)
+		idTesla1990Blue := uuid(5)
+		idMixedSameGarage := uuid(6)
+		idEmpty := uuid(7)
+		idTesla2020RedOwnerBob := uuid(8)
+		idMixedSplitGarages := uuid(9)
+		idMixedSplitCountries := uuid(10) // L2 KEY split across countries
+		docs := []docDef{
+			{id: idTesla2020Red, props: wrapC("alice", country(garage(car("tesla", 2020, "red")))), note: "single chain tesla,2020,red owner=alice"},
+			{id: idTesla2020Blue, props: wrapC("alice", country(garage(car("tesla", 2020, "blue")))), note: "single chain tesla,2020,blue owner=alice"},
+			{id: idBmw2020Red, props: wrapC("alice", country(garage(car("bmw", 2020, "red")))), note: "single chain bmw,2020,red owner=alice"},
+			{id: idBmw2020Blue, props: wrapC("alice", country(garage(car("bmw", 2020, "blue")))), note: "single chain bmw,2020,blue owner=alice"},
+			{id: idTesla1990Blue, props: wrapC("alice", country(garage(car("tesla", 1990, "blue")))), note: "single chain tesla,1990,blue owner=alice"},
+			{id: idMixedSameGarage, props: wrapC("alice", country(garage(car("tesla", 2020, "blue"), car("bmw", 2020, "red")))), note: "mixed same garage owner=alice"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries, no owner"},
+			{id: idTesla2020RedOwnerBob, props: wrapC("bob", country(garage(car("tesla", 2020, "red")))), note: "tesla,2020,red owner=bob"},
+			{id: idMixedSplitGarages, props: wrapC("alice", country(garage(car("tesla", 2020, "blue")), garage(car("bmw", 2020, "red")))), note: "split garages within country owner=alice"},
+			{id: idMixedSplitCountries, props: wrapC("alice", country(garage(car("tesla", 2020, "blue"))), country(garage(car("bmw", 2020, "red")))), note: "split across countries — L2 KEY owner=alice"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color", "owner",
+			docs,
+			wantSet{
+				// today T = {d1,d2,d5,d6,d8,d9,d10}
+				// Y = {d1,d2,d3,d4,d6,d8,d9,d10}
+				// O = {d1,d2,d3,d4,d5,d6,d9,d10}
+				// NOT_today = {d2,d4,d5,d7}
+				standalone:    []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				andSameRoot:   []strfmt.UUID{idTesla2020Blue, idTesla1990Blue},
+				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
+				orSameRoot:    []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
+				andOrMix:      []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
+			},
+			// expected after option A:
+			//   NOT_optA = {d2,d4,d5,d6,d9,d10} (every mixed-layout
+			//   doc flips IN; idEmpty flips OUT).
+			//   ctx1: {d2,d4,d5,d6,d9,d10}
+			//   ctx2: {d2,d5,d6,d9,d10}
+			//   ctx3: {d2,d4,d5,d6,d9,d10}
+			//   ctx4: {d1,d2,d4,d5,d6,d8,d9,d10}
+			//   ctx5: {d1,d2,d5,d6,d8,d9,d10} (same as today)
+			//
+			// option B: ctx1 and ctx3 fall back to today; ctx2/4/5
+			// match option A. The cross-country split docs flip
+			// alongside the cross-garage ones — option A is
+			// uniformly per-element regardless of where in the
+			// nested chain the mixed elements live.
+		)
+	})
+}
