@@ -768,7 +768,7 @@ func createObjectThreadSafe(uri string, class string, properties map[string]any,
 	if err != nil {
 		return fmt.Errorf("error marshalling JSON: %w", err)
 	}
-	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects?consistency_level=ALL", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -804,7 +804,7 @@ func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]
 	if err != nil {
 		return fmt.Errorf("error marshalling JSON: %w", err)
 	}
-	url := fmt.Sprintf("http://%s/v1/objects/%s/%s", uri, class, id)
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?consistency_level=ALL", uri, class, id)
 	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
@@ -831,7 +831,7 @@ func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]
 // tenant is sent as a query param (the REST API requires it for tenant-scoped
 // objects).
 func deleteObjectThreadSafe(uri, class, id, tenant string) error {
-	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s", uri, class, id, tenant)
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s&consistency_level=ALL", uri, class, id, tenant)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
