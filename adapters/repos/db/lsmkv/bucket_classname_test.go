@@ -224,3 +224,64 @@ func TestObjectsBucketStampsClassNameOnDecode(t *testing.T) {
 		})
 	}
 }
+
+// TestObjectsBucket_RoundTripWithSkipClassName covers the writer-side skip
+// path: bytes produced via MarshalBinaryDisk(true) carry no className body
+// (length prefix is 0) yet round-trip cleanly through the bucket and the
+// *Disk decoders, which stamp the bucket's canonical className. The matching
+// *Network decoders must error because the on-disk class is empty.
+func TestObjectsBucket_RoundTripWithSkipClassName(t *testing.T) {
+	ctx := context.Background()
+	noopCB := cyclemanager.NewCallbackGroupNoop()
+
+	bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", testLogger(), nil, noopCB, noopCB,
+		WithStrategy(StrategyReplace),
+		WithClassName("Movies"),
+	)
+	require.NoError(t, err)
+	defer bucket.Shutdown(ctx)
+
+	className, err := bucket.ClassName()
+	require.NoError(t, err)
+	require.Equal(t, "Movies", className)
+
+	obj := storobj.FromObject(
+		&models.Object{
+			Class:              "Movies",
+			CreationTimeUnix:   1,
+			LastUpdateTimeUnix: 2,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{
+				"title": "The Matrix",
+			},
+		},
+		[]float32{1, 2, 3},
+		nil,
+		nil,
+	)
+	obj.DocID = 7
+
+	objBytes, err := obj.MarshalBinaryDisk(true)
+	require.NoError(t, err)
+
+	idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+	require.NoError(t, err)
+
+	require.NoError(t, bucket.Put(idBytes, objBytes))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	stored, err := bucket.Get(idBytes)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+
+	decodedDisk, err := storobj.FromBinaryDisk(stored, className)
+	require.NoError(t, err)
+	assert.Equal(t, "Movies", decodedDisk.Object.Class)
+	assert.Equal(t, obj.ID(), decodedDisk.ID())
+	assert.Equal(t, obj.DocID, decodedDisk.DocID)
+	assert.Equal(t, obj.Vector, decodedDisk.Vector)
+	assert.Equal(t, obj.Properties(), decodedDisk.Properties())
+
+	_, err = storobj.FromBinaryNetwork(stored)
+	require.Error(t, err, "FromBinaryNetwork must error when on-disk class is empty")
+}

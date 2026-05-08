@@ -279,7 +279,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinary()
+		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}

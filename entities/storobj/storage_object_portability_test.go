@@ -132,3 +132,75 @@ func TestPortability_ClassNamePrecedence(t *testing.T) {
 		})
 	}
 }
+
+// TestPortability_MarshalBinaryDisk locks the contract of the writer-side
+// skip flag: when skipClassName is true the on-disk className body is omitted
+// (length prefix is 0), but the payload is still recoverable via the *Disk
+// decoders when the caller supplies the canonical className.
+func TestPortability_MarshalBinaryDisk(t *testing.T) {
+	build := func() *Object {
+		obj := FromObject(
+			&models.Object{
+				Class:              "Movies",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Properties: map[string]interface{}{
+					"title": "The Matrix",
+				},
+			},
+			[]float32{1, 2, 3},
+			nil,
+			nil,
+		)
+		obj.DocID = 7
+		return obj
+	}
+
+	t.Run("skip=false produces byte-identical output to MarshalBinary", func(t *testing.T) {
+		before := build()
+
+		fullBytes, err := before.MarshalBinary()
+		require.NoError(t, err)
+
+		diskBytes, err := before.MarshalBinaryDisk(false)
+		require.NoError(t, err)
+
+		assert.Equal(t, fullBytes, diskBytes)
+	})
+
+	t.Run("skip=true round-trips via FromBinaryDisk with caller className", func(t *testing.T) {
+		before := build()
+
+		data, err := before.MarshalBinaryDisk(true)
+		require.NoError(t, err)
+
+		after, err := FromBinaryDisk(data, "Movies")
+		require.NoError(t, err)
+		assert.Equal(t, "Movies", after.Object.Class)
+		assert.Equal(t, before.ID(), after.ID())
+		assert.Equal(t, before.DocID, after.DocID)
+		assert.Equal(t, before.Vector, after.Vector)
+		assert.Equal(t, before.Properties(), after.Properties())
+	})
+
+	t.Run("skip=true followed by FromBinaryNetwork errors", func(t *testing.T) {
+		before := build()
+
+		data, err := before.MarshalBinaryDisk(true)
+		require.NoError(t, err)
+
+		_, err = FromBinaryNetwork(data)
+		require.Error(t, err)
+	})
+
+	t.Run("skip=true followed by FromBinaryDisk with empty className errors", func(t *testing.T) {
+		before := build()
+
+		data, err := before.MarshalBinaryDisk(true)
+		require.NoError(t, err)
+
+		_, err = FromBinaryDisk(data, "")
+		require.Error(t, err)
+	})
+}
