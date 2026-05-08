@@ -399,7 +399,12 @@ func TestAuthzAutoSchemaCollectionCreation(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+	// composeUp disables auto-schema by default (setup.go) — the helpers in
+	// this package focus on RBAC, not auto-schema. Override that here so the
+	// auto-schema path actually runs.
+	_, teardown := composeUpWithSettings(t,
+		map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil,
+		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false, false)
 
 	className := "AutoCreated"
 	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000010").Object()
@@ -522,7 +527,11 @@ func TestAuthzAutoSchemaPropertyAdd(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+	// composeUp disables auto-schema by default (setup.go); enable it here
+	// so the property-add path runs.
+	_, teardown := composeUpWithSettings(t,
+		map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil,
+		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false, false)
 
 	cls := articles.ParagraphsClass()
 	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000020").Object()
