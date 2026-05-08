@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AutoSchemaManager struct {
@@ -119,29 +120,21 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
-			err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
-			if err != nil {
-				return 0, fmt.Errorf("auto schema can't create objects because can't create collection: %w", err)
-			}
-
 			// it returns the newly created class and version
-			schemaClass, schemaVersion, err = m.createClass(ctx, principal, object.Class, properties)
+			schemaClass, schemaVersion, err = m.createClass(ctx, principal, namespacing.StripOwnNS(principal, object.Class), properties)
 			if err != nil {
-				return 0, err
+				return 0, fmt.Errorf("auto schema: can't create collection: %w", err)
 			}
 
 			classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
-				err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
-				if err != nil {
-					return 0, fmt.Errorf("auto schema can't create objects because can't update collection: %w", err)
-				}
+				var err error
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
-					principal, schemaClass.Class, true, newProperties...)
+					principal, namespacing.StripOwnNS(principal, schemaClass.Class), true, newProperties...)
 				if err != nil {
-					return 0, err
+					return 0, fmt.Errorf("auto schema: can't update collection: %w", err)
 				}
 				classes[object.Class] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
@@ -549,23 +542,14 @@ func (m *AutoSchemaManager) autoTenants(ctx context.Context,
 			!vclass.Class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
 		}
-		names := make([]string, len(tenantNames))
-		tenants := make([]*models.Tenant, len(tenantNames))
-		i := 0
+		tenants := make([]*models.Tenant, 0, len(tenantNames))
 		for name := range tenantNames {
-			names[i] = name
-			tenants[i] = &models.Tenant{Name: name}
-			i++
+			tenants = append(tenants, &models.Tenant{Name: name})
 		}
-		err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
-		if err != nil {
-			return 0, totalTenants, fmt.Errorf("add tenants because can't create collection: %w", err)
-		}
-
 		addStart := time.Now()
 		autoTenantVersion, err := m.addTenants(ctx, principal, className, tenants)
 		if err != nil {
-			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
+			return 0, totalTenants, fmt.Errorf("auto-tenant creation: add tenants to class %q: %w", className, err)
 		}
 		m.tenantsCount.Add(float64(len(tenants)))
 		m.opsDuration.With(prometheus.Labels{
@@ -590,7 +574,7 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return 0, fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
+	version, err := m.schemaManager.AddTenants(ctx, principal, namespacing.StripOwnNS(principal, class), tenants)
 	if err != nil {
 		return 0, err
 	}

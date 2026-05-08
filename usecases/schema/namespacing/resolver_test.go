@@ -291,3 +291,67 @@ func TestResolve(t *testing.T) {
 		})
 	}
 }
+
+func TestStripOwnNS(t *testing.T) {
+	cases := []struct {
+		testName  string
+		principal *models.Principal
+		input     string
+		want      string
+	}{
+		{
+			testName:  "own-prefix stripped",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			input:     "customer1:Movies",
+			want:      "Movies",
+		},
+		{
+			testName:  "foreign prefix passes through unchanged",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			input:     "customer2:Movies",
+			want:      "customer2:Movies",
+		},
+		{
+			testName:  "short input passes through unchanged",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			input:     "Movies",
+			want:      "Movies",
+		},
+		{
+			testName:  "global principal passes through unchanged",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			input:     "customer1:Movies",
+			want:      "customer1:Movies",
+		},
+		{
+			testName:  "nil principal passes through unchanged",
+			principal: nil,
+			input:     "customer1:Movies",
+			want:      "customer1:Movies",
+		},
+		{
+			testName:  "empty namespace passes through unchanged",
+			principal: &models.Principal{Username: "u"},
+			input:     "customer1:Movies",
+			want:      "customer1:Movies",
+		},
+		{
+			testName:  "exact match strips to empty",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			input:     "customer1:",
+			want:      "",
+		},
+		{
+			testName:  "namespace as substring without separator passes through",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			input:     "customer1Movies",
+			want:      "customer1Movies",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.testName, func(t *testing.T) {
+			got := StripOwnNS(tc.principal, tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
