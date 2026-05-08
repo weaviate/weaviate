@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -39,7 +38,6 @@ import (
 
 type AutoSchemaManager struct {
 	mutex         sync.RWMutex
-	authorizer    authorization.Authorizer
 	schemaManager schemaManager
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
@@ -51,7 +49,7 @@ type AutoSchemaManager struct {
 }
 
 func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
-	config *config.WeaviateConfig, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	reg prometheus.Registerer,
 ) *AutoSchemaManager {
 	r := promauto.With(reg)
@@ -76,7 +74,6 @@ func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 		vectorRepo:    vectorRepo,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
-		authorizer:    authorizer,
 		tenantsCount:  tenantsCount,
 		opsDuration:   opDuration,
 	}

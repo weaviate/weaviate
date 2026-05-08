@@ -88,10 +88,11 @@ func QualifyClass(principal *models.Principal, nsEnabled bool, name string) stri
 }
 
 // StripOwnNS removes the principal's own namespace prefix from name when
-// present. Returns name unchanged when the principal has no namespace
-// (global principal or NS-disabled cluster) or when the prefix does not
-// match (foreign prefix or short input). A foreign prefix is left intact
-// so downstream ValidateClassName fails closed on the embedded ":".
+// present. Returns name unchanged when principal.Namespace is empty (global
+// principal; also the case on NS-disabled clusters, where principals never
+// carry a namespace) or when the prefix does not match (foreign prefix or
+// short input). A foreign prefix is left intact so downstream
+// ValidateClassName fails closed on the embedded ":".
 func StripOwnNS(principal *models.Principal, name string) string {
 	if principal == nil || principal.Namespace == "" {
 		return name
