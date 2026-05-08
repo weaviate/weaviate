@@ -88,9 +88,14 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !recoverableSidecarLoadErr(err) {
 				return err
+			}
+
+			if errors.Is(err, os.ErrNotExist) {
+				s.logger.WithField("action", "lsm_recover_missing_sidecar").
+					WithField("path", path).WithError(err).
+					Warn("primary bloom filter sidecar missing despite directory listing; recomputing from segment")
 			}
 
 			// now continue re-calculating
@@ -177,9 +182,16 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFile
 				return nil
 			}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
+			if !recoverableSidecarLoadErr(err) {
 				return err
+			}
+
+			if errors.Is(err, os.ErrNotExist) {
+				s.logger.WithField("action", "lsm_recover_missing_sidecar").
+					WithField("path", path).
+					WithField("secondary_index_position", pos).
+					WithError(err).
+					Warn("secondary bloom filter sidecar missing despite directory listing; recomputing from segment")
 			}
 
 			// now continue re-calculating
