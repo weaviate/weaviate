@@ -111,6 +111,7 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	if aliases := m.schema.AliasesInNamespace(req.Name); len(aliases) > 0 {
 		return fmt.Errorf("%w: %d alias(es) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(aliases), req.Name)
 	}
+	// dynusers is nil when dynamic users are disabled.
 	if m.dynusers != nil {
 		if users := m.dynusers.UsersInNamespace(req.Name); len(users) > 0 {
 			return fmt.Errorf("%w: %d user(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(users), req.Name)

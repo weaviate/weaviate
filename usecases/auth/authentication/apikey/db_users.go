@@ -287,6 +287,11 @@ func (c *DBUser) deleteUserLocked(userId string) {
 
 // UsersInNamespace returns the IDs of users bound to namespace in
 // unspecified order. An empty namespace returns nil.
+//
+// The returned IDs are the internal qualified storage keys
+// ([MakeUserKey] form, e.g. "alpha:bob"), not the bare short IDs the
+// caller passed to CreateUser. Treat them as opaque handles for
+// existence/count checks; do not surface them in user-facing responses.
 func (c *DBUser) UsersInNamespace(namespace string) []string {
 	if namespace == "" {
 		return nil

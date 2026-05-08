@@ -183,16 +183,12 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 	// the dynusers active-namespace gate rejects any concurrent CreateUser
 	// before we drain the user list.
 	if err := h.raft.ChangeNamespaceState(name, cmd.NamespaceStateDeleting); err != nil {
-		switch {
-		case errors.Is(err, usecasesNamespaces.ErrNotFound):
+		if errors.Is(err, usecasesNamespaces.ErrNotFound) {
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
-		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
-			return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		default:
-			return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("marking namespace for deletion: %w", err)))
 		}
+		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("marking namespace for deletion: %w", err)))
 	}
 	if err := h.raft.DeleteUsersInNamespace(name); err != nil {
 		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(

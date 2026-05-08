@@ -76,10 +76,10 @@ func TestNamespaces_DeleteHappyPath(t *testing.T) {
 }
 
 // TestNamespaces_DeleteUserAuthBlockedClusterWide creates a namespace +
-// DB user, deletes the namespace, and asserts the user's API key fails
-// with 401 against every replica. The synchronous DeleteUsersInNamespace
-// command combined with RAFT replication means the user record is gone
-// on all nodes by the time DELETE returns 202.
+// DB user, deletes the namespace, and asserts the user's API key
+// eventually fails with 401 against every replica. The leader applies
+// the synchronous DeleteUsersInNamespace before returning 202; followers
+// apply asynchronously, so each node is polled until auth is rejected.
 func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 	const (
 		ns     = "delauth"
@@ -95,18 +95,24 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 
 	// Issue the delete; do not wait for full cleanup — the auth-blocked
 	// guarantee is established by the synchronous user-delete RAFT
-	// command, which has applied by the time the 202 is received.
+	// command, which has committed by the time the 202 is received.
 	helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
 
-	// On every replica, the user's API key must now be rejected.
+	// On every replica, the user's API key must eventually be rejected.
 	originalURI := sharedCompose.GetWeaviate().URI()
 	t.Cleanup(func() { helper.SetupClient(originalURI) })
 	for i := 1; i <= 3; i++ {
 		nodeURI := sharedCompose.GetWeaviateNode(i).URI()
 		helper.SetupClient(nodeURI)
-		_, err := schemaDumpAs(t, userKey)
-		require.Error(t, err, "auth must fail on node %s after namespace delete", nodeURI)
-		assertUnauthorized(t, err)
+		assert.Eventually(t, func() bool {
+			_, err := schemaDumpAs(t, userKey)
+			if err == nil {
+				return false
+			}
+			var unauth *schema.SchemaDumpUnauthorized
+			return errors.As(err, &unauth)
+		}, 10*time.Second, 50*time.Millisecond,
+			"auth must fail on node %s after namespace delete", nodeURI)
 	}
 	// Restore for subsequent tests; t.Cleanup also covers it.
 	helper.SetupClient(originalURI)
@@ -234,13 +240,4 @@ func schemaDumpAs(t *testing.T, key string) (any, error) {
 		schema.NewSchemaDumpParams(),
 		helper.CreateAuth(key),
 	)
-}
-
-// assertUnauthorized fails the test unless err is the swagger-generated
-// 401 type for SchemaDump.
-func assertUnauthorized(t *testing.T, err error) {
-	t.Helper()
-	require.Error(t, err)
-	var unauth *schema.SchemaDumpUnauthorized
-	require.True(t, errors.As(err, &unauth), "expected 401 SchemaDumpUnauthorized, got %T: %v", err, err)
 }
