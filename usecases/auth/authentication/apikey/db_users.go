@@ -288,10 +288,11 @@ func (c *DBUser) deleteUserLocked(userId string) {
 // UsersInNamespace returns the IDs of users bound to namespace in
 // unspecified order. An empty namespace returns nil.
 //
-// The returned IDs are the internal qualified storage keys
-// ([MakeUserKey] form, e.g. "alpha:bob"), not the bare short IDs the
-// caller passed to CreateUser. Treat them as opaque handles for
-// existence/count checks; do not surface them in user-facing responses.
+// The returned IDs are whatever userId was passed to CreateUser. In the
+// namespaced-handler path that is the [MakeUserKey] qualified form (e.g.
+// "alpha:bob"); DBUser itself does not enforce that shape. Treat them as
+// opaque handles for existence/count checks; do not surface them in
+// user-facing responses.
 func (c *DBUser) UsersInNamespace(namespace string) []string {
 	if namespace == "" {
 		return nil
@@ -317,17 +318,15 @@ func (c *DBUser) DeleteUsersInNamespace(namespace string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	matches := make([]string, 0)
+	deleted := false
 	for id, u := range c.data.Users {
 		if u != nil && u.Namespace == namespace {
-			matches = append(matches, id)
+			c.deleteUserLocked(id)
+			deleted = true
 		}
 	}
-	if len(matches) == 0 {
+	if !deleted {
 		return nil
-	}
-	for _, id := range matches {
-		c.deleteUserLocked(id)
 	}
 	return c.storeToFile()
 }

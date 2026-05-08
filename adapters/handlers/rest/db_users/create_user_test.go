@@ -386,9 +386,13 @@ func TestCreateUser_Namespaces(t *testing.T) {
 	}
 }
 
-// TestCreateUser_NamespaceTOCTOU asserts apply-time namespace-gone /
-// namespace-deleting errors map to 422, unrelated errors to 500.
-func TestCreateUser_NamespaceTOCTOU(t *testing.T) {
+// TestCreateUser_MapsApplyNamespaceErrorsTo422 asserts the createUser
+// handler classifies apply-layer namespace sentinels as retryable client
+// errors (422) and everything else as 500. The handler's pre-flight
+// Exists check can race with a concurrent namespace delete, so a 500
+// would be misleading: the request is well-formed, the namespace just
+// vanished underneath it.
+func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 	const userID = "user"
 
 	tests := []struct {

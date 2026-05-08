@@ -18,8 +18,7 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// SchemaSource is the subset of [schema.SchemaReader] consumed by
-// [SchemaNamespaceLister]; defined as an interface so tests can stub it.
+// SchemaSource is the subset of the schema reader used here.
 type SchemaSource interface {
 	ReadSchema(reader func(models.Class, uint64)) error
 	Aliases() map[string]string
@@ -35,18 +34,20 @@ func NewSchemaNamespaceLister(src SchemaSource) *SchemaNamespaceLister {
 	return &SchemaNamespaceLister{src: src}
 }
 
-func (a *SchemaNamespaceLister) ClassesInNamespace(namespace string) []string {
+func (a *SchemaNamespaceLister) ClassesInNamespace(namespace string) ([]string, error) {
 	if namespace == "" {
-		return nil
+		return nil, nil
 	}
 	prefix := namespace + entschema.NamespaceSeparator
 	out := make([]string, 0)
-	_ = a.src.ReadSchema(func(class models.Class, _ uint64) {
+	if err := a.src.ReadSchema(func(class models.Class, _ uint64) {
 		if strings.HasPrefix(class.Class, prefix) {
 			out = append(out, class.Class)
 		}
-	})
-	return out
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (a *SchemaNamespaceLister) AliasesInNamespace(namespace string) []string {

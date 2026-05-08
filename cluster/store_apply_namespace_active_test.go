@@ -26,9 +26,17 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// namespaceTouchingCreateLikeApplyTypes lists apply types gated by
-// requireNamespaceActive. New create-like types that own namespace-bound
-// state must be added here; the drift test fails otherwise.
+// This file tests the namespace check at the top of store.Apply. The
+// check rejects any command that would create a class, alias, or user
+// inside a namespace that does not exist or is being deleted.
+//
+// The two maps below split every ApplyRequest type into the commands the
+// check must reject and the commands it must let through (including the
+// namespace lifecycle commands themselves). TestApplyTypeNamespaceGate-
+// Classification fails the build when a new type is added without being
+// placed in one of the two maps, so the author has to pick a side.
+
+// Commands the namespace check rejects when the namespace is gone or deleting.
 var namespaceTouchingCreateLikeApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:     {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS: {},
@@ -37,9 +45,7 @@ var namespaceTouchingCreateLikeApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPSERT_USER:   {},
 }
 
-// nonNamespaceTouchingApplyTypes lists apply types the gate must not
-// reject — either they don't mint namespace-owned state or they are the
-// namespace lifecycle commands themselves.
+// Commands the namespace check always lets through.
 var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_DELETE_CLASS:                                               {},
@@ -136,24 +142,6 @@ func TestRequireNamespaceActive(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-		})
-	}
-}
-
-func TestNamespaceFromQualified(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "no separator returns empty", in: "MyClass", want: ""},
-		{name: "qualified name returns namespace", in: "alpha:MyClass", want: "alpha"},
-		{name: "empty input returns empty", in: "", want: ""},
-		{name: "leading separator returns empty namespace prefix", in: ":MyClass", want: ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, namespaceFromQualified(tc.in))
 		})
 	}
 }
@@ -265,5 +253,5 @@ func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 
 type emptySchemaLister struct{}
 
-func (emptySchemaLister) ClassesInNamespace(string) []string { return nil }
-func (emptySchemaLister) AliasesInNamespace(string) []string { return nil }
+func (emptySchemaLister) ClassesInNamespace(string) ([]string, error) { return nil, nil }
+func (emptySchemaLister) AliasesInNamespace(string) []string          { return nil }

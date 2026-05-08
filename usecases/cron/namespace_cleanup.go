@@ -74,7 +74,12 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 	}
 	errors.GoWrapper(func() {
 		jobLogger := c.logger.WithField("job", namespaceCleanupJobName)
-		wgRunning := new(sync.WaitGroup)
+		// runMu is held by the cron callback for the duration of one tick.
+		// The registration loop acquires/releases it as a barrier to wait
+		// for an in-flight tick before re-registering. Mutex is used over
+		// WaitGroup because Add called concurrently with Wait is documented
+		// WaitGroup misuse.
+		runMu := new(sync.Mutex)
 
 		for {
 			select {
@@ -87,7 +92,8 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 					continue
 				}
 
-				wgRunning.Wait()
+				runMu.Lock()
+				runMu.Unlock()
 				select {
 				case <-c.serverShutdownCtx.Done():
 					jobLogger.Debug("server shutdown context cancelled")
@@ -96,7 +102,7 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 				}
 
 				schedule := fmt.Sprintf("@every %s", interval)
-				job := c.createJob(jobLogger, clusterService, coordinator, wgRunning)
+				job := c.createJob(jobLogger, clusterService, coordinator, runMu)
 				entryId, err := cr.AddJob(schedule, job, gocron.WithName(namespaceCleanupJobName))
 				if err != nil {
 					jobLogger.WithError(err).Error("cron job not added")
@@ -119,16 +125,17 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 
 // createJob returns the per-tick callback. SkipIfStillRunning prevents
 // overlap at the cron layer; the coordinator additionally guards against
-// concurrent ticks.
+// concurrent ticks. runMu is held for the tick duration so the
+// registration loop can barrier-wait via Lock/Unlock before re-registering.
 func (c *cronsNamespaceCleanup) createJob(jobLogger logrus.FieldLogger,
 	clusterService *cluster.Service, coordinator *namespacecleanup.Coordinator,
-	wgRunning *sync.WaitGroup,
+	runMu *sync.Mutex,
 ) gocron.Job {
 	return gocron.NewChain(
 		gocron.SkipIfStillRunning(c.gocronLogger),
 	).Then(gocron.FuncJob(func() {
-		wgRunning.Add(1)
-		defer wgRunning.Done()
+		runMu.Lock()
+		defer runMu.Unlock()
 
 		if !clusterService.IsLeader() {
 			return

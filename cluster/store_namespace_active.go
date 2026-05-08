@@ -12,9 +12,6 @@
 package cluster
 
 import (
-	"strings"
-
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -32,14 +29,4 @@ func requireNamespaceActive(exister namespaces.Exister, namespace string) error 
 		return nil
 	}
 	return namespaces.ErrNamespaceDeleting
-}
-
-// namespaceFromQualified returns the namespace portion of a qualified name
-// ("<ns>:<entity>"). Names without the separator are unnamespaced and
-// return "".
-func namespaceFromQualified(name string) string {
-	if ns, _, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
-		return ns
-	}
-	return ""
 }

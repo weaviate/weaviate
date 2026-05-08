@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -177,7 +178,7 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(cmd.Class)); err != nil {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -186,7 +187,7 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(cmd.Class)); err != nil {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -236,7 +237,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(req.Alias)); err != nil {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
 				ret.Error = err
 				return
 			}
@@ -249,7 +250,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
 				return
 			}
-			if err := requireNamespaceActive(st.namespaceManager, namespaceFromQualified(req.Alias)); err != nil {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
 				ret.Error = err
 				return
 			}

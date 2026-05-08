@@ -27,7 +27,7 @@ import (
 // SchemaNamespaceLister returns the classes and aliases that belong to a
 // namespace.
 type SchemaNamespaceLister interface {
-	ClassesInNamespace(namespace string) []string
+	ClassesInNamespace(namespace string) ([]string, error)
 	AliasesInNamespace(namespace string) []string
 }
 
@@ -105,7 +105,11 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	if classes := m.schema.ClassesInNamespace(req.Name); len(classes) > 0 {
+	classes, err := m.schema.ClassesInNamespace(req.Name)
+	if err != nil {
+		return fmt.Errorf("list classes in namespace %q: %w", req.Name, err)
+	}
+	if len(classes) > 0 {
 		return fmt.Errorf("%w: %d class(es) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(classes), req.Name)
 	}
 	if aliases := m.schema.AliasesInNamespace(req.Name); len(aliases) > 0 {

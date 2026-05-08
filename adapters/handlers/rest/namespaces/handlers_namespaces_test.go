@@ -125,10 +125,11 @@ func TestCreateNamespace_UnprocessableEntity(t *testing.T) {
 	}
 }
 
-// TestCreateNamespace_Conflict covers both 409 flavors. ErrAlreadyExists
-// is the TOCTOU "name in use" case; ErrNamespaceDeleting is the recreate-
-// while-deleting case. They share the response type but carry different
-// human-readable messages.
+// TestCreateNamespace_Conflict checks that create returns 409 in two
+// cases: when the name belongs to an active namespace, and when the name
+// belongs to one that is still being deleted. Both map to the same
+// response type, so the test also asserts each carries its own distinct
+// message so clients can tell the two situations apart.
 func TestCreateNamespace_Conflict(t *testing.T) {
 	tests := []struct {
 		name       string

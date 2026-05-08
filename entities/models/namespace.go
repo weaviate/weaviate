@@ -30,11 +30,10 @@ import (
 //
 // swagger:model Namespace
 type Namespace struct {
-
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
 
-	// Lifecycle state. "active" namespaces accept all operations; "deleting" namespaces are being torn down by the leader and reject create-like operations until the entry is fully removed.
+	// Lifecycle state. "active" namespaces accept all operations. "deleting" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.
 	// Enum: [active deleting]
 	State string `json:"state,omitempty"`
 }

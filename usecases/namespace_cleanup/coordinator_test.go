@@ -33,11 +33,17 @@ func (s stubNamespaces) ListDeleting() []string { return s.deleting }
 
 // stubSchema returns the configured per-namespace residuals.
 type stubSchema struct {
-	classes map[string][]string
-	aliases map[string][]string
+	classes    map[string][]string
+	aliases    map[string][]string
+	classesErr error
 }
 
-func (s stubSchema) ClassesInNamespace(ns string) []string { return s.classes[ns] }
+func (s stubSchema) ClassesInNamespace(ns string) ([]string, error) {
+	if s.classesErr != nil {
+		return nil, s.classesErr
+	}
+	return s.classes[ns], nil
+}
 func (s stubSchema) AliasesInNamespace(ns string) []string { return s.aliases[ns] }
 
 // recordedCall captures a single RAFT call for ordering assertions.
@@ -163,6 +169,21 @@ func TestCoordinator_Tick_OrderingAcrossPhases(t *testing.T) {
 	assert.Equal(t, "class", raft.calls[3].op)
 	assert.Equal(t, "class", raft.calls[4].op)
 	assert.Equal(t, recordedCall{op: "entity", arg: "alpha", from: "alpha"}, raft.calls[5])
+}
+
+func TestCoordinator_Tick_ClassesInNamespaceErrorAbortsNamespace(t *testing.T) {
+	raft := newStubRaft()
+	wantErr := errors.New("read schema failed")
+	ns := stubNamespaces{deleting: []string{"alpha"}}
+	schema := stubSchema{classesErr: wantErr}
+	c := newTestCoordinator(t, ns, schema, raft, alwaysLeader)
+
+	// Tick logs the per-namespace error and returns nil; RemoveNamespaceEntity
+	// must not be issued because we cannot prove the namespace is empty.
+	require.NoError(t, c.Tick(context.Background()))
+	for _, call := range raft.calls {
+		assert.NotEqual(t, "entity", call.op, "RemoveNamespaceEntity must not run after a ClassesInNamespace error")
+	}
 }
 
 func TestCoordinator_Tick_RemoveEntityNotEmptyIsSwallowed(t *testing.T) {

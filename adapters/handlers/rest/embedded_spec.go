@@ -8244,7 +8244,7 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations; \"deleting\" namespaces are being torn down by the leader and reject create-like operations until the entry is fully removed.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",
@@ -18919,7 +18919,7 @@ func init() {
           "type": "string"
         },
         "state": {
-          "description": "Lifecycle state. \"active\" namespaces accept all operations; \"deleting\" namespaces are being torn down by the leader and reject create-like operations until the entry is fully removed.",
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
           "enum": [
             "active",

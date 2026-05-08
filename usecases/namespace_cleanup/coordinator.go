@@ -9,9 +9,25 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package namespacecleanup deletes the contents of a namespace in the
-// deleting state and then removes the namespace entry. Runs on the
-// leader only.
+// Package namespacecleanup runs the leader-side cascade that empties a
+// namespace once it has been marked for deletion.
+//
+// Deletion is split into a fast synchronous half and a slow
+// asynchronous half. The DELETE handler flips the namespace to
+// deleting, drains its DB users, and returns 202. This package then
+// removes the rest on a periodic tick: aliases, then classes, then
+// the namespace entry itself. Aliases come before classes because an
+// alias points at a class. Class deletion is the slow part, which is
+// why it lives here rather than in the request path.
+//
+// The user delete is re-run on every tick as a safety net in case the
+// handler crashed between marking and the eager drain.
+//
+// Every step is a separate replicated command, so any failure is
+// retried on the next tick. Because the coordinator's view of what
+// still belongs to a namespace can lag behind the leader, the final
+// entity removal is re-checked at apply time and rejected if anything
+// still owns the namespace; the next tick retries.
 package namespacecleanup
 
 import (
@@ -33,7 +49,7 @@ type namespaceLister interface {
 
 // schemaLister returns the classes and aliases that belong to a namespace.
 type schemaLister interface {
-	ClassesInNamespace(namespace string) []string
+	ClassesInNamespace(namespace string) ([]string, error)
 	AliasesInNamespace(namespace string) []string
 }
 
@@ -129,7 +145,11 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 			return err
 		}
 	}
-	for _, cls := range c.schema.ClassesInNamespace(ns) {
+	classes, err := c.schema.ClassesInNamespace(ns)
+	if err != nil {
+		return fmt.Errorf("list classes in namespace %q: %w", ns, err)
+	}
+	for _, cls := range classes {
 		if !c.isLeader() {
 			return types.ErrNotLeader
 		}

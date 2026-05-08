@@ -28,10 +28,10 @@ func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), stubResiduals{}, nil, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, logger)
 }
 
-func newTestManagerWithResiduals(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister) *Manager {
+func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
@@ -81,7 +81,7 @@ func TestNewManager_RequiredArgsPanic(t *testing.T) {
 		controller *usecasesNamespaces.Controller
 		schema     SchemaNamespaceLister
 	}{
-		{name: "nil controller panics", controller: nil, schema: stubResiduals{}},
+		{name: "nil controller panics", controller: nil, schema: stubLeftovers{}},
 		{name: "nil schema lister panics", controller: controller, schema: nil},
 	}
 	for _, tc := range tests {
@@ -159,39 +159,39 @@ func TestManager_RemoveEntity(t *testing.T) {
 	}
 }
 
-// stubResiduals is a residuals reader stub.
-type stubResiduals struct {
+// stubLeftovers is a leftovers reader stub.
+type stubLeftovers struct {
 	classes []string
 	aliases []string
 	users   []string
 }
 
-func (s stubResiduals) ClassesInNamespace(string) []string { return s.classes }
-func (s stubResiduals) AliasesInNamespace(string) []string { return s.aliases }
-func (s stubResiduals) UsersInNamespace(string) []string   { return s.users }
+func (s stubLeftovers) ClassesInNamespace(string) ([]string, error) { return s.classes, nil }
+func (s stubLeftovers) AliasesInNamespace(string) []string          { return s.aliases }
+func (s stubLeftovers) UsersInNamespace(string) []string            { return s.users }
 
-func TestManager_RemoveEntity_Residuals(t *testing.T) {
+func TestManager_RemoveEntity_Leftovers(t *testing.T) {
 	tests := []struct {
 		name      string
-		residuals stubResiduals
+		leftovers stubLeftovers
 		wantErr   error
 	}{
-		{name: "no residuals removes the entity", residuals: stubResiduals{}},
-		{name: "residual class blocks", residuals: stubResiduals{classes: []string{"customer1:Foo"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
-		{name: "residual alias blocks", residuals: stubResiduals{aliases: []string{"customer1:Bar"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
-		{name: "residual user blocks", residuals: stubResiduals{users: []string{"u1"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "no leftovers removes the entity", leftovers: stubLeftovers{}},
+		{name: "leftover class blocks", leftovers: stubLeftovers{classes: []string{"customer1:Foo"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "leftover alias blocks", leftovers: stubLeftovers{aliases: []string{"customer1:Bar"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
+		{name: "leftover user blocks", leftovers: stubLeftovers{users: []string{"u1"}}, wantErr: usecasesNamespaces.ErrNamespaceNotEmpty},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestManagerWithResiduals(t, tc.residuals, tc.residuals)
+			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers)
 			require.NoError(t, m.Add(addCmd(t, "customer1")))
 			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting)))
 
 			err := m.RemoveEntity(removeEntityCmd(t, "customer1"))
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
-				assert.True(t, m.Exists("customer1"), "namespace must remain when residuals block removal")
+				assert.True(t, m.Exists("customer1"), "namespace must remain when leftovers block removal")
 				return
 			}
 			require.NoError(t, err)

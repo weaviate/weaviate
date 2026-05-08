@@ -12,9 +12,11 @@
 package cluster
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -32,6 +34,13 @@ func (f fakeSchemaSource) ReadSchema(reader func(models.Class, uint64)) error {
 }
 
 func (f fakeSchemaSource) Aliases() map[string]string { return f.aliases }
+
+type failingSchemaSource struct {
+	err error
+}
+
+func (f failingSchemaSource) ReadSchema(func(models.Class, uint64)) error { return f.err }
+func (f failingSchemaSource) Aliases() map[string]string                  { return nil }
 
 func TestSchemaNamespaceLister_ClassesInNamespace(t *testing.T) {
 	src := fakeSchemaSource{classes: []string{
@@ -55,9 +64,20 @@ func TestSchemaNamespaceLister_ClassesInNamespace(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, a.ClassesInNamespace(tc.namespace))
+			got, err := a.ClassesInNamespace(tc.namespace)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestSchemaNamespaceLister_ClassesInNamespace_ReadSchemaError(t *testing.T) {
+	wantErr := errors.New("boom")
+	a := &SchemaNamespaceLister{src: failingSchemaSource{err: wantErr}}
+
+	got, err := a.ClassesInNamespace("alpha")
+	require.ErrorIs(t, err, wantErr)
+	assert.Nil(t, got)
 }
 
 func TestSchemaNamespaceLister_AliasesInNamespace(t *testing.T) {
@@ -94,6 +114,8 @@ func TestSchemaNamespaceLister_PrefixIsExact(t *testing.T) {
 	}
 	a := &SchemaNamespaceLister{src: src}
 
-	assert.Equal(t, []string{"alpha:Foo"}, a.ClassesInNamespace("alpha"))
+	classes, err := a.ClassesInNamespace("alpha")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha:Foo"}, classes)
 	assert.ElementsMatch(t, []string{"alpha:A1"}, a.AliasesInNamespace("alpha"))
 }
