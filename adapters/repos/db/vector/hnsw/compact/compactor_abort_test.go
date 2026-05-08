@@ -110,7 +110,7 @@ func TestCompactor_AbortMidConvertToSorted_RestartLoadsCleanly(t *testing.T) {
 
 	config := DefaultCompactorConfig(dir)
 	config.FS = fs
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	shouldAbort := func() bool { return opens.Load() >= 2 }
 
@@ -168,7 +168,7 @@ func TestCompactor_AbortAtTopOfRunCycle_RestartLoadsCleanly(t *testing.T) {
 	createTestWALFile(t, filepath.Join(dir, "9999999999"), func(w *WALWriter) {})
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	_, err := compactor.RunCycle(func() bool { return true })
 	require.True(t, errors.Is(err, ErrCompactionAborted),
@@ -234,7 +234,7 @@ func TestCompactor_AbortMidMergeSorted_RestartLoadsCleanly(t *testing.T) {
 
 	config := DefaultCompactorConfig(dir)
 	config.MaxFilesPerMerge = 2
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	_, err := compactor.RunCycle(shouldAbort)
 	require.True(t, errors.Is(err, ErrCompactionAborted),
@@ -287,7 +287,7 @@ func TestCompactor_AbortMidCreateSnapshot_RestartLoadsCleanly(t *testing.T) {
 	shouldAbort := func() bool { return calls.Add(1) >= 4 }
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	_, err := compactor.RunCycle(shouldAbort)
 	require.True(t, errors.Is(err, ErrCompactionAborted),
