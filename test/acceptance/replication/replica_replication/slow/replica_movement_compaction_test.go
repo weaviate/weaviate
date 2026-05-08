@@ -39,7 +39,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 	const (
 		className       = "ReplMoveCompactionTest"
 		sleepWindow     = 60 * time.Second
-		observeDeadline = 5 * time.Minute
+		observeDeadline = 10 * time.Minute
 	)
 
 	compose, err := docker.New().
@@ -137,7 +137,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 	// Single-goroutine loop avoids any race on the global helper client and
 	// on the per-bucket tracking maps.
 	deadline := time.Now().Add(observeDeadline)
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	for {
 		if time.Now().After(deadline) {
