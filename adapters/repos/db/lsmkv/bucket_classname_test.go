@@ -12,7 +12,11 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -284,4 +288,129 @@ func TestObjectsBucket_RoundTripWithSkipClassName(t *testing.T) {
 
 	_, err = storobj.FromBinaryNetwork(stored)
 	require.Error(t, err, "FromBinaryNetwork must error when on-disk class is empty")
+}
+
+// TestObjectsBucket_OnDiskSegmentsWithoutClassName covers the end-to-end
+// persistence path:
+//
+//   - several objects are written with skipClassName=true and individually
+//     flushed so each lives in its own .db segment file on disk;
+//   - the raw segment bytes are scanned to confirm the className body is
+//     absent (and a control case with skipClassName=false confirms the
+//     className IS present, validating the methodology);
+//   - the bucket is shut down and reopened from the same directory, then
+//     every object is read back and decoded, confirming the segments are
+//     re-discovered and the bucket's canonical className is stamped onto
+//     each decoded object.
+func TestObjectsBucket_OnDiskSegmentsWithoutClassName(t *testing.T) {
+	cases := []struct {
+		name             string
+		skipClassName    bool
+		wantClassInBytes bool
+	}{
+		{name: "skip=true, className absent from segments", skipClassName: true, wantClassInBytes: false},
+		{name: "skip=false, className present in segments", skipClassName: false, wantClassInBytes: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			noopCB := cyclemanager.NewCallbackGroupNoop()
+			dir := t.TempDir()
+			const className = "Movies"
+
+			open := func() *Bucket {
+				b, err := NewBucketCreator().NewBucket(ctx, dir, "", testLogger(), nil, noopCB, noopCB,
+					WithStrategy(StrategyReplace),
+					WithClassName(className),
+				)
+				require.NoError(t, err)
+				return b
+			}
+
+			bucket := open()
+
+			const numObjects = 4
+			ids := make([]strfmt.UUID, numObjects)
+			objs := make([]*storobj.Object, numObjects)
+			for i := 0; i < numObjects; i++ {
+				id := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i+1))
+				obj := storobj.FromObject(
+					&models.Object{
+						Class:              className,
+						CreationTimeUnix:   int64(1000 + i),
+						LastUpdateTimeUnix: int64(2000 + i),
+						ID:                 id,
+						Properties: map[string]interface{}{
+							"title": fmt.Sprintf("title-%d", i),
+						},
+					},
+					[]float32{float32(i), float32(i + 1), float32(i + 2)},
+					nil,
+					nil,
+				)
+				obj.DocID = uint64(i + 1)
+
+				objBytes, err := obj.MarshalBinaryDisk(tc.skipClassName)
+				require.NoError(t, err)
+
+				idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+				require.NoError(t, err)
+
+				require.NoError(t, bucket.Put(idBytes, objBytes))
+				require.NoError(t, bucket.FlushAndSwitch())
+
+				ids[i] = id
+				objs[i] = obj
+			}
+
+			require.NoError(t, bucket.Shutdown(ctx))
+
+			// Inspect the raw segment files: with skip=true the class name
+			// must not appear in any segment; with skip=false (control) it
+			// must appear in at least one segment.
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			segmentCount := 0
+			classNameSeen := false
+			for _, entry := range entries {
+				if filepath.Ext(entry.Name()) != ".db" {
+					continue
+				}
+				segmentCount++
+				data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+				require.NoError(t, err)
+				if bytes.Contains(data, []byte(className)) {
+					classNameSeen = true
+				}
+			}
+			require.GreaterOrEqual(t, segmentCount, numObjects,
+				"expected one .db segment per FlushAndSwitch")
+			assert.Equal(t, tc.wantClassInBytes, classNameSeen,
+				"className presence in raw segment bytes did not match expectation")
+
+			// Reopen the bucket from the same directory and confirm every
+			// object is still readable and decodes with the bucket's
+			// canonical className stamped on it.
+			bucket = open()
+			defer bucket.Shutdown(ctx)
+
+			for i, id := range ids {
+				idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+				require.NoError(t, err)
+
+				stored, err := bucket.Get(idBytes)
+				require.NoError(t, err)
+				require.NotNil(t, stored, "object %d missing after reopen", i)
+
+				decoded, err := storobj.FromBinaryDisk(stored, className)
+				require.NoError(t, err)
+				assert.Equal(t, className, decoded.Object.Class)
+				assert.Equal(t, objs[i].ID(), decoded.ID())
+				assert.Equal(t, objs[i].DocID, decoded.DocID)
+				assert.Equal(t, objs[i].Vector, decoded.Vector)
+				assert.Equal(t, objs[i].Properties(), decoded.Properties())
+			}
+		})
+	}
 }
