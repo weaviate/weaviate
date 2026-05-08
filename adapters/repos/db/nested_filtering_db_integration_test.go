@@ -19340,3 +19340,313 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringContainsAllOrCrossElement3Levels covers gap #7:
+// `cars.tags ContainsAll ["a","b"] OR cars.color=red` — locks in
+// today's docID-level ContainsAll (synthesized AND of same-path
+// Equals resolves at docID, so the two values can come from
+// different cars) combined with docID-level OR.
+//
+// Under the planned "correlated ContainsAll" rewrite, ContainsAll's
+// synthesized AND inherits the parent's same-element grouping
+// rule — both values must live on a single cars element. Docs that
+// satisfy ContainsAll only via cross-element splits flip OUT of the
+// ContainsAll branch; the OR with color=red still admits docs that
+// have red anywhere.
+func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(color string, tags ...string) map[string]any {
+		out := map[string]any{}
+		if color != "" {
+			out["color"] = color
+		}
+		if len(tags) > 0 {
+			anyTags := make([]any, len(tags))
+			for i, t := range tags {
+				anyTags[i] = t
+			}
+			out["tags"] = anyTags
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		tagsPath, colorPath string,
+		docs []docDef, want []strfmt.UUID,
+	) {
+		t.Helper()
+		containsAllF := func(path string, vals ...string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.ContainsAll,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		colorRedF := func() *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(colorPath)},
+			}}
+		}
+		orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT
+		// ContainsAll-as-docID-level-AND combined with OR. The
+		// ContainsAll branch matches docs that have both tag values
+		// somewhere across the cars hierarchy (potentially in
+		// different cars or different garages/countries). The OR
+		// adds docs whose cars contain color=red. Under correlated
+		// ContainsAll, only docs with a single car having BOTH tags
+		// satisfy the ContainsAll branch — cross-element split docs
+		// flip OUT of that branch and only stay in the result if
+		// the OR's color=red branch admits them.
+		t.Run("regression_ContainsAll_OR_cross_element", func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters: orF(
+					containsAllF(tagsPath, "a", "b"),
+					colorRedF(),
+				),
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "ContainsAllOrL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idSingleCarBothTags := uuid(1)    // [{tags=[a,b], color=blue}]
+		idSplitTagsAcrossCars := uuid(2)  // [{tags=[a]},{tags=[b]}] — KEY flip
+		idOnlyAWithRed := uuid(3)         // [{tags=[a], color=red}] — incl via OR
+		idOnlyA := uuid(4)                // [{tags=[a]}] — excl
+		idEmpty := uuid(5)                // empty — excl
+		idSingleCarBothTagsRed := uuid(6) // [{tags=[a,b], color=red}] — both
+		idSplitTagsButRed := uuid(7)      // [{tags=[a]},{tags=[b], color=red}] — same in/out via different paths
+		docs := []docDef{
+			{id: idSingleCarBothTags, props: wrap(car("blue", "a", "b")), note: "single car tags=[a,b], blue"},
+			{id: idSplitTagsAcrossCars, props: wrap(car("blue", "a"), car("blue", "b")), note: "tags split across cars, no red — KEY flip"},
+			{id: idOnlyAWithRed, props: wrap(car("red", "a")), note: "tags=[a], red"},
+			{id: idOnlyA, props: wrap(car("blue", "a")), note: "tags=[a], blue"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars"},
+			{id: idSingleCarBothTagsRed, props: wrap(car("red", "a", "b")), note: "single car tags=[a,b], red"},
+			{id: idSplitTagsButRed, props: wrap(car("blue", "a"), car("red", "b")), note: "tags split, red in cars[1]"},
+		}
+
+		runLevel(t, className, class,
+			"cars.tags", "cars.color",
+			docs,
+			// today: ContainsAll docID-level (a anywhere AND b
+			// anywhere) ∪ red anywhere.
+			[]strfmt.UUID{
+				idSingleCarBothTags, idSplitTagsAcrossCars,
+				idOnlyAWithRed, idSingleCarBothTagsRed, idSplitTagsButRed,
+			},
+			// expected after correlated ContainsAll:
+			// []strfmt.UUID{idSingleCarBothTags, idOnlyAWithRed,
+			//               idSingleCarBothTagsRed,
+			//               idSplitTagsButRed}
+			//   (idSplitTagsAcrossCars flips OUT — no single car
+			//   has both tags AND no red. idSplitTagsButRed stays
+			//   IN via the OR's red branch.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "ContainsAllOrL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idSingleCarBothTags := uuid(1)
+		idSplitTagsSameGarage := uuid(2) // [g0: {a},{b}] — KEY flip same garage
+		idOnlyAWithRed := uuid(3)
+		idOnlyA := uuid(4)
+		idEmpty := uuid(5)
+		idSingleCarBothTagsRed := uuid(6)
+		idSplitTagsSameGarageButRed := uuid(7)
+		idSplitTagsAcrossGarages := uuid(8) // L1 KEY: g0={a}; g1={b} — split across garages
+		docs := []docDef{
+			{id: idSingleCarBothTags, props: wrapG(garage(car("blue", "a", "b"))), note: "1g single car [a,b]"},
+			{id: idSplitTagsSameGarage, props: wrapG(garage(car("blue", "a"), car("blue", "b"))), note: "1g split same garage"},
+			{id: idOnlyAWithRed, props: wrapG(garage(car("red", "a"))), note: "1g tags=[a], red"},
+			{id: idOnlyA, props: wrapG(garage(car("blue", "a"))), note: "1g tags=[a], blue"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idSingleCarBothTagsRed, props: wrapG(garage(car("red", "a", "b"))), note: "1g single car [a,b] red"},
+			{id: idSplitTagsSameGarageButRed, props: wrapG(garage(car("blue", "a"), car("red", "b"))), note: "1g split same garage, red in cars[1]"},
+			{id: idSplitTagsAcrossGarages, props: wrapG(garage(car("blue", "a")), garage(car("blue", "b"))), note: "g0={a}; g1={b} — L1 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.tags", "garages.cars.color",
+			docs,
+			// today: ContainsAll docID across all cars regardless
+			// of garage layout.
+			[]strfmt.UUID{
+				idSingleCarBothTags, idSplitTagsSameGarage,
+				idOnlyAWithRed, idSingleCarBothTagsRed,
+				idSplitTagsSameGarageButRed, idSplitTagsAcrossGarages,
+			},
+			// expected after correlated ContainsAll:
+			// []strfmt.UUID{idSingleCarBothTags, idOnlyAWithRed,
+			//               idSingleCarBothTagsRed,
+			//               idSplitTagsSameGarageButRed}
+			//   (idSplitTagsSameGarage and idSplitTagsAcrossGarages
+			//   flip OUT — neither has a single car with both
+			//   tags. idSplitTagsSameGarageButRed stays IN via
+			//   red.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "ContainsAllOrL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idSingleCarBothTags := uuid(1)
+		idSplitTagsSameGarage := uuid(2)
+		idOnlyAWithRed := uuid(3)
+		idOnlyA := uuid(4)
+		idEmpty := uuid(5)
+		idSingleCarBothTagsRed := uuid(6)
+		idSplitTagsSameGarageButRed := uuid(7)
+		idSplitTagsAcrossGarages := uuid(8)
+		idSplitTagsAcrossCountries := uuid(9) // L2 KEY split across countries
+		docs := []docDef{
+			{id: idSingleCarBothTags, props: wrapC(country(garage(car("blue", "a", "b")))), note: "single chain [a,b]"},
+			{id: idSplitTagsSameGarage, props: wrapC(country(garage(car("blue", "a"), car("blue", "b")))), note: "split same garage"},
+			{id: idOnlyAWithRed, props: wrapC(country(garage(car("red", "a")))), note: "single chain tags=[a], red"},
+			{id: idOnlyA, props: wrapC(country(garage(car("blue", "a")))), note: "single chain tags=[a], blue"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idSingleCarBothTagsRed, props: wrapC(country(garage(car("red", "a", "b")))), note: "single chain [a,b] red"},
+			{id: idSplitTagsSameGarageButRed, props: wrapC(country(garage(car("blue", "a"), car("red", "b")))), note: "split same garage, red in cars[1]"},
+			{id: idSplitTagsAcrossGarages, props: wrapC(country(garage(car("blue", "a")), garage(car("blue", "b")))), note: "split garages within country"},
+			{id: idSplitTagsAcrossCountries, props: wrapC(country(garage(car("blue", "a"))), country(garage(car("blue", "b")))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.tags", "countries.garages.cars.color",
+			docs,
+			// today: ContainsAll docID-level across the entire
+			// countries.garages.cars hierarchy regardless of
+			// layout.
+			[]strfmt.UUID{
+				idSingleCarBothTags, idSplitTagsSameGarage,
+				idOnlyAWithRed, idSingleCarBothTagsRed,
+				idSplitTagsSameGarageButRed, idSplitTagsAcrossGarages,
+				idSplitTagsAcrossCountries,
+			},
+			// expected after correlated ContainsAll:
+			// []strfmt.UUID{idSingleCarBothTags, idOnlyAWithRed,
+			//               idSingleCarBothTagsRed,
+			//               idSplitTagsSameGarageButRed}
+			//   (every cross-car split — same garage, different
+			//   garages, or different countries — flips OUT.
+			//   Only docs whose single car has both tags or has
+			//   color=red survive.)
+		)
+	})
+}
