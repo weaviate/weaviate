@@ -151,6 +151,7 @@ func TestFromRPCError_NamespaceSentinels(t *testing.T) {
 		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
 		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
 		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrNotFound", send: namespaces.ErrNotFound},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,6 +175,7 @@ func TestClient_Apply_ReChainsNamespaceSentinels(t *testing.T) {
 		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
 		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
 		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrNotFound", send: namespaces.ErrNotFound},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -218,4 +220,11 @@ func TestFromRPCError_NotFoundDisambiguation(t *testing.T) {
 	// Namespace-gone uses the same code but is disambiguated by message.
 	parsed = fromRPCError(toRPCError(namespaces.ErrNamespaceGone))
 	require.ErrorIs(t, parsed, namespaces.ErrNamespaceGone)
+
+	// namespaces.ErrNotFound also uses NotFound — the message must drive
+	// re-chain to the namespace sentinel, not schemaUC.ErrNotFound, so the
+	// REST handler's errors.Is mapping returns 404 instead of 500.
+	parsed = fromRPCError(toRPCError(namespaces.ErrNotFound))
+	require.ErrorIs(t, parsed, namespaces.ErrNotFound)
+	require.NotErrorIs(t, parsed, schemaUC.ErrNotFound)
 }

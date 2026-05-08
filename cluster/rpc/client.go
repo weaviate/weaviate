@@ -297,8 +297,11 @@ func fromRPCError(err error) error {
 	msg := err.Error()
 	switch st.Code() {
 	case codes.NotFound:
-		if strings.Contains(msg, namespaces.ErrNamespaceGone.Error()) {
+		switch {
+		case strings.Contains(msg, namespaces.ErrNamespaceGone.Error()):
 			return errors.Join(err, namespaces.ErrNamespaceGone)
+		case strings.Contains(msg, namespaces.ErrNotFound.Error()):
+			return errors.Join(err, namespaces.ErrNotFound)
 		}
 		return errors.Join(err, schemaUC.ErrNotFound)
 	case codes.FailedPrecondition:

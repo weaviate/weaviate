@@ -741,16 +741,12 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 	return false
 }
 
+// canonicalAlias normalizes an alias name to its stored form. On
+// namespaced names ("<ns>:<Name>") only the class portion is uppercased;
+// the lowercase namespace prefix is preserved verbatim so namespace-prefix
+// matchers (e.g. AliasesInNamespace) and the canonical store key agree.
 func (s *schema) canonicalAlias(alias string) string {
-	if len(alias) < 1 {
-		return alias
-	}
-
-	if len(alias) == 1 {
-		return strings.ToUpper(alias)
-	}
-
-	return strings.ToUpper(string(alias[0])) + alias[1:]
+	return entSchema.UppercaseClassName(alias)
 }
 
 func (s *schema) GetAliasesForClass(class string) []*models.Alias {
