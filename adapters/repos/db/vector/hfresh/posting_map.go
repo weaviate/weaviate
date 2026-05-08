@@ -58,7 +58,6 @@ func (v *PostingMap) Size() int {
 	return v.data.Size()
 }
 
-// TotalVectors returns the most recently computed CountAllVectors value.
 func (v *PostingMap) TotalVectors() uint64 {
 	return v.totalVectors.Load()
 }
