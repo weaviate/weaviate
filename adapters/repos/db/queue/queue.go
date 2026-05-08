@@ -457,6 +457,17 @@ func (q *DiskQueue) Size() int64 {
 	return int64(q.recordCount)
 }
 
+func (q *DiskQueue) DiskUsage() int64 {
+	if q == nil {
+		return 0
+	}
+
+	q.m.RLock()
+	defer q.m.RUnlock()
+
+	return q.diskUsage
+}
+
 // Pause the dequeuing of tasks. If nowait is true, it returns immediately
 // without waiting for the currently running tasks to finish.
 // This does not prevent pushing new tasks to the queue.

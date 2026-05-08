@@ -18,6 +18,7 @@ import (
 	"iter"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -34,10 +35,11 @@ type PostingMetadata struct {
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
-	metrics    *Metrics
-	data       *xsync.Map[uint64, *PostingMetadata]
-	bucket     *PostingMapStore
-	sizeMetric *oncePer
+	metrics      *Metrics
+	data         *xsync.Map[uint64, *PostingMetadata]
+	bucket       *PostingMapStore
+	sizeMetric   *oncePer
+	totalVectors atomic.Uint64
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
@@ -54,6 +56,10 @@ func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
 // Size returns the total number of postings in the map.
 func (v *PostingMap) Size() int {
 	return v.data.Size()
+}
+
+func (v *PostingMap) TotalVectors() uint64 {
+	return v.totalVectors.Load()
 }
 
 // Iter returns an iterator over all postings in the map.
@@ -222,6 +228,7 @@ func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
 			return
 		}
 
+		v.totalVectors.Store(count)
 		v.metrics.SetSize(int(count))
 	})
 }
