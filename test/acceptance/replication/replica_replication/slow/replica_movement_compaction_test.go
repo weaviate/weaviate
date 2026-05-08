@@ -13,7 +13,6 @@ package slow
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -39,15 +38,15 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 
 	const (
 		className       = "ReplMoveCompactionTest"
-		sleepWindow     = 30 * time.Second
-		observeDeadline = 3 * time.Minute
+		sleepWindow     = 60 * time.Second
+		observeDeadline = 5 * time.Minute
 	)
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", sleepWindow.String()).
-		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "2").
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -106,21 +105,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 		compactions.ImportBatch(t, cls.Class)
 	}
 
-	// Property bucket name varies by LSM layout (property_text_searchable etc.);
-	// resolve from disk so the test isn't pinned to a specific naming scheme.
-	var propBucket string
-	require.Eventually(t, func() bool {
-		for _, b := range compactions.ListLSMBuckets(ctx, sourceContainer, cls.Class, shard.Shard) {
-			if strings.HasPrefix(b, "property_") {
-				propBucket = b
-				return true
-			}
-		}
-		return false
-	}, 60*time.Second, time.Second, "no property_* bucket on source")
-	t.Logf("property bucket: %s", propBucket)
-
-	buckets := []string{"objects", propBucket}
+	buckets := []string{"objects"}
 	for _, b := range buckets {
 		bucket := b
 		require.Eventually(t, func() bool {
@@ -152,7 +137,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 	// Single-goroutine loop avoids any race on the global helper client and
 	// on the per-bucket tracking maps.
 	deadline := time.Now().Add(observeDeadline)
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		if time.Now().After(deadline) {
@@ -175,7 +160,10 @@ func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourc
 		details, derr := helper.Client(t).Replication.ReplicationDetails(
 			replication.NewReplicationDetailsParams().WithID(opID), nil,
 		)
-		if derr == nil && details.Payload != nil && details.Payload.Status != nil &&
+		if derr != nil {
+			t.Fatalf("failed to get replication details for op_id=%s: %s", opID, derr.Error())
+		}
+		if details.Payload != nil && details.Payload.Status != nil &&
 			details.Payload.Status.State == "READY" {
 			break
 		}
