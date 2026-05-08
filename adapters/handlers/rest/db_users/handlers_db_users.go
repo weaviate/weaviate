@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -431,7 +430,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	if err := h.dbUsers.CreateUser(internalKey, hash, userIdentifier, apiKey[:3], params.Body.Namespace, time.Now()); err != nil {
 		// Apply-time race: surface a deleted/deleting namespace as 422 so
 		// clients can retry against current state.
-		if isNamespaceTOCTOUErr(err) {
+		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 		}
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
@@ -703,21 +702,6 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 		return false
 	}
 	return h.rbacConfig.IsRoot(principal.Username, principal.Groups)
-}
-
-// isNamespaceTOCTOUErr matches the namespace-gone/deleting sentinels. The
-// string fallback handles errors that lost their wrapping crossing the
-// RAFT boundary.
-func isNamespaceTOCTOUErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, namespaces.ErrNamespaceGone.Error()) ||
-		strings.Contains(msg, namespaces.ErrNamespaceDeleting.Error())
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

@@ -407,11 +407,6 @@ func TestCreateUser_NamespaceTOCTOU(t *testing.T) {
 			expect:   &users.CreateUserUnprocessableEntity{},
 		},
 		{
-			name:     "wrapped via string returns 422",
-			applyErr: errors.New("creating user: " + namespaces.ErrNamespaceDeleting.Error()),
-			expect:   &users.CreateUserUnprocessableEntity{},
-		},
-		{
 			name:     "unrelated error returns 500",
 			applyErr: errors.New("disk full"),
 			expect:   &users.CreateUserInternalServerError{},

@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
@@ -122,8 +121,6 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	if err := c.raft.DeleteUsersInNamespace(ns); err != nil {
 		return err
 	}
-	// Aliases first: DeleteClass refuses to drop a class that still has
-	// aliases pointing at it.
 	for _, alias := range c.schema.AliasesInNamespace(ns) {
 		if !c.isLeader() {
 			return types.ErrNotLeader
@@ -145,20 +142,10 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	}
 	if err := c.raft.RemoveNamespaceEntity(ns); err != nil {
 		// This can happen when an in-flight requests creates a new entity between cleanup start and here
-		if isNamespaceNotEmpty(err) {
+		if errors.Is(err, namespaces.ErrNamespaceNotEmpty) {
 			return nil
 		}
 		return err
 	}
 	return nil
-}
-
-// isNamespaceNotEmpty returns true for ErrNamespaceNotEmpty, including
-// the case where RAFT serialization stripped the wrapping and only the
-// error message survives.
-func isNamespaceNotEmpty(err error) bool {
-	if errors.Is(err, namespaces.ErrNamespaceNotEmpty) {
-		return true
-	}
-	return strings.Contains(err.Error(), namespaces.ErrNamespaceNotEmpty.Error())
 }

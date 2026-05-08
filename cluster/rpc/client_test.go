@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -128,4 +129,39 @@ func TestClient_Query_ParseError(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, codes.NotFound, st.Code())
+}
+
+// TestFromRPCError_NamespaceSentinels covers the round-trip from
+// toRPCError on the server to fromRPCError on the client for the three
+// namespace sentinels. After this round-trip a caller must be able to
+// errors.Is the returned error to the original sentinel.
+func TestFromRPCError_NamespaceSentinels(t *testing.T) {
+	tests := []struct {
+		name string
+		send error
+	}{
+		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
+		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
+		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wireErr := toRPCError(tc.send)
+			parsed := fromRPCError(wireErr)
+			require.ErrorIs(t, parsed, tc.send)
+		})
+	}
+}
+
+// TestFromRPCError_NotFoundDisambiguation asserts that a NotFound code
+// re-chains the namespace sentinel when the message identifies it,
+// otherwise falls back to schemaUC.ErrNotFound.
+func TestFromRPCError_NotFoundDisambiguation(t *testing.T) {
+	// Schema-flavour NotFound — message does not mention the namespace sentinel.
+	parsed := fromRPCError(toRPCError(schemaUC.ErrNotFound))
+	require.ErrorIs(t, parsed, schemaUC.ErrNotFound)
+
+	// Namespace-gone uses the same code but is disambiguated by message.
+	parsed = fromRPCError(toRPCError(namespaces.ErrNamespaceGone))
+	require.ErrorIs(t, parsed, namespaces.ErrNamespaceGone)
 }

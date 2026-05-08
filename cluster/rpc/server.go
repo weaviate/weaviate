@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const NotLeaderRPCCode = codes.ResourceExhausted
@@ -197,7 +198,11 @@ func toRPCError(err error) error {
 		ec = NotLeaderRPCCode
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
-	case errors.Is(err, schema.ErrMTDisabled):
+	case errors.Is(err, namespaces.ErrNamespaceGone):
+		ec = codes.NotFound
+	case errors.Is(err, namespaces.ErrNamespaceDeleting),
+		errors.Is(err, namespaces.ErrNamespaceNotEmpty),
+		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
 	case strings.Contains(err.Error(), types.ErrNotFound.Error()):
 		ec = codes.NotFound

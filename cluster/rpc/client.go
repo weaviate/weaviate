@@ -15,11 +15,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -280,13 +282,33 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 }
 
 // fromRPCError parses the error sent by rpc server
-// to identify status and chain sentinal errors accordingly.
+// to identify status and chain sentinel errors accordingly.
 // This is helpful on the client side to make decision based on
-// type-full errors rather than just string-based error
+// type-full errors rather than just string-based error.
 func fromRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
 	st, ok := status.FromError(err)
-	if ok && (st.Code() == codes.NotFound) {
+	if !ok {
+		return err
+	}
+	msg := err.Error()
+	switch st.Code() {
+	case codes.NotFound:
+		if strings.Contains(msg, namespaces.ErrNamespaceGone.Error()) {
+			return errors.Join(err, namespaces.ErrNamespaceGone)
+		}
 		return errors.Join(err, schemaUC.ErrNotFound)
+	case codes.FailedPrecondition:
+		switch {
+		case strings.Contains(msg, namespaces.ErrNamespaceNotEmpty.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceNotEmpty)
+		case strings.Contains(msg, namespaces.ErrNamespaceDeleting.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceDeleting)
+		}
+	default:
+		// All other codes pass through unchanged.
 	}
 	return err
 }
