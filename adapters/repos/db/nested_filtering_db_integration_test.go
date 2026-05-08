@@ -19982,3 +19982,1039 @@ func TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringAndDeepWithOrThreeDepths3Levels covers the
+// `A AND (B OR C)` shape where A and the two OR branches sit at
+// three different sub-array depths inside cars[]:
+//
+//	cars.accessories.type=spoiler AND (cars.tires.width=205 OR cars.colors=red)
+//
+//	A: cars.accessories.type — depth 2 (cars.accessories[])
+//	B: cars.tires.width      — depth 2 (cars.tires[]) — sibling to A
+//	C: cars.colors=red       — depth 1 (cars[] via text[])
+//
+// Distinct from gap #4 (sibling-only sub-arrays at the same depth)
+// and gap #8 (parent-child at two distinct depths). Today's docID-
+// level OR + AND ignores the cars-element correlation across the
+// OR boundary and across the depth-1/depth-2 sibling boundary.
+// Under position-level OR within cars[] LCA, all three operands
+// project to cars[] and combine per cars element; cross-cars docs
+// flip OUT.
+func TestNestedFilteringAndDeepWithOrThreeDepths3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "colors", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "type", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	accessory := func(typ string) map[string]any { return map[string]any{"type": typ} }
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(colors []string, accs []map[string]any, tires []map[string]any) map[string]any {
+		out := map[string]any{}
+		if len(colors) > 0 {
+			anyColors := make([]any, len(colors))
+			for i, c := range colors {
+				anyColors[i] = c
+			}
+			out["colors"] = anyColors
+		}
+		if len(accs) > 0 {
+			out["accessories"] = asArr(accs...)
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		accTypePath, tireWidthPath, colorsPath string,
+		docs []docDef, want []strfmt.UUID,
+	) {
+		t.Helper()
+		eqTextF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		eqIntF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT docID-level
+		// OR + AND with operands at three different sub-array depths
+		// inside cars[]. Today the OR's two branches independently
+		// produce docID sets and the outer AND with the depth-2
+		// accessories sibling intersects at docID — no same-cars-
+		// element correlation across the OR boundary or across the
+		// depth-1/depth-2 sibling boundary. Under position-level
+		// evaluation, all three operands project to cars[] LCA and
+		// combine per cars element; cross-cars docs flip OUT.
+		t.Run("regression_AND_deep_with_OR_three_depths", func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters: andF(
+					eqTextF(accTypePath, "spoiler"),
+					orF(
+						eqIntF(tireWidthPath, 205),
+						eqTextF(colorsPath, "red"),
+					),
+				),
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "AndDeepOr3DepthsL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idSpoilerWith205 := uuid(1)
+		idSpoilerWithRed := uuid(2)
+		idSpoilerNoOr := uuid(3)
+		idSplitSpoilerVs205 := uuid(4) // KEY today incl, future excl
+		idSplitSpoilerVsRed := uuid(5) // KEY today incl, future excl
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idSpoilerWith205, props: wrap(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(205)})), note: "spoiler+205+blue same car"},
+			{id: idSpoilerWithRed, props: wrap(car([]string{"red"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})), note: "spoiler+200+red same car"},
+			{id: idSpoilerNoOr, props: wrap(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})), note: "spoiler but no 205, no red"},
+			{id: idSplitSpoilerVs205, props: wrap(
+				car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}),
+				car([]string{"blue"}, nil, []map[string]any{tire(205)}),
+			), note: "[0]=spoiler,200,blue; [1]=205,blue — KEY"},
+			{id: idSplitSpoilerVsRed, props: wrap(
+				car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}),
+				car([]string{"red"}, nil, []map[string]any{tire(200)}),
+			), note: "[0]=spoiler,200,blue; [1]=200,red — KEY"},
+			{id: idNoSpoiler, props: wrap(car([]string{"red"}, nil, []map[string]any{tire(205)})), note: "no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.accessories.type", "cars.tires.width", "cars.colors",
+			docs,
+			// today: spoiler anywhere AND (205 anywhere OR red
+			// anywhere).
+			[]strfmt.UUID{idSpoilerWith205, idSpoilerWithRed, idSplitSpoilerVs205, idSplitSpoilerVsRed},
+			// expected after position-level evaluation:
+			// []strfmt.UUID{idSpoilerWith205, idSpoilerWithRed}
+			//   (idSplitSpoilerVs205 and idSplitSpoilerVsRed flip
+			//   OUT — neither has a single car with spoiler AND
+			//   either 205 or red.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "AndDeepOr3DepthsL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idSpoilerWith205 := uuid(1)
+		idSpoilerWithRed := uuid(2)
+		idSpoilerNoOr := uuid(3)
+		idSplitSpoilerVs205SameGarage := uuid(4)
+		idSplitSpoilerVsRedSameGarage := uuid(5)
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		idSplitSpoilerVs205SplitGarages := uuid(8) // L1 KEY split garages
+		docs := []docDef{
+			{id: idSpoilerWith205, props: wrapG(garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(205)}))), note: "1g spoiler+205 same car"},
+			{id: idSpoilerWithRed, props: wrapG(garage(car([]string{"red"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}))), note: "1g spoiler+red same car"},
+			{id: idSpoilerNoOr, props: wrapG(garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}))), note: "1g spoiler no OR"},
+			{id: idSplitSpoilerVs205SameGarage, props: wrapG(garage(
+				car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}),
+				car([]string{"blue"}, nil, []map[string]any{tire(205)}),
+			)), note: "1g split spoiler vs 205 same garage"},
+			{id: idSplitSpoilerVsRedSameGarage, props: wrapG(garage(
+				car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}),
+				car([]string{"red"}, nil, []map[string]any{tire(200)}),
+			)), note: "1g split spoiler vs red same garage"},
+			{id: idNoSpoiler, props: wrapG(garage(car([]string{"red"}, nil, []map[string]any{tire(205)}))), note: "1g no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idSplitSpoilerVs205SplitGarages, props: wrapG(
+				garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})),
+				garage(car([]string{"blue"}, nil, []map[string]any{tire(205)})),
+			), note: "g0=spoiler,200; g1=205 — split garages KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.accessories.type", "garages.cars.tires.width", "garages.cars.colors",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idSpoilerWith205, idSpoilerWithRed,
+				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsRedSameGarage,
+				idSplitSpoilerVs205SplitGarages,
+			},
+			// expected after position-level evaluation:
+			// []strfmt.UUID{idSpoilerWith205, idSpoilerWithRed}
+			//   (every cross-car split — same garage or different
+			//   garages — flips OUT.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "AndDeepOr3DepthsL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idSpoilerWith205 := uuid(1)
+		idSpoilerWithRed := uuid(2)
+		idSpoilerNoOr := uuid(3)
+		idSplitSpoilerVs205SameGarage := uuid(4)
+		idSplitSpoilerVsRedSameGarage := uuid(5)
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		idSplitSpoilerVs205SplitGarages := uuid(8)
+		idSplitSpoilerVs205SplitCountries := uuid(9) // L2 KEY split countries
+		docs := []docDef{
+			{id: idSpoilerWith205, props: wrapC(country(garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(205)})))), note: "single chain spoiler+205"},
+			{id: idSpoilerWithRed, props: wrapC(country(garage(car([]string{"red"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})))), note: "single chain spoiler+red"},
+			{id: idSpoilerNoOr, props: wrapC(country(garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})))), note: "single chain spoiler no OR"},
+			{id: idSplitSpoilerVs205SameGarage, props: wrapC(country(garage(
+				car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}),
+				car([]string{"blue"}, nil, []map[string]any{tire(205)}),
+			))), note: "split same garage"},
+			{id: idSplitSpoilerVsRedSameGarage, props: wrapC(country(garage(
+				car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}),
+				car([]string{"red"}, nil, []map[string]any{tire(200)}),
+			))), note: "split same garage spoiler vs red"},
+			{id: idNoSpoiler, props: wrapC(country(garage(car([]string{"red"}, nil, []map[string]any{tire(205)})))), note: "no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idSplitSpoilerVs205SplitGarages, props: wrapC(country(
+				garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})),
+				garage(car([]string{"blue"}, nil, []map[string]any{tire(205)})),
+			)), note: "split garages within country"},
+			{id: idSplitSpoilerVs205SplitCountries, props: wrapC(
+				country(garage(car([]string{"blue"}, []map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}))),
+				country(garage(car([]string{"blue"}, nil, []map[string]any{tire(205)}))),
+			), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.accessories.type", "countries.garages.cars.tires.width", "countries.garages.cars.colors",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idSpoilerWith205, idSpoilerWithRed,
+				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsRedSameGarage,
+				idSplitSpoilerVs205SplitGarages, idSplitSpoilerVs205SplitCountries,
+			},
+			// expected after position-level evaluation:
+			// []strfmt.UUID{idSpoilerWith205, idSpoilerWithRed}
+			//   (all cross-car splits — same garage, different
+			//   garages, different countries — flip OUT.)
+		)
+	})
+}
+
+// TestNestedFilteringAndDeepNotDeepSiblings3Levels covers `A AND
+// NOT B` where both A and B sit at sibling deep sub-arrays under
+// cars[]:
+//
+//	cars.accessories.type=spoiler AND NOT cars.tires.width=205
+//
+// Distinct from gap #3 (`cars.make=tesla AND NOT cars.tires.width
+// =205`) which had A at cars[] and B at cars.tires[] — only one
+// operand at depth 2. Here both A and B are at depth 2 (sibling
+// sub-arrays); the LCA of the AND is cars[]. Today's NOT is
+// root-universe and the AND across sibling sub-arrays correlates
+// at cars[] only for ANDed branches (per F8). NOT, being root-
+// universe, doesn't participate in the same-cars correlation.
+//
+// Under scope-aware NOT (option A), NOT inverts at cars.tires[]
+// (operand LCA): exists tire with width!=205. Combined with the
+// cars.accessories side under outer AND at cars[] LCA, same-cars-
+// element correlation requires cars[i] to satisfy spoiler AND
+// have a tire with width!=205. Multiple flip patterns surface:
+// docs with [205, other] gain matches; docs with no tires lose
+// vacuous matches; cross-cars splits lose matches.
+func TestNestedFilteringAndDeepNotDeepSiblings3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{
+			Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "type", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	accessory := func(typ string) map[string]any { return map[string]any{"type": typ} }
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(accs []map[string]any, tires []map[string]any) map[string]any {
+		out := map[string]any{}
+		if len(accs) > 0 {
+			out["accessories"] = asArr(accs...)
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		accTypePath, tireWidthPath string,
+		docs []docDef, want []strfmt.UUID,
+	) {
+		t.Helper()
+		eqTextF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		eqIntF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT root-
+		// universe NOT combined with same-cars AND across sibling
+		// deep sub-arrays. Today: doc has spoiler accessory anywhere
+		// AND has no tire of width 205 anywhere. Under scope-aware
+		// NOT (operand-LCA), NOT inverts at cars.tires[]: exists
+		// tire with width!=205. Combined with same-cars correlation
+		// under outer AND, doc satisfies iff some single car has
+		// spoiler accessory AND some tire with width!=205.
+		t.Run("regression_AND_deep_NOT_deep_sibling_subarrays", func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters: andF(
+					eqTextF(accTypePath, "spoiler"),
+					notF(eqIntF(tireWidthPath, 205)),
+				),
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "AndDeepNotDeepL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idSpoilerOnly200 := uuid(1)    // single car: spoiler + tires=[200] — both incl
+		idSpoilerOnly205 := uuid(2)    // single car: spoiler + tires=[205] — both excl
+		idSpoilerMixed := uuid(3)      // single car: spoiler + tires=[200,205] — KEY today excl, future incl
+		idSpoilerNoTires := uuid(4)    // single car: spoiler + no tires — KEY today incl, future excl
+		idSplitSpoilerVs200 := uuid(5) // [spoiler,no tires] + [no acc, tires=[200]] — KEY today incl, future excl
+		idNoSpoiler := uuid(6)         // [no acc, tires=[200]] — both excl
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idSpoilerOnly200, props: wrap(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})), note: "single car spoiler+200"},
+			{id: idSpoilerOnly205, props: wrap(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(205)})), note: "single car spoiler+205"},
+			{id: idSpoilerMixed, props: wrap(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(200), tire(205)})), note: "single car spoiler + tires=[200,205] — KEY"},
+			{id: idSpoilerNoTires, props: wrap(car([]map[string]any{accessory("spoiler")}, nil)), note: "single car spoiler, no tires — KEY"},
+			{id: idSplitSpoilerVs200, props: wrap(
+				car([]map[string]any{accessory("spoiler")}, nil),
+				car(nil, []map[string]any{tire(200)}),
+			), note: "[0]=spoiler,no tires; [1]=no acc,tires=[200] — KEY"},
+			{id: idNoSpoiler, props: wrap(car(nil, []map[string]any{tire(200)})), note: "no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.accessories.type", "cars.tires.width",
+			docs,
+			// today: spoiler anywhere AND (no tire of 205
+			// anywhere). Empty/no-tires docs vacuously satisfy
+			// NOT.
+			[]strfmt.UUID{idSpoilerOnly200, idSpoilerNoTires, idSplitSpoilerVs200},
+			// expected after scope-aware NOT + same-cars AND:
+			// []strfmt.UUID{idSpoilerOnly200, idSpoilerMixed}
+			//   - idSpoilerMixed flips IN — single car has
+			//     spoiler AND has tire 200 (≠205) → satisfies
+			//     same-car NOT.
+			//   - idSpoilerNoTires flips OUT — single car has
+			//     spoiler but no tire to satisfy "exists tire
+			//     ≠205".
+			//   - idSplitSpoilerVs200 flips OUT — no single car
+			//     has both spoiler AND a non-205 tire.
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "AndDeepNotDeepL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idSpoilerOnly200 := uuid(1)
+		idSpoilerOnly205 := uuid(2)
+		idSpoilerMixed := uuid(3)
+		idSpoilerNoTires := uuid(4)
+		idSplitSpoilerVs200SameGarage := uuid(5)
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		idSplitSpoilerVs200SplitGarages := uuid(8) // L1 KEY split garages
+		docs := []docDef{
+			{id: idSpoilerOnly200, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(200)}))), note: "1g spoiler+200"},
+			{id: idSpoilerOnly205, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(205)}))), note: "1g spoiler+205"},
+			{id: idSpoilerMixed, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(200), tire(205)}))), note: "1g spoiler + [200,205]"},
+			{id: idSpoilerNoTires, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, nil))), note: "1g spoiler no tires"},
+			{id: idSplitSpoilerVs200SameGarage, props: wrapG(garage(
+				car([]map[string]any{accessory("spoiler")}, nil),
+				car(nil, []map[string]any{tire(200)}),
+			)), note: "1g split same garage"},
+			{id: idNoSpoiler, props: wrapG(garage(car(nil, []map[string]any{tire(200)}))), note: "1g no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idSplitSpoilerVs200SplitGarages, props: wrapG(
+				garage(car([]map[string]any{accessory("spoiler")}, nil)),
+				garage(car(nil, []map[string]any{tire(200)})),
+			), note: "g0=spoiler,no tires; g1=no acc,tires=[200] — KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.accessories.type", "garages.cars.tires.width",
+			docs,
+			// today
+			[]strfmt.UUID{idSpoilerOnly200, idSpoilerNoTires, idSplitSpoilerVs200SameGarage, idSplitSpoilerVs200SplitGarages},
+			// expected after scope-aware NOT + same-cars AND:
+			// []strfmt.UUID{idSpoilerOnly200, idSpoilerMixed}
+			//   (same flips as L0; cross-garage and same-garage
+			//   splits both flip OUT; idSpoilerNoTires flips OUT.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "AndDeepNotDeepL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idSpoilerOnly200 := uuid(1)
+		idSpoilerOnly205 := uuid(2)
+		idSpoilerMixed := uuid(3)
+		idSpoilerNoTires := uuid(4)
+		idSplitSpoilerVs200SameGarage := uuid(5)
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		idSplitSpoilerVs200SplitGarages := uuid(8)
+		idSplitSpoilerVs200SplitCountries := uuid(9) // L2 KEY split countries
+		docs := []docDef{
+			{id: idSpoilerOnly200, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(200)})))), note: "single chain spoiler+200"},
+			{id: idSpoilerOnly205, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(205)})))), note: "single chain spoiler+205"},
+			{id: idSpoilerMixed, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(200), tire(205)})))), note: "single chain spoiler + [200,205]"},
+			{id: idSpoilerNoTires, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, nil)))), note: "single chain spoiler no tires"},
+			{id: idSplitSpoilerVs200SameGarage, props: wrapC(country(garage(
+				car([]map[string]any{accessory("spoiler")}, nil),
+				car(nil, []map[string]any{tire(200)}),
+			))), note: "split same garage"},
+			{id: idNoSpoiler, props: wrapC(country(garage(car(nil, []map[string]any{tire(200)})))), note: "no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idSplitSpoilerVs200SplitGarages, props: wrapC(country(
+				garage(car([]map[string]any{accessory("spoiler")}, nil)),
+				garage(car(nil, []map[string]any{tire(200)})),
+			)), note: "split garages within country"},
+			{id: idSplitSpoilerVs200SplitCountries, props: wrapC(
+				country(garage(car([]map[string]any{accessory("spoiler")}, nil))),
+				country(garage(car(nil, []map[string]any{tire(200)}))),
+			), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.accessories.type", "countries.garages.cars.tires.width",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idSpoilerOnly200, idSpoilerNoTires,
+				idSplitSpoilerVs200SameGarage,
+				idSplitSpoilerVs200SplitGarages,
+				idSplitSpoilerVs200SplitCountries,
+			},
+			// expected after scope-aware NOT + same-cars AND:
+			// []strfmt.UUID{idSpoilerOnly200, idSpoilerMixed}
+			//   (every cross-cars split — same garage, different
+			//   garages, different countries — flips OUT;
+			//   idSpoilerNoTires flips OUT; idSpoilerMixed flips
+			//   IN.)
+		)
+	})
+}
+
+// TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels covers
+// the "intra-sub-array OR + cross-sub-array AND" shape:
+//
+//	(cars.tires.width=205 OR cars.tires.brand=pirelli) AND cars.accessories.type=spoiler
+//
+// Distinct from gap #4 (OR branches at SIBLING sub-arrays — e.g.,
+// cars.accessories vs cars.tires). Here both OR branches sit
+// INSIDE the same sub-array (cars.tires), so the OR is naturally
+// per-tire-element today; the outer AND with cars.accessories.type
+// is a cross-sub-array AND that today doesn't enforce same-cars-
+// element correlation across the OR boundary. Under position-level
+// evaluation, the OR projects to cars.tires[] LCA naturally and
+// the outer AND projects to cars[]; same-cars-element correlation
+// requires a single car to have a tire matching the OR AND a
+// spoiler accessory.
+func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{
+			Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "type", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+				{Name: "brand", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	accessory := func(typ string) map[string]any { return map[string]any{"type": typ} }
+	tire := func(width int, brand string) map[string]any {
+		out := map[string]any{}
+		if width != 0 {
+			out["width"] = width
+		}
+		if brand != "" {
+			out["brand"] = brand
+		}
+		return out
+	}
+	car := func(accs []map[string]any, tires []map[string]any) map[string]any {
+		out := map[string]any{}
+		if len(accs) > 0 {
+			out["accessories"] = asArr(accs...)
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		accTypePath, tireWidthPath, tireBrandPath string,
+		docs []docDef, want []strfmt.UUID,
+	) {
+		t.Helper()
+		eqTextF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		eqIntF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT docID-level
+		// OR with both branches at the same deep sub-array
+		// (cars.tires) combined with cross-sub-array AND
+		// (cars.accessories). Today the OR returns a docID set; the
+		// outer AND intersects at docID without enforcing same-
+		// cars-element correlation across the OR boundary. Under
+		// position-level evaluation, the cars.tires OR is per-tire,
+		// projects up to cars[], and the outer AND requires the
+		// same car to have a matching tire AND a spoiler accessory.
+		t.Run("regression_intra_subarray_OR_cross_subarray_AND", func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters: andF(
+					orF(
+						eqIntF(tireWidthPath, 205),
+						eqTextF(tireBrandPath, "pirelli"),
+					),
+					eqTextF(accTypePath, "spoiler"),
+				),
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "IntraOrCrossAndL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idSpoiler205 := uuid(1)            // [spoiler, tires=[205]] — both incl
+		idSpoilerPirelli := uuid(2)        // [spoiler, tires=[brand=pirelli,width=300]] — both incl
+		idSpoilerNoOr := uuid(3)           // [spoiler, tires=[300,brand=other]] — both excl
+		idSplitSpoilerVs205 := uuid(4)     // KEY today incl, future excl
+		idSplitSpoilerVsPirelli := uuid(5) // KEY today incl, future excl
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idSpoiler205, props: wrap(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(205, "other")})), note: "spoiler + tire 205"},
+			{id: idSpoilerPirelli, props: wrap(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "pirelli")})), note: "spoiler + pirelli tire"},
+			{id: idSpoilerNoOr, props: wrap(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")})), note: "spoiler + tire 300/other"},
+			{id: idSplitSpoilerVs205, props: wrap(
+				car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}),
+				car(nil, []map[string]any{tire(205, "other")}),
+			), note: "[0]=spoiler,300; [1]=205 — KEY"},
+			{id: idSplitSpoilerVsPirelli, props: wrap(
+				car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}),
+				car(nil, []map[string]any{tire(300, "pirelli")}),
+			), note: "[0]=spoiler,300; [1]=pirelli — KEY"},
+			{id: idNoSpoiler, props: wrap(car(nil, []map[string]any{tire(205, "pirelli")})), note: "no spoiler, has 205+pirelli tire"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.accessories.type", "cars.tires.width", "cars.tires.brand",
+			docs,
+			// today: (205 anywhere OR pirelli anywhere) AND
+			// spoiler anywhere.
+			[]strfmt.UUID{idSpoiler205, idSpoilerPirelli, idSplitSpoilerVs205, idSplitSpoilerVsPirelli},
+			// expected after position-level evaluation:
+			// []strfmt.UUID{idSpoiler205, idSpoilerPirelli}
+			//   (both cross-cars splits flip OUT — no single car
+			//   has spoiler AND a 205-or-pirelli tire.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "IntraOrCrossAndL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idSpoiler205 := uuid(1)
+		idSpoilerPirelli := uuid(2)
+		idSpoilerNoOr := uuid(3)
+		idSplitSpoilerVs205SameGarage := uuid(4)
+		idSplitSpoilerVsPirelliSameGarage := uuid(5)
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		idSplitSpoilerVs205SplitGarages := uuid(8) // L1 KEY split garages
+		docs := []docDef{
+			{id: idSpoiler205, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(205, "other")}))), note: "1g spoiler+205"},
+			{id: idSpoilerPirelli, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "pirelli")}))), note: "1g spoiler+pirelli"},
+			{id: idSpoilerNoOr, props: wrapG(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}))), note: "1g spoiler+other"},
+			{id: idSplitSpoilerVs205SameGarage, props: wrapG(garage(
+				car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}),
+				car(nil, []map[string]any{tire(205, "other")}),
+			)), note: "1g split same garage"},
+			{id: idSplitSpoilerVsPirelliSameGarage, props: wrapG(garage(
+				car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}),
+				car(nil, []map[string]any{tire(300, "pirelli")}),
+			)), note: "1g split same garage pirelli"},
+			{id: idNoSpoiler, props: wrapG(garage(car(nil, []map[string]any{tire(205, "pirelli")}))), note: "1g no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idSplitSpoilerVs205SplitGarages, props: wrapG(
+				garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")})),
+				garage(car(nil, []map[string]any{tire(205, "other")})),
+			), note: "split garages — KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.accessories.type", "garages.cars.tires.width", "garages.cars.tires.brand",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idSpoiler205, idSpoilerPirelli,
+				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsPirelliSameGarage,
+				idSplitSpoilerVs205SplitGarages,
+			},
+			// expected after position-level evaluation:
+			// []strfmt.UUID{idSpoiler205, idSpoilerPirelli}
+			//   (all cross-cars splits — same garage or different
+			//   garages — flip OUT.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "IntraOrCrossAndL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idSpoiler205 := uuid(1)
+		idSpoilerPirelli := uuid(2)
+		idSpoilerNoOr := uuid(3)
+		idSplitSpoilerVs205SameGarage := uuid(4)
+		idSplitSpoilerVsPirelliSameGarage := uuid(5)
+		idNoSpoiler := uuid(6)
+		idEmpty := uuid(7)
+		idSplitSpoilerVs205SplitGarages := uuid(8)
+		idSplitSpoilerVs205SplitCountries := uuid(9) // L2 KEY split countries
+		docs := []docDef{
+			{id: idSpoiler205, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(205, "other")})))), note: "single chain spoiler+205"},
+			{id: idSpoilerPirelli, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "pirelli")})))), note: "single chain spoiler+pirelli"},
+			{id: idSpoilerNoOr, props: wrapC(country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")})))), note: "single chain spoiler no OR"},
+			{id: idSplitSpoilerVs205SameGarage, props: wrapC(country(garage(
+				car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}),
+				car(nil, []map[string]any{tire(205, "other")}),
+			))), note: "split same garage"},
+			{id: idSplitSpoilerVsPirelliSameGarage, props: wrapC(country(garage(
+				car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}),
+				car(nil, []map[string]any{tire(300, "pirelli")}),
+			))), note: "split same garage pirelli"},
+			{id: idNoSpoiler, props: wrapC(country(garage(car(nil, []map[string]any{tire(205, "pirelli")})))), note: "no spoiler"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idSplitSpoilerVs205SplitGarages, props: wrapC(country(
+				garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")})),
+				garage(car(nil, []map[string]any{tire(205, "other")})),
+			)), note: "split garages within country"},
+			{id: idSplitSpoilerVs205SplitCountries, props: wrapC(
+				country(garage(car([]map[string]any{accessory("spoiler")}, []map[string]any{tire(300, "other")}))),
+				country(garage(car(nil, []map[string]any{tire(205, "other")}))),
+			), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.accessories.type", "countries.garages.cars.tires.width", "countries.garages.cars.tires.brand",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idSpoiler205, idSpoilerPirelli,
+				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsPirelliSameGarage,
+				idSplitSpoilerVs205SplitGarages, idSplitSpoilerVs205SplitCountries,
+			},
+			// expected after position-level evaluation:
+			// []strfmt.UUID{idSpoiler205, idSpoilerPirelli}
+			//   (all cross-cars splits — same garage, different
+			//   garages, different countries — flip OUT.)
+		)
+	})
+}
