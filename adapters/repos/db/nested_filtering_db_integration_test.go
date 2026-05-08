@@ -16921,3 +16921,356 @@ func TestNestedFilteringDeeplyNestedAndOrNotSameRoot3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringDisjointSubArraysOrInAnd3Levels covers gap #4:
+// disjoint sibling sub-arrays in OR-in-AND.
+//
+// Filter shape:
+//
+//	(<chain>.cars.accessories.type=sunroof OR
+//	 <chain>.cars.tires.width=205) AND
+//	<chain>.cars.make=tesla
+//
+// The OR branches target two sibling sub-arrays (accessories, tires)
+// under cars. They have NO common ancestor below cars — diverging at
+// the cars level.
+//
+// Today (docID-level OR): each branch resolves to a docID set;
+// OR unions; AND with tesla intersects at docID. Doc matches when
+// it has a tesla car AND (sunroof somewhere OR 205 tire somewhere) —
+// the OR can be satisfied by ANY car, not necessarily a tesla.
+//
+// Future (position-level OR within single root): both branches
+// project up to cars LCA; OR at cars (cars where some accessory is
+// sunroof OR some tire is 205); AND with tesla at cars (tesla cars
+// satisfying the OR). Per-tesla-car evaluation — strictly tighter
+// than today when the OR is satisfied via a non-tesla car.
+//
+// Three nesting levels with object[] roots: L0_root_cars,
+// L1_garages_cars, L2_countries_garages_cars.
+func TestNestedFilteringDisjointSubArraysOrInAnd3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "type", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	accessory := func(typ string) map[string]any { return map[string]any{"type": typ} }
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(make string, accessories []map[string]any, tires []map[string]any) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if len(accessories) > 0 {
+			out["accessories"] = asArr(accessories...)
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, accessoryTypePath, tireWidthPath string,
+		docs []docDef, want []strfmt.UUID,
+	) {
+		t.Helper()
+		textF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		intF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT docID-level OR
+		// for disjoint sibling sub-arrays. Branches at cars.accessories
+		// and cars.tires resolve independently to docID sets and union
+		// at docID. AND with cars.make=tesla intersects at docID. Doc
+		// matches when tesla car exists AND OR satisfied by any car.
+		//
+		// Under position-level OR within a single root, both branches
+		// project up to cars LCA, OR per-cars-element, AND with tesla
+		// at cars. Doc matches only when a tesla car itself satisfies
+		// the OR. Discriminator docs where the OR is satisfied via a
+		// non-tesla car flip to excl.
+		t.Run("regression_OR_disjoint_sub_arrays_in_AND", func(t *testing.T) {
+			runScenario(t, andF(
+				orF(
+					textF(accessoryTypePath, "sunroof"),
+					intF(tireWidthPath, 205),
+				),
+				textF(makePath, "tesla"),
+			), want)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "DisjointSubArraysL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTeslaSunroof205 := uuid(1)            // tesla, sunroof, [205] — both today/future match
+		idTeslaSunroofOnly := uuid(2)           // tesla, sunroof — match via accessory branch
+		idTesla205Only := uuid(3)               // tesla, [205] — match via tire branch
+		idTeslaNeither := uuid(4)               // tesla, no acc/no 205 — both excl
+		idBmwSunroof205 := uuid(5)              // no tesla
+		idTeslaNothingPlusBmwSunroof := uuid(6) // [tesla nothing]+[bmw sunroof] — KEY: today match, future excl
+		idTeslaNothingPlusBmw205 := uuid(7)     // [tesla nothing]+[bmw [205]] — KEY: today match, future excl
+		idEmpty := uuid(8)                      // no cars
+		docs := []docDef{
+			{id: idTeslaSunroof205, props: wrap(car("tesla", []map[string]any{accessory("sunroof")}, []map[string]any{tire(205)})), note: "tesla,sunroof,[205]"},
+			{id: idTeslaSunroofOnly, props: wrap(car("tesla", []map[string]any{accessory("sunroof")}, nil)), note: "tesla,sunroof,no tires"},
+			{id: idTesla205Only, props: wrap(car("tesla", nil, []map[string]any{tire(205)})), note: "tesla,no acc,[205]"},
+			{id: idTeslaNeither, props: wrap(car("tesla", nil, nil)), note: "tesla, neither"},
+			{id: idBmwSunroof205, props: wrap(car("bmw", []map[string]any{accessory("sunroof")}, []map[string]any{tire(205)})), note: "bmw, sunroof, [205] — no tesla"},
+			{id: idTeslaNothingPlusBmwSunroof, props: wrap(car("tesla", nil, nil), car("bmw", []map[string]any{accessory("sunroof")}, nil)), note: "tesla nothing + bmw sunroof — KEY accessory branch"},
+			{id: idTeslaNothingPlusBmw205, props: wrap(car("tesla", nil, nil), car("bmw", nil, []map[string]any{tire(205)})), note: "tesla nothing + bmw [205] — KEY tire branch"},
+			{id: idEmpty, props: emptyDoc(), note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.accessories.type", "cars.tires.width",
+			docs,
+			// today: tesla AND (sunroof somewhere OR 205 somewhere).
+			[]strfmt.UUID{
+				idTeslaSunroof205, idTeslaSunroofOnly, idTesla205Only,
+				idTeslaNothingPlusBmwSunroof, idTeslaNothingPlusBmw205,
+			},
+			// expected after position-level OR within single root:
+			// []strfmt.UUID{idTeslaSunroof205, idTeslaSunroofOnly,
+			//               idTesla205Only}
+			//   (idTeslaNothingPlusBmwSunroof and idTeslaNothingPlusBmw205
+			//   flip to excl — no tesla car satisfies the OR; the
+			//   non-tesla car satisfies OR but isn't tesla.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "DisjointSubArraysL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTeslaSunroof205 := uuid(1)
+		idTeslaSunroofOnly := uuid(2)
+		idTesla205Only := uuid(3)
+		idTeslaNeither := uuid(4)
+		idBmwSunroof205 := uuid(5)
+		idTeslaNothingPlusBmwSunroofSameGarage := uuid(6)
+		idTeslaNothingPlusBmw205SameGarage := uuid(7)
+		idEmpty := uuid(8)
+		idSplitGaragesTeslaPlusBmwSunroof := uuid(9) // L1: g[0]=tesla nothing; g[1]=bmw sunroof
+		docs := []docDef{
+			{id: idTeslaSunroof205, props: wrapG(garage(car("tesla", []map[string]any{accessory("sunroof")}, []map[string]any{tire(205)}))), note: "1g tesla,sunroof,[205]"},
+			{id: idTeslaSunroofOnly, props: wrapG(garage(car("tesla", []map[string]any{accessory("sunroof")}, nil))), note: "1g tesla,sunroof"},
+			{id: idTesla205Only, props: wrapG(garage(car("tesla", nil, []map[string]any{tire(205)}))), note: "1g tesla,[205]"},
+			{id: idTeslaNeither, props: wrapG(garage(car("tesla", nil, nil))), note: "1g tesla, neither"},
+			{id: idBmwSunroof205, props: wrapG(garage(car("bmw", []map[string]any{accessory("sunroof")}, []map[string]any{tire(205)}))), note: "1g bmw, sunroof, [205]"},
+			{id: idTeslaNothingPlusBmwSunroofSameGarage, props: wrapG(garage(car("tesla", nil, nil), car("bmw", []map[string]any{accessory("sunroof")}, nil))), note: "1g tesla nothing + bmw sunroof"},
+			{id: idTeslaNothingPlusBmw205SameGarage, props: wrapG(garage(car("tesla", nil, nil), car("bmw", nil, []map[string]any{tire(205)}))), note: "1g tesla nothing + bmw [205]"},
+			{id: idEmpty, props: emptyDoc(), note: "no garages"},
+			{id: idSplitGaragesTeslaPlusBmwSunroof, props: wrapG(garage(car("tesla", nil, nil)), garage(car("bmw", []map[string]any{accessory("sunroof")}, nil))), note: "g[0]=tesla nothing; g[1]=bmw sunroof — L1 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.accessories.type", "garages.cars.tires.width",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idTeslaSunroof205, idTeslaSunroofOnly, idTesla205Only,
+				idTeslaNothingPlusBmwSunroofSameGarage,
+				idTeslaNothingPlusBmw205SameGarage,
+				idSplitGaragesTeslaPlusBmwSunroof,
+			},
+			// expected after position-level OR within single root:
+			// []strfmt.UUID{idTeslaSunroof205, idTeslaSunroofOnly,
+			//               idTesla205Only}
+			//   (cross-car docs flip to excl regardless of whether the
+			//   non-tesla car is in the same garage or a different one.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "DisjointSubArraysL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTeslaSunroof205 := uuid(1)
+		idTeslaSunroofOnly := uuid(2)
+		idTesla205Only := uuid(3)
+		idTeslaNeither := uuid(4)
+		idBmwSunroof205 := uuid(5)
+		idTeslaNothingPlusBmwSunroofSameGarage := uuid(6)
+		idTeslaNothingPlusBmw205SameGarage := uuid(7)
+		idEmpty := uuid(8)
+		idSplitGaragesTeslaPlusBmwSunroof := uuid(9)
+		idSplitCountriesTeslaPlusBmwSunroof := uuid(10) // L2 KEY
+		docs := []docDef{
+			{id: idTeslaSunroof205, props: wrapC(country(garage(car("tesla", []map[string]any{accessory("sunroof")}, []map[string]any{tire(205)})))), note: "single chain tesla,sunroof,[205]"},
+			{id: idTeslaSunroofOnly, props: wrapC(country(garage(car("tesla", []map[string]any{accessory("sunroof")}, nil)))), note: "single chain tesla,sunroof"},
+			{id: idTesla205Only, props: wrapC(country(garage(car("tesla", nil, []map[string]any{tire(205)})))), note: "single chain tesla,[205]"},
+			{id: idTeslaNeither, props: wrapC(country(garage(car("tesla", nil, nil)))), note: "single chain tesla, neither"},
+			{id: idBmwSunroof205, props: wrapC(country(garage(car("bmw", []map[string]any{accessory("sunroof")}, []map[string]any{tire(205)})))), note: "single chain bmw"},
+			{id: idTeslaNothingPlusBmwSunroofSameGarage, props: wrapC(country(garage(car("tesla", nil, nil), car("bmw", []map[string]any{accessory("sunroof")}, nil)))), note: "tesla nothing + bmw sunroof same garage"},
+			{id: idTeslaNothingPlusBmw205SameGarage, props: wrapC(country(garage(car("tesla", nil, nil), car("bmw", nil, []map[string]any{tire(205)})))), note: "tesla nothing + bmw [205] same garage"},
+			{id: idEmpty, props: emptyDoc(), note: "no countries"},
+			{id: idSplitGaragesTeslaPlusBmwSunroof, props: wrapC(country(garage(car("tesla", nil, nil)), garage(car("bmw", []map[string]any{accessory("sunroof")}, nil)))), note: "split garages within country"},
+			{id: idSplitCountriesTeslaPlusBmwSunroof, props: wrapC(country(garage(car("tesla", nil, nil))), country(garage(car("bmw", []map[string]any{accessory("sunroof")}, nil)))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.accessories.type", "countries.garages.cars.tires.width",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idTeslaSunroof205, idTeslaSunroofOnly, idTesla205Only,
+				idTeslaNothingPlusBmwSunroofSameGarage,
+				idTeslaNothingPlusBmw205SameGarage,
+				idSplitGaragesTeslaPlusBmwSunroof,
+				idSplitCountriesTeslaPlusBmwSunroof,
+			},
+			// expected after position-level OR within single root:
+			// []strfmt.UUID{idTeslaSunroof205, idTeslaSunroofOnly,
+			//               idTesla205Only}
+			//   (cross-car docs flip to excl regardless of whether the
+			//   non-tesla car is same garage, different garage, or
+			//   different country.)
+		)
+	})
+}
