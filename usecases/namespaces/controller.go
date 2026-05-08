@@ -274,6 +274,14 @@ func (c *Controller) Snapshot() ([]byte, error) {
 // empty snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
 // are tolerated to preserve forward-compatibility. Entries with empty
 // State are normalized to [cmd.NamespaceStateActive].
+//
+// Returns an error if any entry's State is not one of the known values.
+// The only realistic source of an unknown State is a snapshot produced
+// by a future binary; coercing silently would mis-classify the namespace
+// (e.g. accept writes against what should be suspended), so we fail-loud
+// and let the operator investigate. Forward-compatible state additions
+// must bump [cmd.NamespaceLatestCommandPolicyVersion] and gate at the
+// apply layer, not rely on string-matching here.
 func (c *Controller) Restore(snapshot []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -288,9 +296,15 @@ func (c *Controller) Restore(snapshot []byte) error {
 		c.logger.Errorf("restoring namespaces from snapshot failed with: %v", err)
 		return err
 	}
-	for _, ns := range restored {
+	for name, ns := range restored {
 		if ns.State == "" {
 			ns.State = cmd.NamespaceStateActive
+			continue
+		}
+		switch ns.State {
+		case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
+		default:
+			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
 		}
 	}
 	c.namespaces = restored

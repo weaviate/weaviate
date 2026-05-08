@@ -267,6 +267,34 @@ func TestController_RestoreNormalizesEmptyState(t *testing.T) {
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
 }
 
+// TestController_RestoreRejectsUnknownState locks in fail-loud behaviour
+// for snapshots that carry a State value the current binary does not
+// know. Silently coercing would mis-classify the namespace; the
+// startup-time error forces the operator to investigate.
+func TestController_RestoreRestoresKnownStates(t *testing.T) {
+	c := newTestController(t)
+	snap := []byte(`{
+		"customer1":{"Name":"customer1","State":"active","Restrictions":{}},
+		"customer2":{"Name":"customer2","State":"deleting","Restrictions":{}}
+	}`)
+	require.NoError(t, c.Restore(snap))
+
+	assert.True(t, c.IsActive("customer1"))
+	assert.False(t, c.IsActive("customer2"))
+	assert.Equal(t, []string{"customer2"}, c.ListDeleting())
+}
+
+func TestController_RestoreRejectsUnknownState(t *testing.T) {
+	c := newTestController(t)
+	snap := []byte(`{"customer1":{"Name":"customer1","State":"suspended","Restrictions":{}}}`)
+	err := c.Restore(snap)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown state")
+	// The controller must remain unchanged on rejection so that the
+	// caller (RAFT FSM) can fail startup cleanly.
+	assert.Equal(t, 0, c.Count())
+}
+
 func TestController_Get(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
