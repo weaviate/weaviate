@@ -45,8 +45,7 @@ import (
 )
 
 func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
-	s.activityTrackerRead.Add(1)
-
+	// Replication-internal operation: do not count as user read activity.
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return types.RepairResponse{}, err
@@ -65,8 +64,6 @@ func (s *Shard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (typ
 	replicaObj := types.RepairResponse{
 		ID:         id.String(),
 		UpdateTime: updateTime,
-		// TODO: use version when supported
-		Version: 0,
 	}
 
 	return replicaObj, nil
@@ -79,7 +76,14 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	bytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +92,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromBinaryDisk(bytes, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -111,6 +115,12 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
 		if err != nil {
@@ -121,7 +131,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinary(bytes)
+		obj, err := storobj.FromBinaryDisk(bytes, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -132,8 +142,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 }
 
 func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
-	s.activityTrackerRead.Add(1)
-
+	// Replication-internal operation: do not count as user read activity.
 	objects := make([]types.RepairResponse, len(query))
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -170,14 +179,13 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
 	objs []types.RepairResponse, err error,
 ) {
-	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
+	initialUUID16, err := uuid.Parse(initialUUID.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid initial UUID %q: %w", initialUUID, err)
 	}
-
-	finalUUIDBytes, err := uuid.MustParse(finalUUID.String()).MarshalBinary()
+	finalUUID16, err := uuid.Parse(finalUUID.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid final UUID %q: %w", finalUUID, err)
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -187,7 +195,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	n := 0
 
-	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
+	for k, v := cursor.Seek(initialUUID16[:]); n < limit && k != nil && bytes.Compare(k, finalUUID16[:]) < 1; k, v = cursor.Next() {
 		if ctx.Err() != nil {
 			return objs, ctx.Err()
 		}
@@ -205,8 +213,6 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 		replicaObj := types.RepairResponse{
 			ID:         uuidParsed.String(),
 			UpdateTime: updateTime,
-			// TODO: use version when supported
-			Version: 0,
 		}
 
 		objs = append(objs, replicaObj)
@@ -245,8 +251,14 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(ctx, 0, keyBuf)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	bytes, err := bucket.GetBySecondary(ctx, 0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +268,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromBinaryDisk(bytes, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -746,7 +758,14 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	bucketClassName, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	cursor := bucket.Cursor()
 	defer cursor.Close()
 
 	var key, val []byte
@@ -768,9 +787,9 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinary(val)
+		obj, err := storobj.FromBinaryDisk(val, bucketClassName)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
+			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}
 
 		out[i] = obj
@@ -848,13 +867,15 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// waitForMinimalHashTreeInitialization must be called before acquiring the
+	// RLock because it may block, and blocking inside RLock would deadlock
+	// with initAsyncReplication (which takes the write lock).
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {

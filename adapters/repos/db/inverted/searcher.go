@@ -133,8 +133,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
 	// Prevent unbounded iteration
@@ -196,9 +202,9 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 
 		var unmarshalled *storobj.Object
 		if additional.ReferenceQuery {
-			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
+			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
+			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
