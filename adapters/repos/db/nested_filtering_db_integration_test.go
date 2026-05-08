@@ -19650,3 +19650,335 @@ func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels covers
+// gap #8: the OR's two branches resolve at different sub-array
+// depths (cars[] vs cars.accessories[]), and the OR is inside an AND
+// with a same-cars-element sibling.
+//
+//	cars.make=tesla AND (cars.color=red OR cars.accessories.type=sunroof)
+//
+// Today's OR resolves at docID — the two branches each compute a
+// docID set independently and union — so same-cars-element
+// correlation does not propagate across the OR. A doc whose tesla
+// car has neither red nor sunroof but a non-tesla sibling supplies
+// red or sunroof still matches.
+//
+// Under position-level OR within a single nested root, the two OR
+// branches project up to their deepest common ancestor (cars[]) and
+// OR per cars element. The outer AND with cars.make=tesla then
+// requires the same cars element to satisfy both make=tesla and
+// (color=red OR has-sunroof-accessory). Cross-cars docs flip OUT.
+//
+// This is a parent-child-depth variant of gap #4 (sibling sub-array
+// depths). The flip pattern is the same; the test exists to prove
+// the position-level OR rule covers the parent-child case in
+// addition to the sibling case.
+func TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "accessories", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "type", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	accessory := func(typ string) map[string]any { return map[string]any{"type": typ} }
+	car := func(make, color string, accs ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if color != "" {
+			out["color"] = color
+		}
+		if len(accs) > 0 {
+			out["accessories"] = asArr(accs...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, colorPath, accTypePath string,
+		docs []docDef, want []strfmt.UUID,
+	) {
+		t.Helper()
+		eqTextF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		orF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
+		}
+
+		// TODO aliszka:nested_filtering: locks in CURRENT
+		// docID-level OR with operands at different sub-array
+		// depths (cars[] vs cars.accessories[]). The OR's branches
+		// independently produce docID sets that union, so the
+		// surrounding AND with cars.make=tesla intersects at docID
+		// without enforcing same-cars-element correlation across
+		// the OR. Under position-level OR within a single nested
+		// root, both branches project to cars[] LCA and OR
+		// per-element; the outer AND then requires the same car to
+		// satisfy both make=tesla and (color=red OR has-sunroof
+		// accessory). Cross-cars docs flip OUT.
+		t.Run("regression_OR_in_AND_different_sub_array_depths", func(t *testing.T) {
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters: andF(
+					eqTextF(makePath, "tesla"),
+					orF(
+						eqTextF(colorPath, "red"),
+						eqTextF(accTypePath, "sunroof"),
+					),
+				),
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "OrInAndDepthsL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idTeslaRed := uuid(1)            // [tesla,red] — single car satisfies both make and OR
+		idTeslaSunroof := uuid(2)        // [tesla,blue,acc=[sunroof]] — single car via accessory branch
+		idTeslaNoOr := uuid(3)           // [tesla,blue] — no red, no sunroof — excl
+		idBmwRed := uuid(4)              // [bmw,red] — make ✗
+		idTeslaBlueBmwRed := uuid(5)     // [tesla,blue]+[bmw,red] — KEY today incl (cross-car red), future excl
+		idTeslaBlueBmwSunroof := uuid(6) // [tesla,blue]+[bmw,blue,acc=[sunroof]] — KEY today incl (cross-car different depth), future excl
+		idEmpty := uuid(7)
+		docs := []docDef{
+			{id: idTeslaRed, props: wrap(car("tesla", "red")), note: "tesla,red"},
+			{id: idTeslaSunroof, props: wrap(car("tesla", "blue", accessory("sunroof"))), note: "tesla,blue with sunroof accessory"},
+			{id: idTeslaNoOr, props: wrap(car("tesla", "blue")), note: "tesla,blue no accessory"},
+			{id: idBmwRed, props: wrap(car("bmw", "red")), note: "bmw,red"},
+			{id: idTeslaBlueBmwRed, props: wrap(car("tesla", "blue"), car("bmw", "red")), note: "tesla,blue + bmw,red — KEY"},
+			{id: idTeslaBlueBmwSunroof, props: wrap(car("tesla", "blue"), car("bmw", "blue", accessory("sunroof"))), note: "tesla,blue + bmw with sunroof — KEY (different depth)"},
+			{id: idEmpty, props: map[string]any{}, note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.color", "cars.accessories.type",
+			docs,
+			// today: tesla anywhere AND (red anywhere OR sunroof
+			// in any accessory anywhere).
+			[]strfmt.UUID{idTeslaRed, idTeslaSunroof, idTeslaBlueBmwRed, idTeslaBlueBmwSunroof},
+			// expected after position-level OR within single root:
+			// []strfmt.UUID{idTeslaRed, idTeslaSunroof}
+			//   (idTeslaBlueBmwRed flips OUT — tesla car has no
+			//   red and no sunroof; bmw has red but isn't tesla.
+			//   idTeslaBlueBmwSunroof flips OUT — tesla car has
+			//   no sunroof in its accessories; bmw has sunroof
+			//   but isn't tesla. Different-depth branch
+			//   (accessories) collapses the same way as the
+			//   sibling-depth branch (color).)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "OrInAndDepthsL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idTeslaRed := uuid(1)
+		idTeslaSunroof := uuid(2)
+		idTeslaNoOr := uuid(3)
+		idBmwRed := uuid(4)
+		idTeslaBlueBmwRedSameGarage := uuid(5)
+		idTeslaBlueBmwSunroofSameGarage := uuid(6)
+		idEmpty := uuid(7)
+		idTeslaBlueBmwRedSplitGarages := uuid(8)     // L1 KEY split garages — color branch
+		idTeslaBlueBmwSunroofSplitGarages := uuid(9) // L1 KEY split garages — accessory branch
+		docs := []docDef{
+			{id: idTeslaRed, props: wrapG(garage(car("tesla", "red"))), note: "1g tesla,red"},
+			{id: idTeslaSunroof, props: wrapG(garage(car("tesla", "blue", accessory("sunroof")))), note: "1g tesla with sunroof"},
+			{id: idTeslaNoOr, props: wrapG(garage(car("tesla", "blue"))), note: "1g tesla,blue"},
+			{id: idBmwRed, props: wrapG(garage(car("bmw", "red"))), note: "1g bmw,red"},
+			{id: idTeslaBlueBmwRedSameGarage, props: wrapG(garage(car("tesla", "blue"), car("bmw", "red"))), note: "1g tesla + bmw,red"},
+			{id: idTeslaBlueBmwSunroofSameGarage, props: wrapG(garage(car("tesla", "blue"), car("bmw", "blue", accessory("sunroof")))), note: "1g tesla + bmw with sunroof"},
+			{id: idEmpty, props: map[string]any{}, note: "no garages"},
+			{id: idTeslaBlueBmwRedSplitGarages, props: wrapG(garage(car("tesla", "blue")), garage(car("bmw", "red"))), note: "g0=tesla; g1=bmw,red — split color"},
+			{id: idTeslaBlueBmwSunroofSplitGarages, props: wrapG(garage(car("tesla", "blue")), garage(car("bmw", "blue", accessory("sunroof")))), note: "g0=tesla; g1=bmw with sunroof — split accessory"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.color", "garages.cars.accessories.type",
+			docs,
+			// today
+			[]strfmt.UUID{
+				idTeslaRed, idTeslaSunroof,
+				idTeslaBlueBmwRedSameGarage, idTeslaBlueBmwSunroofSameGarage,
+				idTeslaBlueBmwRedSplitGarages, idTeslaBlueBmwSunroofSplitGarages,
+			},
+			// expected after position-level OR:
+			// []strfmt.UUID{idTeslaRed, idTeslaSunroof}
+			//   (every cross-car split — same garage or different
+			//   garages, color-branch or accessory-branch — flips
+			//   OUT. Only single-car satisfaction survives.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "OrInAndDepthsL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idTeslaRed := uuid(1)
+		idTeslaSunroof := uuid(2)
+		idTeslaNoOr := uuid(3)
+		idBmwRed := uuid(4)
+		idTeslaBlueBmwRedSameGarage := uuid(5)
+		idTeslaBlueBmwSunroofSameGarage := uuid(6)
+		idEmpty := uuid(7)
+		idTeslaBlueBmwRedSplitGarages := uuid(8)
+		idTeslaBlueBmwSunroofSplitGarages := uuid(9)
+		idTeslaBlueBmwRedSplitCountries := uuid(10)     // L2 KEY split countries — color branch
+		idTeslaBlueBmwSunroofSplitCountries := uuid(11) // L2 KEY split countries — accessory branch
+		docs := []docDef{
+			{id: idTeslaRed, props: wrapC(country(garage(car("tesla", "red")))), note: "single chain tesla,red"},
+			{id: idTeslaSunroof, props: wrapC(country(garage(car("tesla", "blue", accessory("sunroof"))))), note: "single chain tesla with sunroof"},
+			{id: idTeslaNoOr, props: wrapC(country(garage(car("tesla", "blue")))), note: "single chain tesla,blue"},
+			{id: idBmwRed, props: wrapC(country(garage(car("bmw", "red")))), note: "single chain bmw,red"},
+			{id: idTeslaBlueBmwRedSameGarage, props: wrapC(country(garage(car("tesla", "blue"), car("bmw", "red")))), note: "tesla + bmw,red same garage"},
+			{id: idTeslaBlueBmwSunroofSameGarage, props: wrapC(country(garage(car("tesla", "blue"), car("bmw", "blue", accessory("sunroof"))))), note: "tesla + bmw with sunroof same garage"},
+			{id: idEmpty, props: map[string]any{}, note: "no countries"},
+			{id: idTeslaBlueBmwRedSplitGarages, props: wrapC(country(garage(car("tesla", "blue")), garage(car("bmw", "red")))), note: "split garages within country — color"},
+			{id: idTeslaBlueBmwSunroofSplitGarages, props: wrapC(country(garage(car("tesla", "blue")), garage(car("bmw", "blue", accessory("sunroof"))))), note: "split garages within country — accessory"},
+			{id: idTeslaBlueBmwRedSplitCountries, props: wrapC(country(garage(car("tesla", "blue"))), country(garage(car("bmw", "red")))), note: "split across countries — color"},
+			{id: idTeslaBlueBmwSunroofSplitCountries, props: wrapC(country(garage(car("tesla", "blue"))), country(garage(car("bmw", "blue", accessory("sunroof"))))), note: "split across countries — accessory"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.color", "countries.garages.cars.accessories.type",
+			docs,
+			// today: docID-level OR + AND across the entire
+			// countries.garages.cars hierarchy regardless of
+			// layout.
+			[]strfmt.UUID{
+				idTeslaRed, idTeslaSunroof,
+				idTeslaBlueBmwRedSameGarage, idTeslaBlueBmwSunroofSameGarage,
+				idTeslaBlueBmwRedSplitGarages, idTeslaBlueBmwSunroofSplitGarages,
+				idTeslaBlueBmwRedSplitCountries, idTeslaBlueBmwSunroofSplitCountries,
+			},
+			// expected after position-level OR:
+			// []strfmt.UUID{idTeslaRed, idTeslaSunroof}
+			//   (all cross-car splits — same garage, different
+			//   garages, different countries; color or accessory
+			//   branch — flip OUT. Position-level OR within
+			//   cars[] LCA combined with same-cars-element AND
+			//   semantics is uniform regardless of where in the
+			//   nested hierarchy the mixed elements live.)
+		)
+	})
+}
