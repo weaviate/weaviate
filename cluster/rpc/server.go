@@ -44,6 +44,7 @@ type raftPeers interface {
 type raftFSM interface {
 	Execute(ctx context.Context, cmd *cmd.ApplyRequest) (uint64, error)
 	Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
+	WaitForAppliedIndex(ctx context.Context, version uint64) error
 }
 
 type Server struct {
@@ -129,6 +130,15 @@ func (s *Server) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryRe
 	}
 
 	return resp, nil
+}
+
+// WaitForAppliedIndex is the per-peer primitive for fan-out FSM convergence
+// (see Raft.WaitForUpdateAllNodes).
+func (s *Server) WaitForAppliedIndex(ctx context.Context, req *cmd.WaitForAppliedIndexRequest) (*cmd.WaitForAppliedIndexResponse, error) {
+	if err := s.raftFSM.WaitForAppliedIndex(ctx, req.Version); err != nil {
+		return &cmd.WaitForAppliedIndexResponse{}, toRPCError(err)
+	}
+	return &cmd.WaitForAppliedIndexResponse{}, nil
 }
 
 // Leader returns the current leader of the RAFT cluster.

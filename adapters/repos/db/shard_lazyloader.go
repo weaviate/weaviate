@@ -793,6 +793,13 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 	return l.shard.filePutter(ctx, shardID)
 }
 
+func (l *LazyLoadShard) WaitForReplicationDrain(ctx context.Context, deadline time.Duration) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.WaitForReplicationDrain(ctx, deadline)
+}
+
 func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
 	if err := l.Load(context.Background()); err != nil {
 		return err

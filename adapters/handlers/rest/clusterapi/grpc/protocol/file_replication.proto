@@ -29,6 +29,8 @@ service FileReplicationService {
   rpc FinalizeChangeLog (FinalizeChangeLogRequest) returns (FinalizeChangeLogResponse);
 
   rpc StopChangeCapture (StopChangeCaptureRequest) returns (StopChangeCaptureResponse);
+
+  rpc WaitForReplicationDrain (WaitForReplicationDrainRequest) returns (WaitForReplicationDrainResponse);
 }
 
 message PauseFileActivityRequest {
@@ -159,4 +161,15 @@ message StopChangeCaptureResponse {
   string index_name = 1;
   string shard_name = 2;
   string op_id = 3;
+}
+
+message WaitForReplicationDrainRequest {
+  string index_name = 1;
+  string shard_name = 2;
+  int64 deadline_millis = 3;
+}
+
+message WaitForReplicationDrainResponse {
+  string index_name = 1;
+  string shard_name = 2;
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
@@ -266,6 +267,24 @@ func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *p
 		ShardName: req.ShardName,
 		OpId:      req.OpId,
 		FinalLsn:  finalLSN,
+	}, nil
+}
+
+func (fps *FileReplicationService) WaitForReplicationDrain(ctx context.Context, req *pb.WaitForReplicationDrainRequest) (*pb.WaitForReplicationDrainResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	deadline := time.Duration(req.DeadlineMillis) * time.Millisecond
+	if err := index.IncomingWaitForReplicationDrain(ctx, req.ShardName, deadline); err != nil {
+		return nil, status.Errorf(codes.Internal, "wait for replication drain for index %q, shard %q: %v",
+			req.IndexName, req.ShardName, err)
+	}
+
+	return &pb.WaitForReplicationDrainResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
 	}, nil
 }
 

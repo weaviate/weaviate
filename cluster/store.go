@@ -714,6 +714,17 @@ func (st *Store) Stats() map[string]any {
 	return stats
 }
 
+func (st *Store) Servers() ([]raft.Server, error) {
+	if st.raft == nil {
+		return nil, fmt.Errorf("raft not initialized")
+	}
+	cf := st.raft.GetConfiguration()
+	if err := cf.Error(); err != nil {
+		return nil, fmt.Errorf("get raft configuration: %w", err)
+	}
+	return cf.Configuration().Servers, nil
+}
+
 // Leader is used to return the current leader address.
 // It may return empty strings if there is no current leader or the leader is unknown.
 func (st *Store) Leader() string {

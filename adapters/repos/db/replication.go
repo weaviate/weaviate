@@ -660,6 +660,21 @@ func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID s
 	return nil
 }
 
+func (i *Index) IncomingWaitForReplicationDrain(ctx context.Context, shardName string, deadline time.Duration) error {
+	shard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("incoming wait for replication drain: get shard %q: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return fmt.Errorf("incoming wait for replication drain: shard %q not found", shardName)
+	}
+	if err := shard.WaitForReplicationDrain(ctx, deadline); err != nil {
+		return fmt.Errorf("incoming wait for replication drain: shard %q: %w", shardName, err)
+	}
+	return nil
+}
+
 // IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.
 // If the target node override already exists with a different upper time bound, the existing
 // override will use the maximum upper time bound between the two. Async replication will be

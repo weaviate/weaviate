@@ -3517,6 +3517,53 @@ func (_c *MockShardLike_Versioner_Call) RunAndReturn(run func() *shardVersioner)
 	return _c
 }
 
+// WaitForReplicationDrain provides a mock function with given fields: ctx, deadline
+func (_m *MockShardLike) WaitForReplicationDrain(ctx context.Context, deadline time.Duration) error {
+	ret := _m.Called(ctx, deadline)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WaitForReplicationDrain")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration) error); ok {
+		r0 = rf(ctx, deadline)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_WaitForReplicationDrain_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForReplicationDrain'
+type MockShardLike_WaitForReplicationDrain_Call struct {
+	*mock.Call
+}
+
+// WaitForReplicationDrain is a helper method to define mock.On call
+//   - ctx context.Context
+//   - deadline time.Duration
+func (_e *MockShardLike_Expecter) WaitForReplicationDrain(ctx interface{}, deadline interface{}) *MockShardLike_WaitForReplicationDrain_Call {
+	return &MockShardLike_WaitForReplicationDrain_Call{Call: _e.mock.On("WaitForReplicationDrain", ctx, deadline)}
+}
+
+func (_c *MockShardLike_WaitForReplicationDrain_Call) Run(run func(ctx context.Context, deadline time.Duration)) *MockShardLike_WaitForReplicationDrain_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_WaitForReplicationDrain_Call) Return(_a0 error) *MockShardLike_WaitForReplicationDrain_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_WaitForReplicationDrain_Call) RunAndReturn(run func(context.Context, time.Duration) error) *MockShardLike_WaitForReplicationDrain_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // WasDeleted provides a mock function with given fields: ctx, id
 func (_m *MockShardLike) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
 	ret := _m.Called(ctx, id)

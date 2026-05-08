@@ -97,7 +97,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.EXPECT().
 			LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil)
-		expectChangeCaptureMocks(mockReplicaCopier)
+		expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -231,7 +231,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockFSMUpdater.EXPECT().
 			ReplicationRegisterError(mock.Anything, uint64(opId), mock.Anything).
 			Return(nil)
-		expectChangeCaptureMocks(mockReplicaCopier)
+		expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -376,7 +376,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			mockFSMUpdater.EXPECT().
 				ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 				Return(uint64(i), nil)
-			expectChangeCaptureMocks(mockReplicaCopier)
+			expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 			mockFSMUpdater.EXPECT().
 				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 		}
@@ -674,7 +674,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					ReplicationAddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything, uint64(opID)).
 					Return(uint64(i), nil)
-				expectChangeCaptureMocks(mockReplicaCopier)
+				expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 				completionWg.Add(1)
@@ -802,7 +802,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, nil)
-	expectChangeCaptureMocks(mockReplicaCopier)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -932,7 +932,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, nil)
-	expectChangeCaptureMocks(mockReplicaCopier)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -1133,7 +1133,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 		Return(nil)
-	expectChangeCaptureMocks(mockReplicaCopier)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
@@ -1264,7 +1264,7 @@ func TestConsumerOpSkip(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
-	expectChangeCaptureMocks(mockReplicaCopier)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
@@ -1372,7 +1372,7 @@ func TestConsumerShutdown(t *testing.T) {
 			}
 		}).
 		Times(5)
-	expectChangeCaptureMocks(mockReplicaCopier)
+	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	// Add five long running ops to the consumer
 	for i := 0; i < 5; i++ {
@@ -1411,12 +1411,17 @@ func TestConsumerShutdown(t *testing.T) {
 }
 
 // expectChangeCaptureMocks registers permissive (Maybe) expectations for
-// every change-capture primitive the consumer might call. Tests that don't
-// reach FINALIZING (cancellation, deletion) still pass.
-func expectChangeCaptureMocks(m *types.MockReplicaCopier) {
+// every change-capture primitive the consumer might call, plus the
+// FSM-converge-and-drain primitives that pair with it during DEHYDRATING.
+// Tests that don't reach FINALIZING (cancellation, deletion) still pass.
+func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpdater) {
 	m.EXPECT().StartChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	m.EXPECT().SnapshotChangeLogLSN(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().WaitForReplicationDrain(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	if fsm != nil {
+		fsm.EXPECT().WaitForUpdateAllNodes(mock.Anything, mock.Anything).Return(nil).Maybe()
+	}
 }

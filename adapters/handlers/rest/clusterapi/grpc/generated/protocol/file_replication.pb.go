@@ -1311,6 +1311,118 @@ func (x *StopChangeCaptureResponse) GetOpId() string {
 	return ""
 }
 
+type WaitForReplicationDrainRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IndexName      string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	ShardName      string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
+	DeadlineMillis int64                  `protobuf:"varint,3,opt,name=deadline_millis,json=deadlineMillis,proto3" json:"deadline_millis,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *WaitForReplicationDrainRequest) Reset() {
+	*x = WaitForReplicationDrainRequest{}
+	mi := &file_protocol_file_replication_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitForReplicationDrainRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitForReplicationDrainRequest) ProtoMessage() {}
+
+func (x *WaitForReplicationDrainRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitForReplicationDrainRequest.ProtoReflect.Descriptor instead.
+func (*WaitForReplicationDrainRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *WaitForReplicationDrainRequest) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+func (x *WaitForReplicationDrainRequest) GetShardName() string {
+	if x != nil {
+		return x.ShardName
+	}
+	return ""
+}
+
+func (x *WaitForReplicationDrainRequest) GetDeadlineMillis() int64 {
+	if x != nil {
+		return x.DeadlineMillis
+	}
+	return 0
+}
+
+type WaitForReplicationDrainResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IndexName     string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
+	ShardName     string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitForReplicationDrainResponse) Reset() {
+	*x = WaitForReplicationDrainResponse{}
+	mi := &file_protocol_file_replication_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitForReplicationDrainResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitForReplicationDrainResponse) ProtoMessage() {}
+
+func (x *WaitForReplicationDrainResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_file_replication_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitForReplicationDrainResponse.ProtoReflect.Descriptor instead.
+func (*WaitForReplicationDrainResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_file_replication_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *WaitForReplicationDrainResponse) GetIndexName() string {
+	if x != nil {
+		return x.IndexName
+	}
+	return ""
+}
+
+func (x *WaitForReplicationDrainResponse) GetShardName() string {
+	if x != nil {
+		return x.ShardName
+	}
+	return ""
+}
+
 var File_protocol_file_replication_proto protoreflect.FileDescriptor
 
 const file_protocol_file_replication_proto_rawDesc = "" +
@@ -1437,12 +1549,23 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
 	"\n" +
 	"shard_name\x18\x02 \x01(\tR\tshardName\x12\x13\n" +
-	"\x05op_id\x18\x03 \x01(\tR\x04opId*\x87\x01\n" +
+	"\x05op_id\x18\x03 \x01(\tR\x04opId\"\x87\x01\n" +
+	"\x1eWaitForReplicationDrainRequest\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
+	"\n" +
+	"shard_name\x18\x02 \x01(\tR\tshardName\x12'\n" +
+	"\x0fdeadline_millis\x18\x03 \x01(\x03R\x0edeadlineMillis\"_\n" +
+	"\x1fWaitForReplicationDrainResponse\x12\x1d\n" +
+	"\n" +
+	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
+	"\n" +
+	"shard_name\x18\x02 \x01(\tR\tshardName*\x87\x01\n" +
 	"\x0fCompressionType\x12 \n" +
 	"\x1cCOMPRESSION_TYPE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_GZIP\x10\x01\x12\x19\n" +
 	"\x15COMPRESSION_TYPE_ZLIB\x10\x02\x12\x1c\n" +
-	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\xa3\a\n" +
+	"\x18COMPRESSION_TYPE_DEFLATE\x10\x032\x97\b\n" +
 	"\x16FileReplicationService\x12`\n" +
 	"\x11PauseFileActivity\x12$.clusterapi.PauseFileActivityRequest\x1a%.clusterapi.PauseFileActivityResponse\x12c\n" +
 	"\x12ResumeFileActivity\x12%.clusterapi.ResumeFileActivityRequest\x1a&.clusterapi.ResumeFileActivityResponse\x12H\n" +
@@ -1453,7 +1576,8 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\fGetChangeLog\x12\x1f.clusterapi.GetChangeLogRequest\x1a .clusterapi.ChangeLogStreamEntry0\x01\x12i\n" +
 	"\x14SnapshotChangeLogLSN\x12'.clusterapi.SnapshotChangeLogLSNRequest\x1a(.clusterapi.SnapshotChangeLogLSNResponse\x12`\n" +
 	"\x11FinalizeChangeLog\x12$.clusterapi.FinalizeChangeLogRequest\x1a%.clusterapi.FinalizeChangeLogResponse\x12`\n" +
-	"\x11StopChangeCapture\x12$.clusterapi.StopChangeCaptureRequest\x1a%.clusterapi.StopChangeCaptureResponseB\xa1\x01\n" +
+	"\x11StopChangeCapture\x12$.clusterapi.StopChangeCaptureRequest\x1a%.clusterapi.StopChangeCaptureResponse\x12r\n" +
+	"\x17WaitForReplicationDrain\x12*.clusterapi.WaitForReplicationDrainRequest\x1a+.clusterapi.WaitForReplicationDrainResponseB\xa1\x01\n" +
 	"\x0ecom.clusterapiB\x14FileReplicationProtoP\x01Z1github.com/weaviate/weaviate/cloud/proto/protocol\xa2\x02\x03CXX\xaa\x02\n" +
 	"Clusterapi\xca\x02\n" +
 	"Clusterapi\xe2\x02\x16Clusterapi\\GPBMetadata\xea\x02\n" +
@@ -1472,29 +1596,31 @@ func file_protocol_file_replication_proto_rawDescGZIP() []byte {
 }
 
 var file_protocol_file_replication_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_protocol_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_protocol_file_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_protocol_file_replication_proto_goTypes = []any{
-	(CompressionType)(0),                 // 0: clusterapi.CompressionType
-	(*PauseFileActivityRequest)(nil),     // 1: clusterapi.PauseFileActivityRequest
-	(*PauseFileActivityResponse)(nil),    // 2: clusterapi.PauseFileActivityResponse
-	(*ResumeFileActivityRequest)(nil),    // 3: clusterapi.ResumeFileActivityRequest
-	(*ResumeFileActivityResponse)(nil),   // 4: clusterapi.ResumeFileActivityResponse
-	(*ListFilesRequest)(nil),             // 5: clusterapi.ListFilesRequest
-	(*ListFilesResponse)(nil),            // 6: clusterapi.ListFilesResponse
-	(*GetFileMetadataRequest)(nil),       // 7: clusterapi.GetFileMetadataRequest
-	(*FileMetadata)(nil),                 // 8: clusterapi.FileMetadata
-	(*GetFileRequest)(nil),               // 9: clusterapi.GetFileRequest
-	(*FileChunk)(nil),                    // 10: clusterapi.FileChunk
-	(*StartChangeCaptureRequest)(nil),    // 11: clusterapi.StartChangeCaptureRequest
-	(*StartChangeCaptureResponse)(nil),   // 12: clusterapi.StartChangeCaptureResponse
-	(*GetChangeLogRequest)(nil),          // 13: clusterapi.GetChangeLogRequest
-	(*SnapshotChangeLogLSNRequest)(nil),  // 14: clusterapi.SnapshotChangeLogLSNRequest
-	(*SnapshotChangeLogLSNResponse)(nil), // 15: clusterapi.SnapshotChangeLogLSNResponse
-	(*ChangeLogStreamEntry)(nil),         // 16: clusterapi.ChangeLogStreamEntry
-	(*FinalizeChangeLogRequest)(nil),     // 17: clusterapi.FinalizeChangeLogRequest
-	(*FinalizeChangeLogResponse)(nil),    // 18: clusterapi.FinalizeChangeLogResponse
-	(*StopChangeCaptureRequest)(nil),     // 19: clusterapi.StopChangeCaptureRequest
-	(*StopChangeCaptureResponse)(nil),    // 20: clusterapi.StopChangeCaptureResponse
+	(CompressionType)(0),                    // 0: clusterapi.CompressionType
+	(*PauseFileActivityRequest)(nil),        // 1: clusterapi.PauseFileActivityRequest
+	(*PauseFileActivityResponse)(nil),       // 2: clusterapi.PauseFileActivityResponse
+	(*ResumeFileActivityRequest)(nil),       // 3: clusterapi.ResumeFileActivityRequest
+	(*ResumeFileActivityResponse)(nil),      // 4: clusterapi.ResumeFileActivityResponse
+	(*ListFilesRequest)(nil),                // 5: clusterapi.ListFilesRequest
+	(*ListFilesResponse)(nil),               // 6: clusterapi.ListFilesResponse
+	(*GetFileMetadataRequest)(nil),          // 7: clusterapi.GetFileMetadataRequest
+	(*FileMetadata)(nil),                    // 8: clusterapi.FileMetadata
+	(*GetFileRequest)(nil),                  // 9: clusterapi.GetFileRequest
+	(*FileChunk)(nil),                       // 10: clusterapi.FileChunk
+	(*StartChangeCaptureRequest)(nil),       // 11: clusterapi.StartChangeCaptureRequest
+	(*StartChangeCaptureResponse)(nil),      // 12: clusterapi.StartChangeCaptureResponse
+	(*GetChangeLogRequest)(nil),             // 13: clusterapi.GetChangeLogRequest
+	(*SnapshotChangeLogLSNRequest)(nil),     // 14: clusterapi.SnapshotChangeLogLSNRequest
+	(*SnapshotChangeLogLSNResponse)(nil),    // 15: clusterapi.SnapshotChangeLogLSNResponse
+	(*ChangeLogStreamEntry)(nil),            // 16: clusterapi.ChangeLogStreamEntry
+	(*FinalizeChangeLogRequest)(nil),        // 17: clusterapi.FinalizeChangeLogRequest
+	(*FinalizeChangeLogResponse)(nil),       // 18: clusterapi.FinalizeChangeLogResponse
+	(*StopChangeCaptureRequest)(nil),        // 19: clusterapi.StopChangeCaptureRequest
+	(*StopChangeCaptureResponse)(nil),       // 20: clusterapi.StopChangeCaptureResponse
+	(*WaitForReplicationDrainRequest)(nil),  // 21: clusterapi.WaitForReplicationDrainRequest
+	(*WaitForReplicationDrainResponse)(nil), // 22: clusterapi.WaitForReplicationDrainResponse
 }
 var file_protocol_file_replication_proto_depIdxs = []int32{
 	0,  // 0: clusterapi.GetFileRequest.compression:type_name -> clusterapi.CompressionType
@@ -1508,18 +1634,20 @@ var file_protocol_file_replication_proto_depIdxs = []int32{
 	14, // 8: clusterapi.FileReplicationService.SnapshotChangeLogLSN:input_type -> clusterapi.SnapshotChangeLogLSNRequest
 	17, // 9: clusterapi.FileReplicationService.FinalizeChangeLog:input_type -> clusterapi.FinalizeChangeLogRequest
 	19, // 10: clusterapi.FileReplicationService.StopChangeCapture:input_type -> clusterapi.StopChangeCaptureRequest
-	2,  // 11: clusterapi.FileReplicationService.PauseFileActivity:output_type -> clusterapi.PauseFileActivityResponse
-	4,  // 12: clusterapi.FileReplicationService.ResumeFileActivity:output_type -> clusterapi.ResumeFileActivityResponse
-	6,  // 13: clusterapi.FileReplicationService.ListFiles:output_type -> clusterapi.ListFilesResponse
-	8,  // 14: clusterapi.FileReplicationService.GetFileMetadata:output_type -> clusterapi.FileMetadata
-	10, // 15: clusterapi.FileReplicationService.GetFile:output_type -> clusterapi.FileChunk
-	12, // 16: clusterapi.FileReplicationService.StartChangeCapture:output_type -> clusterapi.StartChangeCaptureResponse
-	16, // 17: clusterapi.FileReplicationService.GetChangeLog:output_type -> clusterapi.ChangeLogStreamEntry
-	15, // 18: clusterapi.FileReplicationService.SnapshotChangeLogLSN:output_type -> clusterapi.SnapshotChangeLogLSNResponse
-	18, // 19: clusterapi.FileReplicationService.FinalizeChangeLog:output_type -> clusterapi.FinalizeChangeLogResponse
-	20, // 20: clusterapi.FileReplicationService.StopChangeCapture:output_type -> clusterapi.StopChangeCaptureResponse
-	11, // [11:21] is the sub-list for method output_type
-	1,  // [1:11] is the sub-list for method input_type
+	21, // 11: clusterapi.FileReplicationService.WaitForReplicationDrain:input_type -> clusterapi.WaitForReplicationDrainRequest
+	2,  // 12: clusterapi.FileReplicationService.PauseFileActivity:output_type -> clusterapi.PauseFileActivityResponse
+	4,  // 13: clusterapi.FileReplicationService.ResumeFileActivity:output_type -> clusterapi.ResumeFileActivityResponse
+	6,  // 14: clusterapi.FileReplicationService.ListFiles:output_type -> clusterapi.ListFilesResponse
+	8,  // 15: clusterapi.FileReplicationService.GetFileMetadata:output_type -> clusterapi.FileMetadata
+	10, // 16: clusterapi.FileReplicationService.GetFile:output_type -> clusterapi.FileChunk
+	12, // 17: clusterapi.FileReplicationService.StartChangeCapture:output_type -> clusterapi.StartChangeCaptureResponse
+	16, // 18: clusterapi.FileReplicationService.GetChangeLog:output_type -> clusterapi.ChangeLogStreamEntry
+	15, // 19: clusterapi.FileReplicationService.SnapshotChangeLogLSN:output_type -> clusterapi.SnapshotChangeLogLSNResponse
+	18, // 20: clusterapi.FileReplicationService.FinalizeChangeLog:output_type -> clusterapi.FinalizeChangeLogResponse
+	20, // 21: clusterapi.FileReplicationService.StopChangeCapture:output_type -> clusterapi.StopChangeCaptureResponse
+	22, // 22: clusterapi.FileReplicationService.WaitForReplicationDrain:output_type -> clusterapi.WaitForReplicationDrainResponse
+	12, // [12:23] is the sub-list for method output_type
+	1,  // [1:12] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -1536,7 +1664,7 @@ func file_protocol_file_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protocol_file_replication_proto_rawDesc), len(file_protocol_file_replication_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

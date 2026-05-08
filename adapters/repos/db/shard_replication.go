@@ -58,6 +58,34 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
+func (p *pendingReplicaTasks) len() int {
+	p.Lock()
+	defer p.Unlock()
+	return len(p.Tasks)
+}
+
+// WaitForReplicationDrain bounds the in-flight 2PC window structurally
+// rather than by arbitrary sleep before the source seals its change log.
+func (s *Shard) WaitForReplicationDrain(ctx context.Context, deadline time.Duration) error {
+	if deadline <= 0 {
+		return fmt.Errorf("deadline must be positive")
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if s.replicationMap.len() == 0 {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("wait for replication drain: %w (pending=%d)", waitCtx.Err(), s.replicationMap.len())
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *Shard) commitReplication(ctx context.Context, requestID string) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {

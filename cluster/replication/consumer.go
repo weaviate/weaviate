@@ -44,6 +44,10 @@ type OpConsumer interface {
 // DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
 
+// replicationDrainDeadline bounds the source-side drain so a stuck source
+// cannot block a MOVE indefinitely.
+const replicationDrainDeadline = 5 * time.Second
+
 // errOpCancelled is an error indicating that the operation was cancelled.
 var errOpCancelled = errors.New("operation cancelled")
 
@@ -680,7 +684,8 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		}
 
 		// If the replica got deleted due to eventual consistency between our sanity check and this call, the delete will be a no-op and return no error
-		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, src); err != nil {
+		ver, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, src)
+		if err != nil {
 			logger.WithError(err).Error("failure while deleting replica from shard")
 			return api.ShardReplicationState(""), err
 		}
@@ -688,6 +693,20 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		if ctx.Err() != nil {
 			logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 			return api.ShardReplicationState(""), ctx.Err()
+		}
+
+		// Converge every peer's FSM on the source-removal before sealing:
+		// a stale-FSM coordinator would otherwise still 2PC source, and a
+		// post-seal COMMIT lands in the bucket but bypasses the change log.
+		if err := c.leaderClient.WaitForUpdateAllNodes(ctx, ver); err != nil {
+			logger.WithError(err).Error("failure while waiting for source-removal to converge across nodes")
+			return api.ShardReplicationState(""), err
+		}
+
+		// Drain PREPAREs already in flight before convergence; on deadline
+		// proceed — the residual race is no worse than the pre-fix behavior.
+		if err := c.replicaCopier.WaitForReplicationDrain(ctx, src, coll, shard, replicationDrainDeadline); err != nil {
+			logger.WithError(err).Warn("WaitForReplicationDrain on source did not complete cleanly (proceeding)")
 		}
 
 		finalLSN, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID)

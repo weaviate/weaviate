@@ -9,6 +9,7 @@ service ClusterService {
   rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
   rpc Apply(ApplyRequest) returns (ApplyResponse) {}
   rpc Query(QueryRequest) returns (QueryResponse) {}
+  rpc WaitForAppliedIndex(WaitForAppliedIndexRequest) returns (WaitForAppliedIndexResponse) {}
 }
 
 message JoinPeerRequest {
@@ -34,6 +35,13 @@ message NotifyPeerRequest {
 }
 
 message NotifyPeerResponse {
+}
+
+message WaitForAppliedIndexRequest {
+  uint64 version = 1;
+}
+
+message WaitForAppliedIndexResponse {
 }
 
 message ApplyRequest {
