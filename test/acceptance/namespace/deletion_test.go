@@ -232,6 +232,30 @@ func TestNamespaces_ConcurrentDeleteAndAddClass(t *testing.T) {
 	require.Error(t, err, "class %q must not survive namespace removal", qualifiedClass)
 }
 
+// TestNamespaces_DeleteMissingReturns404FromEveryReplica drives DELETE
+// on a non-existent namespace against each replica in turn and asserts a
+// 404 response. The Apply path forwards from any non-leader replica to
+// the leader, so at least two of the three iterations exercise the
+// follower-forward path. The leader's apply returns ErrNotFound, which
+// must round-trip through gRPC and re-chain on the client so the
+// handler's errors.Is mapping returns 404 rather than 500.
+func TestNamespaces_DeleteMissingReturns404FromEveryReplica(t *testing.T) {
+	const ns = "neverexisted"
+
+	originalURI := sharedCompose.GetWeaviate().URI()
+	t.Cleanup(func() { helper.SetupClient(originalURI) })
+
+	for i := 1; i <= 3; i++ {
+		nodeURI := sharedCompose.GetWeaviateNode(i).URI()
+		helper.SetupClient(nodeURI)
+		_, err := rawDeleteNamespace(t, ns, adminKey)
+		require.Error(t, err, "DELETE on missing namespace must return an error from %s", nodeURI)
+		var nf *namespaces.DeleteNamespaceNotFound
+		require.True(t, errors.As(err, &nf),
+			"DELETE on %s should return 404, got %T: %v", nodeURI, err, err)
+	}
+}
+
 // schemaDumpAs hits a generic authenticated endpoint with the given key.
 // Used to probe whether the key still authenticates.
 func schemaDumpAs(t *testing.T, key string) (any, error) {

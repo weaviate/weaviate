@@ -109,7 +109,7 @@ func (s *Raft) DeleteUser(userId string) error {
 	return nil
 }
 
-func (s *Raft) DeleteUsersInNamespace(namespace string) error {
+func (s *Raft) DeleteUsersInNamespace(ctx context.Context, namespace string) error {
 	req := cmd.DeleteUsersInNamespaceRequest{
 		Namespace: namespace,
 		Version:   cmd.DynUserLatestCommandPolicyVersion,
@@ -122,7 +122,7 @@ func (s *Raft) DeleteUsersInNamespace(namespace string) error {
 		Type:       cmd.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil

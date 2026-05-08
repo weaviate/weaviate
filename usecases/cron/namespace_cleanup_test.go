@@ -38,13 +38,14 @@ func intervalConfig(d time.Duration) configGetter {
 	}
 }
 
-func newTestNamespaceCleanup(t *testing.T, interval time.Duration) (*cronsNamespaceCleanup, *gocron.Cron) {
+func newTestNamespaceCleanup(t *testing.T, interval time.Duration) (*cronsNamespaceCleanup, *gocron.Cron, context.CancelFunc) {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	cr := initGoCron(context.Background(), gocron.DiscardLogger)
-	c := newCronsNamespaceCleanup(context.Background(), logger, gocron.DiscardLogger, intervalConfig(interval))
-	return c, cr
+	ctx, cancel := context.WithCancel(context.Background())
+	cr := initGoCron(ctx, gocron.DiscardLogger)
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, intervalConfig(interval))
+	return c, cr, cancel
 }
 
 func nonNilCoordinator(t *testing.T) *namespacecleanup.Coordinator {
@@ -63,10 +64,10 @@ func nonNilCoordinator(t *testing.T) *namespacecleanup.Coordinator {
 // values; the cron-level tests don't invoke them.
 type stubLister struct{}
 
-func (stubLister) ListDeleting() []string              { return nil }
-func (stubLister) ClassesInNamespace(string) []string  { return nil }
-func (stubLister) AliasesInNamespace(string) []string  { return nil }
-func (stubLister) DeleteUsersInNamespace(string) error { return nil }
+func (stubLister) ListDeleting() []string                               { return nil }
+func (stubLister) ClassesInNamespace(string) []string                   { return nil }
+func (stubLister) AliasesInNamespace(string) []string                   { return nil }
+func (stubLister) DeleteUsersInNamespace(context.Context, string) error { return nil }
 func (stubLister) DeleteAlias(context.Context, string) (uint64, error) {
 	return 0, nil
 }
@@ -74,10 +75,11 @@ func (stubLister) DeleteAlias(context.Context, string) (uint64, error) {
 func (stubLister) DeleteClass(context.Context, string) (uint64, error) {
 	return 0, nil
 }
-func (stubLister) RemoveNamespaceEntity(string) error { return nil }
+func (stubLister) RemoveNamespaceEntity(context.Context, string) error { return nil }
 
 func TestCronsNamespaceCleanup_Init_NilCoordinator(t *testing.T) {
-	c, cr := newTestNamespaceCleanup(t, time.Minute)
+	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	defer cancel()
 	require.Error(t, c.Init(cr, nil, nil))
 }
 
@@ -89,8 +91,10 @@ func TestCronsNamespaceCleanup_Init_SkipsWhenNamespacesDisabled(t *testing.T) {
 			CleanupInterval: configRuntime.NewDynamicValue(time.Minute),
 		}}
 	}
-	c := newCronsNamespaceCleanup(context.Background(), logger, gocron.DiscardLogger, getter)
-	cr := initGoCron(context.Background(), gocron.DiscardLogger)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
+	cr := initGoCron(ctx, gocron.DiscardLogger)
 
 	require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
 	time.Sleep(50 * time.Millisecond)
@@ -99,7 +103,8 @@ func TestCronsNamespaceCleanup_Init_SkipsWhenNamespacesDisabled(t *testing.T) {
 }
 
 func TestCronsNamespaceCleanup_Init_RegistersForPositiveInterval(t *testing.T) {
-	c, cr := newTestNamespaceCleanup(t, time.Minute)
+	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	defer cancel()
 	require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
 	assert.Eventually(t, func() bool {
 		return cr.RemoveByName(namespaceCleanupJobName)
@@ -111,7 +116,8 @@ func TestCronsNamespaceCleanup_Init_SkipsForNonPositiveInterval(t *testing.T) {
 	tests := []time.Duration{0, -time.Second}
 	for _, interval := range tests {
 		t.Run(interval.String(), func(t *testing.T) {
-			c, cr := newTestNamespaceCleanup(t, interval)
+			c, cr, cancel := newTestNamespaceCleanup(t, interval)
+			defer cancel()
 			require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
 			// Give the registration goroutine a moment; it must not register.
 			time.Sleep(50 * time.Millisecond)
@@ -130,7 +136,9 @@ func TestCronsNamespaceCleanup_RuntimeConfigHook(t *testing.T) {
 		return config.Config{Namespaces: config.Namespaces{Enabled: true, CleanupInterval: current}}
 	}
 	logger, _ := test.NewNullLogger()
-	c := newCronsNamespaceCleanup(context.Background(), logger, gocron.DiscardLogger, getter)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
 	// Drain the initial value pushed by the constructor.
 	<-c.intervalCh
 

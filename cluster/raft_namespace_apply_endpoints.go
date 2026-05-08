@@ -30,7 +30,7 @@ import (
 // so a follow-up local read (e.g. controller.Exists) on the same node sees
 // the change. On a follower this absorbs the leader→follower replication
 // delay; on the leader it returns immediately.
-func (s *Raft) AddNamespace(ns cmd.Namespace) error {
+func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) error {
 	req := cmd.AddNamespaceRequest{
 		Namespace: ns,
 		Version:   cmd.NamespaceLatestCommandPolicyVersion,
@@ -43,11 +43,11 @@ func (s *Raft) AddNamespace(ns cmd.Namespace) error {
 		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
 		SubCommand: subCommand,
 	}
-	version, err := s.Execute(context.Background(), command)
+	version, err := s.Execute(ctx, command)
 	if err != nil {
 		return rewrapNamespaceApplyError(err)
 	}
-	if err := s.WaitForUpdate(context.Background(), version); err != nil {
+	if err := s.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for local apply: %w", err)
 	}
 	return nil
@@ -60,7 +60,7 @@ func (s *Raft) AddNamespace(ns cmd.Namespace) error {
 //
 // On success the call blocks until the local node has applied the entry so
 // subsequent local reads observe the new state.
-func (s *Raft) ChangeNamespaceState(name string, target cmd.NamespaceState) error {
+func (s *Raft) ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) error {
 	req := cmd.ChangeNamespaceStateRequest{
 		Name:        name,
 		TargetState: target,
@@ -74,11 +74,11 @@ func (s *Raft) ChangeNamespaceState(name string, target cmd.NamespaceState) erro
 		Type:       cmd.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE,
 		SubCommand: subCommand,
 	}
-	version, err := s.Execute(context.Background(), command)
+	version, err := s.Execute(ctx, command)
 	if err != nil {
 		return rewrapNamespaceApplyError(err)
 	}
-	if err := s.WaitForUpdate(context.Background(), version); err != nil {
+	if err := s.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for local apply: %w", err)
 	}
 	return nil
@@ -91,7 +91,7 @@ func (s *Raft) ChangeNamespaceState(name string, target cmd.NamespaceState) erro
 //
 // On success the call blocks until the local node has applied the entry so
 // subsequent local reads observe the namespace as gone.
-func (s *Raft) RemoveNamespaceEntity(name string) error {
+func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) error {
 	req := cmd.RemoveNamespaceEntityRequest{
 		Name:    name,
 		Version: cmd.NamespaceLatestCommandPolicyVersion,
@@ -104,11 +104,11 @@ func (s *Raft) RemoveNamespaceEntity(name string) error {
 		Type:       cmd.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY,
 		SubCommand: subCommand,
 	}
-	version, err := s.Execute(context.Background(), command)
+	version, err := s.Execute(ctx, command)
 	if err != nil {
 		return rewrapNamespaceApplyError(err)
 	}
-	if err := s.WaitForUpdate(context.Background(), version); err != nil {
+	if err := s.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for local apply: %w", err)
 	}
 	return nil

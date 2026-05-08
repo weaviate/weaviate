@@ -68,7 +68,7 @@ func newStubRaft() *stubRaft {
 	}
 }
 
-func (s *stubRaft) DeleteUsersInNamespace(name string) error {
+func (s *stubRaft) DeleteUsersInNamespace(_ context.Context, name string) error {
 	s.calls = append(s.calls, recordedCall{op: "users", arg: name, from: name})
 	return s.deleteUsersErr[name]
 }
@@ -83,7 +83,7 @@ func (s *stubRaft) DeleteClass(_ context.Context, name string) (uint64, error) {
 	return 0, s.deleteClassErr[name]
 }
 
-func (s *stubRaft) RemoveNamespaceEntity(name string) error {
+func (s *stubRaft) RemoveNamespaceEntity(_ context.Context, name string) error {
 	s.calls = append(s.calls, recordedCall{op: "entity", arg: name, from: name})
 	s.removeEntityCall[name]++
 	return s.removeEntityErr[name]

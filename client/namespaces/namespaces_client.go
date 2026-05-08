@@ -96,7 +96,7 @@ func (a *Client) CreateNamespace(params *CreateNamespaceParams, authInfo runtime
 /*
 DeleteNamespace deletes a namespace
 
-Hard-delete a namespace by its name.
+Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the "deleting" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the "deleting" state are idempotent and return 202.
 */
 func (a *Client) DeleteNamespace(params *DeleteNamespaceParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteNamespaceAccepted, error) {
 	// TODO: Validate the params before sending

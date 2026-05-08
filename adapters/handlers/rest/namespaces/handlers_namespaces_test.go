@@ -12,6 +12,7 @@
 package namespaces
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,16 +46,16 @@ var req, _ = http.NewRequest("POST", "/namespaces/test", nil)
 // in this package — a generated mock would be more churn than value.
 type mockRaft struct{ mock.Mock }
 
-func (m *mockRaft) AddNamespace(ns cmd.Namespace) error {
-	return m.Called(ns).Error(0)
+func (m *mockRaft) AddNamespace(ctx context.Context, ns cmd.Namespace) error {
+	return m.Called(ctx, ns).Error(0)
 }
 
-func (m *mockRaft) ChangeNamespaceState(name string, target cmd.NamespaceState) error {
-	return m.Called(name, target).Error(0)
+func (m *mockRaft) ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) error {
+	return m.Called(ctx, name, target).Error(0)
 }
 
-func (m *mockRaft) DeleteUsersInNamespace(name string) error {
-	return m.Called(name).Error(0)
+func (m *mockRaft) DeleteUsersInNamespace(ctx context.Context, name string) error {
+	return m.Called(ctx, name).Error(0)
 }
 
 func (m *mockRaft) GetNamespaces(names ...string) ([]cmd.Namespace, error) {
@@ -150,7 +151,7 @@ func TestCreateNamespace_Conflict(t *testing.T) {
 			h, authz, raft := newHandler(t)
 			principal := &models.Principal{}
 			authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
-			raft.On("AddNamespace", cmd.Namespace{Name: "customer1"}).Return(tc.raftErr)
+			raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(tc.raftErr)
 
 			res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 			parsed, ok := res.(*nsops.CreateNamespaceConflict)
@@ -169,7 +170,7 @@ func TestCreateNamespace_UnprocessableOnRaftBadRequest(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("AddNamespace", cmd.Namespace{Name: "customer1"}).
+	raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).
 		Return(fmt.Errorf("%w: bad payload", usecasesNamespaces.ErrBadRequest))
 
 	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
@@ -181,7 +182,7 @@ func TestCreateNamespace_RaftAddError(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("AddNamespace", cmd.Namespace{Name: "customer1"}).Return(errors.New("raft boom"))
+	raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(errors.New("raft boom"))
 
 	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.CreateNamespaceInternalServerError)
@@ -192,7 +193,7 @@ func TestCreateNamespace_Created(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("AddNamespace", cmd.Namespace{Name: "customer1"}).Return(nil)
+	raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).Return(nil)
 
 	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	parsed, ok := res.(*nsops.CreateNamespaceCreated)
@@ -304,7 +305,7 @@ func TestDeleteNamespace_NotFoundOnRaftErrNotFound(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("ChangeNamespaceState", "customer1", cmd.NamespaceStateDeleting).
+	raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).
 		Return(fmt.Errorf("%w: %q", usecasesNamespaces.ErrNotFound, "customer1"))
 
 	res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
@@ -316,7 +317,7 @@ func TestDeleteNamespace_ChangeStateError(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("ChangeNamespaceState", "customer1", cmd.NamespaceStateDeleting).Return(errors.New("raft boom"))
+	raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).Return(errors.New("raft boom"))
 
 	res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.DeleteNamespaceInternalServerError)
@@ -327,8 +328,8 @@ func TestDeleteNamespace_DeleteUsersError(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("ChangeNamespaceState", "customer1", cmd.NamespaceStateDeleting).Return(nil)
-	raft.On("DeleteUsersInNamespace", "customer1").Return(errors.New("dynusers boom"))
+	raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).Return(nil)
+	raft.On("DeleteUsersInNamespace", mock.Anything, "customer1").Return(errors.New("dynusers boom"))
 
 	res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.DeleteNamespaceInternalServerError)
@@ -341,8 +342,8 @@ func TestDeleteNamespace_Accepted(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
-	raft.On("ChangeNamespaceState", "customer1", cmd.NamespaceStateDeleting).Return(nil)
-	raft.On("DeleteUsersInNamespace", "customer1").Return(nil)
+	raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).Return(nil)
+	raft.On("DeleteUsersInNamespace", mock.Anything, "customer1").Return(nil)
 
 	res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.DeleteNamespaceAccepted)
@@ -358,9 +359,9 @@ func TestDeleteNamespace_IdempotentRecall(t *testing.T) {
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Namespaces("customer1")[0]).Return(nil)
 	// ChangeNamespaceState is idempotent: deleting -> deleting returns nil.
-	raft.On("ChangeNamespaceState", "customer1", cmd.NamespaceStateDeleting).Return(nil)
+	raft.On("ChangeNamespaceState", mock.Anything, "customer1", cmd.NamespaceStateDeleting).Return(nil)
 	// DeleteUsersInNamespace is idempotent: no users left → returns nil.
-	raft.On("DeleteUsersInNamespace", "customer1").Return(nil)
+	raft.On("DeleteUsersInNamespace", mock.Anything, "customer1").Return(nil)
 
 	res := h.deleteNamespace(nsops.DeleteNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	_, ok := res.(*nsops.DeleteNamespaceAccepted)

@@ -39,10 +39,10 @@ type schemaLister interface {
 
 // raftExecutor is the subset of cluster.Raft used here.
 type raftExecutor interface {
-	DeleteUsersInNamespace(name string) error
+	DeleteUsersInNamespace(ctx context.Context, name string) error
 	DeleteAlias(ctx context.Context, alias string) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
-	RemoveNamespaceEntity(name string) error
+	RemoveNamespaceEntity(ctx context.Context, name string) error
 }
 
 // Coordinator runs one cleanup pass per Tick on the leader. isLeader is
@@ -118,7 +118,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	if !c.isLeader() {
 		return types.ErrNotLeader
 	}
-	if err := c.raft.DeleteUsersInNamespace(ns); err != nil {
+	if err := c.raft.DeleteUsersInNamespace(ctx, ns); err != nil {
 		return err
 	}
 	for _, alias := range c.schema.AliasesInNamespace(ns) {
@@ -140,7 +140,7 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	if !c.isLeader() {
 		return types.ErrNotLeader
 	}
-	if err := c.raft.RemoveNamespaceEntity(ns); err != nil {
+	if err := c.raft.RemoveNamespaceEntity(ctx, ns); err != nil {
 		// This can happen when an in-flight requests creates a new entity between cleanup start and here
 		if errors.Is(err, namespaces.ErrNamespaceNotEmpty) {
 			return nil

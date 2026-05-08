@@ -18,9 +18,12 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // Namespace A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.
@@ -38,6 +41,57 @@ type Namespace struct {
 
 // Validate validates this namespace
 func (m *Namespace) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateState(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var namespaceTypeStatePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["active","deleting"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		namespaceTypeStatePropEnum = append(namespaceTypeStatePropEnum, v)
+	}
+}
+
+const (
+
+	// NamespaceStateActive captures enum value "active"
+	NamespaceStateActive string = "active"
+
+	// NamespaceStateDeleting captures enum value "deleting"
+	NamespaceStateDeleting string = "deleting"
+)
+
+// prop value enum
+func (m *Namespace) validateStateEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, namespaceTypeStatePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Namespace) validateState(formats strfmt.Registry) error {
+	if swag.IsZero(m.State) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateStateEnum("state", "body", m.State); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -8,7 +8,6 @@
 //
 //  CONTACT: hello@weaviate.io
 //
-//
 
 package cluster
 
