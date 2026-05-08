@@ -29,7 +29,7 @@ func TestCompactor_EmptyDirectory(t *testing.T) {
 	config := DefaultCompactorConfig(dir)
 	compactor := NewCompactor(config, logger, nil)
 
-	action, err := compactor.RunCycle()
+	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
 	assert.Equal(t, ActionNone, action)
 }
@@ -45,7 +45,7 @@ func TestCompactor_OnlyLiveFile(t *testing.T) {
 	config := DefaultCompactorConfig(dir)
 	compactor := NewCompactor(config, logger, nil)
 
-	action, err := compactor.RunCycle()
+	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
 	assert.Equal(t, ActionNone, action)
 
@@ -69,7 +69,7 @@ func TestCompactor_CleanupTempFiles(t *testing.T) {
 	config := DefaultCompactorConfig(dir)
 	compactor := NewCompactor(config, logger, nil)
 
-	_, err := compactor.RunCycle()
+	_, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
 
 	// Temp files should be cleaned up
@@ -205,7 +205,7 @@ func TestCompactor_ResolveOverlaps(t *testing.T) {
 	config := DefaultCompactorConfig(dir)
 	compactor := NewCompactor(config, logger, nil)
 
-	_, err := compactor.RunCycle()
+	_, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
 
 	// Contained file should be deleted
@@ -232,7 +232,7 @@ func TestCompactor_ConvertRawToSorted(t *testing.T) {
 	config := DefaultCompactorConfig(dir)
 	compactor := NewCompactor(config, logger, nil)
 
-	action, err := compactor.RunCycle()
+	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
 
 	// Original raw file should be converted and deleted

@@ -48,7 +48,7 @@ var (
 // See entschema.NamespaceMinLength for the full namespace name validation
 // contract. The regex and reserved-name list below are the non-length parts
 // that live in this package.
-var namespaceNameRegex = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
+var namespaceNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // reservedNames are refused at Create time. Kept as a package variable (not a
 // const) so tests can inspect it; not mutated at runtime.
@@ -210,7 +210,7 @@ func ValidateName(name string) error {
 		return fmt.Errorf("namespace name %q must be %d-%d characters", name, entschema.NamespaceMinLength, entschema.NamespaceMaxLength)
 	}
 	if !namespaceNameRegex.MatchString(name) {
-		return fmt.Errorf("namespace name %q must start with a lowercase letter and contain only lowercase letters and digits", name)
+		return fmt.Errorf("namespace name %q must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, and must not contain ':'", name)
 	}
 	if _, reserved := reservedNames[name]; reserved {
 		return fmt.Errorf("namespace name %q is reserved", name)

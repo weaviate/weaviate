@@ -86,6 +86,25 @@ func TestQualify(t *testing.T) {
 	}
 }
 
+func TestQualifiedName(t *testing.T) {
+	tests := []struct {
+		name      string
+		namespace string
+		entity    string
+		out       string
+	}{
+		{name: "empty namespace returns name verbatim", namespace: "", entity: "alice", out: "alice"},
+		{name: "namespace + name joins with separator", namespace: "customer1", entity: "alice", out: "customer1:alice"},
+		{name: "empty name", namespace: "customer1", entity: "", out: "customer1:"},
+		{name: "both empty", namespace: "", entity: "", out: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.out, QualifiedName(tt.namespace, tt.entity))
+		})
+	}
+}
+
 func TestResolve(t *testing.T) {
 	cases := []struct {
 		testName  string

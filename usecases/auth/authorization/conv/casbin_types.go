@@ -42,24 +42,26 @@ const (
 	InternalPlaceHolder = "wv_internal_empty"
 )
 
-var (
-	BuiltInPolicies = map[string]string{
-		authorization.Viewer:   authorization.READ,
-		authorization.Admin:    VALID_VERBS,
-		authorization.Root:     VALID_VERBS,
-		authorization.ReadOnly: authorization.READ,
-	}
-	weaviate_actions_prefixes = map[string]string{
-		CRUD:                           "manage",
-		CRU:                            "manage",
-		authorization.ROLE_SCOPE_MATCH: "manage",
-		authorization.CREATE:           "create",
-		authorization.READ:             "read",
-		authorization.UPDATE:           "update",
-		authorization.DELETE:           "delete",
-		authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
-	}
-)
+// BuiltInWildcardVerb is the wildcard verb pattern Casbin registers for each
+// built-in role: Admin/Root get full CRUD, Viewer/ReadOnly get READ. The
+// matcher specializes namespace-bearing resources at enforce time.
+var BuiltInWildcardVerb = map[string]string{
+	authorization.Admin:    VALID_VERBS,
+	authorization.Root:     VALID_VERBS,
+	authorization.Viewer:   authorization.READ,
+	authorization.ReadOnly: authorization.READ,
+}
+
+var weaviate_actions_prefixes = map[string]string{
+	CRUD:                           "manage",
+	CRU:                            "manage",
+	authorization.ROLE_SCOPE_MATCH: "manage",
+	authorization.CREATE:           "create",
+	authorization.READ:             "read",
+	authorization.UPDATE:           "update",
+	authorization.DELETE:           "delete",
+	authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
+}
 
 var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.GroupsDomain),

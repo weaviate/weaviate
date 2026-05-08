@@ -19,6 +19,7 @@ excluded_files=(
     "usecases/auth/authorization/docs/generator.go" # docs generator
     "tools/dev/generate_release_notes/main.go" # generate release notes tool
     "test/docker/mockoidchelper/mockoidc_helper.go" # used only for OIDC tests
+    "test/docker/mockoidc/mockoidc.go" # standalone OIDC mock binary, separate go.mod inside its Docker context
     # Diagnostic tools with //go:build ignore, only run manually. Linter false-positive on "go tool pprof" strings.
     "adapters/repos/db/vector/hnsw/compact/diagnostics/e2e_compactor_validation.go"
     "adapters/repos/db/vector/hnsw/compact/diagnostics/e2e_validation.go"

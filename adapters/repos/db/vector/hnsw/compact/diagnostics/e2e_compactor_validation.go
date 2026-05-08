@@ -152,7 +152,7 @@ func main() {
 		cycleCount++
 		fmt.Printf("\n--- Compactor Cycle %d ---\n", cycleCount)
 
-		action, err := compactor.RunCycle()
+		action, err := compactor.RunCycle(nil)
 		if err != nil {
 			panic(fmt.Errorf("compactor cycle %d failed: %w", cycleCount, err))
 		}

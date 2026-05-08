@@ -83,7 +83,7 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication) (*casbin.SyncedCachedEnforcer, error) {
+func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication, namespacesEnabled bool) (*casbin.SyncedCachedEnforcer, error) {
 	if !conf.Enabled {
 		return nil, nil
 	}
@@ -139,7 +139,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("namespaceAwareMatcher", namespaceAwareMatcherFunc)
 
-	if err := applyPredefinedRoles(enforcer, conf, authNconf); err != nil {
+	if err := applyPredefinedRoles(enforcer, conf, authNconf, namespacesEnabled); err != nil {
 		return nil, errors.Wrapf(err, "apply env config")
 	}
 
@@ -153,33 +153,50 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
 // local config
-func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication) error {
-	// remove preexisting root role including assignments
-	_, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
-		return err
-	}
-	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
-		return err
-	}
-
-	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.ReadOnly))
-	if err != nil {
-		return err
-	}
-	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.ReadOnly))
-	if err != nil {
-		return err
-	}
-
-	// add pre existing roles
-	for name, verb := range conv.BuiltInPolicies {
-		if verb == "" {
-			continue
+func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
+	// Wipe all four built-in role policies before re-registering. The
+	// canonical shape lives in code; rebuilding from scratch on every boot
+	// keeps the on-disk policy CSV honest.
+	for _, role := range authorization.BuiltInRoles {
+		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role)); err != nil {
+			return err
 		}
-		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
+	}
+	// Only wipe groupings for env-var-only roles: those are reset from
+	// config on every boot. Admin/viewer groupings are API-managed and
+	// must survive restarts.
+	for _, role := range authorization.EnvVarRoles {
+		if _, err := enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(role)); err != nil {
+			return err
+		}
+	}
+
+	// Register wildcard policies. On NS-disabled all four built-ins get
+	// wildcards; on NS-enabled only root/read-only do — Casbin lacks deny
+	// semantics, so admin/viewer must be registered per-permission to be
+	// narrowable.
+	wildcardRoles := authorization.BuiltInRoles
+	if namespacesEnabled {
+		wildcardRoles = authorization.EnvVarRoles
+	}
+	for _, role := range wildcardRoles {
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
 			return fmt.Errorf("add policy: %w", err)
+		}
+	}
+
+	if namespacesEnabled {
+		narrowed := authorization.BuiltInPermissionsFor(true)
+		for _, role := range []string{authorization.Admin, authorization.Viewer} {
+			policies, err := conv.PermissionToPolicies(narrowed[role]...)
+			if err != nil {
+				return fmt.Errorf("tenant-safe %s policies: %w", role, err)
+			}
+			for _, p := range policies {
+				if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain); err != nil {
+					return fmt.Errorf("add tenant-safe policy: %w", err)
+				}
+			}
 		}
 	}
 

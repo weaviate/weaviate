@@ -34,6 +34,14 @@ const (
 	ActionCreateSnapshot
 )
 
+// ErrCompactionAborted is returned by RunCycle when the supplied
+// shouldAbort callback signals that the cycle should stop. It is not an
+// error condition the caller needs to react to (the on-disk state is
+// guaranteed clean by the SafeFileWriter atomic-rename pattern); callers
+// should recognize it and treat the cycle as a no-op rather than a
+// failure.
+var ErrCompactionAborted = errors.New("compaction aborted")
+
 // String returns a human-readable description of the action.
 func (a Action) String() string {
 	switch a {
@@ -133,7 +141,23 @@ func NewCompactor(config CompactorConfig, logger logrus.FieldLogger, allocChecke
 
 // RunCycle performs a single iteration of the compaction loop.
 // It returns the action that was taken (or ActionNone if nothing was done).
-func (c *Compactor) RunCycle() (Action, error) {
+//
+// shouldAbort is polled at safe points (between files, between merged
+// nodes); when it returns true, RunCycle aborts and returns
+// ErrCompactionAborted. The polls are coarse-grained: a single in-flight
+// file conversion or merge step finishes before the abort takes effect,
+// which is by design — abandoning a SafeFileWriter mid-Commit could leave
+// behind partial output. The atomic-rename pattern (Commit / defer Abort)
+// guarantees no source file is deleted unless its replacement was fully
+// written, so an abort produces no on-disk regressions: the next cycle
+// will pick up where this one left off.
+//
+// shouldAbort may be nil, in which case the cycle runs to completion.
+func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
+	if isAborted(shouldAbort) {
+		return ActionNone, ErrCompactionAborted
+	}
+
 	// Step 1: Cleanup orphaned temp files and detect overlaps
 	if err := c.cleanup(); err != nil {
 		return ActionNone, errors.Wrap(err, "cleanup")
@@ -152,8 +176,12 @@ func (c *Compactor) RunCycle() (Action, error) {
 	}
 
 	// Step 4: Convert raw/condensed files to sorted
-	if err := c.convertToSorted(state); err != nil {
+	if err := c.convertToSorted(state, shouldAbort); err != nil {
 		return ActionNone, errors.Wrap(err, "convert to sorted")
+	}
+
+	if isAborted(shouldAbort) {
+		return ActionNone, ErrCompactionAborted
 	}
 
 	// Re-scan after conversions
@@ -173,16 +201,21 @@ func (c *Compactor) RunCycle() (Action, error) {
 	case ActionNone:
 		// Already handled above
 	case ActionMergeSorted:
-		if err := c.mergeSorted(state); err != nil {
+		if err := c.mergeSorted(state, shouldAbort); err != nil {
 			return ActionNone, errors.Wrap(err, "merge sorted files")
 		}
 	case ActionCreateSnapshot:
-		if err := c.createSnapshot(state); err != nil {
+		if err := c.createSnapshot(state, shouldAbort); err != nil {
 			return ActionNone, errors.Wrap(err, "create snapshot")
 		}
 	}
 
 	return action, nil
+}
+
+// isAborted is a small helper that tolerates a nil callback.
+func isAborted(shouldAbort func() bool) bool {
+	return shouldAbort != nil && shouldAbort()
 }
 
 // cleanup removes orphaned temp files.
@@ -207,9 +240,16 @@ func (c *Compactor) resolveOverlaps(state *DirectoryState) error {
 }
 
 // convertToSorted converts raw and condensed files to sorted format.
-func (c *Compactor) convertToSorted(state *DirectoryState) error {
+// shouldAbort is polled before each file so a long backlog of files can be
+// abandoned promptly; the in-flight file always finishes (its
+// SafeFileWriter would otherwise leak a tmp file we can't cleanly orphan
+// from inside this function).
+func (c *Compactor) convertToSorted(state *DirectoryState, shouldAbort func() bool) error {
 	// Convert raw files (except live file)
 	for _, f := range state.RawFiles {
+		if isAborted(shouldAbort) {
+			return ErrCompactionAborted
+		}
 		if err := c.convertFileToSorted(f); err != nil {
 			return errors.Wrapf(err, "convert raw file %s", f.Path)
 		}
@@ -217,6 +257,9 @@ func (c *Compactor) convertToSorted(state *DirectoryState) error {
 
 	// Convert condensed files
 	for _, f := range state.CondensedFiles {
+		if isAborted(shouldAbort) {
+			return ErrCompactionAborted
+		}
 		if err := c.convertFileToSorted(f); err != nil {
 			return errors.Wrapf(err, "convert condensed file %s", f.Path)
 		}
@@ -367,7 +410,7 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 }
 
 // mergeSorted merges the oldest N sorted files into one.
-func (c *Compactor) mergeSorted(state *DirectoryState) error {
+func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) error {
 	// Select files to merge (oldest N)
 	filesToMerge := state.SortedFiles
 	if len(filesToMerge) > c.config.MaxFilesPerMerge {
@@ -376,6 +419,10 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 
 	if len(filesToMerge) < 2 {
 		return nil // Nothing to merge
+	}
+
+	if isAborted(shouldAbort) {
+		return ErrCompactionAborted
 	}
 
 	c.logger.WithFields(logrus.Fields{
@@ -437,6 +484,9 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 
 	// Write node commits
 	for {
+		if isAborted(shouldAbort) {
+			return ErrCompactionAborted
+		}
 		nc, err := merger.Next()
 		if err != nil {
 			return errors.Wrap(err, "get next from merger")
@@ -471,7 +521,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState) error {
 }
 
 // createSnapshot creates a new snapshot from the current state.
-func (c *Compactor) createSnapshot(state *DirectoryState) error {
+func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() bool) error {
 	// Collect all inputs
 	var allInputFiles []FileInfo
 
@@ -552,7 +602,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState) error {
 	}
 	defer sfw.Abort()
 
-	snapshotWriter := NewSnapshotWriter(sfw.Writer()).WithLogger(c.logger)
+	snapshotWriter := NewSnapshotWriter(sfw.Writer()).WithLogger(c.logger).WithAbort(shouldAbort)
 	if err := snapshotWriter.WriteFromMerger(merger); err != nil {
 		return errors.Wrap(err, "write snapshot from merger")
 	}

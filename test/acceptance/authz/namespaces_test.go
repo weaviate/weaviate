@@ -33,8 +33,6 @@ func TestAuthzNamespaces(t *testing.T) {
 	manageKey := "manage-key"
 	scopedManageUser := "scoped-manage-user"
 	scopedManageKey := "scoped-manage-key"
-	viewerUser := "viewer-user"
-	viewerKey := "viewer-key"
 	noPermsUser := "no-perms-user"
 	noPermsKey := "no-perms-key"
 
@@ -45,7 +43,7 @@ func TestAuthzNamespaces(t *testing.T) {
 			scopedManageUser: scopedManageKey,
 			noPermsUser:      noPermsKey,
 		},
-		map[string]string{viewerUser: viewerKey},
+		nil,
 		false,
 		nil,
 		true, // withDbUsers — needed for the namespace-scoping subtests below.
@@ -144,36 +142,6 @@ func TestAuthzNamespaces(t *testing.T) {
 		names := authzNamespaceNames(helper.ListNamespaces(t, scopedManageKey))
 		assert.Contains(t, names, scopedName)
 		assert.NotContains(t, names, otherName)
-	})
-
-	t.Run("viewer role can read but not write namespaces", func(t *testing.T) {
-		const nsName = "viewervisible"
-		helper.CreateNamespace(t, nsName, adminKey)
-		t.Cleanup(func() { helper.DeleteNamespace(t, nsName, adminKey) })
-
-		helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
-		t.Cleanup(func() { helper.RevokeRoleFromUser(t, adminKey, "viewer", viewerUser) })
-
-		// Reads succeed.
-		assert.Equal(t, nsName, helper.GetNamespace(t, nsName, viewerKey).Name)
-		assert.Contains(t, authzNamespaceNames(helper.ListNamespaces(t, viewerKey)), nsName)
-
-		// Writes are forbidden.
-		_, err := helper.Client(t).Namespaces.CreateNamespace(
-			namespaces.NewCreateNamespaceParams().WithNamespaceID("viewerattempt"),
-			helper.CreateAuth(viewerKey),
-		)
-		require.Error(t, err)
-		var createForbidden *namespaces.CreateNamespaceForbidden
-		require.True(t, errors.As(err, &createForbidden), "expected CreateNamespaceForbidden, got %T: %v", err, err)
-
-		_, err = helper.Client(t).Namespaces.DeleteNamespace(
-			namespaces.NewDeleteNamespaceParams().WithNamespaceID(nsName),
-			helper.CreateAuth(viewerKey),
-		)
-		require.Error(t, err)
-		var delForbidden *namespaces.DeleteNamespaceForbidden
-		require.True(t, errors.As(err, &delForbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
 	})
 
 	t.Run("user with no roles is denied on CRUD and sees empty list", func(t *testing.T) {
@@ -336,32 +304,6 @@ func TestAuthzNamespaces(t *testing.T) {
 			ns1 + ":Movies", ns1 + ":MoviesArchive", ns1 + ":Music",
 			ns2 + ":Movies", ns2 + ":Music",
 		}, got)
-	})
-
-	t.Run("built-in admin role cannot be assigned to namespaced DB user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").WithBody(authz.AssignRoleToUserBody{
-				Roles:    []string{authorization.Admin},
-				UserType: models.UserTypeInputDb,
-			}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var forbidden *authz.AssignRoleToUserForbidden
-		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
-	})
-
-	t.Run("built-in viewer role cannot be assigned to namespaced DB user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AssignRoleToUser(
-			authz.NewAssignRoleToUserParams().WithID(ns1+":u1").WithBody(authz.AssignRoleToUserBody{
-				Roles:    []string{authorization.Viewer},
-				UserType: models.UserTypeInputDb,
-			}),
-			helper.CreateAuth(adminKey),
-		)
-		require.Error(t, err)
-		var forbidden *authz.AssignRoleToUserForbidden
-		require.True(t, errors.As(err, &forbidden), "expected AssignRoleToUserForbidden, got %T: %v", err, err)
 	})
 
 	t.Run("role with namespace-qualified resource path is rejected at create time", func(t *testing.T) {

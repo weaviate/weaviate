@@ -81,7 +81,7 @@ func TestCompactorSnapshotNameCollision(t *testing.T) {
 	config.SnapshotThreshold = 1e-12
 	compactor := NewCompactor(config, logger, nil)
 
-	action, err := compactor.RunCycle()
+	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
 	require.Equal(t, ActionCreateSnapshot, action,
 		"with 1 snapshot + 1 sorted file at the same TS, we expect ActionCreateSnapshot")

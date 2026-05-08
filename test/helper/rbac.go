@@ -267,6 +267,17 @@ func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 	require.Nil(t, err)
 }
 
+func RevokeRoleFromUserOIDC(t *testing.T, key, role, user string) {
+	t.Helper()
+	userType := models.UserTypeInputOidc
+	resp, err := Client(t).Authz.RevokeRoleFromUser(
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
 func AssignRoleToGroup(t *testing.T, key, role, group string) {
 	t.Helper()
 	resp, err := Client(t).Authz.AssignRoleToGroup(
