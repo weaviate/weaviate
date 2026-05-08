@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -727,10 +728,11 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 			// Existence + content equality. Mismatch means a stale PUT won
 			// over a newer one — the LWW-by-timestamp guarantee is broken.
 			for id, expectedContents := range liveIDs {
-				obj, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
-				if !assert.Nil(t, err, "error getting live id %s from node %s", id, nodeInfo.nodeName) {
-					continue
-				}
+				var obj *models.Object
+				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+					obj, err = common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
+					assert.Nil(ct, err, "error getting live id %s from node %s", id, nodeInfo.nodeName)
+				}, 10*time.Second, 1*time.Second, "live id %s missing on node %s", id, nodeInfo.nodeName)
 				if !assert.NotNil(t, obj, "live id %s missing on node %s", id, nodeInfo.nodeName) {
 					continue
 				}
@@ -744,8 +746,11 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 
 			// Tombstone — every deleted id must read back as not-found.
 			for id := range deletedIDs {
-				obj, _ := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
-				assert.Nil(t, obj, "deleted id %s unexpectedly present on node %s", id, nodeInfo.nodeName)
+				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+					_, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, id, nodeInfo.nodeName, "tenant0")
+					var notFound *objects.ObjectsClassGetNotFound
+					assert.ErrorAs(ct, err, &notFound, "deleted id %s unexpectedly present on node %s", id, nodeInfo.nodeName)
+				}, 10*time.Second, 1*time.Second, "deleted id %s still present on node %s", id, nodeInfo.nodeName)
 			}
 		}
 	})
