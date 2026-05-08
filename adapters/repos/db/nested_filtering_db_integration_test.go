@@ -14661,3 +14661,1469 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringNotShapeAMultiVsCompound covers gaps #10 and #11
+// for "Shape A": both NOT operands at a deeper LCA than the positive
+// sibling, comparing the multi-NOT form `A AND NOT B AND NOT C`
+// against the compound-NOT form `A AND NOT(B AND C)`.
+//
+// Filters per level:
+//
+//	Multi:    <chain>.cars.make=tesla AND
+//	          NOT <chain>.cars.tires.brand=michelin AND
+//	          NOT <chain>.cars.tires.width=205
+//	Compound: <chain>.cars.make=tesla AND
+//	          NOT(<chain>.cars.tires.brand=michelin AND
+//	              <chain>.cars.tires.width=205)
+//
+// By De Morgan, multi ≡ NOT(B OR C) and compound ≡ (NOT B) OR (NOT C),
+// so the two forms produce different results today already, and shift
+// independently under scope-aware NOT.
+//
+// Three nesting levels: L0_root_cars, L1_garages_cars (object[]),
+// L2_countries_garages_cars (object[]). Object-root variants are
+// skipped — they're covered in the previous batch's tests.
+func TestNestedFilteringNotShapeAMultiVsCompound(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	// Common schema fragment: cars > make + tires (brand + width).
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "brand", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(brand string, width int) map[string]any {
+		return map[string]any{"brand": brand, "width": width}
+	}
+	car := func(make string, tires ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	// runLevel runs both sub-tests (multi-NOT and compound-NOT) for one
+	// level, given path components and per-level expected lists.
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, brandPath, widthPath string,
+		docs []docDef, multiWant, compoundWant []strfmt.UUID,
+	) {
+		t.Helper()
+		textF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		intF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: multi-NOT form locks in CURRENT
+		// docID-level NOT behavior. Each NOT inverts independently at
+		// docID. Under scope-aware NOT (each NOT inverts at its operand's
+		// LCA = cars.tires, projects up to cars), the form becomes
+		// "tesla cars where (some tire ≠ michelin) AND (some tire ≠ 205)"
+		// — both conditions must hold for a single car (different tires
+		// can satisfy each).
+		t.Run("regression_multi_NOT_shapeA", func(t *testing.T) {
+			runScenario(t, andF(
+				textF(makePath, "tesla"),
+				notF(textF(brandPath, "michelin")),
+				notF(intF(widthPath, 205)),
+			), multiWant)
+		})
+
+		// TODO aliszka:nested_filtering: compound-NOT form locks in CURRENT
+		// behavior. Inner AND is a same-tire correlated AND (tires where
+		// brand=michelin AND width=205). NOT inverts at docID. Under
+		// scope-aware NOT, NOT inverts at the inner AND's LCA =
+		// cars.tires; result becomes "tesla cars with at least one tire
+		// that is NOT (michelin AND 205)" — strictly more permissive
+		// than the multi-NOT form.
+		t.Run("regression_compound_NOT_shapeA", func(t *testing.T) {
+			runScenario(t, andF(
+				textF(makePath, "tesla"),
+				notF(andF(
+					textF(brandPath, "michelin"),
+					intF(widthPath, 205),
+				)),
+			), compoundWant)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "NotShapeAL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+
+		idTeslaSingleMichelin := uuid(1)    // 1 car: tesla, [michelin,100]
+		idTeslaSingle205 := uuid(2)         // 1 car: tesla, [goodyear,205]
+		idTeslaSingleMichelin205 := uuid(3) // 1 car: tesla, [michelin,205] — both forms exclude
+		idTeslaMixedTires := uuid(4)        // 1 car: tesla, [michelin,100],[goodyear,205] — KEY DISCRIM
+		idTeslaGoodyear100 := uuid(5)       // 1 car: tesla, [goodyear,100] — both forms match
+		idTeslaNoTires := uuid(6)           // 1 car: tesla, no tires — vacuous
+		idBmwOnly := uuid(7)                // 1 car: bmw — no tesla
+		idTeslaPlusBmw := uuid(8)           // 2 cars: tesla [michelin,100], bmw [goodyear,205]
+		docs := []docDef{
+			{id: idTeslaSingleMichelin, props: wrap(car("tesla", tire("michelin", 100))), note: "tesla [michelin,100]"},
+			{id: idTeslaSingle205, props: wrap(car("tesla", tire("goodyear", 205))), note: "tesla [goodyear,205]"},
+			{id: idTeslaSingleMichelin205, props: wrap(car("tesla", tire("michelin", 205))), note: "tesla [michelin,205] — both forms excl"},
+			{id: idTeslaMixedTires, props: wrap(car("tesla", tire("michelin", 100), tire("goodyear", 205))), note: "tesla [michelin,100],[goodyear,205] — KEY"},
+			{id: idTeslaGoodyear100, props: wrap(car("tesla", tire("goodyear", 100))), note: "tesla [goodyear,100] — both forms match"},
+			{id: idTeslaNoTires, props: wrap(car("tesla")), note: "tesla no tires — vacuous"},
+			{id: idBmwOnly, props: wrap(car("bmw", tire("goodyear", 100))), note: "bmw — no tesla"},
+			{id: idTeslaPlusBmw, props: wrap(car("tesla", tire("michelin", 100)), car("bmw", tire("goodyear", 205))), note: "tesla [michelin] + bmw [205] — discrim multi vs compound"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.tires.brand", "cars.tires.width",
+			docs,
+			// multi-NOT today: tesla AND no michelin tire AND no 205 tire.
+			[]strfmt.UUID{idTeslaGoodyear100, idTeslaNoTires},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTeslaMixedTires, idTeslaGoodyear100}
+			//   (idTeslaNoTires drops — vacuous; idTeslaMixedTires flips
+			//   to match — tesla car has at least one non-michelin tire
+			//   AND at least one non-205 tire.)
+
+			// compound-NOT today: tesla AND no (michelin AND 205) tire.
+			[]strfmt.UUID{
+				idTeslaSingleMichelin, idTeslaSingle205, idTeslaMixedTires,
+				idTeslaGoodyear100, idTeslaNoTires, idTeslaPlusBmw,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTeslaSingleMichelin, idTeslaSingle205,
+			//               idTeslaMixedTires, idTeslaGoodyear100,
+			//               idTeslaPlusBmw}
+			//   (idTeslaNoTires drops — vacuous, no tire-positions in the
+			//   inverted bitmap.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars (garages object[] root)
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "NotShapeAL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+
+		idTeslaSingleMichelin := uuid(1)
+		idTeslaSingle205 := uuid(2)
+		idTeslaSingleMichelin205 := uuid(3)
+		idTeslaMixedTires := uuid(4)
+		idTeslaGoodyear100 := uuid(5)
+		idTeslaNoTires := uuid(6)
+		idBmwOnly := uuid(7)
+		idTeslaPlusBmwSameGarage := uuid(8)
+		idSplitAcrossGarages := uuid(9) // L1-specific: g[0]=tesla[michelin]; g[1]=bmw[205]
+		docs := []docDef{
+			{id: idTeslaSingleMichelin, props: wrapG(garage(car("tesla", tire("michelin", 100)))), note: "1g: tesla [michelin,100]"},
+			{id: idTeslaSingle205, props: wrapG(garage(car("tesla", tire("goodyear", 205)))), note: "1g: tesla [goodyear,205]"},
+			{id: idTeslaSingleMichelin205, props: wrapG(garage(car("tesla", tire("michelin", 205)))), note: "1g: tesla [michelin,205]"},
+			{id: idTeslaMixedTires, props: wrapG(garage(car("tesla", tire("michelin", 100), tire("goodyear", 205)))), note: "1g: tesla mixed — KEY"},
+			{id: idTeslaGoodyear100, props: wrapG(garage(car("tesla", tire("goodyear", 100)))), note: "1g: tesla goodyear/100"},
+			{id: idTeslaNoTires, props: wrapG(garage(car("tesla"))), note: "1g: tesla no tires"},
+			{id: idBmwOnly, props: wrapG(garage(car("bmw", tire("goodyear", 100)))), note: "1g: bmw"},
+			{id: idTeslaPlusBmwSameGarage, props: wrapG(garage(car("tesla", tire("michelin", 100)), car("bmw", tire("goodyear", 205)))), note: "1g: tesla[michelin] + bmw[205]"},
+			{id: idSplitAcrossGarages, props: wrapG(garage(car("tesla", tire("michelin", 100))), garage(car("bmw", tire("goodyear", 205)))), note: "g[0]=tesla[michelin]; g[1]=bmw[205] — L1 split"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.tires.brand", "garages.cars.tires.width",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idTeslaGoodyear100, idTeslaNoTires},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTeslaMixedTires, idTeslaGoodyear100}
+			//   (idTeslaNoTires drops — vacuous; idTeslaMixedTires flips
+			//   to match. Other docs without a single car satisfying both
+			//   non-michelin AND non-205 stay excluded.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idTeslaSingleMichelin, idTeslaSingle205, idTeslaMixedTires,
+				idTeslaGoodyear100, idTeslaNoTires, idTeslaPlusBmwSameGarage,
+				idSplitAcrossGarages,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTeslaSingleMichelin, idTeslaSingle205,
+			//               idTeslaMixedTires, idTeslaGoodyear100,
+			//               idTeslaPlusBmwSameGarage, idSplitAcrossGarages}
+			//   (idTeslaNoTires drops — vacuous.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars (object[] roots)
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "NotShapeAL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+
+		idTeslaSingleMichelin := uuid(1)
+		idTeslaSingle205 := uuid(2)
+		idTeslaSingleMichelin205 := uuid(3)
+		idTeslaMixedTires := uuid(4)
+		idTeslaGoodyear100 := uuid(5)
+		idTeslaNoTires := uuid(6)
+		idBmwOnly := uuid(7)
+		idTeslaPlusBmwSameGarage := uuid(8)
+		idSplitAcrossGarages := uuid(9)
+		idSplitAcrossCountries := uuid(10) // L2-specific: c[0]=tesla[michelin]; c[1]=bmw[205]
+		docs := []docDef{
+			{id: idTeslaSingleMichelin, props: wrapC(country(garage(car("tesla", tire("michelin", 100))))), note: "single chain tesla [michelin,100]"},
+			{id: idTeslaSingle205, props: wrapC(country(garage(car("tesla", tire("goodyear", 205))))), note: "single chain tesla [goodyear,205]"},
+			{id: idTeslaSingleMichelin205, props: wrapC(country(garage(car("tesla", tire("michelin", 205))))), note: "single chain tesla [michelin,205]"},
+			{id: idTeslaMixedTires, props: wrapC(country(garage(car("tesla", tire("michelin", 100), tire("goodyear", 205))))), note: "single chain mixed — KEY"},
+			{id: idTeslaGoodyear100, props: wrapC(country(garage(car("tesla", tire("goodyear", 100))))), note: "single chain tesla goodyear/100"},
+			{id: idTeslaNoTires, props: wrapC(country(garage(car("tesla")))), note: "single chain tesla no tires"},
+			{id: idBmwOnly, props: wrapC(country(garage(car("bmw", tire("goodyear", 100))))), note: "single chain bmw"},
+			{id: idTeslaPlusBmwSameGarage, props: wrapC(country(garage(car("tesla", tire("michelin", 100)), car("bmw", tire("goodyear", 205))))), note: "tesla+bmw same garage"},
+			{id: idSplitAcrossGarages, props: wrapC(country(garage(car("tesla", tire("michelin", 100))), garage(car("bmw", tire("goodyear", 205))))), note: "split across garages within country"},
+			{id: idSplitAcrossCountries, props: wrapC(country(garage(car("tesla", tire("michelin", 100)))), country(garage(car("bmw", tire("goodyear", 205))))), note: "split across countries — L2"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.tires.brand", "countries.garages.cars.tires.width",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idTeslaGoodyear100, idTeslaNoTires},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTeslaMixedTires, idTeslaGoodyear100}
+			//   (idTeslaNoTires drops; idTeslaMixedTires flips. Splits
+			//   across garages or countries don't help multi because no
+			//   single car has both non-michelin AND non-205 tires.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idTeslaSingleMichelin, idTeslaSingle205, idTeslaMixedTires,
+				idTeslaGoodyear100, idTeslaNoTires, idTeslaPlusBmwSameGarage,
+				idSplitAcrossGarages, idSplitAcrossCountries,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTeslaSingleMichelin, idTeslaSingle205,
+			//               idTeslaMixedTires, idTeslaGoodyear100,
+			//               idTeslaPlusBmwSameGarage,
+			//               idSplitAcrossGarages, idSplitAcrossCountries}
+			//   (idTeslaNoTires drops — vacuous.)
+		)
+	})
+}
+
+// TestNestedFilteringNotShapeBMultiVsCompound covers gaps #10 and #11
+// for "Shape B": both NOT operands at the SAME LCA as the positive
+// sibling (all three at cars level). Compares multi-NOT vs compound-NOT
+// forms.
+//
+// Filters per level:
+//
+//	Multi:    <chain>.cars.make=tesla AND
+//	          NOT <chain>.cars.year=2020 AND
+//	          NOT <chain>.cars.color=red
+//	Compound: <chain>.cars.make=tesla AND
+//	          NOT(<chain>.cars.year=2020 AND <chain>.cars.color=red)
+//
+// All operands at cars LCA. The multi vs compound divergence shows
+// up clearly when no single car has both (year=2020 AND color=red)
+// but the doc has both attributes spread across cars.
+func TestNestedFilteringNotShapeBMultiVsCompound(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	car := func(make string, year int, color string) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if year > 0 {
+			out["year"] = year
+		}
+		if color != "" {
+			out["color"] = color
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, yearPath, colorPath string,
+		docs []docDef, multiWant, compoundWant []strfmt.UUID,
+	) {
+		t.Helper()
+		textF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		intF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: multi-NOT form. Today's docID-level
+		// NOT inverts each clause independently. Under scope-aware NOT,
+		// each NOT inverts at cars (operand LCA = surrounding scope LCA),
+		// giving same-car AND of (tesla AND year≠2020 AND color≠red).
+		t.Run("regression_multi_NOT_shapeB", func(t *testing.T) {
+			runScenario(t, andF(
+				textF(makePath, "tesla"),
+				notF(intF(yearPath, 2020)),
+				notF(textF(colorPath, "red")),
+			), multiWant)
+		})
+
+		// TODO aliszka:nested_filtering: compound-NOT form. Inner AND is
+		// same-car correlated AND. NOT inverts at docID today. Under
+		// scope-aware NOT, NOT inverts at cars (inner AND's LCA): tesla
+		// cars where NOT (year=2020 AND color=red).
+		t.Run("regression_compound_NOT_shapeB", func(t *testing.T) {
+			runScenario(t, andF(
+				textF(makePath, "tesla"),
+				notF(andF(
+					intF(yearPath, 2020),
+					textF(colorPath, "red"),
+				)),
+			), compoundWant)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "NotShapeBL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTesla2020Red := uuid(1)        // both forms exclude
+		idTesla2020Blue := uuid(2)       // multi excl, compound match
+		idTesla2018Red := uuid(3)        // multi excl, compound match
+		idTesla2018Blue := uuid(4)       // both forms match
+		idBmw := uuid(5)                 // no tesla
+		idGoodTeslaPlusBadBmw := uuid(6) // [tesla,2018,blue]+[bmw,2020,red] — KEY: both flip today→future
+		idSplitTeslas := uuid(7)         // [tesla,2020,blue]+[tesla,2018,red] — multi excl, compound match
+		idEmpty := uuid(8)               // no cars
+		docs := []docDef{
+			{id: idTesla2020Red, props: wrap(car("tesla", 2020, "red")), note: "tesla 2020 red — both excl"},
+			{id: idTesla2020Blue, props: wrap(car("tesla", 2020, "blue")), note: "tesla 2020 blue — multi excl, compound match"},
+			{id: idTesla2018Red, props: wrap(car("tesla", 2018, "red")), note: "tesla 2018 red — multi excl, compound match"},
+			{id: idTesla2018Blue, props: wrap(car("tesla", 2018, "blue")), note: "tesla 2018 blue — both match"},
+			{id: idBmw, props: wrap(car("bmw", 2018, "blue")), note: "bmw — no tesla"},
+			{id: idGoodTeslaPlusBadBmw, props: wrap(car("tesla", 2018, "blue"), car("bmw", 2020, "red")), note: "good tesla + bad bmw — KEY today→future flip"},
+			{id: idSplitTeslas, props: wrap(car("tesla", 2020, "blue"), car("tesla", 2018, "red")), note: "two teslas, neither is good"},
+			{id: idEmpty, props: emptyDoc(), note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.year", "cars.color",
+			docs,
+			// multi-NOT today: tesla AND no 2020 AND no red anywhere.
+			[]strfmt.UUID{idTesla2018Blue},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw}
+			//   (idGoodTeslaPlusBadBmw flips to match — cars[0] is tesla
+			//   AND year≠2020 AND color≠red.)
+
+			// compound-NOT today: tesla AND no car has (2020 AND red).
+			[]strfmt.UUID{
+				idTesla2020Blue, idTesla2018Red, idTesla2018Blue, idSplitTeslas,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTesla2020Blue, idTesla2018Red,
+			//               idTesla2018Blue, idGoodTeslaPlusBadBmw,
+			//               idSplitTeslas}
+			//   (idGoodTeslaPlusBadBmw flips to match — cars[0] not in
+			//   inner-AND positive, in inverted set.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "NotShapeBL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTesla2020Red := uuid(1)
+		idTesla2020Blue := uuid(2)
+		idTesla2018Red := uuid(3)
+		idTesla2018Blue := uuid(4)
+		idBmw := uuid(5)
+		idGoodTeslaPlusBadBmw := uuid(6)
+		idSplitTeslas := uuid(7)
+		idEmpty := uuid(8)
+		idGoodTeslaSplitGarages := uuid(9) // L1: g[0]=tesla 2018 blue; g[1]=bmw 2020 red
+		docs := []docDef{
+			{id: idTesla2020Red, props: wrapG(garage(car("tesla", 2020, "red"))), note: "1g tesla 2020 red"},
+			{id: idTesla2020Blue, props: wrapG(garage(car("tesla", 2020, "blue"))), note: "1g tesla 2020 blue"},
+			{id: idTesla2018Red, props: wrapG(garage(car("tesla", 2018, "red"))), note: "1g tesla 2018 red"},
+			{id: idTesla2018Blue, props: wrapG(garage(car("tesla", 2018, "blue"))), note: "1g tesla 2018 blue"},
+			{id: idBmw, props: wrapG(garage(car("bmw", 2018, "blue"))), note: "1g bmw"},
+			{id: idGoodTeslaPlusBadBmw, props: wrapG(garage(car("tesla", 2018, "blue"), car("bmw", 2020, "red"))), note: "1g: good tesla + bad bmw — KEY"},
+			{id: idSplitTeslas, props: wrapG(garage(car("tesla", 2020, "blue"), car("tesla", 2018, "red"))), note: "1g: two teslas neither good"},
+			{id: idEmpty, props: emptyDoc(), note: "no garages"},
+			{id: idGoodTeslaSplitGarages, props: wrapG(garage(car("tesla", 2018, "blue")), garage(car("bmw", 2020, "red"))), note: "g[0]=good tesla; g[1]=bad bmw — L1 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.year", "garages.cars.color",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idTesla2018Blue},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw,
+			//               idGoodTeslaSplitGarages}
+			//   (idGoodTeslaPlusBadBmw and idGoodTeslaSplitGarages flip —
+			//   each has a tesla car satisfying year≠2020 AND color≠red.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idTesla2020Blue, idTesla2018Red, idTesla2018Blue, idSplitTeslas,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTesla2020Blue, idTesla2018Red,
+			//               idTesla2018Blue, idGoodTeslaPlusBadBmw,
+			//               idSplitTeslas, idGoodTeslaSplitGarages}
+			//   (idGoodTeslaPlusBadBmw and idGoodTeslaSplitGarages flip —
+			//   tesla car not in inner-AND positive, in inverted set.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "NotShapeBL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTesla2020Red := uuid(1)
+		idTesla2020Blue := uuid(2)
+		idTesla2018Red := uuid(3)
+		idTesla2018Blue := uuid(4)
+		idBmw := uuid(5)
+		idGoodTeslaPlusBadBmw := uuid(6)
+		idSplitTeslas := uuid(7)
+		idEmpty := uuid(8)
+		idGoodTeslaSplitGarages := uuid(9)
+		idGoodTeslaSplitCountries := uuid(10) // L2: c[0]=tesla 2018 blue; c[1]=bmw 2020 red
+		docs := []docDef{
+			{id: idTesla2020Red, props: wrapC(country(garage(car("tesla", 2020, "red")))), note: "single chain tesla 2020 red"},
+			{id: idTesla2020Blue, props: wrapC(country(garage(car("tesla", 2020, "blue")))), note: "single chain tesla 2020 blue"},
+			{id: idTesla2018Red, props: wrapC(country(garage(car("tesla", 2018, "red")))), note: "single chain tesla 2018 red"},
+			{id: idTesla2018Blue, props: wrapC(country(garage(car("tesla", 2018, "blue")))), note: "single chain tesla 2018 blue"},
+			{id: idBmw, props: wrapC(country(garage(car("bmw", 2018, "blue")))), note: "single chain bmw"},
+			{id: idGoodTeslaPlusBadBmw, props: wrapC(country(garage(car("tesla", 2018, "blue"), car("bmw", 2020, "red")))), note: "good tesla + bad bmw same garage"},
+			{id: idSplitTeslas, props: wrapC(country(garage(car("tesla", 2020, "blue"), car("tesla", 2018, "red")))), note: "two teslas neither good"},
+			{id: idEmpty, props: emptyDoc(), note: "no countries"},
+			{id: idGoodTeslaSplitGarages, props: wrapC(country(garage(car("tesla", 2018, "blue")), garage(car("bmw", 2020, "red")))), note: "split across garages within country"},
+			{id: idGoodTeslaSplitCountries, props: wrapC(country(garage(car("tesla", 2018, "blue"))), country(garage(car("bmw", 2020, "red")))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idTesla2018Blue},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw,
+			//               idGoodTeslaSplitGarages, idGoodTeslaSplitCountries}
+			//   (the three split-good-tesla docs all flip — each has at
+			//   least one tesla car satisfying all three conditions
+			//   simultaneously.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idTesla2020Blue, idTesla2018Red, idTesla2018Blue, idSplitTeslas,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTesla2020Blue, idTesla2018Red,
+			//               idTesla2018Blue, idGoodTeslaPlusBadBmw,
+			//               idSplitTeslas, idGoodTeslaSplitGarages,
+			//               idGoodTeslaSplitCountries}
+			//   (split docs flip — at least one tesla car not in
+			//   inner-AND positive.)
+		)
+	})
+}
+
+// TestNestedFilteringNotShapeCMultiVsCompound covers gaps #10 and #11
+// for "Shape C": NOT operands at MIXED LCAs (one at cars, one at
+// cars.tires). Compares multi-NOT vs compound-NOT forms.
+//
+// Filters per level:
+//
+//	Multi:    <chain>.cars.make=tesla AND
+//	          NOT <chain>.cars.color=red AND
+//	          NOT <chain>.cars.tires.width=205
+//	Compound: <chain>.cars.make=tesla AND
+//	          NOT(<chain>.cars.color=red AND <chain>.cars.tires.width=205)
+//
+// In compound form the inner AND has deepest common LCA = cars (since
+// cars.color is at cars and cars.tires.width is at cars.tires).
+// Inner AND treats both as same-car correlation: cars where color=red
+// AND has at least one 205 tire.
+func TestNestedFilteringNotShapeCMultiVsCompound(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(make, color string, tires ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if make != "" {
+			out["make"] = make
+		}
+		if color != "" {
+			out["color"] = color
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		makePath, colorPath, widthPath string,
+		docs []docDef, multiWant, compoundWant []strfmt.UUID,
+	) {
+		t.Helper()
+		textF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		intF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: multi-NOT form. Today's docID-level
+		// NOT inverts each clause independently. Under scope-aware NOT,
+		// NOT B (cars.color) inverts at cars; NOT C (cars.tires.width)
+		// inverts at cars.tires (and projects up). AND at cars: tesla
+		// cars where color≠red AND has at least one non-205 tire.
+		t.Run("regression_multi_NOT_shapeC", func(t *testing.T) {
+			runScenario(t, andF(
+				textF(makePath, "tesla"),
+				notF(textF(colorPath, "red")),
+				notF(intF(widthPath, 205)),
+			), multiWant)
+		})
+
+		// TODO aliszka:nested_filtering: compound-NOT form. Inner AND is
+		// same-car correlated AND (deepest common LCA = cars). NOT
+		// inverts at docID today. Under scope-aware NOT, NOT inverts at
+		// cars: tesla cars where NOT (color=red AND has 205 tire).
+		t.Run("regression_compound_NOT_shapeC", func(t *testing.T) {
+			runScenario(t, andF(
+				textF(makePath, "tesla"),
+				notF(andF(
+					textF(colorPath, "red"),
+					intF(widthPath, 205),
+				)),
+			), compoundWant)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "NotShapeCL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTeslaRed205 := uuid(1)      // tesla,red,[205] — all four exclude
+		idTeslaRed225 := uuid(2)      // tesla,red,[225] — multi excl, compound match
+		idTeslaBlue205 := uuid(3)     // tesla,blue,[205] — multi excl, compound match
+		idTeslaBlue225 := uuid(4)     // tesla,blue,[225] — both match
+		idTeslaBlueMixed := uuid(5)   // tesla,blue,[205,225] — multi today excl, future match
+		idTeslaBlueNoTires := uuid(6) // tesla,blue,no tires — multi vacuous flip
+		idBmwOnly := uuid(7)          // no tesla
+		idGoodPlusBadCars := uuid(8)  // [tesla,blue,225]+[bmw,red,205] — KEY today→future flip
+		idTwoTeslasNeither := uuid(9) // [tesla,red,225]+[tesla,blue,205] — multi excl, compound match
+		idEmpty := uuid(10)           // no cars
+		docs := []docDef{
+			{id: idTeslaRed205, props: wrap(car("tesla", "red", tire(205))), note: "tesla,red,[205]"},
+			{id: idTeslaRed225, props: wrap(car("tesla", "red", tire(225))), note: "tesla,red,[225]"},
+			{id: idTeslaBlue205, props: wrap(car("tesla", "blue", tire(205))), note: "tesla,blue,[205]"},
+			{id: idTeslaBlue225, props: wrap(car("tesla", "blue", tire(225))), note: "tesla,blue,[225]"},
+			{id: idTeslaBlueMixed, props: wrap(car("tesla", "blue", tire(205), tire(225))), note: "tesla,blue,[205,225] — KEY"},
+			{id: idTeslaBlueNoTires, props: wrap(car("tesla", "blue")), note: "tesla,blue,no tires — vacuous"},
+			{id: idBmwOnly, props: wrap(car("bmw", "blue", tire(225))), note: "bmw"},
+			{id: idGoodPlusBadCars, props: wrap(car("tesla", "blue", tire(225)), car("bmw", "red", tire(205))), note: "good tesla + bad bmw — KEY"},
+			{id: idTwoTeslasNeither, props: wrap(car("tesla", "red", tire(225)), car("tesla", "blue", tire(205))), note: "two teslas neither good"},
+			{id: idEmpty, props: emptyDoc(), note: "no cars"},
+		}
+
+		runLevel(t, className, class,
+			"cars.make", "cars.color", "cars.tires.width",
+			docs,
+			// multi-NOT today: tesla AND no red car AND no 205 tire.
+			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueNoTires},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed,
+			//               idGoodPlusBadCars}
+			//   (idTeslaBlueNoTires drops — vacuous, no tire-positions
+			//   for NOT C projection; idTeslaBlueMixed and
+			//   idGoodPlusBadCars flip to match.)
+
+			// compound-NOT today: tesla AND no car has (color=red AND has 205).
+			[]strfmt.UUID{
+				idTeslaRed225, idTeslaBlue205, idTeslaBlue225, idTeslaBlueMixed,
+				idTeslaBlueNoTires, idTwoTeslasNeither,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTeslaRed225, idTeslaBlue205,
+			//               idTeslaBlue225, idTeslaBlueMixed,
+			//               idTeslaBlueNoTires, idGoodPlusBadCars,
+			//               idTwoTeslasNeither}
+			//   (idGoodPlusBadCars flips to match.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "NotShapeCL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTeslaRed205 := uuid(1)
+		idTeslaRed225 := uuid(2)
+		idTeslaBlue205 := uuid(3)
+		idTeslaBlue225 := uuid(4)
+		idTeslaBlueMixed := uuid(5)
+		idTeslaBlueNoTires := uuid(6)
+		idBmwOnly := uuid(7)
+		idGoodPlusBadSameGarage := uuid(8)
+		idTwoTeslasNeither := uuid(9)
+		idEmpty := uuid(10)
+		idGoodPlusBadSplitGarages := uuid(11)
+		docs := []docDef{
+			{id: idTeslaRed205, props: wrapG(garage(car("tesla", "red", tire(205)))), note: "1g tesla,red,[205]"},
+			{id: idTeslaRed225, props: wrapG(garage(car("tesla", "red", tire(225)))), note: "1g tesla,red,[225]"},
+			{id: idTeslaBlue205, props: wrapG(garage(car("tesla", "blue", tire(205)))), note: "1g tesla,blue,[205]"},
+			{id: idTeslaBlue225, props: wrapG(garage(car("tesla", "blue", tire(225)))), note: "1g tesla,blue,[225]"},
+			{id: idTeslaBlueMixed, props: wrapG(garage(car("tesla", "blue", tire(205), tire(225)))), note: "1g tesla,blue,[205,225]"},
+			{id: idTeslaBlueNoTires, props: wrapG(garage(car("tesla", "blue"))), note: "1g tesla,blue,no tires"},
+			{id: idBmwOnly, props: wrapG(garage(car("bmw", "blue", tire(225)))), note: "1g bmw"},
+			{id: idGoodPlusBadSameGarage, props: wrapG(garage(car("tesla", "blue", tire(225)), car("bmw", "red", tire(205)))), note: "good+bad same garage"},
+			{id: idTwoTeslasNeither, props: wrapG(garage(car("tesla", "red", tire(225)), car("tesla", "blue", tire(205)))), note: "two teslas, neither good"},
+			{id: idEmpty, props: emptyDoc(), note: "no garages"},
+			{id: idGoodPlusBadSplitGarages, props: wrapG(garage(car("tesla", "blue", tire(225))), garage(car("bmw", "red", tire(205)))), note: "split across garages — L1 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.make", "garages.cars.color", "garages.cars.tires.width",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueNoTires},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed,
+			//               idGoodPlusBadSameGarage,
+			//               idGoodPlusBadSplitGarages}
+			//   (idTeslaBlueNoTires drops; mixed-tires and split-cars
+			//   docs flip — tesla car has color≠red AND non-205 tire.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idTeslaRed225, idTeslaBlue205, idTeslaBlue225, idTeslaBlueMixed,
+				idTeslaBlueNoTires, idTwoTeslasNeither,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTeslaRed225, idTeslaBlue205,
+			//               idTeslaBlue225, idTeslaBlueMixed,
+			//               idTeslaBlueNoTires, idGoodPlusBadSameGarage,
+			//               idTwoTeslasNeither, idGoodPlusBadSplitGarages}
+			//   (idGoodPlusBad* flip — tesla car not in inner-AND positive.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "NotShapeCL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idTeslaRed205 := uuid(1)
+		idTeslaRed225 := uuid(2)
+		idTeslaBlue205 := uuid(3)
+		idTeslaBlue225 := uuid(4)
+		idTeslaBlueMixed := uuid(5)
+		idTeslaBlueNoTires := uuid(6)
+		idBmwOnly := uuid(7)
+		idGoodPlusBadSameGarage := uuid(8)
+		idTwoTeslasNeither := uuid(9)
+		idEmpty := uuid(10)
+		idGoodPlusBadSplitGarages := uuid(11)
+		idGoodPlusBadSplitCountries := uuid(12) // L2 KEY
+		docs := []docDef{
+			{id: idTeslaRed205, props: wrapC(country(garage(car("tesla", "red", tire(205))))), note: "single chain tesla,red,[205]"},
+			{id: idTeslaRed225, props: wrapC(country(garage(car("tesla", "red", tire(225))))), note: "single chain tesla,red,[225]"},
+			{id: idTeslaBlue205, props: wrapC(country(garage(car("tesla", "blue", tire(205))))), note: "single chain tesla,blue,[205]"},
+			{id: idTeslaBlue225, props: wrapC(country(garage(car("tesla", "blue", tire(225))))), note: "single chain tesla,blue,[225]"},
+			{id: idTeslaBlueMixed, props: wrapC(country(garage(car("tesla", "blue", tire(205), tire(225))))), note: "single chain tesla,blue,[205,225]"},
+			{id: idTeslaBlueNoTires, props: wrapC(country(garage(car("tesla", "blue")))), note: "single chain tesla,blue,no tires"},
+			{id: idBmwOnly, props: wrapC(country(garage(car("bmw", "blue", tire(225))))), note: "single chain bmw"},
+			{id: idGoodPlusBadSameGarage, props: wrapC(country(garage(car("tesla", "blue", tire(225)), car("bmw", "red", tire(205))))), note: "good+bad same garage"},
+			{id: idTwoTeslasNeither, props: wrapC(country(garage(car("tesla", "red", tire(225)), car("tesla", "blue", tire(205))))), note: "two teslas neither good"},
+			{id: idEmpty, props: emptyDoc(), note: "no countries"},
+			{id: idGoodPlusBadSplitGarages, props: wrapC(country(garage(car("tesla", "blue", tire(225))), garage(car("bmw", "red", tire(205))))), note: "split across garages within country"},
+			{id: idGoodPlusBadSplitCountries, props: wrapC(country(garage(car("tesla", "blue", tire(225)))), country(garage(car("bmw", "red", tire(205))))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.make", "countries.garages.cars.color", "countries.garages.cars.tires.width",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueNoTires},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed,
+			//               idGoodPlusBadSameGarage,
+			//               idGoodPlusBadSplitGarages,
+			//               idGoodPlusBadSplitCountries}
+			//   (idTeslaBlueNoTires drops; mixed-tires and split-cars/
+			//   garages/countries docs flip.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idTeslaRed225, idTeslaBlue205, idTeslaBlue225, idTeslaBlueMixed,
+				idTeslaBlueNoTires, idTwoTeslasNeither,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idTeslaRed225, idTeslaBlue205,
+			//               idTeslaBlue225, idTeslaBlueMixed,
+			//               idTeslaBlueNoTires, idGoodPlusBadSameGarage,
+			//               idTwoTeslasNeither,
+			//               idGoodPlusBadSplitGarages,
+			//               idGoodPlusBadSplitCountries}
+			//   (split docs flip — tesla car not in inner-AND positive.)
+		)
+	})
+}
+
+// TestNestedFilteringNotShapeDMultiVsCompound covers gaps #10 and #11
+// for "Shape D": top-level multi-NOT and compound-NOT with NO positive
+// sibling clause.
+//
+// Filters per level:
+//
+//	Multi:    NOT <chain>.cars.color=red AND
+//	          NOT <chain>.cars.tires.width=205
+//	Compound: NOT(<chain>.cars.color=red AND
+//	              <chain>.cars.tires.width=205)
+//
+// Without an anchoring positive clause, the AND combines the two NOT
+// results directly. Tests that scope-aware NOT correctly handles the
+// "no positive sibling" case.
+func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	carsProps := []*models.NestedProperty{
+		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+		{
+			Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(color string, tires ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if color != "" {
+			out["color"] = color
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	garage := func(cars ...map[string]any) map[string]any {
+		if len(cars) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"cars": asArr(cars...)}
+	}
+	country := func(garages ...map[string]any) map[string]any {
+		if len(garages) == 0 {
+			return map[string]any{}
+		}
+		return map[string]any{"garages": asArr(garages...)}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runLevel := func(t *testing.T, className string, class *models.Class,
+		colorPath, widthPath string,
+		docs []docDef, multiWant, compoundWant []strfmt.UUID,
+	) {
+		t.Helper()
+		textF := func(path, val string) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		intF := func(path string, val int) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeInt, Value: val},
+				On:       &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(path)},
+			}}
+		}
+		andF := func(parts ...*filters.LocalFilter) *filters.LocalFilter {
+			ops := make([]filters.Clause, len(parts))
+			for i, p := range parts {
+				ops[i] = *p.Root
+			}
+			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
+		}
+		notF := func(inner *filters.LocalFilter) *filters.LocalFilter {
+			return &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorNot,
+				Operands: []filters.Clause{*inner.Root},
+			}}
+		}
+
+		runScenario := func(t *testing.T, filter *filters.LocalFilter, want []strfmt.UUID) {
+			t.Helper()
+			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+			ctx := context.Background()
+			for _, d := range docs {
+				require.NoError(t, db.PutObject(ctx, &models.Object{
+					Class: className, ID: d.id, Properties: d.props,
+				}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+			}
+			res, err := db.Search(ctx, dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    filter,
+			})
+			require.NoError(t, err)
+			got := make([]strfmt.UUID, len(res))
+			for i, r := range res {
+				got[i] = r.ID
+			}
+			assert.ElementsMatch(t, want, got)
+		}
+
+		// TODO aliszka:nested_filtering: multi-NOT form with no positive
+		// sibling. Today's docID-level NOT inverts each clause. Under
+		// scope-aware NOT, NOT B inverts at cars; NOT C inverts at
+		// cars.tires (and projects up). AND at cars: cars where color≠red
+		// AND has at least one non-205 tire. Then project to docID.
+		t.Run("regression_multi_NOT_shapeD", func(t *testing.T) {
+			runScenario(t, andF(
+				notF(textF(colorPath, "red")),
+				notF(intF(widthPath, 205)),
+			), multiWant)
+		})
+
+		// TODO aliszka:nested_filtering: compound-NOT form. Inner AND has
+		// deepest common LCA = cars. NOT inverts at docID today. Under
+		// scope-aware NOT, NOT inverts at cars: cars where NOT (color=red
+		// AND has 205 tire). Project to docID.
+		t.Run("regression_compound_NOT_shapeD", func(t *testing.T) {
+			runScenario(t, notF(andF(
+				textF(colorPath, "red"),
+				intF(widthPath, 205),
+			)), compoundWant)
+		})
+	}
+
+	// ============================================================
+	// L0: cars at root
+	// ============================================================
+	t.Run("L0_root_cars", func(t *testing.T) {
+		const className = "NotShapeDL0"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			},
+		}
+		wrap := func(cars ...map[string]any) map[string]any {
+			return map[string]any{"cars": asArr(cars...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idRed205 := uuid(1)      // red,[205] — all 4 exclude
+		idRed225 := uuid(2)      // red,[225] — multi excl, compound match
+		idBlue205 := uuid(3)     // blue,[205] — multi excl, compound match
+		idBlue225 := uuid(4)     // blue,[225] — all 4 match
+		idBlueMixed := uuid(5)   // blue,[205,225] — multi today excl, future match
+		idBlueNoTires := uuid(6) // blue,no tires — multi vacuous flip
+		idGoodPlusBad := uuid(7) // [blue,225]+[red,205] — KEY today→future flip
+		idAttrSplit := uuid(8)   // [blue,205]+[red,225] — multi excl/excl, compound match/match
+		idEmpty := uuid(9)       // no cars — vacuous flip both forms
+		docs := []docDef{
+			{id: idRed205, props: wrap(car("red", tire(205))), note: "red,[205]"},
+			{id: idRed225, props: wrap(car("red", tire(225))), note: "red,[225]"},
+			{id: idBlue205, props: wrap(car("blue", tire(205))), note: "blue,[205]"},
+			{id: idBlue225, props: wrap(car("blue", tire(225))), note: "blue,[225]"},
+			{id: idBlueMixed, props: wrap(car("blue", tire(205), tire(225))), note: "blue,[205,225] — KEY"},
+			{id: idBlueNoTires, props: wrap(car("blue")), note: "blue,no tires — vacuous"},
+			{id: idGoodPlusBad, props: wrap(car("blue", tire(225)), car("red", tire(205))), note: "good+bad — KEY"},
+			{id: idAttrSplit, props: wrap(car("blue", tire(205)), car("red", tire(225))), note: "split attrs across cars"},
+			{id: idEmpty, props: emptyDoc(), note: "no cars — vacuous"},
+		}
+
+		runLevel(t, className, class,
+			"cars.color", "cars.tires.width",
+			docs,
+			// multi-NOT today: no red car AND no 205 tire (anywhere).
+			[]strfmt.UUID{idBlue225, idBlueNoTires, idEmpty},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idBlue225, idBlueMixed, idGoodPlusBad}
+			//   (idBlueNoTires drops — no tire-positions for NOT C
+			//   projection; idEmpty drops — no cars universe;
+			//   idBlueMixed and idGoodPlusBad flip to match — at least
+			//   one car has color≠red AND has non-205 tire.)
+
+			// compound-NOT today: no car has (color=red AND has 205).
+			[]strfmt.UUID{
+				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
+				idAttrSplit, idEmpty,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idRed225, idBlue205, idBlue225, idBlueMixed,
+			//               idBlueNoTires, idGoodPlusBad, idAttrSplit}
+			//   (idEmpty drops — no cars universe; idGoodPlusBad flips
+			//   to match — cars[0] not in inner-AND positive.)
+		)
+	})
+
+	// ============================================================
+	// L1: garages.cars
+	// ============================================================
+	t.Run("L1_garages_cars", func(t *testing.T) {
+		const className = "NotShapeDL1"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+					},
+				},
+			},
+		}
+		wrapG := func(garages ...map[string]any) map[string]any {
+			return map[string]any{"garages": asArr(garages...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idRed205 := uuid(1)
+		idRed225 := uuid(2)
+		idBlue205 := uuid(3)
+		idBlue225 := uuid(4)
+		idBlueMixed := uuid(5)
+		idBlueNoTires := uuid(6)
+		idGoodPlusBadSameGarage := uuid(7)
+		idAttrSplit := uuid(8)
+		idEmpty := uuid(9)
+		idGoodPlusBadSplitGarages := uuid(10) // L1: g[0]=blue+225; g[1]=red+205
+		docs := []docDef{
+			{id: idRed205, props: wrapG(garage(car("red", tire(205)))), note: "1g red,[205]"},
+			{id: idRed225, props: wrapG(garage(car("red", tire(225)))), note: "1g red,[225]"},
+			{id: idBlue205, props: wrapG(garage(car("blue", tire(205)))), note: "1g blue,[205]"},
+			{id: idBlue225, props: wrapG(garage(car("blue", tire(225)))), note: "1g blue,[225]"},
+			{id: idBlueMixed, props: wrapG(garage(car("blue", tire(205), tire(225)))), note: "1g blue,[205,225]"},
+			{id: idBlueNoTires, props: wrapG(garage(car("blue"))), note: "1g blue,no tires"},
+			{id: idGoodPlusBadSameGarage, props: wrapG(garage(car("blue", tire(225)), car("red", tire(205)))), note: "good+bad same garage"},
+			{id: idAttrSplit, props: wrapG(garage(car("blue", tire(205)), car("red", tire(225)))), note: "split attrs"},
+			{id: idEmpty, props: emptyDoc(), note: "no garages"},
+			{id: idGoodPlusBadSplitGarages, props: wrapG(garage(car("blue", tire(225))), garage(car("red", tire(205)))), note: "g[0]=good; g[1]=bad — L1 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"garages.cars.color", "garages.cars.tires.width",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idBlue225, idBlueNoTires, idEmpty},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idBlue225, idBlueMixed,
+			//               idGoodPlusBadSameGarage,
+			//               idGoodPlusBadSplitGarages}
+			//   (idBlueNoTires and idEmpty drop — vacuous; mixed and
+			//   split docs flip — at least one car has color≠red AND
+			//   non-205 tire.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
+				idAttrSplit, idEmpty,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idRed225, idBlue205, idBlue225, idBlueMixed,
+			//               idBlueNoTires, idGoodPlusBadSameGarage,
+			//               idAttrSplit, idGoodPlusBadSplitGarages}
+			//   (idEmpty drops; good+bad docs flip.)
+		)
+	})
+
+	// ============================================================
+	// L2: countries.garages.cars
+	// ============================================================
+	t.Run("L2_countries_garages_cars", func(t *testing.T) {
+		const className = "NotShapeDL2"
+		class := &models.Class{
+			Class:             className,
+			VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+			Properties: []*models.Property{
+				{
+					Name: "countries", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name: "garages", DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+							},
+						},
+					},
+				},
+			},
+		}
+		wrapC := func(countries ...map[string]any) map[string]any {
+			return map[string]any{"countries": asArr(countries...)}
+		}
+		emptyDoc := func() map[string]any { return map[string]any{} }
+
+		idRed205 := uuid(1)
+		idRed225 := uuid(2)
+		idBlue205 := uuid(3)
+		idBlue225 := uuid(4)
+		idBlueMixed := uuid(5)
+		idBlueNoTires := uuid(6)
+		idGoodPlusBadSameGarage := uuid(7)
+		idAttrSplit := uuid(8)
+		idEmpty := uuid(9)
+		idGoodPlusBadSplitGarages := uuid(10)
+		idGoodPlusBadSplitCountries := uuid(11) // L2: c[0]=good; c[1]=bad
+		docs := []docDef{
+			{id: idRed205, props: wrapC(country(garage(car("red", tire(205))))), note: "single chain red,[205]"},
+			{id: idRed225, props: wrapC(country(garage(car("red", tire(225))))), note: "single chain red,[225]"},
+			{id: idBlue205, props: wrapC(country(garage(car("blue", tire(205))))), note: "single chain blue,[205]"},
+			{id: idBlue225, props: wrapC(country(garage(car("blue", tire(225))))), note: "single chain blue,[225]"},
+			{id: idBlueMixed, props: wrapC(country(garage(car("blue", tire(205), tire(225))))), note: "single chain blue,[205,225]"},
+			{id: idBlueNoTires, props: wrapC(country(garage(car("blue")))), note: "single chain blue no tires"},
+			{id: idGoodPlusBadSameGarage, props: wrapC(country(garage(car("blue", tire(225)), car("red", tire(205))))), note: "good+bad same garage"},
+			{id: idAttrSplit, props: wrapC(country(garage(car("blue", tire(205)), car("red", tire(225))))), note: "split attrs"},
+			{id: idEmpty, props: emptyDoc(), note: "no countries"},
+			{id: idGoodPlusBadSplitGarages, props: wrapC(country(garage(car("blue", tire(225))), garage(car("red", tire(205))))), note: "split across garages within country"},
+			{id: idGoodPlusBadSplitCountries, props: wrapC(country(garage(car("blue", tire(225)))), country(garage(car("red", tire(205))))), note: "split across countries — L2 KEY"},
+		}
+
+		runLevel(t, className, class,
+			"countries.garages.cars.color", "countries.garages.cars.tires.width",
+			docs,
+			// multi-NOT today
+			[]strfmt.UUID{idBlue225, idBlueNoTires, idEmpty},
+			// expected after scope-aware NOT (multi):
+			// []strfmt.UUID{idBlue225, idBlueMixed,
+			//               idGoodPlusBadSameGarage,
+			//               idGoodPlusBadSplitGarages,
+			//               idGoodPlusBadSplitCountries}
+			//   (idBlueNoTires and idEmpty drop; mixed and split docs
+			//   flip — at least one car has color≠red AND non-205 tire.)
+
+			// compound-NOT today
+			[]strfmt.UUID{
+				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
+				idAttrSplit, idEmpty,
+			},
+			// expected after scope-aware NOT (compound):
+			// []strfmt.UUID{idRed225, idBlue205, idBlue225, idBlueMixed,
+			//               idBlueNoTires, idGoodPlusBadSameGarage,
+			//               idAttrSplit, idGoodPlusBadSplitGarages,
+			//               idGoodPlusBadSplitCountries}
+			//   (idEmpty drops; good+bad docs flip.)
+		)
+	})
+}
