@@ -591,6 +591,8 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	}
 	t := time.NewTicker(period)
 	defer t.Stop()
+	const logInterval = time.Minute
+	var lastLog time.Time
 	for {
 		select {
 		case <-close:
@@ -600,8 +602,10 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 		case <-t.C:
 			if st.dbLoaded.Load() {
 				return nil
-			} else {
+			}
+			if time.Since(lastLog) >= logInterval {
 				st.log.Info("waiting for database to be restored")
+				lastLog = time.Now()
 			}
 		}
 	}

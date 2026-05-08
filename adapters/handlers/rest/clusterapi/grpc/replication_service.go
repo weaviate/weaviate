@@ -50,7 +50,7 @@ var _ pb.ReplicationServiceServer = (*ReplicationService)(nil)
 // ── Write operations ─────────────────────────────────────────────────────────
 
 func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
-	obj, err := storobj.FromBinary(req.GetObjectData())
+	obj, err := storobj.FromBinaryNetwork(req.GetObjectData())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal object: %v", err)
 	}
