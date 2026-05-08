@@ -138,6 +138,7 @@ func (o *CreateNamespaceCreated) GetPayload() *models.Namespace {
 }
 
 func (o *CreateNamespaceCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Namespace)
 
 	// response payload
@@ -158,7 +159,8 @@ CreateNamespaceUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type CreateNamespaceUnauthorized struct{}
+type CreateNamespaceUnauthorized struct {
+}
 
 // IsSuccess returns true when this create namespace unauthorized response has a 2xx status code
 func (o *CreateNamespaceUnauthorized) IsSuccess() bool {
@@ -199,6 +201,7 @@ func (o *CreateNamespaceUnauthorized) String() string {
 }
 
 func (o *CreateNamespaceUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -259,6 +262,7 @@ func (o *CreateNamespaceForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateNamespaceForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -326,6 +330,7 @@ func (o *CreateNamespaceNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateNamespaceNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -393,6 +398,7 @@ func (o *CreateNamespaceConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateNamespaceConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -460,6 +466,7 @@ func (o *CreateNamespaceUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *CreateNamespaceUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -527,6 +534,7 @@ func (o *CreateNamespaceInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *CreateNamespaceInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

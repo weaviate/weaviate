@@ -33,6 +33,7 @@ CreateNamespaceCreated Namespace created successfully.
 swagger:response createNamespaceCreated
 */
 type CreateNamespaceCreated struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type CreateNamespaceCreated struct {
 
 // NewCreateNamespaceCreated creates CreateNamespaceCreated with default headers values
 func NewCreateNamespaceCreated() *CreateNamespaceCreated {
+
 	return &CreateNamespaceCreated{}
 }
 
@@ -57,6 +59,7 @@ func (o *CreateNamespaceCreated) SetPayload(payload *models.Namespace) {
 
 // WriteResponse to the client
 func (o *CreateNamespaceCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(201)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ CreateNamespaceUnauthorized Unauthorized or invalid credentials.
 
 swagger:response createNamespaceUnauthorized
 */
-type CreateNamespaceUnauthorized struct{}
+type CreateNamespaceUnauthorized struct {
+}
 
 // NewCreateNamespaceUnauthorized creates CreateNamespaceUnauthorized with default headers values
 func NewCreateNamespaceUnauthorized() *CreateNamespaceUnauthorized {
+
 	return &CreateNamespaceUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *CreateNamespaceUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ CreateNamespaceForbidden Forbidden
 swagger:response createNamespaceForbidden
 */
 type CreateNamespaceForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type CreateNamespaceForbidden struct {
 
 // NewCreateNamespaceForbidden creates CreateNamespaceForbidden with default headers values
 func NewCreateNamespaceForbidden() *CreateNamespaceForbidden {
+
 	return &CreateNamespaceForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *CreateNamespaceForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateNamespaceForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ CreateNamespaceNotFound Not Found - The namespaces feature is not enabled on thi
 swagger:response createNamespaceNotFound
 */
 type CreateNamespaceNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type CreateNamespaceNotFound struct {
 
 // NewCreateNamespaceNotFound creates CreateNamespaceNotFound with default headers values
 func NewCreateNamespaceNotFound() *CreateNamespaceNotFound {
+
 	return &CreateNamespaceNotFound{}
 }
 
@@ -163,6 +174,7 @@ func (o *CreateNamespaceNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateNamespaceNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ CreateNamespaceConflict A namespace with the specified name already exists, or a
 swagger:response createNamespaceConflict
 */
 type CreateNamespaceConflict struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type CreateNamespaceConflict struct {
 
 // NewCreateNamespaceConflict creates CreateNamespaceConflict with default headers values
 func NewCreateNamespaceConflict() *CreateNamespaceConflict {
+
 	return &CreateNamespaceConflict{}
 }
 
@@ -205,6 +219,7 @@ func (o *CreateNamespaceConflict) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateNamespaceConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(409)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -223,6 +238,7 @@ CreateNamespaceUnprocessableEntity The request syntax is correct, but the server
 swagger:response createNamespaceUnprocessableEntity
 */
 type CreateNamespaceUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -231,6 +247,7 @@ type CreateNamespaceUnprocessableEntity struct {
 
 // NewCreateNamespaceUnprocessableEntity creates CreateNamespaceUnprocessableEntity with default headers values
 func NewCreateNamespaceUnprocessableEntity() *CreateNamespaceUnprocessableEntity {
+
 	return &CreateNamespaceUnprocessableEntity{}
 }
 
@@ -247,6 +264,7 @@ func (o *CreateNamespaceUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *CreateNamespaceUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -265,6 +283,7 @@ CreateNamespaceInternalServerError An error has occurred while trying to fulfill
 swagger:response createNamespaceInternalServerError
 */
 type CreateNamespaceInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -273,6 +292,7 @@ type CreateNamespaceInternalServerError struct {
 
 // NewCreateNamespaceInternalServerError creates CreateNamespaceInternalServerError with default headers values
 func NewCreateNamespaceInternalServerError() *CreateNamespaceInternalServerError {
+
 	return &CreateNamespaceInternalServerError{}
 }
 
@@ -289,6 +309,7 @@ func (o *CreateNamespaceInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *CreateNamespaceInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

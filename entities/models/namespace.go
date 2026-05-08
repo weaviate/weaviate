@@ -30,6 +30,7 @@ import (
 //
 // swagger:model Namespace
 type Namespace struct {
+
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
 
