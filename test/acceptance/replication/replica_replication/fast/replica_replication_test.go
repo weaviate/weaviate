@@ -98,14 +98,14 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	})
 
 	t.Run("create schema", func(t *testing.T) {
-		paragraphClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
+		paragraphClass.ShardingConfig = map[string]any{"desiredCount": 1}
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
 			AsyncEnabled: false,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
-		articleClass.ShardingConfig = map[string]interface{}{"desiredCount": 1}
+		articleClass.ShardingConfig = map[string]any{"desiredCount": 1}
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       1,
 			AsyncEnabled: false,
@@ -561,7 +561,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 					case roll < 60 || len(liveIDs) == 0:
 						newID := strfmt.UUID(uuid.New().String())
 						contents := fmt.Sprintf("paragraph#%d", opSeq)
-						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]interface{}{"contents": contents}, string(newID), "tenant0"); err != nil {
+						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]any{"contents": contents}, string(newID), "tenant0"); err != nil {
 							assert.NoError(t, err, "error creating object %s on node %s", newID, uri)
 							continue
 						}
@@ -572,7 +572,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 							continue
 						}
 						contents := fmt.Sprintf("paragraph#%d-updated-%d", opSeq, opSeq)
-						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), "tenant0", map[string]interface{}{"contents": contents}); err != nil {
+						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), "tenant0", map[string]any{"contents": contents}); err != nil {
 							assert.NoError(t, err, "error patching object %s on node %s", target, uri)
 							continue
 						}
@@ -736,7 +736,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 				if !assert.NotNil(t, obj, "live id %s missing on node %s", id, nodeInfo.nodeName) {
 					continue
 				}
-				props, ok := obj.Properties.(map[string]interface{})
+				props, ok := obj.Properties.(map[string]any)
 				if !assert.True(t, ok, "object %s on node %s has unexpected properties shape", id, nodeInfo.nodeName) {
 					continue
 				}
@@ -756,12 +756,12 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	})
 }
 
-func createObjectThreadSafe(uri string, class string, properties map[string]interface{}, id string, tenant string) error {
+func createObjectThreadSafe(uri string, class string, properties map[string]any, id string, tenant string) error {
 	type Object struct {
-		Class      string                 `json:"class"`
-		Properties map[string]interface{} `json:"properties"`
-		ID         string                 `json:"id"`
-		Tenant     string                 `json:"tenant,omitempty"`
+		Class      string         `json:"class"`
+		Properties map[string]any `json:"properties"`
+		ID         string         `json:"id"`
+		Tenant     string         `json:"tenant,omitempty"`
 	}
 	obj := Object{Class: class, Properties: properties, ID: id, Tenant: tenant}
 	jsonData, err := json.Marshal(obj)
@@ -792,12 +792,12 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 // patchObjectThreadSafe issues a PATCH against /v1/objects/{class}/{id}.
 // Mirrors createObjectThreadSafe (no helper.SetupClient) so it's safe to
 // call from the writer goroutine in parallel with the main test thread.
-func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]interface{}) error {
+func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]any) error {
 	type Object struct {
-		Class      string                 `json:"class"`
-		Properties map[string]interface{} `json:"properties"`
-		ID         string                 `json:"id"`
-		Tenant     string                 `json:"tenant,omitempty"`
+		Class      string         `json:"class"`
+		Properties map[string]any `json:"properties"`
+		ID         string         `json:"id"`
+		Tenant     string         `json:"tenant,omitempty"`
 	}
 	obj := Object{Class: class, Properties: properties, ID: id, Tenant: tenant}
 	jsonData, err := json.Marshal(obj)
