@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -173,11 +172,9 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	principal *models.Principal, schemaManager *schemaUC.Manager, nsEnabled bool, logger logrus.FieldLogger,
 ) middleware.Responder {
-	className := schema.UppercaseClassName(params.ClassName)
-
 	// Resolve before authorization so authz uses the real collection name
 	// for permissions and error UX.
-	className, _ = namespacing.Resolve(principal, schemaManager, nsEnabled, className)
+	className, _ := namespacing.Resolve(principal, schemaManager, nsEnabled, params.ClassName)
 
 	// Authorize: reading collection metadata (same as other schema read operations)
 	err := schemaManager.Authorizer.Authorize(

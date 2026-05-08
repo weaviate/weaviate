@@ -255,6 +255,33 @@ func TestResolve(t *testing.T) {
 			wantClass: "Movies",
 			wantAlias: "Films",
 		},
+		{
+			testName:  "lowercase short input is uppercased before qualification",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			nsEnabled: true,
+			input:     "movies",
+			wantClass: "customer1:Movies",
+			wantAlias: "",
+		},
+		{
+			testName:  "lowercase qualified input uppercases only the class portion",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			nsEnabled: true,
+			input:     "customer1:movies",
+			wantClass: "customer1:Movies",
+			wantAlias: "",
+		},
+		{
+			testName:  "ns disabled still uppercases lowercase input",
+			principal: &models.Principal{Username: "u"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			nsEnabled: false,
+			input:     "movies",
+			wantClass: "Movies",
+			wantAlias: "",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {

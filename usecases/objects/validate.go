@@ -17,8 +17,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/classcache"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -30,8 +28,7 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	className := schema.UppercaseClassName(obj.Class)
-	className, _ = m.resolveNS(principal, className)
+	className, _ := m.resolveNS(principal, obj.Class)
 	obj.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID)); err != nil {
