@@ -442,7 +442,8 @@ func TestReplicationFetchObject(t *testing.T) {
 		Object: &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
-				ID: UUID1,
+				Class: "C1",
+				ID:    UUID1,
 				Properties: map[string]interface{}{
 					"stringProp": "abc",
 				},
@@ -474,7 +475,8 @@ func TestReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID1,
+					Class: "C1",
+					ID:    UUID1,
 					Properties: map[string]interface{}{
 						"stringProp": "abc",
 					},
@@ -488,7 +490,8 @@ func TestReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID2,
+					Class: "C1",
+					ID:    UUID2,
 					Properties: map[string]interface{}{
 						"floatProp": float64(123),
 					},

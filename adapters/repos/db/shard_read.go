@@ -76,7 +76,14 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	bytes, err := bucket.Get(idBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +92,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromBinaryDisk(bytes, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal object")
 	}
@@ -108,6 +115,12 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
 		if err != nil {
@@ -118,7 +131,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 			continue
 		}
 
-		obj, err := storobj.FromBinary(bytes)
+		obj, err := storobj.FromBinaryDisk(bytes, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "unmarshal kind object")
 		}
@@ -238,8 +251,14 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
-		GetBySecondary(ctx, 0, keyBuf)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	bytes, err := bucket.GetBySecondary(ctx, 0, keyBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +268,7 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 			"uuid found for docID, but object is nil")
 	}
 
-	obj, err := storobj.FromBinary(bytes)
+	obj, err := storobj.FromBinaryDisk(bytes, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal kind object")
 	}
@@ -739,7 +758,14 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	bucketClassName, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	cursor := bucket.Cursor()
 	defer cursor.Close()
 
 	var key, val []byte
@@ -761,9 +787,9 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
-		obj, err := storobj.FromBinary(val)
+		obj, err := storobj.FromBinaryDisk(val, bucketClassName)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
+			return nil, errors.Wrapf(err, "unmarshal item %d", i)
 		}
 
 		out[i] = obj

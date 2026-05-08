@@ -203,7 +203,7 @@ func marshallStorObj(in *storobj.Object) ([]byte, error) {
 // This is because all replication POST/PUT methods mistakenly double send the vector in both storobj and models.Object
 // This function ensures that the models.Object vectors are properly populated from the storobj vectors when required
 func unmarshallStorObj(in []byte) (*storobj.Object, error) {
-	obj, err := storobj.FromBinary(in)
+	obj, err := storobj.FromBinaryNetwork(in)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (p singleObjectPayload) Unmarshal(in []byte, method string) (*storobj.Objec
 		return unmarshallStorObj(in)
 	case MethodGet:
 		// Don't need to modify anything since GET requests don't double send
-		return storobj.FromBinary(in)
+		return storobj.FromBinaryNetwork(in)
 	default:
 		return nil, fmt.Errorf("unsupported operation type: %s", method)
 	}
@@ -375,7 +375,7 @@ func (p objectListPayload) Unmarshal(in []byte, method string) ([]*storobj.Objec
 			obj, err = unmarshallStorObj(payloadBytes)
 		case MethodGet:
 			// Don't need to modify anything since GET requests don't double send
-			obj, err = storobj.FromBinary(payloadBytes)
+			obj, err = storobj.FromBinaryNetwork(payloadBytes)
 		default:
 			return nil, fmt.Errorf("unsupported operation type: %s", method)
 		}
