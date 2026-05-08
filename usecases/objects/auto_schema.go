@@ -139,7 +139,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 					return 0, fmt.Errorf("auto schema can't create objects because can't update collection: %w", err)
 				}
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
-					principal, schemaClass, schemaClass.Class, true, newProperties...)
+					principal, schemaClass.Class, true, newProperties...)
 				if err != nil {
 					return 0, err
 				}

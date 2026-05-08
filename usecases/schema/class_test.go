@@ -716,7 +716,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(ctx, nil, &class)
@@ -724,12 +723,11 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 			for _, tc := range testCases {
-				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeSchemaManager.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, &models.Property{
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -893,6 +891,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("add properties to existing class", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 			for _, tc := range testCases {
 				t.Run("added_"+tc.propName, func(t *testing.T) {
 					prop := &models.Property{
@@ -903,7 +902,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeSchemaManager.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 
 					require.Nil(t, err)
 				})
@@ -1353,6 +1352,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+					fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -1363,7 +1363,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					_, _, err = handler.AddClassProperty(context.Background(), nil, class, class.Class, false, property)
+					_, _, err = handler.AddClassProperty(context.Background(), nil, class.Class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
