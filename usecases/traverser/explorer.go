@@ -306,6 +306,19 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
+
+
+		// Add the search vector to each result for query_vector in additional properties
+		for i := range res {
+			if len(searchVectors) > 0 {
+				if res[i].AdditionalProperties == nil {
+					res[i].AdditionalProperties = make(map[string]interface{})
+				}
+				res[i].AdditionalProperties["query_vector"] = searchVectors[0]
+			}
+		}
+
+
 	e.trackUsageGet(res, params)
 
 	return res, searchVectors, nil
@@ -515,6 +528,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 			additionalProperties["vectors"] = vectors
 		}
+
+			// Add query_vector to additional properties if searchVector is available
+			if searchVector != nil {
+				additionalProperties["query_vector"] = searchVector
+			}
+
 
 		if params.AdditionalProperties.CreationTimeUnix {
 			additionalProperties["creationTimeUnix"] = res.Created
