@@ -81,6 +81,16 @@ func rqBitsForVersion(version uint8) int16 {
 	return 8 // RQ8 for V1
 }
 
+// rqRescoreLimitForVersion returns the HNSW RQ rescore limit based on index version.
+// V1: 0 (no HNSW RQ rescoring - V1 has no medoid mappings)
+// V2+: defaultCentroidRescoreLimit (rescoring enabled with medoid vectors)
+func rqRescoreLimitForVersion(version uint8) int {
+	if version >= HFreshIndexVersion2 {
+		return defaultCentroidRescoreLimit
+	}
+	return 0 // V1: no HNSW RQ rescoring
+}
+
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uint8, pages, pageSize uint64) (*HNSWIndex, error) {
 	vectorProvider := &MedoidVectorProvider{}
 
@@ -90,17 +100,26 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uin
 		version:        version,
 	}
 
-	// VectorForIDThunk is used by HNSW for non-compressed distance calculations.
-	// For V2+, this retrieves medoid vectors for accurate rescoring.
-	// For V1, this returns nil (no medoid rescoring).
-	cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
-		return vectorProvider.GetVector(ctx, id)
-	}
-
-	// TempVectorForIDWithViewThunk is used by HNSW rescore operations.
-	// For HFresh centroids, the view is ignored since we fetch medoid vectors from a different store.
-	cfg.Centroids.HNSWConfig.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
-		return vectorProvider.GetVector(ctx, id)
+	// Configure vector provider thunks based on version.
+	// V2+: Wire to medoid vector provider for HNSW RQ rescoring.
+	// V1: Return error if called - V1 should never attempt medoid rescoring
+	//     because RQ.RescoreLimit is 0.
+	if version >= HFreshIndexVersion2 {
+		cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectorProvider.GetVector(ctx, id)
+		}
+		cfg.Centroids.HNSWConfig.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+			return vectorProvider.GetVector(ctx, id)
+		}
+	} else {
+		// V1: These thunks should never be called since RQ.RescoreLimit is 0.
+		// Return an error to catch any unexpected calls during testing.
+		cfg.Centroids.HNSWConfig.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, errors.New("unexpected medoid rescore for HFresh V1 index")
+		}
+		cfg.Centroids.HNSWConfig.TempVectorForIDWithViewThunk = func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
+			return nil, errors.New("unexpected medoid rescore for HFresh V1 index")
+		}
 	}
 
 	var userConfig ent.UserConfig
@@ -109,8 +128,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uin
 	userConfig.EFConstruction = 64
 	userConfig.RQ.Enabled = true
 	userConfig.RQ.Bits = rqBitsForVersion(version)
-	// Fixed rescore limit to ensure accurate distance computation
-	userConfig.RQ.RescoreLimit = defaultCentroidRescoreLimit
+	userConfig.RQ.RescoreLimit = rqRescoreLimitForVersion(version)
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
@@ -140,6 +158,12 @@ func (i *HNSWIndex) SetQuantizer(quantizer *compressionhelpers.BinaryRotationalQ
 // RQBits returns the RQ bit depth used by this HNSW index.
 func (i *HNSWIndex) RQBits() int16 {
 	return rqBitsForVersion(i.version)
+}
+
+// RQRescoreLimit returns the HNSW RQ rescore limit used by this index.
+// V1: 0 (no rescoring), V2+: defaultCentroidRescoreLimit (350)
+func (i *HNSWIndex) RQRescoreLimit() int {
+	return rqRescoreLimitForVersion(i.version)
 }
 
 func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {

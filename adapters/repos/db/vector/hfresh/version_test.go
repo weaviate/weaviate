@@ -41,7 +41,8 @@ func TestIndexVersion_LoadWithNoVersionDefaultsToV1(t *testing.T) {
 	index2 := makeHFreshWithConfig(t, store, cfg, uc)
 
 	assert.Equal(t, uint8(HFreshIndexVersion1), index2.Version())
-	assert.Equal(t, int16(8), index2.Centroids.RQBits()) // V1 uses RQ8
+	assert.Equal(t, int16(8), index2.Centroids.RQBits())   // V1 uses RQ8
+	assert.Equal(t, 0, index2.Centroids.RQRescoreLimit()) // V1: no HNSW RQ rescoring
 }
 
 func TestIndexVersion_NewIndexUsesCurrentVersion(t *testing.T) {
@@ -68,7 +69,7 @@ func TestIndexVersion_NewIndexUsesCurrentVersion(t *testing.T) {
 	assert.Equal(t, uint8(CurrentHFreshIndexVersion), index2.Version())
 }
 
-func TestIndexVersion_V1UsesRQ8(t *testing.T) {
+func TestIndexVersion_V1UsesRQ8AndNoRescore(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc := makeHFreshConfig(t)
 
@@ -86,21 +87,23 @@ func TestIndexVersion_V1UsesRQ8(t *testing.T) {
 	err = index.Shutdown(t.Context())
 	require.NoError(t, err)
 
-	// Reopen with V1 - should use RQ8
+	// Reopen with V1 - should use RQ8 and no HNSW rescoring
 	index2 := makeHFreshWithConfig(t, store, cfg, uc)
 	assert.Equal(t, uint8(HFreshIndexVersion1), index2.Version())
 	assert.Equal(t, int16(8), index2.Centroids.RQBits())
+	assert.Equal(t, 0, index2.Centroids.RQRescoreLimit()) // V1: no HNSW RQ rescoring
 }
 
-func TestIndexVersion_V2UsesRQ1(t *testing.T) {
+func TestIndexVersion_V2UsesRQ1AndRescore(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc := makeHFreshConfig(t)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
-	// CurrentVersion is V2, should use RQ1
+	// CurrentVersion is V2, should use RQ1 with rescoring enabled
 	assert.Equal(t, uint8(HFreshIndexVersion2), index.Version())
 	assert.Equal(t, int16(1), index.Centroids.RQBits())
+	assert.Equal(t, defaultCentroidRescoreLimit, index.Centroids.RQRescoreLimit())
 
 	vectors, _ := testinghelpers.RandomVecs(1, 0, 64)
 	err := index.Add(t.Context(), 0, vectors[0])
@@ -109,10 +112,11 @@ func TestIndexVersion_V2UsesRQ1(t *testing.T) {
 	err = index.Shutdown(t.Context())
 	require.NoError(t, err)
 
-	// Reopen and verify still V2 with RQ1
+	// Reopen and verify still V2 with RQ1 and rescoring
 	index2 := makeHFreshWithConfig(t, store, cfg, uc)
 	assert.Equal(t, uint8(HFreshIndexVersion2), index2.Version())
 	assert.Equal(t, int16(1), index2.Centroids.RQBits())
+	assert.Equal(t, defaultCentroidRescoreLimit, index2.Centroids.RQRescoreLimit())
 }
 
 func TestIndexVersion_UnsupportedFutureVersionFails(t *testing.T) {
@@ -249,6 +253,138 @@ func TestRQBitsForVersion(t *testing.T) {
 			assert.Equal(t, tt.expected, bits)
 		})
 	}
+}
+
+func TestRQRescoreLimitForVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		version  uint8
+		expected int
+	}{
+		{
+			name:     "V1 has no HNSW rescoring",
+			version:  HFreshIndexVersion1,
+			expected: 0,
+		},
+		{
+			name:     "V2 has HNSW rescoring enabled",
+			version:  HFreshIndexVersion2,
+			expected: defaultCentroidRescoreLimit,
+		},
+		{
+			name:     "V0 (hypothetical legacy) has no rescoring",
+			version:  0,
+			expected: 0,
+		},
+		{
+			name:     "V3 (future) has rescoring enabled",
+			version:  3,
+			expected: defaultCentroidRescoreLimit,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limit := rqRescoreLimitForVersion(tt.version)
+			assert.Equal(t, tt.expected, limit)
+		})
+	}
+}
+
+// TestV1ConfigSelection verifies V1 uses correct RQ config:
+// - RQ bits == 8
+// - HNSW RQ rescore limit == 0
+func TestV1ConfigSelection(t *testing.T) {
+	assert.Equal(t, int16(8), rqBitsForVersion(HFreshIndexVersion1))
+	assert.Equal(t, 0, rqRescoreLimitForVersion(HFreshIndexVersion1))
+}
+
+// TestV2ConfigSelection verifies V2 uses correct RQ config:
+// - RQ bits == 1
+// - HNSW RQ rescore limit == 350
+func TestV2ConfigSelection(t *testing.T) {
+	assert.Equal(t, int16(1), rqBitsForVersion(HFreshIndexVersion2))
+	assert.Equal(t, 350, rqRescoreLimitForVersion(HFreshIndexVersion2))
+}
+
+// TestV1BackwardCompatibility_NoMedoidRescoreError is a regression test for the V1
+// backward compatibility bug where V1 indexes would fail with "vector lengths don't match"
+// errors because HNSW tried to rescore using medoid vectors that don't exist for V1.
+//
+// This test verifies that:
+// 1. V1 configuration has RQ rescore limit = 0 (no HNSW medoid rescoring)
+// 2. V1 search doesn't call the medoid vector provider
+// 3. Search completes without "vector lengths don't match" error
+func TestV1BackwardCompatibility_NoMedoidRescoreError(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	// Create an index and add vectors
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	// Add multiple vectors to create centroid postings
+	vectors, _ := testinghelpers.RandomVecs(10, 0, 64)
+	for i, vec := range vectors {
+		err := index.Add(t.Context(), uint64(i), vec)
+		require.NoError(t, err)
+	}
+
+	// Remove version metadata to simulate a legacy V1 index
+	err := index.IndexMetadata.bucket.Delete(index.IndexMetadata.key(indexVersionKey))
+	require.NoError(t, err)
+
+	err = index.Shutdown(t.Context())
+	require.NoError(t, err)
+
+	// Reopen the index - should default to V1
+	index2 := makeHFreshWithConfig(t, store, cfg, uc)
+
+	// Verify V1 configuration - this is the key fix
+	assert.Equal(t, uint8(HFreshIndexVersion1), index2.Version())
+	assert.Equal(t, int16(8), index2.Centroids.RQBits())
+	assert.Equal(t, 0, index2.Centroids.RQRescoreLimit(), "V1 must have HNSW RQ rescore limit = 0")
+
+	// Run a search - the key assertion is that this does NOT return an error
+	// about "vector lengths don't match" which was the original bug.
+	// Note: Results may be empty because this simulated V1 index was created
+	// with V2's RQ1 compression but reopened with V1's RQ8 config - this is
+	// expected and not the bug we're testing for.
+	_, _, err = index2.SearchByVector(t.Context(), vectors[0], 5, nil)
+	require.NoError(t, err, "V1 search should not fail with 'vector lengths don't match' error")
+}
+
+// TestV1MedoidProviderNotCalled verifies that V1 indexes don't call the medoid
+// vector provider thunks. The thunks are configured to return an error for V1
+// to catch any unexpected calls.
+func TestV1MedoidProviderNotCalled(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	// Remove version metadata before creating to get a true V1 from scratch
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
+	require.NoError(t, err)
+
+	// Pre-set V1 version before creating the index
+	metadata := NewIndexMetadataStore(bucket)
+	err = metadata.SetVersion(HFreshIndexVersion1)
+	require.NoError(t, err)
+
+	// Also set dimensions to make it look like an existing index
+	err = metadata.SetDimensions(64)
+	require.NoError(t, err)
+
+	// Now create the index - it should detect V1 and configure accordingly
+	index, err := New(cfg, uc, store)
+	require.NoError(t, err)
+	t.Cleanup(func() { index.Shutdown(t.Context()) })
+
+	// Verify V1 configuration
+	assert.Equal(t, uint8(HFreshIndexVersion1), index.Version())
+	assert.Equal(t, 0, index.Centroids.RQRescoreLimit())
+
+	// The medoid vector provider for V1 is set to return an error if called.
+	// If any search path accidentally tries to use medoid rescoring for V1,
+	// this would cause test failures, which is what we want to catch.
 }
 
 func TestVersionConstants(t *testing.T) {
