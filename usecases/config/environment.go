@@ -1009,6 +1009,26 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
+	config.Replication.SelfRecoveryEnabled = entcfg.Enabled(os.Getenv("SELF_RECOVERY_ENABLED"))
+	if err := parseIntVerify(
+		"SELF_RECOVERY_CONCURRENCY",
+		DefaultSelfRecoveryConcurrency,
+		func(val int) {
+			config.Replication.SelfRecoveryConcurrency = val
+		},
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxSelfRecoveryConcurrency {
+				return fmt.Errorf("%s must be <= %d, got %d", envName, MaxSelfRecoveryConcurrency, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
 	if err := parseIntVerify(
 		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
 		DefaultAsyncReplicationSchedulerWorkers,
@@ -1837,6 +1857,9 @@ const (
 	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
+	// SELF_RECOVERY shard-level concurrency cap and ceiling.
+	DefaultSelfRecoveryConcurrency = 10
+	MaxSelfRecoveryConcurrency     = 32
 )
 
 const VectorizerModuleNone = "none"

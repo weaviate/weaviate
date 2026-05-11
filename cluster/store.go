@@ -202,6 +202,25 @@ type Store struct {
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 
+	// startedEmpty is set before raft.NewRaft and reports whether this node
+	// began the process with no durable RAFT state (no logs, no snapshot).
+	// It is the signal used to detect a wiped node that rejoins an existing
+	// cluster purely via log replay, so it can self-recover its shard data.
+	// Immutable for the process lifetime once Open has run.
+	startedEmpty atomic.Bool
+	// catchUpTarget is the RAFT log index a wiped log-replay joiner must
+	// reach before its one-shot DB load (reloadDBFromSchema). It is zero
+	// until decided on the first applied command, and stays zero for a fresh
+	// bootstrap (which has nothing to catch up). See Store.Apply.
+	catchUpTarget atomic.Uint64
+	// catchUpDecided locks the wiped-joiner-vs-bootstrap decision to the
+	// first applied command, so a later runtime catch-up (e.g. after a
+	// partition) cannot be misread as a wiped-node rejoin.
+	catchUpDecided atomic.Bool
+	// wipedJoinerReloaded is set once the one-shot DB load for a wiped
+	// log-replay joiner has run, after which entries apply normally.
+	wipedJoinerReloaded atomic.Bool
+
 	// raft implementation from external library
 	raft          *raft.Raft
 	raftResolver  types.RaftResolver
@@ -341,10 +360,23 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
 
-// lastIndex returns the last index in stable storage,
-// either from the last log or from the last snapshot.
-// this method work as a protection from applying anything was applied to the db
-// by checking either raft or max(snapshot, log store) instead the db will catchup
+// ForceSnapshot triggers an immediate RAFT snapshot on the local
+// node, bypassing the periodic interval/threshold cadence. Used by
+// the /debug/raft/snapshot admin endpoint to make tests deterministic
+// (in particular, to guarantee a wiped node's rejoin goes through
+// InstallSnapshot → Restore → reloadDBFromSchema and the
+// SELF_RECOVERY hook fires).
+func (st *Store) ForceSnapshot() error {
+	if st.raft == nil {
+		return fmt.Errorf("raft not initialised")
+	}
+	return st.raft.Snapshot().Error()
+}
+
+// lastIndex returns the last index in stable storage, either from the
+// last log or from the last snapshot. It works as a protection from
+// re-applying entries that were already applied to the DB: by checking
+// raft or max(snapshot, log store), the DB catches up to the right point.
 func (st *Store) lastIndex() uint64 {
 	if st.raft != nil {
 		return st.raft.AppliedIndex()
@@ -355,6 +387,87 @@ func (st *Store) lastIndex() uint64 {
 		panic(fmt.Sprintf("read log last command: %s", err.Error()))
 	}
 	return max(lastSnapshotIndex(st.snapshotStore), l)
+}
+
+// raftLastIndex returns the index of the last entry in the RAFT log, or 0
+// before the raft node exists.
+func (st *Store) raftLastIndex() uint64 {
+	if st.raft == nil {
+		return 0
+	}
+	return st.raft.LastIndex()
+}
+
+// noteWipedJoinerProgress advances the wiped-node log-replay catch-up state
+// for one applied command at logIndex, given the current RAFT log tip
+// raftLastIndex. It returns whether this entry must be applied schema-only
+// (no per-entry DB write, so no shard folder is created) and whether the
+// caller should now start the catch-up watcher (watchWipedJoinerCatchUp).
+//
+// A node that started this process with no durable RAFT state
+// (st.startedEmpty) and no prior DB index (lastAppliedIndexToDB == 0) is
+// either a fresh bootstrap or a wiped node rejoining an existing cluster via
+// log replay. Only the latter has a committed backlog to catch up: it is
+// detected on the first applied command by the RAFT log already extending
+// past that entry. The decision is locked on that first command (via
+// catchUpDecided) so a later runtime catch-up — e.g. after a partition —
+// cannot be misread as a wiped-node rejoin. A snapshot-restored node has
+// lastAppliedIndexToDB != 0 and is therefore excluded here: it already does
+// its DB load via Store.Restore.
+//
+// The one-shot DB load itself is NOT triggered from here: the catch-up
+// target is a RAFT log index that may be a configuration entry past the
+// last schema command, and Store.Apply is only invoked for command entries.
+// watchWipedJoinerCatchUp waits for raft.AppliedIndex (which advances for
+// every entry type) to reach the target and then runs the load.
+func (st *Store) noteWipedJoinerProgress(logIndex, raftLastIndex uint64) (schemaOnly, startWatcher bool) {
+	if !st.startedEmpty.Load() || st.lastAppliedIndexToDB.Load() != 0 || st.wipedJoinerReloaded.Load() {
+		return false, false
+	}
+	if !st.catchUpDecided.Load() {
+		st.catchUpDecided.Store(true)
+		if logIndex < raftLastIndex {
+			st.catchUpTarget.Store(raftLastIndex)
+			startWatcher = true
+		}
+	} else if t := st.catchUpTarget.Load(); t != 0 && raftLastIndex > t {
+		// Keep the target at the current log tip while a backlog delivered
+		// over multiple AppendEntries rounds is still arriving.
+		st.catchUpTarget.Store(raftLastIndex)
+	}
+	// catchUpTarget == 0 ⇒ fresh bootstrap (or a live entry): nothing to
+	// catch up. Otherwise this command is part of the backlog and must be
+	// applied schema-only.
+	return st.catchUpTarget.Load() != 0, startWatcher
+}
+
+// watchWipedJoinerCatchUp runs once, in its own goroutine, for a wiped node
+// rejoining via log replay. It waits until the node's RAFT applied index
+// reaches the catch-up target (the backlog tip) and then runs the one-shot
+// DB load (reloadDBFromSchema -> ReloadLocalDB) — the same tagged load pass
+// a snapshot-restored node uses, and where a missing shard folder triggers
+// self-recovery. It is a goroutine rather than inline in Store.Apply because
+// the target may be a configuration entry past the last schema command, and
+// Store.Apply only ever sees command entries.
+func (st *Store) watchWipedJoinerCatchUp() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		if st.wipedJoinerReloaded.Load() || !st.open.Load() {
+			return
+		}
+		target := st.catchUpTarget.Load()
+		if target == 0 || st.raft == nil || st.raft.AppliedIndex() < target {
+			continue
+		}
+		st.wipedJoinerReloaded.Store(true)
+		st.log.WithFields(logrus.Fields{
+			"applied_index":   st.raft.AppliedIndex(),
+			"catch_up_target": target,
+		}).Info("reloading local DB after wiped-node log-replay catch-up")
+		st.reloadDBFromSchema()
+		return
+	}
 }
 
 // Open opens this store and marked as such.
@@ -377,9 +490,20 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
 
+	// Capture whether the node has any durable RAFT state *before* NewRaft
+	// (which would itself create state). A node with no prior state that
+	// then catches up an existing cluster's committed log is a wiped node
+	// that must self-recover its shard data; see Store.Apply.
+	hadState, err := raft.HasExistingState(st.logCache, st.logStore, st.snapshotStore)
+	if err != nil {
+		return fmt.Errorf("check existing raft state: %w", err)
+	}
+	st.startedEmpty.Store(!hadState)
+
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.cfg.NodeID,
 		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
+		"started_empty":        st.startedEmpty.Load(),
 	}).Info("construct a new raft node")
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {

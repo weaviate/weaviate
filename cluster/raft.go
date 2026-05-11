@@ -86,3 +86,8 @@ func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
 func (s *Raft) IsLeader() bool {
 	return s.store.IsLeader()
 }
+
+// ForceSnapshot triggers an immediate RAFT snapshot. See Store.ForceSnapshot.
+func (s *Raft) ForceSnapshot() error {
+	return s.store.ForceSnapshot()
+}
