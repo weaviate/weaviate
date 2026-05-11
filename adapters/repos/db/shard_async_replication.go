@@ -1189,7 +1189,7 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).
 // Returns (propagated, err):
-//   - (false, replica.ErrNoDiffFound) – no diff; use long interval
+//   - (false, replicaerrors.ErrNoDiffFound) – no diff; use long interval
 //   - (false, ctx.Err())              – context cancelled
 //   - (false, <other error>)          – failure; scheduler applies backoff
 //   - (propagated, nil)               – success

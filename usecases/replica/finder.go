@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math/rand"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -127,7 +126,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, err)
-		if strings.Contains(err.Error(), replicaerrors.ErrConflictExistOrDeleted.Error()) {
+		if errors.Is(err, replicaerrors.ErrConflictExistOrDeleted) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
@@ -254,7 +253,7 @@ func (f *Finder) Exists(ctx context.Context,
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, err)
-		if strings.Contains(err.Error(), replicaerrors.ErrConflictExistOrDeleted.Error()) {
+		if errors.Is(err, replicaerrors.ErrConflictExistOrDeleted) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
