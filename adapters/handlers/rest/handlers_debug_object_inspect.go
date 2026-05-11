@@ -193,6 +193,7 @@ type inspectParams struct {
 	BucketAllowlist []string // explicit per-bucket dump scope
 	DumpAll         bool     // shorthand for "every bucket in the shard"
 	Limit           int
+	Verbose         bool // include the full storobj.Object and the detailed consistency breakdown
 	Forwarded       bool // _forwarded=1 — already proxied, do not forward again
 }
 
@@ -204,6 +205,7 @@ func parseInspectParams(r *http.Request) (inspectParams, error) {
 		Limit:      1000,
 		Forwarded:  q.Get("_forwarded") == "1",
 		DumpAll:    q.Get("all") == "true",
+		Verbose:    q.Get("verbose") == "true",
 	}
 	if p.Collection == "" {
 		return p, fmt.Errorf("collection is required")
@@ -329,11 +331,17 @@ func inspectShard(ctx context.Context, shard db.ShardLike,
 		}
 		res.Found = true
 		res.DocID = obj.DocID
-		res.Object = obj
 		docIDsForDump[obj.DocID] = id
 
-		// Behavioural consistency checks.
-		res.Consistency = checkObjectConsistency(ctx, shard, objectsBucket, obj, uuidBytes, logger)
+		// Behavioural consistency checks. The full report is always computed;
+		// the default response only carries the summary (per-property ok/not-ok)
+		// — pass ?verbose=true for the detailed breakdown and the full object.
+		full := checkObjectConsistency(ctx, shard, objectsBucket, obj, uuidBytes, logger)
+		res.Consistency = summarize(full)
+		if params.Verbose {
+			res.Object = obj
+			res.Details = full
+		}
 	}
 
 	// Optional extended mode: dump matching entries from the requested buckets.
@@ -993,9 +1001,72 @@ type inspectUUIDResult struct {
 	Found       bool                   `json:"found"`
 	Error       string                 `json:"error,omitempty"`
 	DocID       uint64                 `json:"docID,omitempty"`
-	Object      *storobj.Object        `json:"object,omitempty"`
-	Consistency *consistencyReport     `json:"consistency,omitempty"`
+	Object      *storobj.Object        `json:"object,omitempty"`      // only set in verbose mode
+	Consistency *consistencySummary    `json:"consistency,omitempty"` // always set when found
+	Details     *consistencyReport     `json:"details,omitempty"`     // only set in verbose mode
 	Buckets     map[string]*bucketDump `json:"buckets,omitempty"`
+}
+
+// consistencySummary is the terse default view: just ok/not-ok per property,
+// plus a duplicate count. Full per-term errors live in `details` when
+// ?verbose=true is set.
+type consistencySummary struct {
+	Ok         bool            `json:"ok"`
+	Error      string          `json:"error,omitempty"`
+	Duplicates int             `json:"duplicates"`
+	Filterable map[string]bool `json:"filterable,omitempty"`
+	Searchable map[string]bool `json:"searchable,omitempty"`
+	Rangeable  map[string]bool `json:"rangeable,omitempty"`
+	Vectors    map[string]bool `json:"vectors,omitempty"`
+}
+
+func summarize(full *consistencyReport) *consistencySummary {
+	if full == nil {
+		return nil
+	}
+	s := &consistencySummary{Ok: full.Ok, Error: full.Error}
+	if full.Duplicates != nil {
+		s.Duplicates = len(full.Duplicates.Extras)
+		if full.Duplicates.LiveCollision {
+			s.Duplicates++ // surface the collision in the count too
+		}
+	}
+	if len(full.Filterable) > 0 {
+		s.Filterable = make(map[string]bool, len(full.Filterable))
+		for _, c := range full.Filterable {
+			s.Filterable[c.Property] = c.Error == "" && c.AndAll.Ok
+		}
+	}
+	if len(full.Searchable) > 0 {
+		s.Searchable = make(map[string]bool, len(full.Searchable))
+		for _, c := range full.Searchable {
+			s.Searchable[c.Property] = c.Error == "" && c.AndAll.Ok
+		}
+	}
+	if len(full.Rangeable) > 0 {
+		s.Rangeable = make(map[string]bool, len(full.Rangeable))
+		for _, c := range full.Rangeable {
+			ok := c.Error == ""
+			for _, v := range c.PerValue {
+				if !v.Ok || v.Error != "" {
+					ok = false
+					break
+				}
+			}
+			s.Rangeable[c.Property] = ok
+		}
+	}
+	if len(full.Vectors) > 0 {
+		s.Vectors = make(map[string]bool, len(full.Vectors))
+		for _, v := range full.Vectors {
+			key := v.Target
+			if key == "" {
+				key = "default"
+			}
+			s.Vectors[key] = v.Ok && v.Error == ""
+		}
+	}
+	return s
 }
 
 type consistencyReport struct {
