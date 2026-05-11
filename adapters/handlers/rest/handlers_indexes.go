@@ -169,6 +169,12 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse("request body required"))
 	}
 
+	// Reject ambiguous bodies (multiple groups set, conflicting verbs within
+	// a group, or zero verbs) before the switch silently picks one arm.
+	if err := validateBodyExclusivity(body); err != nil {
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+	}
+
 	// Determine which migration type to submit based on the diff.
 	var (
 		migrationType  db.ReindexMigrationType

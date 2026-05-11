@@ -608,3 +608,164 @@ func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
 		"unknown migration type must panic so the gap is caught loudly",
 	)
 }
+
+// -----------------------------------------------------------------------------
+// validateBodyExclusivity — switch-shadow guard.
+//
+// updateIndex dispatches on a Go switch where the FIRST truthy arm wins.
+// Without this guard, a body with two groups (e.g. searchable.rebuild AND
+// filterable.rebuild) or two verbs in one group (e.g. searchable.enabled AND
+// searchable.rebuild) would silently run one and drop the other. These cases
+// pin the rejection.
+// -----------------------------------------------------------------------------
+
+func TestValidateBodyExclusivity(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    *models.IndexUpdateRequest
+		wantErr string // empty = accept; substring = reject and assert substring in error
+	}{
+		// --- nil body -----------------------------------------------------------
+		{
+			name:    "nil body rejected",
+			body:    nil,
+			wantErr: "request body required",
+		},
+
+		// --- valid: exactly one verb in one group ------------------------------
+		{
+			name: "valid: searchable.rebuild only",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
+			},
+		},
+		{
+			name: "valid: searchable.enabled with tokenization (one verb)",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Enabled: true, Tokenization: "word"},
+			},
+		},
+		{
+			name: "valid: searchable.tokenization alone (change-tokenization)",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Tokenization: "word"},
+			},
+		},
+		{
+			name: "valid: filterable.enabled only",
+			body: &models.IndexUpdateRequest{
+				Filterable: &models.IndexUpdateFilterable{Enabled: true},
+			},
+		},
+		{
+			name: "valid: filterable.rebuild only",
+			body: &models.IndexUpdateRequest{
+				Filterable: &models.IndexUpdateFilterable{Rebuild: true},
+			},
+		},
+		{
+			name: "valid: rangeable.enabled only",
+			body: &models.IndexUpdateRequest{
+				Rangeable: &models.IndexUpdateRangeable{Enabled: true},
+			},
+		},
+
+		// --- zero verbs --------------------------------------------------------
+		{
+			name:    "reject: empty body (all groups nil)",
+			body:    &models.IndexUpdateRequest{},
+			wantErr: "no actionable change",
+		},
+		{
+			name: "reject: searchable present but no verb set",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{},
+			},
+			wantErr: "no actionable change",
+		},
+		{
+			name: "reject: filterable present but no verb set",
+			body: &models.IndexUpdateRequest{
+				Filterable: &models.IndexUpdateFilterable{},
+			},
+			wantErr: "no actionable change",
+		},
+		{
+			name: "reject: rangeable present but enabled=false",
+			body: &models.IndexUpdateRequest{
+				Rangeable: &models.IndexUpdateRangeable{Enabled: false},
+			},
+			wantErr: "no actionable change",
+		},
+
+		// --- multiple groups ---------------------------------------------------
+		{
+			name: "reject: searchable.rebuild + filterable.rebuild",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
+				Filterable: &models.IndexUpdateFilterable{Rebuild: true},
+			},
+			wantErr: "multiple index groups",
+		},
+		{
+			name: "reject: searchable.rebuild + rangeable.enabled",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Rebuild: true},
+				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
+			},
+			wantErr: "multiple index groups",
+		},
+		{
+			name: "reject: filterable.enabled + rangeable.enabled",
+			body: &models.IndexUpdateRequest{
+				Filterable: &models.IndexUpdateFilterable{Enabled: true},
+				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
+			},
+			wantErr: "multiple index groups",
+		},
+		{
+			name: "reject: all three groups set",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Enabled: true, Tokenization: "word"},
+				Filterable: &models.IndexUpdateFilterable{Enabled: true},
+				Rangeable:  &models.IndexUpdateRangeable{Enabled: true},
+			},
+			wantErr: "multiple index groups",
+		},
+
+		// --- multiple verbs within one group -----------------------------------
+		{
+			name: "reject: searchable.enabled + searchable.rebuild",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Enabled: true, Rebuild: true, Tokenization: "word"},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.rebuild + searchable.tokenization (without enabled)",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Rebuild: true, Tokenization: "word"},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: filterable.enabled + filterable.rebuild",
+			body: &models.IndexUpdateRequest{
+				Filterable: &models.IndexUpdateFilterable{Enabled: true, Rebuild: true},
+			},
+			wantErr: "conflicting fields in filterable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBodyExclusivity(tc.body)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}

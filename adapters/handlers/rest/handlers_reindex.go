@@ -219,6 +219,88 @@ func isSemanticMigration(mt db.ReindexMigrationType) bool {
 		mt == db.ReindexTypeEnableSearchable
 }
 
+// validateBodyExclusivity guards against ambiguous PUT
+// /v1/schema/{class}/indexes/{prop} request bodies that the switch-based
+// dispatch in updateIndex would otherwise silently misroute.
+//
+// The dispatch is a switch on field truthiness. A request like
+// `{searchable:{rebuild:true}, filterable:{rebuild:true}}` would match the
+// first arm (searchable.rebuild) and silently ignore filterable.rebuild —
+// the user gets a 202 but only half the requested work runs. This helper
+// rejects such bodies up front with a 400 listing the offending fields.
+//
+// Rules:
+//   - At most one group (Searchable / Filterable / Rangeable) may be set.
+//   - Within a group, at most one verb may be set. Verbs:
+//   - Searchable: Enabled, Rebuild, Tokenization (without Enabled)
+//   - Filterable: Enabled, Rebuild
+//   - Rangeable:  Enabled
+//   - Searchable.Tokenization with Searchable.Enabled is allowed:
+//     enable-searchable REQUIRES a tokenization, so they are one verb, not two.
+//   - Zero verbs total is rejected (consistent with the default arm in
+//     updateIndex), so this helper covers that case too.
+func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
+	if body == nil {
+		return fmt.Errorf("request body required")
+	}
+
+	var groupsSet []string
+
+	// Searchable group.
+	if body.Searchable != nil {
+		var verbs []string
+		if body.Searchable.Enabled {
+			verbs = append(verbs, "searchable.enabled")
+		}
+		if body.Searchable.Rebuild {
+			verbs = append(verbs, "searchable.rebuild")
+		}
+		// Tokenization is a verb on its own (change-tokenization) ONLY when
+		// Enabled is not set. With Enabled it is part of the enable verb.
+		if body.Searchable.Tokenization != "" && !body.Searchable.Enabled {
+			verbs = append(verbs, "searchable.tokenization")
+		}
+		if len(verbs) > 1 {
+			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, or tokenization (tokenization combined with enabled is allowed)", verbs)
+		}
+		if len(verbs) == 1 {
+			groupsSet = append(groupsSet, "searchable")
+		}
+	}
+
+	// Filterable group.
+	if body.Filterable != nil {
+		var verbs []string
+		if body.Filterable.Enabled {
+			verbs = append(verbs, "filterable.enabled")
+		}
+		if body.Filterable.Rebuild {
+			verbs = append(verbs, "filterable.rebuild")
+		}
+		if len(verbs) > 1 {
+			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled or rebuild", verbs)
+		}
+		if len(verbs) == 1 {
+			groupsSet = append(groupsSet, "filterable")
+		}
+	}
+
+	// Rangeable group. Only Enabled is a verb today.
+	if body.Rangeable != nil {
+		if body.Rangeable.Enabled {
+			groupsSet = append(groupsSet, "rangeable")
+		}
+	}
+
+	if len(groupsSet) > 1 {
+		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
+	}
+	if len(groupsSet) == 0 {
+		return fmt.Errorf("no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, searchable.enabled, filterable.rebuild, filterable.enabled, rangeable.enabled")
+	}
+	return nil
+}
+
 // validateTenants checks that all specified tenants exist in the collection's
 // sharding state and are in a status that has local data (HOT, ACTIVE, COLD,
 // INACTIVE). Returns an error for nonexistent or OFFLOADED/FROZEN tenants.
