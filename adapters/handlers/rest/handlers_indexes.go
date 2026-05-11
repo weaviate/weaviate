@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -76,11 +77,11 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		if prop.IndexFilterable == nil || *prop.IndexFilterable {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			idx.Tokenization = prop.Tokenization
-			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks)
+			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks, h.appState.Logger)
 			indexes = append(indexes, idx)
 		} else {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks)
+			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks, h.appState.Logger)
 			if idx.Status == "indexing" || idx.Status == "pending" {
 				indexes = append(indexes, idx)
 			}
@@ -91,11 +92,11 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		if prop.IndexSearchable == nil || *prop.IndexSearchable {
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
 			idx.Tokenization = prop.Tokenization
-			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks)
+			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks, h.appState.Logger)
 			indexes = append(indexes, idx)
 		} else {
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks)
+			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks, h.appState.Logger)
 			if idx.Status == "indexing" || idx.Status == "pending" {
 				indexes = append(indexes, idx)
 			}
@@ -107,12 +108,12 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		if isNumeric {
 			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
 				idx := &models.IndexStatus{Type: "rangeable", Status: "ready"}
-				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks)
+				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks, h.appState.Logger)
 				indexes = append(indexes, idx)
 			} else {
 				// Check if there's an active enable-rangeable task for this property.
 				idx := &models.IndexStatus{Type: "rangeable", Status: "ready"}
-				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks)
+				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks, h.appState.Logger)
 				if idx.Status == "indexing" || idx.Status == "pending" {
 					indexes = append(indexes, idx)
 				}
@@ -339,7 +340,12 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 // mergeReindexStatus checks if there's an active reindex task that targets
 // the given property+indexType and updates the IndexStatus accordingly.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, allTasks map[string][]*distributedtask.Task) {
+//
+// The logger is used to flag unknown migration types: a future ReindexType
+// added without updating this switch would otherwise silently report "ready"
+// for an in-flight task. Passing a nil logger is allowed (test callers may
+// rely on this); the entry is still skipped, just without a log line.
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, allTasks map[string][]*distributedtask.Task, logger logrus.FieldLogger) {
 	if allTasks == nil {
 		return
 	}
@@ -382,6 +388,19 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 				containsStr(payload.Properties, propName)
 			if targets && payload.TargetTokenization != "" {
 				idx.TargetTokenization = payload.TargetTokenization
+			}
+		default:
+			// Unknown migration type. A new ReindexType was added without
+			// being mapped to a bucket here, which would silently report
+			// "ready" for an in-flight task. Log loudly so this surfaces in
+			// CI/staging before it hits production. targets stays false so
+			// we fall through and leave the synthetic entry alone.
+			if logger != nil {
+				logger.WithFields(logrus.Fields{
+					"migration_type": payload.MigrationType,
+					"task_id":        task.ID,
+					"collection":     collection,
+				}).Error(fmt.Errorf("mergeReindexStatus: unknown migration type %q; index status may be stale", payload.MigrationType))
 			}
 		}
 
