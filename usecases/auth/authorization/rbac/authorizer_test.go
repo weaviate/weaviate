@@ -729,6 +729,152 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 	assert.Equal(t, "data/collections/ContactRecommendations/shards/*/objects/*", allowedResources[0], "returned resource should be the same as input")
 }
 
+// TestAudit_NamespaceFields verifies the top-level audit fields emitted by
+// the success paths of Authorize and FilterAuthorizedResources: NS-disabled
+// clusters never emit namespace/global_operator; NS-enabled clusters emit
+// exactly one of them depending on the principal shape. It also confirms
+// the permissions[].resource string strips own-namespace prefixes for
+// namespace-bound principals and keeps them raw for global operators.
+func TestAudit_NamespaceFields(t *testing.T) {
+	type principalCase struct {
+		name            string
+		nsEnabled       bool
+		principal       *models.Principal
+		resources       []string
+		wantField       map[string]any
+		wantAbsent      []string
+		wantPrettyMatch string
+	}
+
+	nsDisabledPrincipal := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+	nsNamespacedPrincipal := &models.Principal{Username: "customer1:alice", Namespace: "customer1", UserType: models.UserTypeInputDb}
+	nsGlobalPrincipal := &models.Principal{Username: "admin-key", IsGlobalOperator: true, UserType: models.UserTypeInputDb}
+
+	principalCases := []principalCase{
+		{
+			name:      "ns_disabled_no_new_fields",
+			nsEnabled: false,
+			principal: nsDisabledPrincipal,
+			resources: authorization.ShardsData("Movies", "#"),
+			wantField: map[string]any{
+				"rbac_log_version": AuditLogVersion,
+				"user":             "alice",
+				"action":           "authorize",
+			},
+			wantAbsent:      []string{"namespace", "global_operator"},
+			wantPrettyMatch: "Collection: Movies",
+		},
+		{
+			name:      "ns_enabled_namespaced_caller",
+			nsEnabled: true,
+			principal: nsNamespacedPrincipal,
+			resources: authorization.ShardsData("customer1:Movies", "#"),
+			wantField: map[string]any{
+				"namespace":        "customer1",
+				"rbac_log_version": AuditLogVersion,
+				"user":             "customer1:alice",
+				"action":           "authorize",
+			},
+			wantAbsent:      []string{"global_operator"},
+			wantPrettyMatch: "Collection: Movies",
+		},
+		{
+			name:      "ns_enabled_global_operator",
+			nsEnabled: true,
+			principal: nsGlobalPrincipal,
+			resources: authorization.ShardsData("customer1:Movies", "#"),
+			wantField: map[string]any{
+				"global_operator":  true,
+				"rbac_log_version": AuditLogVersion,
+				"user":             "admin-key",
+				"action":           "authorize",
+			},
+			wantAbsent:      []string{"namespace"},
+			wantPrettyMatch: "Collection: customer1:Movies",
+		},
+	}
+
+	callSites := []struct {
+		name string
+		run  func(m *Manager, p *models.Principal, rs []string) error
+	}{
+		{"Authorize", func(m *Manager, p *models.Principal, rs []string) error {
+			return m.Authorize(context.Background(), p, authorization.READ, rs...)
+		}},
+		{"FilterAuthorizedResources", func(m *Manager, p *models.Principal, rs []string) error {
+			_, err := m.FilterAuthorizedResources(context.Background(), p, authorization.READ, rs...)
+			return err
+		}},
+	}
+
+	for _, pc := range principalCases {
+		for _, cs := range callSites {
+			t.Run(pc.name+"/"+cs.name, func(t *testing.T) {
+				logger, hook := test.NewNullLogger()
+				var (
+					m   *Manager
+					err error
+				)
+				if pc.nsEnabled {
+					m, err = setupNSEnabledTestManager(t, logger)
+				} else {
+					m, err = setupTestManager(t, logger)
+				}
+				require.NoError(t, err)
+
+				// Grant a permissive READ in the data domain to the principal so
+				// the success path runs and emits one info-level entry.
+				_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"),
+					"*", authorization.READ, authorization.DataDomain)
+				require.NoError(t, err)
+				_, err = m.casbin.AddRoleForUser(
+					conv.UserNameWithTypeFromId(pc.principal.Username, authentication.AuthTypeDb),
+					conv.PrefixRoleName("audit-role"))
+				require.NoError(t, err)
+
+				require.NoError(t, cs.run(m, pc.principal, pc.resources))
+
+				entry := hook.LastEntry()
+				require.NotNil(t, entry)
+				for k, v := range pc.wantField {
+					require.Equal(t, v, entry.Data[k], "field %q", k)
+				}
+				for _, k := range pc.wantAbsent {
+					_, present := entry.Data[k]
+					require.False(t, present, "field %q must be absent", k)
+				}
+				perms, ok := entry.Data["permissions"].([]logrus.Fields)
+				require.True(t, ok, "permissions should be []logrus.Fields")
+				require.NotEmpty(t, perms)
+				require.Contains(t, perms[0]["resource"].(string), pc.wantPrettyMatch)
+			})
+		}
+	}
+}
+
+// TestAudit_NamespaceFields_DenyPath ensures the deny-side log entry on an
+// NS-enabled cluster carries the top-level namespace field, matching the
+// success-path shape so SIEM consumers see consistent fields across allow
+// and deny.
+func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	p := &models.Principal{Username: "customer1:alice", Namespace: "customer1", UserType: models.UserTypeInputDb}
+	err = m.Authorize(context.Background(), p, authorization.READ,
+		authorization.ShardsData("customer1:Movies", "#")...)
+	require.Error(t, err)
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry)
+	require.Equal(t, logrus.ErrorLevel, entry.Level)
+	require.Equal(t, "customer1", entry.Data["namespace"])
+	require.Equal(t, AuditLogVersion, entry.Data["rbac_log_version"])
+	_, hasGlobal := entry.Data["global_operator"]
+	require.False(t, hasGlobal)
+}
+
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-*")
 	if err != nil {

@@ -25,6 +25,28 @@ import (
 
 const AuditLogVersion = 2
 
+// auditFields produces the per-request audit log fields shared between
+// Authorize and FilterAuthorizedResources. On NS-enabled clusters it adds
+// either namespace=<short> for namespace-bound principals or
+// global_operator=true for operator-level principals; NS-disabled clusters
+// emit neither field.
+func (m *Manager) auditFields(principal *models.Principal) logrus.Fields {
+	f := logrus.Fields{
+		"action":           "authorize",
+		"user":             principal.Username,
+		"component":        authorization.ComponentName,
+		"rbac_log_version": AuditLogVersion,
+	}
+	if m.namespacesEnabled {
+		if principal.IsGlobalOperator {
+			f["global_operator"] = true
+		} else if principal.Namespace != "" {
+			f["namespace"] = principal.Namespace
+		}
+	}
+	return f
+}
+
 func (m *Manager) authorize(ctx context.Context, principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
 	if principal == nil {
 		return fmt.Errorf("rbac: %w", errors.NewUnauthenticated())
@@ -34,13 +56,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		return fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.WithFields(logrus.Fields{
-		"action":           "authorize",
-		"user":             principal.Username,
-		"component":        authorization.ComponentName,
-		"request_action":   verb,
-		"rbac_log_version": AuditLogVersion,
-	})
+	logger := m.logger.WithFields(m.auditFields(principal)).WithField("request_action", verb)
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)
@@ -80,7 +96,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 		if allowed {
 			permResults = append(permResults, logrus.Fields{
-				"resource": prettyPermissionsResources(perm),
+				"resource": prettyPermissionsResources(principal, perm),
 				"results":  prettyStatus(allowed),
 			})
 		}
@@ -89,7 +105,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 			if !skipAudit {
 				logger.WithField("permissions", permResults).Error("authorization denied")
 			}
-			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
+			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(principal, perm)))
 		}
 	}
 
@@ -123,13 +139,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		return nil, fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.WithFields(logrus.Fields{
-		"action":           "authorize",
-		"user":             principal.Username,
-		"component":        authorization.ComponentName,
-		"request_action":   verb,
-		"rbac_log_version": AuditLogVersion,
-	})
+	logger := m.logger.WithFields(m.auditFields(principal)).WithField("request_action", verb)
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)
@@ -170,7 +180,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 			}
 
 			permResults = append(permResults, logrus.Fields{
-				"resource": prettyPermissionsResources(perm),
+				"resource": prettyPermissionsResources(principal, perm),
 				"results":  prettyStatus(allowed),
 			})
 			allowedResources = append(allowedResources, resource)
