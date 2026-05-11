@@ -110,18 +110,7 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 	if tokenization == "" {
 		return fmt.Errorf("enable-searchable requires a tokenization to be set on the request body")
 	}
-	validTokenizations := map[string]struct{}{
-		models.PropertyTokenizationWord:       {},
-		models.PropertyTokenizationLowercase:  {},
-		models.PropertyTokenizationWhitespace: {},
-		models.PropertyTokenizationField:      {},
-		models.PropertyTokenizationTrigram:    {},
-		models.PropertyTokenizationGse:        {},
-		models.PropertyTokenizationKagomeKr:   {},
-		models.PropertyTokenizationKagomeJa:   {},
-		models.PropertyTokenizationGseCh:      {},
-	}
-	if _, ok := validTokenizations[tokenization]; !ok {
+	if !entschema.IsValidTokenization(tokenization) {
 		return fmt.Errorf("invalid tokenization %q", tokenization)
 	}
 	return nil
@@ -150,18 +139,7 @@ func validateTokenizationChange(
 	}
 
 	// Validate target tokenization.
-	validTokenizations := map[string]struct{}{
-		models.PropertyTokenizationWord:       {},
-		models.PropertyTokenizationLowercase:  {},
-		models.PropertyTokenizationWhitespace: {},
-		models.PropertyTokenizationField:      {},
-		models.PropertyTokenizationTrigram:    {},
-		models.PropertyTokenizationGse:        {},
-		models.PropertyTokenizationKagomeKr:   {},
-		models.PropertyTokenizationKagomeJa:   {},
-		models.PropertyTokenizationGseCh:      {},
-	}
-	if _, ok := validTokenizations[targetTokenization]; !ok {
+	if !entschema.IsValidTokenization(targetTokenization) {
 		return "", fmt.Errorf("invalid tokenization %q", targetTokenization)
 	}
 
