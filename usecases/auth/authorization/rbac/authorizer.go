@@ -26,7 +26,7 @@ import (
 const AuditLogVersion = 2
 
 // auditFields produces the per-request audit log fields shared between
-// Authorize and FilterAuthorizedResources. On NS-enabled clusters it adds
+// Authorize and FilterAuthorizedResources. On namespace enabled clusters it adds
 // either namespace=<short> for namespace-bound principals or
 // global_operator=true for operator-level principals; NS-disabled clusters
 // emit neither field.
@@ -44,12 +44,12 @@ func (m *Manager) auditFields(principal *models.Principal) logrus.Fields {
 		case principal.Namespace != "":
 			f["namespace"] = principal.Namespace
 		default:
-			// Defense-in-depth: every NS-enabled principal must be classified
+			// Defense-in-depth: every namespace enabled principal must be classified
 			// as namespace-bound or global upstream. If a producer drifts,
 			// default to global (no namespace claim is leaked) and warn so
 			// the gap surfaces.
 			m.logger.WithField("user", principal.Username).
-				Warn("rbac: principal missing namespace and global classification on NS-enabled cluster; defaulting to global_operator")
+				Warn("rbac: principal missing namespace and global classification on namespace enabled cluster; defaulting to global_operator")
 			f["global_operator"] = true
 		}
 	}

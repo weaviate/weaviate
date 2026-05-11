@@ -731,7 +731,7 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 
 // TestAudit_NamespaceFields verifies the top-level audit fields emitted by
 // the success paths of Authorize and FilterAuthorizedResources: NS-disabled
-// clusters never emit namespace/global_operator; NS-enabled clusters emit
+// clusters never emit namespace/global_operator; namespace enabled clusters emit
 // exactly one of them depending on the principal shape. It also confirms
 // the permissions[].resource string strips own-namespace prefixes for
 // namespace-bound principals and keeps them raw for global operators.
@@ -855,7 +855,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 }
 
 // TestAudit_NamespaceFields_DenyPath ensures the deny-side log entry on an
-// NS-enabled cluster carries the top-level namespace field, matching the
+// namespace enabled cluster carries the top-level namespace field, matching the
 // success-path shape so SIEM consumers see consistent fields across allow
 // and deny.
 func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
@@ -879,7 +879,7 @@ func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
 }
 
 // TestAudit_MalformedPrincipal_DefaultsToGlobalAndWarns covers the
-// defense-in-depth branch in auditFields: an NS-enabled cluster receiving
+// defense-in-depth branch in auditFields: an namespace enabled cluster receiving
 // a principal with neither IsGlobalOperator nor Namespace set still emits
 // global_operator=true on the audit entry (audit invariant: exactly one
 // of the two top-level fields is present), and a Warn-level entry surfaces
@@ -967,7 +967,7 @@ func setupNSEnabledTestManager(t *testing.T, logger *logrus.Logger) (*Manager, e
 }
 
 // TestNarrowedViewerVsReadOnly_ClusterReadDenied asserts enforcement of
-// the narrowed viewer on NS-enabled clusters: a viewer-assigned principal
+// the narrowed viewer on namespace enabled clusters: a viewer-assigned principal
 // is denied on cluster-only read endpoints, while a read-only principal
 // is allowed.
 func TestNarrowedViewerVsReadOnly_ClusterReadDenied(t *testing.T) {

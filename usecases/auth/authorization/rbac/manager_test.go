@@ -304,7 +304,7 @@ func TestRestoreInvalidatesEnforceCache(t *testing.T) {
 }
 
 // TestPrettyPermissionsResources_NamespaceStripping exercises the pretty-
-// printer used in audit logs on NS-enabled clusters: a namespace-bound
+// printer used in audit logs on namespace enabled clusters: a namespace-bound
 // principal sees short entity names (own namespace stripped), while a
 // global principal (and any NS-disabled principal, since their Namespace
 // is always "") sees the raw qualified names. A foreign prefix is left
