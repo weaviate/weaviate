@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -259,13 +260,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	// NOTE: support get shard status via alias
-	// Also we resolve before doing `Authorize` so that Authorizer will work
-	// with correct `collectionName` for permissions and errors UX
-	class = schema.UppercaseClassName(class)
-	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
-		class = rclass
-	}
+	class, _ = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
 
 	err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {

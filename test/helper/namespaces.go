@@ -13,7 +13,9 @@ package helper
 
 import (
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/namespaces"
@@ -21,6 +23,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+// CreateNamespace creates the namespace and blocks until a follow-up GET
+// succeeds. On multi-node clusters RAFT replication can lag a few hundred
+// milliseconds behind the CreateNamespace response; callers should be able
+// to use the namespace immediately on return.
 func CreateNamespace(t *testing.T, name, key string) *models.Namespace {
 	t.Helper()
 	resp, err := Client(t).Namespaces.CreateNamespace(
@@ -30,6 +36,15 @@ func CreateNamespace(t *testing.T, name, key string) *models.Namespace {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
+
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Namespaces.GetNamespace(
+			namespaces.NewGetNamespaceParams().WithNamespaceID(name),
+			CreateAuth(key),
+		)
+		assert.NoError(c, err)
+	}, 10*time.Second, 50*time.Millisecond, "namespace %q not visible after create", name)
+
 	return resp.Payload
 }
 

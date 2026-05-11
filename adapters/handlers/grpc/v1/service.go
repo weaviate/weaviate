@@ -83,10 +83,6 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	var result *pb.AggregateReply
 	var errInner error
 
-	if class := s.schemaManager.ResolveAlias(req.Collection); class != "" {
-		req.Collection = class
-	}
-
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.aggregate(ctx, req)
 	}, s.logger); err != nil {
@@ -104,6 +100,8 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+
+	req.Collection, _ = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
 
 	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),

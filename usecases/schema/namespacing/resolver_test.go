@@ -107,58 +107,58 @@ func TestQualifiedName(t *testing.T) {
 
 func TestQualifyClass(t *testing.T) {
 	cases := []struct {
-		testName  string
-		principal *models.Principal
-		nsEnabled bool
-		input     string
-		want      string
+		testName          string
+		principal         *models.Principal
+		namespacesEnabled bool
+		input             string
+		want              string
 	}{
 		{
-			testName:  "namespaced principal lowercase short input is uppercased and qualified",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			nsEnabled: true,
-			input:     "movies",
-			want:      "customer1:Movies",
+			testName:          "namespaced principal lowercase short input is uppercased and qualified",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			namespacesEnabled: true,
+			input:             "movies",
+			want:              "customer1:Movies",
 		},
 		{
-			testName:  "operator full name preserves namespace and uppercases only the class",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			nsEnabled: true,
-			input:     "customer1:movies",
-			want:      "customer1:Movies",
+			testName:          "operator full name preserves namespace and uppercases only the class",
+			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
+			namespacesEnabled: true,
+			input:             "customer1:movies",
+			want:              "customer1:Movies",
 		},
 		{
-			testName:  "operator already-uppercase full name passthrough",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			nsEnabled: true,
-			input:     "customer1:Movies",
-			want:      "customer1:Movies",
+			testName:          "operator already-uppercase full name passthrough",
+			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
+			namespacesEnabled: true,
+			input:             "customer1:Movies",
+			want:              "customer1:Movies",
 		},
 		{
-			testName:  "ns disabled lowercase input still uppercased",
-			principal: &models.Principal{Username: "u"},
-			nsEnabled: false,
-			input:     "movies",
-			want:      "Movies",
+			testName:          "ns disabled lowercase input still uppercased",
+			principal:         &models.Principal{Username: "u"},
+			namespacesEnabled: false,
+			input:             "movies",
+			want:              "Movies",
 		},
 		{
-			testName:  "alias-shaped input is not resolved (qualified, not retargeted)",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			nsEnabled: true,
-			input:     "films",
-			want:      "customer1:Films",
+			testName:          "alias-shaped input is not resolved (qualified, not retargeted)",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			namespacesEnabled: true,
+			input:             "films",
+			want:              "customer1:Films",
 		},
 		{
-			testName:  "alias-shaped raw input on ns-disabled is not resolved",
-			principal: &models.Principal{Username: "u"},
-			nsEnabled: false,
-			input:     "films",
-			want:      "Films",
+			testName:          "alias-shaped raw input on ns-disabled is not resolved",
+			principal:         &models.Principal{Username: "u"},
+			namespacesEnabled: false,
+			input:             "films",
+			want:              "Films",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			got := QualifyClass(tc.principal, tc.nsEnabled, tc.input)
+			got := QualifyClass(tc.principal, tc.namespacesEnabled, tc.input)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -166,126 +166,126 @@ func TestQualifyClass(t *testing.T) {
 
 func TestResolve(t *testing.T) {
 	cases := []struct {
-		testName  string
-		principal *models.Principal
-		sm        SchemaManager
-		nsEnabled bool
-		input     string
-		wantClass string
-		wantAlias string
+		testName          string
+		principal         *models.Principal
+		sm                SchemaManager
+		namespacesEnabled bool
+		input             string
+		wantClass         string
+		wantAlias         string
 	}{
 		{
-			testName:  "namespaced principal resolves to qualified name",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: true,
-			input:     "Movies",
-			wantClass: "customer1:Movies",
-			wantAlias: "",
+			testName:          "namespaced principal resolves to qualified name",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: true,
+			input:             "Movies",
+			wantClass:         "customer1:Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "namespaced principal with alias",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{"customer1:Films": "customer1:Movies"}},
-			nsEnabled: true,
-			input:     "Films",
-			wantClass: "customer1:Movies",
-			wantAlias: "customer1:Films",
+			testName:          "namespaced principal with alias",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{"customer1:Films": "customer1:Movies"}},
+			namespacesEnabled: true,
+			input:             "Films",
+			wantClass:         "customer1:Movies",
+			wantAlias:         "customer1:Films",
 		},
 		{
-			testName:  "global principal passthrough",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: true,
-			input:     "Movies",
-			wantClass: "Movies",
-			wantAlias: "",
+			testName:          "global principal passthrough",
+			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: true,
+			input:             "Movies",
+			wantClass:         "Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "global principal qualified input with alias hit resolves normally",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:        &fakeSchemaManager{aliases: map[string]string{"customer1:Movies": "customer1:ActualMovies"}},
-			nsEnabled: true,
-			input:     "customer1:Movies",
-			wantClass: "customer1:ActualMovies",
-			wantAlias: "customer1:Movies",
+			testName:          "global principal qualified input with alias hit resolves normally",
+			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:                &fakeSchemaManager{aliases: map[string]string{"customer1:Movies": "customer1:ActualMovies"}},
+			namespacesEnabled: true,
+			input:             "customer1:Movies",
+			wantClass:         "customer1:ActualMovies",
+			wantAlias:         "customer1:Movies",
 		},
 		{
-			testName:  "nil principal passthrough",
-			principal: nil,
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: true,
-			input:     "Movies",
-			wantClass: "Movies",
-			wantAlias: "",
+			testName:          "nil principal passthrough",
+			principal:         nil,
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: true,
+			input:             "Movies",
+			wantClass:         "Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "namespaced principal qualified input gets double prefixed",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: true,
-			input:     "customer2:Movies",
-			wantClass: "customer1:customer2:Movies",
-			wantAlias: "",
+			testName:          "namespaced principal qualified input gets double prefixed",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: true,
+			input:             "customer2:Movies",
+			wantClass:         "customer1:customer2:Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "namespaced principal with alias that resolves to target",
-			principal: &models.Principal{Username: "u", Namespace: "ns1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{"ns1:MyAlias": "ns1:MyClass"}},
-			nsEnabled: true,
-			input:     "MyAlias",
-			wantClass: "ns1:MyClass",
-			wantAlias: "ns1:MyAlias",
+			testName:          "namespaced principal with alias that resolves to target",
+			principal:         &models.Principal{Username: "u", Namespace: "ns1"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{"ns1:MyAlias": "ns1:MyClass"}},
+			namespacesEnabled: true,
+			input:             "MyAlias",
+			wantClass:         "ns1:MyClass",
+			wantAlias:         "ns1:MyAlias",
 		},
 		{
-			testName:  "ns disabled ignores principal namespace",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: false,
-			input:     "Movies",
-			wantClass: "Movies",
-			wantAlias: "",
+			testName:          "ns disabled ignores principal namespace",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: false,
+			input:             "Movies",
+			wantClass:         "Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "ns disabled resolves alias on raw input for non-namespaced principal",
-			principal: &models.Principal{Username: "u"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{"Films": "Movies"}},
-			nsEnabled: false,
-			input:     "Films",
-			wantClass: "Movies",
-			wantAlias: "Films",
+			testName:          "ns disabled resolves alias on raw input for non-namespaced principal",
+			principal:         &models.Principal{Username: "u"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{"Films": "Movies"}},
+			namespacesEnabled: false,
+			input:             "Films",
+			wantClass:         "Movies",
+			wantAlias:         "Films",
 		},
 		{
-			testName:  "lowercase short input is uppercased before qualification",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: true,
-			input:     "movies",
-			wantClass: "customer1:Movies",
-			wantAlias: "",
+			testName:          "lowercase short input is uppercased before qualification",
+			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: true,
+			input:             "movies",
+			wantClass:         "customer1:Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "lowercase qualified input uppercases only the class portion",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: true,
-			input:     "customer1:movies",
-			wantClass: "customer1:Movies",
-			wantAlias: "",
+			testName:          "lowercase qualified input uppercases only the class portion",
+			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: true,
+			input:             "customer1:movies",
+			wantClass:         "customer1:Movies",
+			wantAlias:         "",
 		},
 		{
-			testName:  "ns disabled still uppercases lowercase input",
-			principal: &models.Principal{Username: "u"},
-			sm:        &fakeSchemaManager{aliases: map[string]string{}},
-			nsEnabled: false,
-			input:     "movies",
-			wantClass: "Movies",
-			wantAlias: "",
+			testName:          "ns disabled still uppercases lowercase input",
+			principal:         &models.Principal{Username: "u"},
+			sm:                &fakeSchemaManager{aliases: map[string]string{}},
+			namespacesEnabled: false,
+			input:             "movies",
+			wantClass:         "Movies",
+			wantAlias:         "",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			gotClass, gotAlias := Resolve(tc.principal, tc.sm, tc.nsEnabled, tc.input)
+			gotClass, gotAlias := Resolve(tc.principal, tc.sm, tc.namespacesEnabled, tc.input)
 			assert.Equal(t, tc.wantClass, gotClass)
 			assert.Equal(t, tc.wantAlias, gotAlias)
 		})

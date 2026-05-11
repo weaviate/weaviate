@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -341,5 +342,138 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 		got, err := tokenizePropertyAuth(t, "customer1:Shows", "title", "Hello World", adminKey)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"hello", "world"}, got.Indexed)
+	})
+}
+
+// TestNamespaces_ShardsStatus exercises GET /v1/schema/<class>/shards on a
+// multi-shard namespaced class. With 3 shards on a 3-node cluster at least
+// one shard lives on a remote node, so the request must hop the
+// /indices/<ns>:<class>/shards/<sh>/status route to collect each shard's
+// status.
+func TestNamespaces_ShardsStatus(t *testing.T) {
+	const ns1 = "customer1"
+
+	helper.CreateNamespace(t, ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
+
+	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
+
+	classWithShards := func(name string) *models.Class {
+		return &models.Class{
+			Class: name,
+			Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+			},
+			ShardingConfig: map[string]any{"desiredCount": 3},
+		}
+	}
+
+	getShards := func(t *testing.T, className, key string) (models.ShardStatusList, error) {
+		t.Helper()
+		params := schema.NewSchemaObjectsShardsGetParams().WithClassName(className)
+		resp, err := helper.Client(t).Schema.SchemaObjectsShardsGet(params, helper.CreateAuth(key))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Payload, nil
+	}
+
+	t.Run("namespaced user gets shards by short name across nodes", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithShards("Movies"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+
+		shards, err := getShards(t, "Movies", user1Key)
+		require.NoError(t, err)
+		require.Len(t, shards, 3)
+		for _, s := range shards {
+			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+		}
+	})
+
+	t.Run("global admin gets shards by qualified name across nodes", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithShards("Shows"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+
+		shards, err := getShards(t, "customer1:Shows", adminKey)
+		require.NoError(t, err)
+		require.Len(t, shards, 3)
+		for _, s := range shards {
+			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+		}
+	})
+
+	t.Run("namespaced user gets shards via alias across nodes", func(t *testing.T) {
+		helper.CreateClassAuth(t, classWithShards("Concerts"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+
+		shards, err := getShards(t, "Gigs", user1Key)
+		require.NoError(t, err)
+		require.Len(t, shards, 3)
+		for _, s := range shards {
+			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
+		}
+	})
+}
+
+// TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a
+// namespaced class. The cluster-API URL routes through `regxNodesClass`
+// for cross-node hops, which only accepts namespace-qualified names once
+// it is built from IndexNameRegexCore.
+func TestNamespaces_NodesGetClass(t *testing.T) {
+	const ns1 = "customer1"
+
+	helper.CreateNamespace(t, ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
+
+	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
+
+	helper.CreateClassAuth(t, &models.Class{
+		Class: "Movies",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+		},
+		ShardingConfig: map[string]any{"desiredCount": 3},
+	}, user1Key)
+	defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+
+	verbose := "verbose"
+
+	t.Run("namespaced user gets node status by short class name", func(t *testing.T) {
+		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		assert.NotEmpty(t, resp.Payload.Nodes)
+	})
+
+	t.Run("global admin gets node status by qualified class name", func(t *testing.T) {
+		params := nodes.NewNodesGetClassParams().WithClassName("customer1:Movies").WithOutput(&verbose)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		assert.NotEmpty(t, resp.Payload.Nodes)
+	})
+
+	t.Run("namespaced user gets node status via alias", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{
+			Class: "Concerts",
+			Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+			},
+			ShardingConfig: map[string]any{"desiredCount": 3},
+		}, user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+
+		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
+		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload)
+		assert.NotEmpty(t, resp.Payload.Nodes)
 	})
 }

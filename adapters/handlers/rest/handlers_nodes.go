@@ -29,10 +29,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	nodesUC "github.com/weaviate/weaviate/usecases/nodes"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type nodesHandlers struct {
 	manager             *nodesUC.Manager
+	schemaManager       namespacing.SchemaManager
+	namespacesEnabled   bool
 	metricRequestsTotal restApiRequestsTotal
 }
 
@@ -66,7 +69,9 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 		shardName = *params.ShardName
 	}
 
-	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName, shardName, output)
+	className, _ := namespacing.Resolve(principal, n.schemaManager, n.namespacesEnabled, params.ClassName)
+
+	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, className, shardName, output)
 	if err != nil {
 		return n.handleGetNodesError(err)
 	}
@@ -129,7 +134,12 @@ func setupNodesHandlers(api *operations.WeaviateAPI,
 	nodesManager := nodesUC.NewManager(appState.Logger, appState.Authorizer,
 		repo, schemaManger, appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.MinimumInternalTimeout)
 
-	h := &nodesHandlers{nodesManager, newNodesRequestsTotal(appState.Metrics, appState.Logger)}
+	h := &nodesHandlers{
+		manager:             nodesManager,
+		schemaManager:       schemaManger,
+		namespacesEnabled:   appState.ServerConfig.Config.Namespaces.Enabled,
+		metricRequestsTotal: newNodesRequestsTotal(appState.Metrics, appState.Logger),
+	}
 	api.NodesNodesGetHandler = nodes.
 		NodesGetHandlerFunc(h.getNodesStatus)
 	api.NodesNodesGetClassHandler = nodes.

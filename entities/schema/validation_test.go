@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -326,6 +328,54 @@ func TestValidateClassName_RejectsNamespaceSeparator(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := ValidateClassName(name)
 			assert.Error(t, err, "class name %q containing NamespaceSeparator must be rejected", name)
+		})
+	}
+}
+
+// TestIndexNameRegexCore covers what IndexNameRegexCore accepts and rejects:
+// plain class names, "<namespace>:<class>" with a 3-36 char namespace, and
+// the boundary cases (hyphen edges, leading/trailing ":", more than one ":",
+// out-of-range namespace lengths).
+func TestIndexNameRegexCore(t *testing.T) {
+	re := regexp.MustCompile(`^` + IndexNameRegexCore + `$`)
+
+	maxNs := strings.Repeat("a", NamespaceMaxLength)
+	tooLongNs := strings.Repeat("a", NamespaceMaxLength+1)
+	tooShortNs := strings.Repeat("a", NamespaceMinLength-1)
+
+	accept := []string{
+		"Movies",
+		"customer1:Movies",
+		"tenant-a:My_Class",
+		"abc:Movies",
+		maxNs + ":Movies",
+		"a-b-c:Movies",
+		"123:Movies",
+	}
+	for _, name := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			assert.True(t, re.MatchString(name), "expected %q to match", name)
+		})
+	}
+
+	reject := []string{
+		":Movies",
+		"customer:",
+		"customer:1Movies",
+		"-abc:Movies",
+		"abc-:Movies",
+		"Customer:Movies",
+		tooShortNs + ":Movies",
+		tooLongNs + ":Movies",
+		"a:b:Movies", // more than one ":" — no character class in the pattern accepts ":"
+		"customer/Movies",
+		"customer:Movies/extra",
+		"customer:movies",
+		"",
+	}
+	for _, name := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			assert.False(t, re.MatchString(name), "expected %q to be rejected", name)
 		})
 	}
 }

@@ -61,9 +61,9 @@ func qualify(principal *models.Principal, name string) string {
 // namespaced principals, raw for global principals), "" otherwise — used by
 // the objects layer to preserve existing alias-aware flows. Sites that do
 // not need this can ignore the second return value.
-func Resolve(principal *models.Principal, sm SchemaManager, nsEnabled bool, name string) (class, originalAlias string) {
+func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, originalAlias string) {
 	qualified := schema.UppercaseClassName(name)
-	if nsEnabled {
+	if namespacesEnabled {
 		qualified = qualify(principal, qualified)
 	}
 
@@ -79,9 +79,9 @@ func Resolve(principal *models.Principal, sm SchemaManager, nsEnabled bool, name
 // QualifyClass uppercases the class portion of name and prepends the
 // principal's namespace when namespaces are enabled. Aliases are not
 // resolved.
-func QualifyClass(principal *models.Principal, nsEnabled bool, name string) string {
+func QualifyClass(principal *models.Principal, namespacesEnabled bool, name string) string {
 	qualified := schema.UppercaseClassName(name)
-	if nsEnabled {
+	if namespacesEnabled {
 		qualified = qualify(principal, qualified)
 	}
 	return qualified
