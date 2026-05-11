@@ -1594,3 +1594,272 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB))
 	})
 }
+
+// TestRecExecutorEvalOr exercises evalOr against hand-constructed OR plans.
+// The planner produces recOrNode for OR-operator pvps (Step 3); evalOr unions
+// child results via the OrAll primitive. Output shape matches children's
+// shape — under Phase 1 of position-level eval, children return rootDoc, so
+// the OR result is rootDoc. execute() then MaskRootLeaf's to docIDs.
+func TestRecExecutorEvalOr(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+
+	runRec := func(t *testing.T, pv *propValuePair, mb *lsmkv.Bucket, raws map[*propValuePair]*sroar.Bitmap, want []uint64) {
+		t.Helper()
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{pv})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, want, result.ToArray())
+	}
+
+	t.Run("OR_of_two_leaves_union_docIDs", func(t *testing.T) {
+		// OR(make=tesla, model=civic): docs where either holds.
+		const (
+			docTesla = uint64(1) // make=tesla only
+			docCivic = uint64(2) // model=civic only
+			docBoth  = uint64(3) // both
+			docNone  = uint64(4) // neither
+		)
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  roaringset.NewBitmap(enc(1, 1, docTesla), enc(1, 1, docBoth)),
+			modelBm: roaringset.NewBitmap(enc(1, 1, docCivic), enc(1, 1, docBoth)),
+		}
+
+		runRec(t, makeOrPvp(class, makeBm, modelBm), mb, raws,
+			[]uint64{docTesla, docCivic, docBoth})
+	})
+
+	t.Run("OR_with_one_empty_operand_returns_other", func(t *testing.T) {
+		const (
+			docMatch = uint64(1)
+		)
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  roaringset.NewBitmap(enc(1, 1, docMatch)),
+			modelBm: sroar.NewBitmap(), // empty
+		}
+
+		runRec(t, makeOrPvp(class, makeBm, modelBm), mb, raws, []uint64{docMatch})
+	})
+
+	t.Run("OR_with_all_empty_operands_returns_empty", func(t *testing.T) {
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  sroar.NewBitmap(),
+			modelBm: sroar.NewBitmap(),
+		}
+
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{makeOrPvp(class, makeBm, modelBm)})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("OR_of_three_leaves", func(t *testing.T) {
+		const (
+			doc1 = uint64(1) // make=tesla
+			doc2 = uint64(2) // model=civic
+			doc3 = uint64(3) // color=red
+			doc4 = uint64(4) // none
+		)
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		colorBm := makeLeafPvp(class, "countries", "garages.cars.color", "red")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  roaringset.NewBitmap(enc(1, 1, doc1)),
+			modelBm: roaringset.NewBitmap(enc(1, 1, doc2)),
+			colorBm: roaringset.NewBitmap(enc(1, 1, doc3)),
+		}
+
+		runRec(t, makeOrPvp(class, makeBm, modelBm, colorBm), mb, raws,
+			[]uint64{doc1, doc2, doc3})
+	})
+}
+
+// TestRecExecutorEvalNot exercises evalNot against hand-constructed NOT plans.
+// The planner produces recNotNode for NOT-operator pvps (Step 3); evalNot
+// inverts at the operand's natural LCA against `_exists.{lca}`. Pin
+// restrictions narrow the universe; parentScope further narrows when an
+// enclosing idx-loop is active. Output shape: rootDoc under Phase 1 (the
+// MaskLeaf step inside evalNot reconciles the raw universe with the operand's
+// rootDoc shape; Phase 2 will drop the MaskLeaf and the universe stays raw).
+func TestRecExecutorEvalNot(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+
+	runRec := func(t *testing.T, pv *propValuePair, mb *lsmkv.Bucket, raws map[*propValuePair]*sroar.Bitmap, want []uint64) {
+		t.Helper()
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{pv})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, want, result.ToArray())
+	}
+
+	t.Run("NOT_of_leaf_universe_minus_operand", func(t *testing.T) {
+		// NOT garages.cars.make=tesla:
+		// universe = _exists.garages.cars
+		// operand  = positions where make=tesla
+		// result   = (per-element NOT) positions of cars where make != tesla
+		const (
+			docTesla    = uint64(1) // one car, make=tesla — excluded under both semantics
+			docCivic    = uint64(2) // one car, make=civic — included under both
+			docMixedCar = uint64(3) // cars[0]=tesla, cars[1]=civic
+			//                        — universal-NOT (Phase 1): excluded (has a tesla)
+			//                        — per-element NOT (Phase 2): included (civic car satisfies)
+		)
+		mb := newIdxBucket(t)
+
+		// _exists.garages.cars: every car position in every doc.
+		writeExistsAt(t, mb, "garages.cars", []uint64{
+			enc(1, 1, docTesla),                            // docTesla cars[0]
+			enc(1, 1, docCivic),                            // docCivic cars[0]
+			enc(1, 1, docMixedCar), enc(1, 2, docMixedCar), // docMixedCar cars[0] and cars[1]
+		})
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: roaringset.NewBitmap(
+				enc(1, 1, docTesla),    // make=tesla in docTesla
+				enc(1, 1, docMixedCar), // make=tesla in cars[0] of docMixedCar
+			),
+		}
+
+		// TODO aliszka:nested_filtering: locks in Phase 1's universal-at-rootDoc
+		// NOT semantics — evalNot's MaskLeaf step collapses per-element
+		// distinctions, so docMixedCar (one tesla car + one civic car) is
+		// excluded. Under Phase 2 (executor refactor to raw outputs), per-element
+		// NOT will include docMixedCar via the civic car's position. Expected
+		// list flips to {docCivic, docMixedCar} when Phase 2 lands.
+		runRec(t, makeNotPvp(class, makeBm), mb, raws, []uint64{docCivic})
+	})
+
+	t.Run("NOT_with_root_pin_restricts_universe_to_pinned_root", func(t *testing.T) {
+		// NOT countries[1].garages.cars.make=tesla:
+		// universe restricted to root_idx=2's cars-positions.
+		// NOT.lca = "" (root SPLIT), but in this Phase 1 test we use a leaf
+		// operand directly to keep the universe at garages.cars LCA.
+		//
+		// Use intermediate pin instead, more representative of pin handling:
+		t.Skip("covered by NOT_with_intermediate_pin test")
+	})
+
+	t.Run("NOT_with_intermediate_pin_restricts_universe_to_pinned_subarray", func(t *testing.T) {
+		// NOT cars.tires[1].width=205:
+		// universe = _exists.garages.cars.tires ∩ _idx.garages.cars.tires[1]
+		// operand  = positions where width=205 (at tires-leaves)
+		// result   = positions of tires[1] elements where width != 205
+		const (
+			docMatch1 = uint64(1) // tires[1] exists, width != 205 — included
+			docMatch2 = uint64(2) // tires[1] exists, width = 205 — excluded
+		)
+		mb := newIdxBucket(t)
+
+		// _exists.garages.cars.tires for both docs.
+		writeExistsAt(t, mb, "garages.cars.tires", []uint64{
+			enc(1, 1, docMatch1), enc(1, 2, docMatch1), // tires[0], tires[1]
+			enc(1, 3, docMatch2), enc(1, 4, docMatch2), // tires[0], tires[1]
+		})
+		// _idx.garages.cars.tires[1]: only the tires[1] entries.
+		writeIdx(t, mb, "garages.cars.tires", 1, []uint64{
+			enc(1, 2, docMatch1),
+			enc(1, 4, docMatch2),
+		})
+
+		pin := filnested.ArrayIndex{RelPath: "garages.cars.tires", Index: 1}
+		width := makeLeafPvpWithIdx(class, "countries", "garages.cars.tires.width", "205", pin)
+		raws := map[*propValuePair]*sroar.Bitmap{
+			width: roaringset.NewBitmap(enc(1, 4, docMatch2)), // width=205 only in docMatch2's tires[1]
+		}
+
+		// docMatch1 has tires[1] with width!=205 → included.
+		// docMatch2 has tires[1] with width=205 → excluded.
+		runRec(t, makeNotPvp(class, width), mb, raws, []uint64{docMatch1})
+	})
+
+	t.Run("NOT_when_operand_exhausts_universe_returns_empty", func(t *testing.T) {
+		// Every car in every doc has make=tesla. NOT must produce empty
+		// because the operand result covers the full universe.
+		const docID = uint64(1)
+		mb := newIdxBucket(t)
+
+		writeExistsAt(t, mb, "garages.cars", []uint64{enc(1, 1, docID)})
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: roaringset.NewBitmap(enc(1, 1, docID)),
+		}
+
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{makeNotPvp(class, makeBm)})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("NOT_when_operand_empty_returns_full_universe", func(t *testing.T) {
+		// No car has make=tesla. NOT covers the entire universe.
+		const (
+			doc1 = uint64(1)
+			doc2 = uint64(2)
+		)
+		mb := newIdxBucket(t)
+
+		writeExistsAt(t, mb, "garages.cars", []uint64{enc(1, 1, doc1), enc(1, 1, doc2)})
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: sroar.NewBitmap(),
+		}
+
+		runRec(t, makeNotPvp(class, makeBm), mb, raws, []uint64{doc1, doc2})
+	})
+
+	t.Run("NOT_with_empty_universe_returns_empty", func(t *testing.T) {
+		// No _exists.{path} entry in the meta bucket → universe is empty.
+		// NOT result is also empty (nothing to invert).
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: sroar.NewBitmap(),
+		}
+
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{makeNotPvp(class, makeBm)})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		result, release, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+}

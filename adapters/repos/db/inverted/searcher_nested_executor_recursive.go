@@ -229,6 +229,10 @@ func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScop
 		return e.evalGroup(ctx, n, parentScope)
 	case *recSplitNode:
 		return e.evalSplit(ctx, n, parentScope)
+	case *recOrNode:
+		return e.evalOr(ctx, n, parentScope)
+	case *recNotNode:
+		return e.evalNot(ctx, n, parentScope)
 	default:
 		return nil, nil, fmt.Errorf("recExecutor: unknown node type %T", node)
 	}
@@ -797,4 +801,153 @@ func (e *recExecutor) intersectScope(scope, parentScope *sroar.Bitmap) (*sroar.B
 		return scope, func() {}
 	}
 	return e.bitmapOps.AndAll([]*sroar.Bitmap{scope, parentScope}, e.maxConcurrency)
+}
+
+// evalOr evaluates each child of an OR node and returns their union via OrAll.
+// Output shape matches the children's shape — OrAll preserves position bits, so
+// the OR works regardless of whether children return raw or rootDoc bitmaps
+// (transitional during the position-level eval rollout: Phase 1 inner functions
+// still emit rootDoc; Phase 2 flips them to raw and OR semantics are unchanged).
+//
+// parentScope is passed through to each child's evalNode unchanged. Children's
+// own evaluation logic applies the scope; the OR doesn't need to re-apply.
+func (e *recExecutor) evalOr(ctx context.Context, n *recOrNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
+	if err := ctxExpired(ctx); err != nil {
+		return nil, nil, err
+	}
+	if len(n.children) == 0 {
+		return nil, nil, fmt.Errorf("evalOr: OR with zero children at lca=%q", n.lca)
+	}
+
+	bitmaps := make([]*sroar.Bitmap, 0, len(n.children))
+	releases := make([]func(), 0, len(n.children))
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			for _, rel := range releases {
+				rel()
+			}
+		}
+	}()
+
+	for _, child := range n.children {
+		bm, rel, err := e.evalNode(ctx, child, parentScope)
+		if err != nil {
+			return nil, nil, err
+		}
+		bitmaps = append(bitmaps, bm)
+		releases = append(releases, rel)
+	}
+
+	result, resultRel := e.bitmapOps.OrAll(bitmaps, e.maxConcurrency)
+	succeeded = true
+	for _, rel := range releases {
+		rel()
+	}
+	return result, resultRel, nil
+}
+
+// evalNot inverts its operand at the operand's natural LCA against the
+// per-LCA universe (`_exists.{lca}`). pins (when present) intersect the
+// universe with `_idx.{pin.RelPath}[pin.Index]` slices — for example, pins
+// for `NOT cars.tires[1].width=205` restrict the universe to tire-position
+// entries at index 1. parentScope further narrows the universe so per-element
+// inversion respects an enclosing idx-loop's effective scope.
+//
+// The output shape matches the operand's shape (transitional during Phase 1:
+// operands return rootDoc, so this method MaskLeaf's the universe to match
+// before AndNot. Phase 2 will refactor the rest of the executor to emit raw;
+// the MaskLeaf step in evalNot can be dropped then, and the universe stays
+// raw end-to-end).
+func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
+	if err := ctxExpired(ctx); err != nil {
+		return nil, nil, err
+	}
+	if e.metaBucket == nil {
+		return nil, nil, fmt.Errorf("evalNot: meta bucket is nil at lca=%q", n.lca)
+	}
+
+	// 1. Read the universe of positions at the operand's LCA. Empty universe
+	// means the operand can't match anything in any element — NOT result is
+	// also empty (existential per-element: no element exists to satisfy
+	// "this element does not satisfy operand").
+	universeBucket, universeBucketRel, err := e.metaBucket.RoaringSetGet(invnested.ExistsKey(n.lca))
+	if err != nil {
+		return nil, nil, fmt.Errorf("evalNot: read _exists for %q: %w", n.lca, err)
+	}
+	if universeBucket == nil || universeBucket.IsEmpty() {
+		if universeBucketRel != nil {
+			universeBucketRel()
+		}
+		empty, emptyRel := e.bitmapOps.NewEmpty(0)
+		return empty, emptyRel, nil
+	}
+
+	// 2. Clone the universe into a pool buffer so subsequent steps can mutate
+	// it without disturbing the bucket-owned bitmap. We can release the
+	// bucket entry as soon as the clone is made.
+	universe, universeRel := e.bitmapOps.AndAll([]*sroar.Bitmap{universeBucket}, e.maxConcurrency)
+	universeBucketRel()
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			universeRel()
+		}
+	}()
+
+	// 3. Apply pin restrictions. Each pin intersects the universe with the
+	// _idx slice for that arr[N] tuple.
+	var keyBuf [invnested.IdxKeySize]byte
+	for _, pin := range n.pins {
+		pinBm, pinRel, err := e.metaBucket.RoaringSetGet(
+			invnested.IdxKeyToBuf(pin.RelPath, pin.Index, keyBuf[:]))
+		if err != nil {
+			return nil, nil, fmt.Errorf("evalNot: read _idx for pin %q[%d]: %w", pin.RelPath, pin.Index, err)
+		}
+		if pinBm == nil {
+			if pinRel != nil {
+				pinRel()
+			}
+			// Pin slice not present in any doc — universe becomes empty.
+			empty, emptyRel := e.bitmapOps.NewEmpty(0)
+			succeeded = true
+			universeRel()
+			return empty, emptyRel, nil
+		}
+		universe.AndConc(pinBm, e.maxConcurrency)
+		pinRel()
+		if universe.IsEmpty() {
+			succeeded = true
+			return universe, universeRel, nil
+		}
+	}
+
+	// 4. Apply parentScope. parentScope is a raw bitmap from an enclosing
+	// idx-loop; AND'ing narrows the universe to that loop's element scope.
+	if parentScope != nil {
+		universe.AndConc(parentScope, e.maxConcurrency)
+		if universe.IsEmpty() {
+			succeeded = true
+			return universe, universeRel, nil
+		}
+	}
+
+	// 5. Evaluate operand under parentScope. Operand evaluation handles its
+	// own scope restrictions internally.
+	operand, operandRel, err := e.evalNode(ctx, n.operand, parentScope)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer operandRel()
+
+	// 6. AndNot universe ∖ operand. Under Phase 1 the operand returns
+	// rootDoc, so MaskLeaf the universe to match before subtraction. Phase 2
+	// will refactor the operand path to return raw and the MaskLeaf step
+	// here becomes unnecessary.
+	universeMatched, universeMatchedRel := e.bitmapOps.MaskLeaf(universe)
+	universeRel()
+	universeMatched.AndNotConc(operand, e.maxConcurrency)
+
+	succeeded = true
+	return universeMatched, universeMatchedRel, nil
 }
