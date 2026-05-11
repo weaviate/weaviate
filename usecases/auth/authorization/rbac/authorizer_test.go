@@ -755,7 +755,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 			name:      "ns_disabled_no_new_fields",
 			nsEnabled: false,
 			principal: nsDisabledPrincipal,
-			resources: authorization.ShardsData("Movies", "#"),
+			resources: authorization.ShardsData("Movies", "*"),
 			wantField: map[string]any{
 				"rbac_log_version": AuditLogVersion,
 				"user":             "alice",
@@ -768,7 +768,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 			name:      "ns_enabled_namespaced_caller",
 			nsEnabled: true,
 			principal: nsNamespacedPrincipal,
-			resources: authorization.ShardsData("customer1:Movies", "#"),
+			resources: authorization.ShardsData("customer1:Movies", "*"),
 			wantField: map[string]any{
 				"namespace":        "customer1",
 				"rbac_log_version": AuditLogVersion,
@@ -782,7 +782,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 			name:      "ns_enabled_global_operator",
 			nsEnabled: true,
 			principal: nsGlobalPrincipal,
-			resources: authorization.ShardsData("customer1:Movies", "#"),
+			resources: authorization.ShardsData("customer1:Movies", "*"),
 			wantField: map[string]any{
 				"global_operator":  true,
 				"rbac_log_version": AuditLogVersion,
@@ -865,7 +865,7 @@ func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
 
 	p := &models.Principal{Username: "customer1:alice", Namespace: "customer1", UserType: models.UserTypeInputDb}
 	err = m.Authorize(context.Background(), p, authorization.READ,
-		authorization.ShardsData("customer1:Movies", "#")...)
+		authorization.ShardsData("customer1:Movies", "*")...)
 	require.Error(t, err)
 
 	entry := hook.LastEntry()
@@ -876,6 +876,50 @@ func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
 	require.Equal(t, "authorize", entry.Data["audit_mode"])
 	_, hasGlobal := entry.Data["global_operator"]
 	require.False(t, hasGlobal)
+}
+
+// TestAudit_MalformedPrincipal_DefaultsToGlobalAndWarns covers the
+// defense-in-depth branch in auditFields: an NS-enabled cluster receiving
+// a principal with neither IsGlobalOperator nor Namespace set still emits
+// global_operator=true on the audit entry (audit invariant: exactly one
+// of the two top-level fields is present), and a Warn-level entry surfaces
+// to flag the producer-side drift. Upstream classification prevents this
+// in normal operation; this guards against future producers forgetting
+// to classify.
+func TestAudit_MalformedPrincipal_DefaultsToGlobalAndWarns(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	m, err := setupNSEnabledTestManager(t, logger)
+	require.NoError(t, err)
+
+	p := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"),
+		"*", authorization.READ, authorization.DataDomain)
+	require.NoError(t, err)
+	_, err = m.casbin.AddRoleForUser(
+		conv.UserNameWithTypeFromId(p.Username, authentication.AuthTypeDb),
+		conv.PrefixRoleName("audit-role"))
+	require.NoError(t, err)
+
+	require.NoError(t, m.Authorize(context.Background(), p, authorization.READ,
+		authorization.ShardsData("Movies", "*")...))
+
+	var warnEntry, infoEntry *logrus.Entry
+	for _, e := range hook.AllEntries() {
+		switch e.Level { //nolint:exhaustive // only Warn/Info are produced here
+		case logrus.WarnLevel:
+			warnEntry = e
+		case logrus.InfoLevel:
+			infoEntry = e
+		}
+	}
+	require.NotNil(t, warnEntry, "warn must surface for misclassified principal")
+	require.Contains(t, warnEntry.Message, "missing namespace and global classification")
+
+	require.NotNil(t, infoEntry, "audit info entry must still be emitted")
+	require.Equal(t, true, infoEntry.Data["global_operator"])
+	_, hasNS := infoEntry.Data["namespace"]
+	require.False(t, hasNS)
 }
 
 func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {

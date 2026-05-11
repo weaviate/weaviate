@@ -38,10 +38,19 @@ func (m *Manager) auditFields(principal *models.Principal) logrus.Fields {
 		"rbac_log_version": AuditLogVersion,
 	}
 	if m.namespacesEnabled {
-		if principal.IsGlobalOperator {
+		switch {
+		case principal.IsGlobalOperator:
 			f["global_operator"] = true
-		} else if principal.Namespace != "" {
+		case principal.Namespace != "":
 			f["namespace"] = principal.Namespace
+		default:
+			// Defense-in-depth: every NS-enabled principal must be classified
+			// as namespace-bound or global upstream. If a producer drifts,
+			// default to global (no namespace claim is leaked) and warn so
+			// the gap surfaces.
+			m.logger.WithField("user", principal.Username).
+				Warn("rbac: principal missing namespace and global classification on NS-enabled cluster; defaulting to global_operator")
+			f["global_operator"] = true
 		}
 	}
 	return f

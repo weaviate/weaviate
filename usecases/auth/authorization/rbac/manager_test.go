@@ -330,25 +330,6 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 			wantGlobal: "[Domain: collections, Collection: customer1:Movies]",
 		},
 		{
-			domain: "Data",
-			perm: &models.Permission{Data: &models.PermissionData{
-				Collection: strPtr("customer1:Movies"),
-				Tenant:     strPtr("customer1:tenant-a"),
-				Object:     strPtr("*"),
-			}},
-			wantNS:     "[Domain: data, Collection: Movies, Tenant: tenant-a, Object: *]",
-			wantGlobal: "[Domain: data, Collection: customer1:Movies, Tenant: customer1:tenant-a, Object: *]",
-		},
-		{
-			domain: "Tenants",
-			perm: &models.Permission{Tenants: &models.PermissionTenants{
-				Collection: strPtr("customer1:Movies"),
-				Tenant:     strPtr("customer1:tenant-a"),
-			}},
-			wantNS:     "[Domain: tenants, Collection: Movies, Tenant: tenant-a]",
-			wantGlobal: "[Domain: tenants, Collection: customer1:Movies, Tenant: customer1:tenant-a]",
-		},
-		{
 			domain: "Aliases",
 			perm: &models.Permission{Aliases: &models.PermissionAliases{
 				Collection: strPtr("customer1:Movies"),

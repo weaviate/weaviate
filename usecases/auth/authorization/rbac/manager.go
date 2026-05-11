@@ -520,7 +520,7 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Data.Collection))
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
-			s += fmt.Sprintf(" Tenant: %s,", strip(*perm.Data.Tenant))
+			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
 		}
 		if perm.Data.Object != nil && *perm.Data.Object != "" {
 			s += fmt.Sprintf(" Object: %s", *perm.Data.Object)
@@ -566,7 +566,7 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 
 		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
 			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Tenants.Collection))
-			s += fmt.Sprintf(" Tenant: %s", strip(*perm.Tenants.Tenant))
+			s += fmt.Sprintf(" Tenant: %s", *perm.Tenants.Tenant)
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
