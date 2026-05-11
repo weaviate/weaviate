@@ -56,7 +56,10 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		return fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.WithFields(m.auditFields(principal)).WithField("request_action", verb)
+	logger := m.logger.
+		WithFields(m.auditFields(principal)).
+		WithField("request_action", verb).
+		WithField("audit_mode", "authorize")
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)
@@ -139,7 +142,10 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		return nil, fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.WithFields(m.auditFields(principal)).WithField("request_action", verb)
+	logger := m.logger.
+		WithFields(m.auditFields(principal)).
+		WithField("request_action", verb).
+		WithField("audit_mode", "filter")
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)

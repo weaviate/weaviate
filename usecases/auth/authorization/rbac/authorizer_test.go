@@ -795,13 +795,14 @@ func TestAudit_NamespaceFields(t *testing.T) {
 	}
 
 	callSites := []struct {
-		name string
-		run  func(m *Manager, p *models.Principal, rs []string) error
+		name          string
+		wantAuditMode string
+		run           func(m *Manager, p *models.Principal, rs []string) error
 	}{
-		{"Authorize", func(m *Manager, p *models.Principal, rs []string) error {
+		{"Authorize", "authorize", func(m *Manager, p *models.Principal, rs []string) error {
 			return m.Authorize(context.Background(), p, authorization.READ, rs...)
 		}},
-		{"FilterAuthorizedResources", func(m *Manager, p *models.Principal, rs []string) error {
+		{"FilterAuthorizedResources", "filter", func(m *Manager, p *models.Principal, rs []string) error {
 			_, err := m.FilterAuthorizedResources(context.Background(), p, authorization.READ, rs...)
 			return err
 		}},
@@ -843,6 +844,7 @@ func TestAudit_NamespaceFields(t *testing.T) {
 					_, present := entry.Data[k]
 					require.False(t, present, "field %q must be absent", k)
 				}
+				require.Equal(t, cs.wantAuditMode, entry.Data["audit_mode"])
 				perms, ok := entry.Data["permissions"].([]logrus.Fields)
 				require.True(t, ok, "permissions should be []logrus.Fields")
 				require.NotEmpty(t, perms)
@@ -871,6 +873,7 @@ func TestAudit_NamespaceFields_DenyPath(t *testing.T) {
 	require.Equal(t, logrus.ErrorLevel, entry.Level)
 	require.Equal(t, "customer1", entry.Data["namespace"])
 	require.Equal(t, AuditLogVersion, entry.Data["rbac_log_version"])
+	require.Equal(t, "authorize", entry.Data["audit_mode"])
 	_, hasGlobal := entry.Data["global_operator"]
 	require.False(t, hasGlobal)
 }
