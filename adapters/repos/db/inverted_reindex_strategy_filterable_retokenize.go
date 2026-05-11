@@ -173,8 +173,24 @@ func (s *FilterableRetokenizeStrategy) AnalyzerOverlay(props []string) map[strin
 
 // OnMigrationComplete updates the schema to set Tokenization to the target
 // value. This runs after both searchable and filterable retokenization are done.
+//
+// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
+// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
+// and Tokenization when non-empty) from the incoming message, not just the
+// one this strategy intends to change. If two strategies run concurrently
+// on the same property, each could read a stale view of the schema and
+// clobber the other's flag on RAFT apply. We cannot nil out the other flags
+// because setPropertyDefaults would re-fill them with type-based defaults.
+// So we re-read the class right before constructing the update message to
+// minimize the staleness window.
+//
+// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
+// so only named fields are merged.
 func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
+
+	// Re-read the class right before the property update to minimize the
+	// staleness window where a concurrent strategy could clobber our change.
 	class := s.schemaManager.ReadOnlyClass(className)
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)

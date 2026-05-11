@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -163,12 +164,28 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 // the migrated properties. It uses per-property UpdateProperty RAFT commands
 // instead of UpdateClass, because UpdateClass rejects property field changes
 // via validatePropertiesForUpdate on RAFT replay.
+//
+// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
+// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
+// and Tokenization when non-empty) from the incoming message, not just the
+// one this strategy intends to change. If two strategies run concurrently on
+// the same property (e.g. enable-rangeable + enable-filterable), each could
+// read a stale view of the schema and clobber the other's flag on RAFT
+// apply.
+//
+// We cannot simply nil out the flags we don't want to change: the schema
+// handler's setPropertyDefaults fills nil flags with defaults (true for
+// IndexFilterable / IndexSearchable on text properties) before the RAFT
+// message is built, which would clobber a previously committed `false`
+// value. So we re-read the class right before each per-property update to
+// minimize the staleness window, and carry the freshly observed values for
+// the other three fields through unchanged.
+//
+// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
+// so only named fields are merged, but that requires changes across
+// cluster/schema/manager.go and meta_class.go.
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
-	class := s.schemaManager.ReadOnlyClass(className)
-	if class == nil {
-		return fmt.Errorf("class %q not found", className)
-	}
 
 	propSet := make(map[string]struct{}, len(s.propNames))
 	for _, p := range s.propNames {
@@ -176,19 +193,35 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	}
 
 	trueVal := true
-	for _, prop := range class.Properties {
-		if _, ok := propSet[prop.Name]; !ok {
+	for propName := range propSet {
+		// Re-read the class right before each property update to minimize the
+		// staleness window where a concurrent strategy could clobber our flag.
+		class := s.schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return fmt.Errorf("class %q not found", className)
+		}
+
+		var prop *models.Property
+		for _, p := range class.Properties {
+			if p.Name == propName {
+				prop = p
+				break
+			}
+		}
+		if prop == nil {
 			continue
 		}
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
 			continue // already enabled
 		}
-		// Deep-copy the property to avoid mutating the in-memory schema
-		// before the RAFT entry is committed.
+		// Shallow-copy to avoid mutating the in-memory schema before the RAFT
+		// entry is committed. We carry through the freshly read values of
+		// IndexFilterable / IndexSearchable / Tokenization, only changing
+		// IndexRangeFilters here.
 		updated := *prop
 		updated.IndexRangeFilters = &trueVal
 		if err := schema.UpdatePropertyInternal(&s.schemaManager.Handler, ctx, className, &updated); err != nil {
-			return fmt.Errorf("updating property %q IndexRangeFilters: %w", prop.Name, err)
+			return fmt.Errorf("updating property %q IndexRangeFilters: %w", propName, err)
 		}
 	}
 	return nil

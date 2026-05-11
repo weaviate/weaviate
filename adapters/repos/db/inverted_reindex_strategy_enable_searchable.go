@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -177,12 +178,21 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 
 // OnMigrationComplete flips IndexSearchable=true and sets Tokenization on
 // the targeted properties via per-property RAFT UpdateProperty commands.
+//
+// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
+// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
+// and Tokenization when non-empty) from the incoming message, not just the
+// ones this strategy intends to change. If two strategies run concurrently
+// on the same property, each could read a stale view of the schema and
+// clobber the other's flag on RAFT apply. We cannot nil out the other flags
+// because setPropertyDefaults would re-fill them with type-based defaults.
+// So we re-read the class right before each per-property update to minimize
+// the staleness window.
+//
+// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
+// so only named fields are merged.
 func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
-	class := s.schemaManager.ReadOnlyClass(className)
-	if class == nil {
-		return fmt.Errorf("class %q not found", className)
-	}
 
 	propSet := make(map[string]struct{}, len(s.propNames))
 	for _, p := range s.propNames {
@@ -190,8 +200,22 @@ func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shar
 	}
 
 	trueVal := true
-	for _, prop := range class.Properties {
-		if _, ok := propSet[prop.Name]; !ok {
+	for propName := range propSet {
+		// Re-read the class right before each property update to minimize the
+		// staleness window where a concurrent strategy could clobber our flag.
+		class := s.schemaManager.ReadOnlyClass(className)
+		if class == nil {
+			return fmt.Errorf("class %q not found", className)
+		}
+
+		var prop *models.Property
+		for _, p := range class.Properties {
+			if p.Name == propName {
+				prop = p
+				break
+			}
+		}
+		if prop == nil {
 			continue
 		}
 		if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == s.tokenization {
@@ -201,7 +225,7 @@ func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shar
 		updated.IndexSearchable = &trueVal
 		updated.Tokenization = s.tokenization
 		if err := schema.UpdatePropertyInternal(&s.schemaManager.Handler, ctx, className, &updated); err != nil {
-			return fmt.Errorf("updating property %q IndexSearchable: %w", prop.Name, err)
+			return fmt.Errorf("updating property %q IndexSearchable: %w", propName, err)
 		}
 	}
 	return nil
