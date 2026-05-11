@@ -111,24 +111,24 @@ func NewBitmapOps(pool roaringset.BitmapBufPool) *BitmapOps {
 // allocate internally, but for typical use (result ⊆ some known upper bound)
 // the hint avoids that reallocation.
 func (o *BitmapOps) NewEmpty(minCap int) (result *sroar.Bitmap, release func()) {
-	buf, put := o.pool.Get(minCap)
-	return sroar.NewBitmapToBuf(buf), put
+	buf, release := o.pool.Get(minCap)
+	return sroar.NewBitmapToBuf(buf), release
 }
 
 // MaskLeaf zeroes the leaf bits of raw and returns the rootDoc bitmap in a
 // pool buffer. The caller must invoke release() when the result is no longer
 // needed.
 func (o *BitmapOps) MaskLeaf(raw *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
-	buf, put := o.pool.Get(raw.LenInBytes())
-	return raw.MaskedToBuf(zeroLeafBits, buf), put
+	buf, release := o.pool.Get(raw.LenInBytes())
+	return raw.MaskedToBuf(zeroLeafBits, buf), release
 }
 
 // MaskRootLeaf zeroes both root and leaf bits of positions, returning only
 // docIDs in a pool buffer. Use as the final step to extract plain document
 // IDs. positions may be raw or rootDoc.
 func (o *BitmapOps) MaskRootLeaf(positions *sroar.Bitmap) (doc *sroar.Bitmap, release func()) {
-	buf, put := o.pool.Get(positions.LenInBytes())
-	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf), put
+	buf, release := o.pool.Get(positions.LenInBytes())
+	return positions.MaskedToBuf(zeroRootBits&zeroLeafBits, buf), release
 }
 
 // AndAll returns the intersection of all raw position bitmaps in a pool
@@ -157,15 +157,15 @@ func (o *BitmapOps) AndAllMaskLeaf(raws []*sroar.Bitmap, maxConcurrency int) (ro
 	if len(raws) == 0 {
 		return sroar.NewBitmap(), func() {}
 	}
-	buf, put := o.pool.Get(raws[0].LenInBytes())
+	buf, release := o.pool.Get(raws[0].LenInBytes())
 	rootDoc = raws[0].MaskedToBuf(zeroLeafBits, buf)
 	for _, bm := range raws[1:] {
 		rootDoc.AndMaskedConc(bm, zeroLeafBits, maxConcurrency)
 		if rootDoc.IsEmpty() {
-			return rootDoc, put
+			return rootDoc, release
 		}
 	}
-	return rootDoc, put
+	return rootDoc, release
 }
 
 // MaskLeafAnd intersects rawA and rawB on raw positions, zeroes the leaf bits
@@ -174,8 +174,8 @@ func (o *BitmapOps) AndAllMaskLeaf(raws []*sroar.Bitmap, maxConcurrency int) (ro
 //
 // Both inputs must be raw position bitmaps (non-zero leaf bits).
 func (o *BitmapOps) MaskLeafAnd(rawA, rawB *sroar.Bitmap) (rootDoc *sroar.Bitmap, release func()) {
-	buf, put := o.pool.Get(min(rawA.LenInBytes(), rawB.LenInBytes()))
-	return sroar.MaskedAndToBuf(rawA, rawB, zeroLeafBits, buf), put
+	buf, release := o.pool.Get(min(rawA.LenInBytes(), rawB.LenInBytes()))
+	return sroar.MaskedAndToBuf(rawA, rawB, zeroLeafBits, buf), release
 }
 
 // IntersectsMaskedLeaf reports whether rootDoc and raw share at least one
@@ -184,4 +184,76 @@ func (o *BitmapOps) MaskLeafAnd(rawA, rawB *sroar.Bitmap) (rootDoc *sroar.Bitmap
 // running the full per-element intersection.
 func (o *BitmapOps) IntersectsMaskedLeaf(rootDoc, raw *sroar.Bitmap) bool {
 	return rootDoc.IntersectsMasked(raw, zeroLeafBits)
+}
+
+// OrAll returns the union of all raw position bitmaps in a pool buffer.
+// The largest input is cloned as the accumulator and the rest are folded
+// in — avoiding one OrConc pass and starting from a pre-populated
+// container structure (typically faster than growing an empty buffer
+// through repeated ORs). Returns an empty (non-pooled) bitmap when raws
+// is empty.
+//
+// TODO aliszka:nested_filtering: revisit buffer sizing. Cloning the
+// largest input still under-sizes the accumulator when the remaining
+// inputs contain disjoint values — internal growth fires. Sum of input
+// sizes is the safe upper bound but wastes pool capacity in the common
+// overlapping case. Profile the nested-filter workload to pick the
+// sweet spot.
+//
+// TODO aliszka:nested_filtering: consider sorting the remaining inputs
+// in descending order by LenInBytes before folding them in. OR is
+// commutative so correctness is unaffected; the question is whether
+// accumulator-growth cost dominates enough for sort order to matter.
+// Profile before adding the sort cost.
+func (o *BitmapOps) OrAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar.Bitmap, release func()) {
+	if len(raws) == 0 {
+		return sroar.NewBitmap(), func() {}
+	}
+	largestIdx := 0
+	for i := 1; i < len(raws); i++ {
+		if raws[i].LenInBytes() > raws[largestIdx].LenInBytes() {
+			largestIdx = i
+		}
+	}
+	raw, release = o.pool.CloneToBuf(raws[largestIdx])
+	for i, bm := range raws {
+		if i == largestIdx {
+			continue
+		}
+		raw.OrConc(bm, maxConcurrency)
+	}
+	return raw, release
+}
+
+// CopresenceByMaskAll returns the union of values from all input bitmaps
+// whose (value & mask) projection appears in every input. Result is
+// allocated in a pool buffer sized to the largest input. Returns an empty
+// (non-pooled) bitmap when raws is empty.
+//
+// Mask shape requirement: mask & 0xFFFF == 0xFFFF (sroar constraint).
+// Other shapes silently yield incorrect results.
+//
+// Use case: cross-disjoint-leaf AND under position-level evaluation —
+// each input is a raw position bitmap containing positions where one
+// operand holds, and the mask zeroes leaf bits so co-presence groups
+// by (root, docID). The returned raw bitmap composes with further raw
+// operations within the same nested root.
+//
+// TODO aliszka:nested_filtering: revisit buffer sizing. max(LenInBytes)
+// is usually adequate since the AND step at the heart of copresence can
+// only shrink contributions, but heavy overlap with disjoint groupings
+// could still grow the result above max. Sum of input sizes is the safe
+// upper bound. Profile to pick the sweet spot.
+func (o *BitmapOps) CopresenceByMaskAll(raws []*sroar.Bitmap, mask uint64) (raw *sroar.Bitmap, release func()) {
+	if len(raws) == 0 {
+		return sroar.NewBitmap(), func() {}
+	}
+	maxLen := 0
+	for _, bm := range raws {
+		if l := bm.LenInBytes(); l > maxLen {
+			maxLen = l
+		}
+	}
+	buf, release := o.pool.Get(maxLen)
+	return sroar.CopresenceByMaskToBuf(raws, mask, buf), release
 }
