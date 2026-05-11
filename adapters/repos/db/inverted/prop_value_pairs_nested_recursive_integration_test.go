@@ -193,11 +193,17 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		runRec(t, s, pv, []uint64{docMatch})
 	})
 
-	t.Run("isnull_true_with_positive_excludes_at_rootDoc_level", func(t *testing.T) {
-		// addresses.postcode = "10115" AND addresses.city IS NULL — match docs
-		// that have an address with postcode 10115 AND have NO city anywhere.
-		// docMatch: postcode=10115 AND no city present at all.
-		// docNoMatch: postcode=10115 AND has a city in some address → excluded.
+	t.Run("isnull_true_with_positive_excludes_at_raw_level", func(t *testing.T) {
+		// addresses.postcode = "10115" AND addresses.city IS NULL.
+		// docMatch: postcode=10115 at leaf 1, no city anywhere.
+		// docNoMatch: postcode=10115 at leaf 1, city exists at leaf 2 (a
+		// different address than the postcode hit).
+		//
+		// Phase 2 per-element IsNull: AndNot at raw level subtracts only
+		// positions where city exists AT THE SAME LEAF as postcode. doc2's
+		// city is at leaf 2 (a different address element) so the postcode
+		// position at leaf 1 survives — both docs match. Pre-Phase 2 used
+		// universal-at-rootDoc semantics, dropping doc2 entirely.
 		const (
 			docMatch   = uint64(51)
 			docNoMatch = uint64(52)
@@ -217,7 +223,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 			makeLeafPvp(class, "addresses", "postcode", "10115"),
 			makeIsNullPvp(class, "addresses", "city", true),
 		)
-		runRec(t, s, pv, []uint64{docMatch})
+		runRec(t, s, pv, []uint64{docMatch, docNoMatch})
 	})
 
 	t.Run("isnull_true_only_uses_rootAnchor_seed", func(t *testing.T) {

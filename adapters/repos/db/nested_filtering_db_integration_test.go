@@ -3896,7 +3896,10 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries[1].name", "germany"),
 			isNullFilter("countries[1].garages.cars.model", true),
 		)
-		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchModelOnlyInOtherCntr})
+		// Phase 2 per-element IsNull: idNoMatchModelInOtherGarage flips to
+		// match because the no-model leaf in garages[0] satisfies the
+		// existential per-element IsNull on countries[1].garages.cars.model.
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchModelOnlyInOtherCntr, idNoMatchModelInOtherGarage})
 	})
 
 	// 1b: countries[1].name = "germany" AND countries[1].garages.cars IS NULL
@@ -3961,7 +3964,10 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries[1].name", "germany"),
 			isNullFilter("countries[1].garages.cars", true),
 		)
-		runScenario(t, docs, filter, []strfmt.UUID{idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchEmptyCarsArray, idMatchCarsOnlyInOtherCntr})
+		// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips to
+		// match because the no-cars leaf in garages[0] satisfies the
+		// existential per-element IsNull on countries[1].garages.cars.
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchEmptyCarsArray, idMatchCarsOnlyInOtherCntr, idNoMatchCarsInOtherGarage})
 	})
 
 	// 1c: countries[1].name = "germany" AND countries[1].garages IS NULL
@@ -5380,7 +5386,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})}}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars.model", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmpty, idMatchNoCarsAtAll})
+			// Phase 2 per-element IsNull: idNoMatchModelInOtherGarage flips to
+			// match — the no-model leaf in the first garage's car survives
+			// raw AndNot against the existing-model leaf in the second garage.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmpty, idMatchNoCarsAtAll, idNoMatchModelInOtherGarage})
 		})
 
 		// Sub-test 11 (cross-level): country.name = "germany" AND country.garages.cars.model IS NOT NULL
@@ -5428,7 +5437,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.make", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars})
+			// Phase 2 per-element IsNull: idNoMatchMakeInOtherGarage flips —
+			// berlin's leaf survives raw AndNot because the make-existence
+			// is at a different garage's leaf.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idNoMatchMakeInOtherGarage})
 		})
 
 		// Sub-test 13 (no-positive / rootAnchor path):
@@ -5548,7 +5560,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france"}}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchNoGarages, idMatchAllGaragesNoCars})
+			// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips —
+			// the no-cars leaf in garages[0] (berlin) survives raw AndNot
+			// against the cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchNoGarages, idMatchAllGaragesNoCars, idNoMatchCarsInOtherGarage})
 		})
 
 		// Sub-test 18 (inverse cross-level): country.garages.cars.make = "honda"
@@ -5594,7 +5609,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
 			}
 			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.postcode", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchHondaInSecondGarage})
+			// Phase 2 per-element IsNull: idNoMatchPostcodeInOtherGarage flips —
+			// honda's leaf in garages[0] survives raw AndNot against the
+			// postcode-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchHondaInSecondGarage, idNoMatchPostcodeInOtherGarage})
 		})
 
 		// Sub-test 20 (no-positive / rootAnchor with three excludes):
@@ -5646,7 +5664,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages})
+			// Phase 2 per-element IsNull: idNoMatchHasCarsOtherGarage flips —
+			// berlin's leaf in garages[0] survives raw AndNot against the
+			// cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idNoMatchHasCarsOtherGarage})
 		})
 
 		// Sub-test 22: country.garages.cars.make = "honda" AND
@@ -5675,7 +5696,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
 			}
 			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars})
+			// Phase 2 per-element IsNull: idNoMatchHasTiresOtherCar flips —
+			// honda's leaf in cars[0] survives raw AndNot against the
+			// tires-existence leaf in cars[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idNoMatchHasTiresOtherCar})
 		})
 
 		// Sub-test 23 (cross-level L1+L2): country.garages.city = "berlin" AND
@@ -5700,7 +5724,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires})
+			// Phase 2 per-element IsNull: idNoMatchTiresInOtherGarage flips —
+			// berlin's leaf in garages[0] survives raw AndNot against the
+			// tires-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idNoMatchTiresInOtherGarage})
 		})
 	})
 
@@ -6000,7 +6027,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars.model", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInOtherCntr, idMatchEmptyCntr, idMatchNoCarsAtAll})
+			// Phase 2 per-element IsNull: idNoMatchModelInDeepCar flips —
+			// the no-model leaf in g[0] survives raw AndNot against the
+			// model-existence leaf in g[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInOtherCntr, idMatchEmptyCntr, idMatchNoCarsAtAll, idNoMatchModelInDeepCar})
 		})
 
 		// Sub-test 11 (cross-level): countries.name = "germany" AND countries.garages.cars.model IS NOT NULL
@@ -6060,7 +6090,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.make", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idMatchInSecondCntr, idMatchSplitAcrossCountries})
+			// Phase 2 per-element IsNull: idNoMatchMakeInOtherGarageSameCntr
+			// flips — berlin's leaf in garages[0] survives raw AndNot
+			// against the make-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idMatchInSecondCntr, idMatchSplitAcrossCountries, idNoMatchMakeInOtherGarageSameCntr})
 		})
 
 		// Sub-test 13 (no-positive / rootAnchor path):
@@ -6194,7 +6227,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchCarsInOtherCntr})
+			// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips —
+			// berlin's leaf in garages[0] survives raw AndNot against the
+			// cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchCarsInOtherCntr, idNoMatchCarsInOtherGarage})
 		})
 
 		// Sub-test 18 (inverse cross-level): countries.garages.cars.make = "honda"
@@ -6305,7 +6341,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idMatchInSecondCntr})
+			// Phase 2 per-element IsNull: idNoMatchHasCarsOtherGarageSameCntr
+			// flips — berlin's leaf in garages[0] survives raw AndNot against
+			// the cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idMatchInSecondCntr, idNoMatchHasCarsOtherGarageSameCntr})
 		})
 
 		// Sub-test 22: countries.garages.cars.make = "honda" AND
@@ -6338,7 +6377,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})})}, note: "wrong make"},
 			}
 			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idMatchInSecondCntr})
+			// Phase 2 per-element IsNull: idNoMatchHasTiresOtherCarSameCntr
+			// flips — honda's leaf in cars[0] survives raw AndNot against
+			// the tires-existence leaf in cars[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idMatchInSecondCntr, idNoMatchHasTiresOtherCarSameCntr})
 		})
 
 		// Sub-test 23 (cross-level L1+L2): countries.garages.city = "berlin" AND
@@ -6368,7 +6410,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idMatchInSecondCntr})
+			// Phase 2 per-element IsNull: idNoMatchTiresInOtherGarageSameCntr
+			// flips — berlin's leaf in garages[0] survives raw AndNot against
+			// the tires-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idMatchInSecondCntr, idNoMatchTiresInOtherGarageSameCntr})
 		})
 	})
 }

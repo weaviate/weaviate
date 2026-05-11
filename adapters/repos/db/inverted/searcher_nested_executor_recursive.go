@@ -175,18 +175,26 @@ func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bit
 		return nil, nil, err
 	}
 
+	// Apply non-plan-consumed excludes at raw level. bm is raw under Phase 2;
+	// excludes are raw _exists.{path} bitmaps. AndNot is leaf-precise,
+	// preserving per-element semantics — a sibling element at the same LCA
+	// without the absent property's existence survives.
 	for _, excl := range e.excludes {
 		if e.excludeConsumedByPlan(excl) {
 			continue
 		}
-		maskedExcl, relExcl := e.bitmapOps.MaskLeaf(excl.bitmap)
-		bm.AndNotConc(maskedExcl, e.maxConcurrency)
-		relExcl()
+		bm.AndNotConc(excl.bitmap, e.maxConcurrency)
 	}
 
 	if e.returnMasked {
-		// Caller takes ownership of bm — its release is the returned release.
-		return bm, release, nil
+		// returnMasked callers (multi-group fallback) expect a leaf-zeroed
+		// bitmap for cross-group AndConc. Apply MaskLeaf to preserve the
+		// Phase 1 contract; switching the contract to "skip MaskRootLeaf,
+		// return raw" is a Phase 2c follow-up that would also require
+		// resolveMultiGroupRootDocIDAnd to use CrossLeafCopresenceAll.
+		masked, maskedRel := e.bitmapOps.MaskLeaf(bm)
+		release()
+		return masked, maskedRel, nil
 	}
 	defer release()
 	docs, docRel := e.bitmapOps.MaskRootLeaf(bm)
@@ -403,9 +411,7 @@ func (e *recExecutor) evalFlatRawAndAll(ctx context.Context, flat *flatSubtree, 
 			anded.AndNotConc(excl.bitmap, e.maxConcurrency)
 		}
 	}
-	result, resultRel := e.bitmapOps.MaskLeaf(anded)
-	andedRel()
-	return result, resultRel, nil
+	return anded, andedRel, nil
 }
 
 // evalGroupRoot collects raw bitmaps for here conditions and rootDoc bitmaps
@@ -466,26 +472,29 @@ func (e *recExecutor) evalGroupRoot(ctx context.Context, g *recGroupNode, parent
 	if e.canUseRawAndAll(g) {
 		anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
 		// Apply matching excludes (lcaPath == g.lca) at raw level — the
-		// anded bitmap is still raw-shape (leaf-precise) here, so AndNot'ing a
-		// raw _exists.{path} bitmap removes only the exact same-element leaf
-		// position that carries the absent property's existence. This is the
-		// §8.5 sibling-element semantics: a sibling element at the same LCA
+		// anded bitmap is raw-shape (leaf-precise), so AndNot'ing a raw
+		// _exists.{path} bitmap removes only the exact same-element leaf
+		// position that carries the absent property's existence. §8.5
+		// sibling-element semantics: a sibling element at the same LCA
 		// without the absent property's existence survives.
 		for _, excl := range e.excludes {
 			if e.excludeMatchesGroup(excl, g) {
 				anded.AndNotConc(excl.bitmap, e.maxConcurrency)
 			}
 		}
-		result, resultRel := e.bitmapOps.MaskLeaf(anded)
-		andedRel()
 		succeeded = true
 		for _, rel := range releases {
 			rel()
 		}
-		return result, resultRel, nil
+		return anded, andedRel, nil
 	}
 
-	result, resultRel := e.bitmapOps.AndAllMaskLeaf(bitmaps, e.maxConcurrency)
+	// Non-bridged path: Phase 3 inheritance doesn't span the group's
+	// operands (multi-sub, dup paths, or sub-result mixed with here-raws).
+	// CrossLeafCopresenceAll keeps positions whose (root, doc) co-presents
+	// across every operand and preserves the contributing leaves for
+	// downstream raw composition.
+	result, resultRel := e.bitmapOps.CrossLeafCopresenceAll(bitmaps)
 	succeeded = true
 	for _, rel := range releases {
 		rel()
@@ -639,62 +648,67 @@ func (e *recExecutor) applyMatchingExcludes(g *recGroupNode, effective *sroar.Bi
 	return cloned, clonedRel
 }
 
-// matchElementRecursive computes the per-element rootDoc as the intersection of
-// all here MaskLeafAnd results and all sub plan results, evaluated under
-// effective. On any empty intermediate it short-circuits and the element is
-// skipped. On success the per-element rootDoc is OR'd into result.
+// matchElementRecursive gathers per-condition raw bitmaps for the element
+// represented by effective, combines them via CrossLeafCopresenceAll, and
+// ORs the result into the accumulator.
+//
+// Each here leaf contributes raw AndAll(rawLeaf, effective) — positions of
+// that condition inside the element. Each sub-plan contributes its raw
+// output (Phase 2 architecture: subs emit raw). Cross-condition combining
+// uses CrossLeafCopresenceAll so positions co-presenting on (root, doc)
+// are kept regardless of leaf alignment — correct for the non-bridged path
+// (Phase 3 inheritance doesn't span the group's operands; that's why
+// evalGroup routed here instead of canUseRawAndAll or evalFlatRawAndAll).
+// Empty inputs short-circuit the element entirely.
 func (e *recExecutor) matchElementRecursive(ctx context.Context, g *recGroupNode, effective, result *sroar.Bitmap) error {
-	var partial *sroar.Bitmap
-	var partialRel func()
-	releasePartial := func() {
-		if partialRel != nil {
-			partialRel()
+	bitmaps := make([]*sroar.Bitmap, 0, len(g.here)+len(g.subs))
+	releases := make([]func(), 0, len(g.here)+len(g.subs))
+	releaseAll := func() {
+		for _, rel := range releases {
+			rel()
 		}
-	}
-
-	addRootDoc := func(bm *sroar.Bitmap, rel func()) (empty bool) {
-		if partial == nil {
-			partial = bm
-			partialRel = rel
-			return partial.IsEmpty()
-		}
-		partial.AndConc(bm, e.maxConcurrency)
-		rel()
-		return partial.IsEmpty()
 	}
 
 	for _, leaf := range g.here {
 		rawLeaf, ok := e.rawsByCond[leaf]
 		if !ok {
-			releasePartial()
+			releaseAll()
 			return fmt.Errorf("matchElementRecursive: no raw bitmap for leaf %q", childRelPath(leaf))
 		}
-		bm, rel := e.bitmapOps.MaskLeafAnd(rawLeaf, effective)
-		if addRootDoc(bm, rel) {
-			releasePartial()
+		bm, rel := e.bitmapOps.AndAll([]*sroar.Bitmap{rawLeaf, effective}, e.maxConcurrency)
+		if bm.IsEmpty() {
+			rel()
+			releaseAll()
 			return nil
 		}
+		bitmaps = append(bitmaps, bm)
+		releases = append(releases, rel)
 	}
 
 	for _, sub := range g.subs {
 		subResult, subRelease, err := e.evalNode(ctx, sub, effective)
 		if err != nil {
-			releasePartial()
+			releaseAll()
 			return err
 		}
-		if addRootDoc(subResult, subRelease) {
-			releasePartial()
+		if subResult.IsEmpty() {
+			subRelease()
+			releaseAll()
 			return nil
 		}
+		bitmaps = append(bitmaps, subResult)
+		releases = append(releases, subRelease)
 	}
 
-	if partial == nil {
+	if len(bitmaps) == 0 {
 		// A group with no here and no subs is a builder bug. Treat as no match.
 		return nil
 	}
 
-	result.OrConc(partial, e.maxConcurrency)
-	releasePartial()
+	combined, combinedRel := e.bitmapOps.CrossLeafCopresenceAll(bitmaps)
+	result.OrConc(combined, e.maxConcurrency)
+	combinedRel()
+	releaseAll()
 	return nil
 }
 
@@ -749,7 +763,13 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 	if n.lca == "" {
 		return e.andBranchesAtDocID(branchResults, branchReleases, &succeeded)
 	}
-	result, resultRel := e.bitmapOps.AndAll(branchResults, e.maxConcurrency)
+	// Non-root multi-branch: branches pin to different arr[N] slices of
+	// the same intermediate scope. Each branch returns raw positions in
+	// its pinned slice; different branches' leaves are disjoint by
+	// construction (different elements at the lca). CrossLeafCopresenceAll
+	// keeps positions whose (root, doc) co-presents across every branch —
+	// i.e. the same root contains a passing element in every pinned slice.
+	result, resultRel := e.bitmapOps.CrossLeafCopresenceAll(branchResults)
 	succeeded = true
 	for _, rel := range branchReleases {
 		rel()
@@ -952,14 +972,11 @@ func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *s
 	}
 	defer operandRel()
 
-	// 6. AndNot universe ∖ operand. Under Phase 1 the operand returns
-	// rootDoc, so MaskLeaf the universe to match before subtraction. Phase 2
-	// will refactor the operand path to return raw and the MaskLeaf step
-	// here becomes unnecessary.
-	universeMatched, universeMatchedRel := e.bitmapOps.MaskLeaf(universe)
-	universeRel()
-	universeMatched.AndNotConc(operand, e.maxConcurrency)
+	// 6. AndNot at raw level: universe ∖ operand. Both are raw position
+	// bitmaps; AndNot is leaf-precise, giving existential per-element NOT
+	// semantics — "this element does not satisfy operand".
+	universe.AndNotConc(operand, e.maxConcurrency)
 
 	succeeded = true
-	return universeMatched, universeMatchedRel, nil
+	return universe, universeRel, nil
 }

@@ -5866,7 +5866,12 @@ func TestIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	t.Run("root arr[N] IsNull=true — garages[1].city=berlin AND cars.make absent", func(t *testing.T) {
 		// Both conditions carry {RelPath:"", Index:1} so they resolve in the same group.
 		// doc1: garages[1] = {city:"berlin", no cars.make} → match
-		// doc2: garages[1] = {city:"berlin", cars.make present} → no match
+		// doc2: garages[1] = {city:"berlin", cars.make present} →
+		//   Phase 2 per-element IsNull: city's leaf (2) and cars.make's
+		//   existence leaf (1) are different leaves of the same garages[1].
+		//   The city position survives raw AndNot because cars.make doesn't
+		//   exist at THAT leaf. Pre-Phase 2 used universal-at-rootDoc
+		//   semantics which dropped doc2 entirely.
 		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
 		class := isNullCorrelationClass()
 
@@ -5888,7 +5893,7 @@ func TestIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 		require.NoError(t, err)
 		defer result.release()
 		requireBitmapValid(t, result.docIDs)
-		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+		assert.Equal(t, []uint64{doc1, doc2}, result.docIDs.ToArray())
 	})
 
 	// Test 4: garages[1].cars.make IS NOT NULL — root arr[N], IsNull=false

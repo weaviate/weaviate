@@ -1024,18 +1024,19 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 	class := filterExamplesClass()
 	props := rootNestedProps(t, class, "countries")
 
-	t.Run("multi_exclude_loop_subtracts_at_rootDoc_level", func(t *testing.T) {
+	t.Run("multi_exclude_loop_subtracts_at_raw_level", func(t *testing.T) {
 		// Plan-driven path: single positive condition `garages.city=berlin`
-		// produces GROUP@"garages" here=[garages.city]. canUseRawAndAll runs
-		// AndAll([raw_city]) → MaskLeaf → bm at rootDoc shape. The exclude
-		// loop in execute() then MaskLeafs each exclude (collapsing leaf bits)
-		// and AndNots from bm. Two excludes, one applying to two docs each
-		// (with overlap on doc4), verify the loop iterates and accumulates.
+		// produces GROUP@"garages" here=[garages.city]. canUseRawAndAll
+		// returns raw bm. The exclude loop in execute() AndNots each
+		// exclude at raw level (Phase 2: no MaskLeaf collapse). Verifies
+		// the loop iterates and accumulates across multiple excludes.
 		//
-		// doc1: city only — kept.
-		// doc2: city + zip exists in a different leaf — excludeZip drops it.
-		// doc3: city + age exists — excludeAge drops it.
-		// doc4: city + zip + age — both excludes apply (idempotent AndNot).
+		// Excludes overlap positives at the same leaf so raw AndNot fires:
+		//   doc1: city at leaf 1, no excludes — kept.
+		//   doc2: city at leaf 1, excludeZip at leaf 1 — excludeZip drops it.
+		//   doc3: city at leaf 1, excludeAge at leaf 1 — excludeAge drops it.
+		//   doc4: city at leaf 1, both excludes at leaf 1 — both drop it
+		//     (idempotent AndNot for the second exclude).
 		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
 		rawCity := roaringset.NewBitmap(
 			enc(1, 1, 1),
@@ -1044,12 +1045,12 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 			enc(4, 1, 4),
 		)
 		excludeZip := roaringset.NewBitmap(
-			enc(2, 5, 2),
-			enc(4, 5, 4),
+			enc(2, 1, 2),
+			enc(4, 1, 4),
 		)
 		excludeAge := roaringset.NewBitmap(
-			enc(3, 7, 3),
-			enc(4, 7, 4),
+			enc(3, 1, 3),
+			enc(4, 1, 4),
 		)
 
 		ops := newLifecycleOps(t)
@@ -1119,13 +1120,17 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 		assert.Equal(t, []uint64{1}, result.ToArray())
 	})
 
-	t.Run("non_matching_lcaPath_falls_through_to_rootDoc_subtract", func(t *testing.T) {
+	t.Run("non_matching_lcaPath_subtracts_at_raw_level", func(t *testing.T) {
 		// When the exclude's lcaPath is NOT in planLCAs, execute() applies
-		// rootDoc-level subtraction (MaskLeaf+AndNot). Same data layout as the
-		// §8.5 raw test, but lcaPath="garages.cars" is below the plan's only
-		// group lcaPath "garages" — so the exclude collapses to rootDoc shape
-		// (per-garage element) and drops doc1 entirely (root_idx=1 has zip in
-		// some leaf), reproducing the pre-fix behavior for that combination.
+		// the subtraction at raw level (Phase 2: bm is raw throughout, so
+		// AndNot is leaf-precise and preserves per-element semantics).
+		//
+		// doc1 has city at leaves 3 and 5 but zip only at leaf 3 — leaf 5
+		// survives the AndNot, so doc1 is included. doc2 has city and zip
+		// both at leaf 3 — drops.
+		//
+		// Pre-Phase-2 the exclude was MaskLeaf'd then AndNot'd at rootDoc,
+		// which dropped both docs at (root, doc) granularity.
 		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
 		rawCity := roaringset.NewBitmap(
 			enc(1, 3, 1), enc(1, 5, 1),
@@ -1146,7 +1151,7 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
-		assert.Empty(t, result.ToArray(), "rootDoc subtract drops both docs at (root,docID) granularity")
+		assert.Equal(t, []uint64{1}, result.ToArray(), "raw AndNot preserves doc1 via the surviving leaf-5 city position")
 	})
 
 	t.Run("returnMasked_keeps_rootDoc_after_excludes", func(t *testing.T) {
@@ -1750,13 +1755,9 @@ func TestRecExecutorEvalNot(t *testing.T) {
 			),
 		}
 
-		// TODO aliszka:nested_filtering: locks in Phase 1's universal-at-rootDoc
-		// NOT semantics — evalNot's MaskLeaf step collapses per-element
-		// distinctions, so docMixedCar (one tesla car + one civic car) is
-		// excluded. Under Phase 2 (executor refactor to raw outputs), per-element
-		// NOT will include docMixedCar via the civic car's position. Expected
-		// list flips to {docCivic, docMixedCar} when Phase 2 lands.
-		runRec(t, makeNotPvp(class, makeBm), mb, raws, []uint64{docCivic})
+		// Per-element NOT: docMixedCar's civic car satisfies "this car is
+		// not tesla", so the doc is included alongside docCivic.
+		runRec(t, makeNotPvp(class, makeBm), mb, raws, []uint64{docCivic, docMixedCar})
 	})
 
 	t.Run("NOT_with_root_pin_restricts_universe_to_pinned_root", func(t *testing.T) {
