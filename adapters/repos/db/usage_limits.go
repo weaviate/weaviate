@@ -25,8 +25,15 @@ import (
 // during fast bulk imports it lags on-disk state. The bounded overshoot
 // self-corrects on the next flush.
 //
-// Cold (unloaded lazy) shards are skipped: counting them would force a
-// load, which is expensive and undermines lazy-load semantics.
+// Cold (unloaded lazy-load) shards are skipped from the sum. Counting them
+// would not force a load (LazyLoadShard.ObjectCountAsync can read counts
+// straight from on-disk segment metadata), but it would add a directory
+// walk plus one open+read per segment metadata file on every enforced
+// write — for an MT account with many cold tenants that quickly turns
+// into hundreds of file I/Os on the hot path. We skip them for that cost
+// reason; the trade-off is that an account with dormant tenants may sit
+// slightly under-counted until those tenants are activated again. See
+// docs/usage_limits.md ("Accepted imperfections") for the deferred fix.
 func (db *DB) LocalObjectCount(ctx context.Context) (int64, error) {
 	db.indexLock.RLock()
 	indices := make([]*Index, 0, len(db.indices))
@@ -42,9 +49,14 @@ func (db *DB) LocalObjectCount(ctx context.Context) (int64, error) {
 			if err != nil {
 				// Treat per-shard counting failures as recoverable so a
 				// transient error on one shard doesn't veto the whole
-				// limit check (which would block all writes).
-				db.logger.WithError(err).
+				// limit check (which would block all writes). Logged as a
+				// warning (not an error) — operator action is not
+				// required for one transient miss. Error attached as a
+				// field rather than via WithError because the latter
+				// renders poorly in our log aggregator (Dash0).
+				db.logger.
 					WithField("shard", shard.Name()).
+					WithField("error", err.Error()).
 					Warn("usagelimits: error counting objects for shard")
 				return nil
 			}

@@ -168,24 +168,37 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 	}
 }
 
+// translateTypedError maps Weaviate's typed errors (auth, usage limits) to
+// the appropriate gRPC status. Returns the original err when no mapping
+// applies, so callers can return it unchanged. Shared by the unary and
+// stream interceptors so both surfaces speak the same wire contract.
+func translateTypedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.As(err, &authErrs.Unauthenticated{}) {
+		return status.Error(codes.Unauthenticated, err.Error())
+	}
+	if errors.As(err, &authErrs.Forbidden{}) {
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	if le, ok := usagelimits.AsLimitExceeded(err); ok {
+		return limitExceededToGrpcError(le)
+	}
+	return err
+}
+
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
 		resp, err := handler(ctx, req)
-
-		if errors.As(err, &authErrs.Unauthenticated{}) {
-			return nil, status.Error(codes.Unauthenticated, err.Error())
+		// If a typed error matches, drop the response (we replaced it with a
+		// gRPC status). Otherwise preserve whatever the handler returned
+		// verbatim — matches the prior pass-through behavior.
+		if translated := translateTypedError(err); translated != err {
+			return nil, translated
 		}
-
-		if errors.As(err, &authErrs.Forbidden{}) {
-			return nil, status.Error(codes.PermissionDenied, err.Error())
-		}
-
-		if le, ok := usagelimits.AsLimitExceeded(err); ok {
-			return nil, limitExceededToGrpcError(le)
-		}
-
 		return resp, err
 	}
 }
@@ -218,11 +231,13 @@ func limitExceededToGrpcError(le *usagelimits.LimitExceededError) error {
 
 func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		_, err := auth.PrincipalFromContext(ss.Context())
-		if err != nil {
+		if _, err := auth.PrincipalFromContext(ss.Context()); err != nil {
 			return status.Error(codes.Unauthenticated, err.Error())
 		}
-		return handler(srv, ss)
+		// Translate typed handler errors (incl. usage-limit-exceeded) so
+		// streaming methods like BatchStream get the same gRPC contract
+		// as their unary counterparts. Mirrors makeAuthInterceptor.
+		return translateTypedError(handler(srv, ss))
 	}
 }
 

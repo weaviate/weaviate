@@ -168,7 +168,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		shardCap := dv.Get()
 		if shardCap >= 0 {
 			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
-			if int64(requested) > int64(shardCap) {
+			if requested > shardCap {
 				return nil, 0, usagelimits.NewLimitExceededError(
 					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
 			}

@@ -69,7 +69,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 			if err != nil {
 				return 0, fmt.Errorf("count tenants for limit check: %w", err)
 			}
-			if int64(len(existing)+len(validated)) > int64(cap) {
+			if len(existing)+len(validated) > cap {
 				return 0, usagelimits.NewLimitExceededError(
 					h.errorMessageTemplate(), usagelimits.LimitTenants, int64(cap))
 			}

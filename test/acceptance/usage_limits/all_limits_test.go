@@ -202,10 +202,12 @@ func mergeEnv(a, b map[string]string) map[string]string {
 // `cap+1` — but with aggressive flush settings configured on the
 // container, it fires within a few seconds beyond the cap. The test
 // asserts only "fires eventually" and checks the structured 429 body
-// when it does.
+// when it does. Deadline is generous (120s) because
+// PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS=1 is a *trigger*
+// rather than a guarantee — slow CI shouldn't flake this.
 func loopInsertUntilLimit(t *testing.T, ctx context.Context, httpURI, class, expectLimit string, expectValue int64) bool {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 	probeURL := httpURI + "/v1/objects"
 	for i := 0; time.Now().Before(deadline); i++ {
 		body := []byte(fmt.Sprintf(`{"class":"%s","properties":{"i":%d}}`, class, i))

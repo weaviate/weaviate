@@ -34,7 +34,7 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 
 ## Counter source
 
-The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(1), so a node with a small handful of collections (the Free-Tier shape) costs a handful of atomic reads on the hot path.
+The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 
@@ -83,5 +83,7 @@ The pre-existing `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` enforcement previously retu
 ## Accepted imperfections
 
 - **Object count via async path.** Counts come from `CountAsync` and exclude the in-memory memtable, so during fast bulk imports the count lags slightly behind on-disk state. Bounded by in-flight write volume between count refreshes; self-corrects on the next flush. Sync counting on every write would scan the entire memtable — wasteful at the 10K free-tier scale, fatal at 10M+ scale.
+- **Cold (unloaded lazy-load) shards are skipped from the sum.** `LazyLoadShard.ObjectCountAsync` would not force a load — it can read counts from on-disk segment metadata (`.cna`/`.metadata` files) directly. We still skip cold shards because each one would add a directory walk plus one open+read per segment metadata file on **every enforced write**. For an MT account with many cold tenants that's potentially hundreds of file I/Os per write — not acceptable on the hot path. Net effect: an account that has dormant (un-touched) tenants may sit slightly under-counted until those tenants are queried again. Future extension if this matters in practice: compute cold-shard counts once at load time and keep an in-memory cache that updates on tenant activation, so the hot path stays I/O-free while cold counts contribute.
 - **Per-shard-slice batch rejection** on multi-shard collections (see *Batch behavior*). Single-shard collections (Free Tier) see whole-batch rejection unchanged.
 - **Tenants checked at create time only**, not on subsequent multi-tenancy config changes.
+- **Schema-side caps (collections, tenants, shards) are not transactional with RAFT.** The current-count read and the cap comparison happen before the RAFT-replicated `AddClass`/`AddTenants` call, so two concurrent create requests can both pass the check and both succeed, ending one over cap. Pre-existing for collections; same shape for tenants and shards. Free-tier impact is bounded (at most a tiny overshoot, and the next request is correctly rejected).

@@ -99,10 +99,13 @@ type State struct {
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
 
-	// UsageLimits is the cross-cutting policy gate for the Free-Tier
-	// guardrails. Constructed early in MakeAppState; counters are
-	// installed (via Set*Counter) once their dependencies (DB, schema
-	// manager) become available later in startup.
+	// UsageLimits gates the object-count cap only (the live-state hot-path
+	// check). It is constructed in MakeAppState once the DB is available
+	// and wired as the ObjectCounter via DB.SetUsageLimits before the DB
+	// loads its indices. The other three caps — collections, tenants,
+	// shards — are read directly at the schema-handler use sites from
+	// ServerConfig.Config.UsageLimits.* and do not route through this
+	// Manager. See docs/usage_limits.md.
 	UsageLimits *usagelimits.Manager
 
 	// GRPCConnManager is a general connection manager for any/all gRPC connections used by the application. It implements retry logic and connection pooling.
