@@ -23,6 +23,7 @@ const (
 	FileReplicationService_ReleaseReplicaSnapshot_FullMethodName         = "/clusterapi.FileReplicationService/ReleaseReplicaSnapshot"
 	FileReplicationService_GetReplicaSnapshotFileMetadata_FullMethodName = "/clusterapi.FileReplicationService/GetReplicaSnapshotFileMetadata"
 	FileReplicationService_GetReplicaSnapshotFile_FullMethodName         = "/clusterapi.FileReplicationService/GetReplicaSnapshotFile"
+	FileReplicationService_ProbeShardData_FullMethodName                 = "/clusterapi.FileReplicationService/ProbeShardData"
 	FileReplicationService_StartChangeCapture_FullMethodName             = "/clusterapi.FileReplicationService/StartChangeCapture"
 	FileReplicationService_GetChangeLog_FullMethodName                   = "/clusterapi.FileReplicationService/GetChangeLog"
 	FileReplicationService_SnapshotChangeLogLSN_FullMethodName           = "/clusterapi.FileReplicationService/SnapshotChangeLogLSN"
@@ -38,6 +39,9 @@ type FileReplicationServiceClient interface {
 	ReleaseReplicaSnapshot(ctx context.Context, in *ReleaseReplicaSnapshotRequest, opts ...grpc.CallOption) (*ReleaseReplicaSnapshotResponse, error)
 	GetReplicaSnapshotFileMetadata(ctx context.Context, in *GetReplicaSnapshotFileMetadataRequest, opts ...grpc.CallOption) (*FileMetadata, error)
 	GetReplicaSnapshotFile(ctx context.Context, in *GetReplicaSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[FileChunk], error)
+	// ProbeShardData is a side-effect-free check used by SELF_RECOVERY to ask a
+	// peer whether it holds data for a shard, without creating a snapshot.
+	ProbeShardData(ctx context.Context, in *ProbeShardDataRequest, opts ...grpc.CallOption) (*ProbeShardDataResponse, error)
 	StartChangeCapture(ctx context.Context, in *StartChangeCaptureRequest, opts ...grpc.CallOption) (*StartChangeCaptureResponse, error)
 	GetChangeLog(ctx context.Context, in *GetChangeLogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ChangeLogStreamEntry], error)
 	SnapshotChangeLogLSN(ctx context.Context, in *SnapshotChangeLogLSNRequest, opts ...grpc.CallOption) (*SnapshotChangeLogLSNResponse, error)
@@ -101,6 +105,16 @@ func (c *fileReplicationServiceClient) GetReplicaSnapshotFile(ctx context.Contex
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type FileReplicationService_GetReplicaSnapshotFileClient = grpc.ServerStreamingClient[FileChunk]
+
+func (c *fileReplicationServiceClient) ProbeShardData(ctx context.Context, in *ProbeShardDataRequest, opts ...grpc.CallOption) (*ProbeShardDataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProbeShardDataResponse)
+	err := c.cc.Invoke(ctx, FileReplicationService_ProbeShardData_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *fileReplicationServiceClient) StartChangeCapture(ctx context.Context, in *StartChangeCaptureRequest, opts ...grpc.CallOption) (*StartChangeCaptureResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -169,6 +183,9 @@ type FileReplicationServiceServer interface {
 	ReleaseReplicaSnapshot(context.Context, *ReleaseReplicaSnapshotRequest) (*ReleaseReplicaSnapshotResponse, error)
 	GetReplicaSnapshotFileMetadata(context.Context, *GetReplicaSnapshotFileMetadataRequest) (*FileMetadata, error)
 	GetReplicaSnapshotFile(*GetReplicaSnapshotFileRequest, grpc.ServerStreamingServer[FileChunk]) error
+	// ProbeShardData is a side-effect-free check used by SELF_RECOVERY to ask a
+	// peer whether it holds data for a shard, without creating a snapshot.
+	ProbeShardData(context.Context, *ProbeShardDataRequest) (*ProbeShardDataResponse, error)
 	StartChangeCapture(context.Context, *StartChangeCaptureRequest) (*StartChangeCaptureResponse, error)
 	GetChangeLog(*GetChangeLogRequest, grpc.ServerStreamingServer[ChangeLogStreamEntry]) error
 	SnapshotChangeLogLSN(context.Context, *SnapshotChangeLogLSNRequest) (*SnapshotChangeLogLSNResponse, error)
@@ -194,6 +211,9 @@ func (UnimplementedFileReplicationServiceServer) GetReplicaSnapshotFileMetadata(
 }
 func (UnimplementedFileReplicationServiceServer) GetReplicaSnapshotFile(*GetReplicaSnapshotFileRequest, grpc.ServerStreamingServer[FileChunk]) error {
 	return status.Error(codes.Unimplemented, "method GetReplicaSnapshotFile not implemented")
+}
+func (UnimplementedFileReplicationServiceServer) ProbeShardData(context.Context, *ProbeShardDataRequest) (*ProbeShardDataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProbeShardData not implemented")
 }
 func (UnimplementedFileReplicationServiceServer) StartChangeCapture(context.Context, *StartChangeCaptureRequest) (*StartChangeCaptureResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method StartChangeCapture not implemented")
@@ -294,6 +314,24 @@ func _FileReplicationService_GetReplicaSnapshotFile_Handler(srv interface{}, str
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type FileReplicationService_GetReplicaSnapshotFileServer = grpc.ServerStreamingServer[FileChunk]
+
+func _FileReplicationService_ProbeShardData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProbeShardDataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FileReplicationServiceServer).ProbeShardData(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FileReplicationService_ProbeShardData_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FileReplicationServiceServer).ProbeShardData(ctx, req.(*ProbeShardDataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _FileReplicationService_StartChangeCapture_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StartChangeCaptureRequest)
@@ -396,6 +434,10 @@ var FileReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetReplicaSnapshotFileMetadata",
 			Handler:    _FileReplicationService_GetReplicaSnapshotFileMetadata_Handler,
+		},
+		{
+			MethodName: "ProbeShardData",
+			Handler:    _FileReplicationService_ProbeShardData_Handler,
 		},
 		{
 			MethodName: "StartChangeCapture",

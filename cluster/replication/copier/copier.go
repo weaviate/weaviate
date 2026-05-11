@@ -29,6 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -87,6 +88,23 @@ func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.Re
 // opID keys the source-side staging dir so retries reuse the same path and
 // release is unambiguous on cancellation.
 func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
+	return c.CopyReplicaFilesToLocalShard(ctx, opID, srcNodeId, collectionName, shardName, "", schemaVersion)
+}
+
+// localShardName returns override when set, else the source shard name.
+func (c *Copier) localShardName(srcShard, override string) string {
+	if override == "" {
+		return srcShard
+	}
+	return override
+}
+
+// CopyReplicaFilesToLocalShard copies srcShard's files from srcNodeId into the
+// local shard dir, or into localShardOverride when set. SELF_RECOVERY stages
+// into "<shard>.recovering/" so a crash can't leave a half-written live dir;
+// the source snapshot still targets shardName (the file names are shard-relative).
+func (c *Copier) CopyReplicaFilesToLocalShard(ctx context.Context, opID strfmt.UUID, srcNodeId, collectionName, shardName, localShardOverride string, schemaVersion uint64) error {
+	localShard := c.localShardName(shardName, localShardOverride)
 	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
 
 	sourceNodeGRPCPort, err := c.nodeSelector.NodeGRPCPort(srcNodeId)
@@ -148,7 +166,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 		time.Sleep(sleepTime)
 	}
 
-	err = c.prepareLocalFolder(collectionName, shardName, snapResp.FileNames)
+	err = c.prepareLocalFolder(collectionName, localShard, snapResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
@@ -168,7 +186,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 	dWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
 		dWg.Go(func() error {
-			err := c.downloadWorker(ctx, client, opID, collectionName, shardName, metadataChan)
+			err := c.downloadWorker(ctx, client, opID, collectionName, localShard, metadataChan)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to download files")
 			}
@@ -188,7 +206,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 		return fmt.Errorf("failed to download files: %w", err)
 	}
 
-	err = c.validateLocalFolder(collectionName, shardName, snapResp.FileNames)
+	err = c.validateLocalFolder(collectionName, localShard, snapResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
@@ -420,6 +438,60 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 	}
 
 	return idx.LoadLocalShard(ctx, shardName, false)
+}
+
+// PromoteRecoveryFolder atomically renames "<shard>.recovering/" to "<shard>/".
+// The startup gate keeps the live dir absent while recovery is in flight, so
+// this renames the copy into place; an existing live dir means a prior promote
+// already won, so a leftover recovery dir is stale and removed.
+func (c *Copier) PromoteRecoveryFolder(collectionName, shardName string) error {
+	recoveryPath := c.shardPath(collectionName, api.RecoveryFolderName(shardName))
+	livePath := c.shardPath(collectionName, shardName)
+
+	liveExists, err := dirExists(livePath)
+	if err != nil {
+		return fmt.Errorf("promote recovery folder: stat %q: %w", livePath, err)
+	}
+	recoveryExists, err := dirExists(recoveryPath)
+	if err != nil {
+		return fmt.Errorf("promote recovery folder: stat %q: %w", recoveryPath, err)
+	}
+
+	switch {
+	case liveExists && recoveryExists:
+		if err := os.RemoveAll(recoveryPath); err != nil {
+			return fmt.Errorf("promote recovery folder: live dir already exists, but failed to remove stale %q: %w", recoveryPath, err)
+		}
+		return nil
+	case liveExists:
+		return nil
+	case !recoveryExists:
+		return fmt.Errorf("promote recovery folder: neither %q nor %q exists", recoveryPath, livePath)
+	}
+
+	if err := os.Rename(recoveryPath, livePath); err != nil {
+		return fmt.Errorf("promote recovery folder: rename %q -> %q: %w", recoveryPath, livePath, err)
+	}
+	parent := filepath.Dir(livePath)
+	if err := diskio.Fsync(parent); err != nil {
+		return fmt.Errorf("promote recovery folder: fsync parent %q: %w", parent, err)
+	}
+	return nil
+}
+
+// dirExists reports whether path is a directory. A non-dir at path is an error.
+func dirExists(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !fi.IsDir() {
+		return false, fmt.Errorf("expected directory at %q, found %s", path, fi.Mode().String())
+	}
+	return true, nil
 }
 
 func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {

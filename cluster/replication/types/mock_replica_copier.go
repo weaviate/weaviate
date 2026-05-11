@@ -197,6 +197,105 @@ func (_c *MockReplicaCopier_CopyReplicaFiles_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// CopyReplicaFilesToLocalShard provides a mock function with given fields: ctx, opID, sourceNode, sourceCollection, sourceShard, localShardOverride, schemaVersion
+func (_m *MockReplicaCopier) CopyReplicaFilesToLocalShard(ctx context.Context, opID strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, localShardOverride string, schemaVersion uint64) error {
+	ret := _m.Called(ctx, opID, sourceNode, sourceCollection, sourceShard, localShardOverride, schemaVersion)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CopyReplicaFilesToLocalShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, strfmt.UUID, string, string, string, string, uint64) error); ok {
+		r0 = rf(ctx, opID, sourceNode, sourceCollection, sourceShard, localShardOverride, schemaVersion)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_CopyReplicaFilesToLocalShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyReplicaFilesToLocalShard'
+type MockReplicaCopier_CopyReplicaFilesToLocalShard_Call struct {
+	*mock.Call
+}
+
+// CopyReplicaFilesToLocalShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - opID strfmt.UUID
+//   - sourceNode string
+//   - sourceCollection string
+//   - sourceShard string
+//   - localShardOverride string
+//   - schemaVersion uint64
+func (_e *MockReplicaCopier_Expecter) CopyReplicaFilesToLocalShard(ctx interface{}, opID interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, localShardOverride interface{}, schemaVersion interface{}) *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call {
+	return &MockReplicaCopier_CopyReplicaFilesToLocalShard_Call{Call: _e.mock.On("CopyReplicaFilesToLocalShard", ctx, opID, sourceNode, sourceCollection, sourceShard, localShardOverride, schemaVersion)}
+}
+
+func (_c *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call) Run(run func(ctx context.Context, opID strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, localShardOverride string, schemaVersion uint64)) *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(strfmt.UUID), args[2].(string), args[3].(string), args[4].(string), args[5].(string), args[6].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call) Return(_a0 error) *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call) RunAndReturn(run func(context.Context, strfmt.UUID, string, string, string, string, uint64) error) *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PromoteRecoveryFolder provides a mock function with given fields: collectionName, shardName
+func (_m *MockReplicaCopier) PromoteRecoveryFolder(collectionName string, shardName string) error {
+	ret := _m.Called(collectionName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PromoteRecoveryFolder")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(collectionName, shardName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_PromoteRecoveryFolder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PromoteRecoveryFolder'
+type MockReplicaCopier_PromoteRecoveryFolder_Call struct {
+	*mock.Call
+}
+
+// PromoteRecoveryFolder is a helper method to define mock.On call
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) PromoteRecoveryFolder(collectionName interface{}, shardName interface{}) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	return &MockReplicaCopier_PromoteRecoveryFolder_Call{Call: _e.mock.On("PromoteRecoveryFolder", collectionName, shardName)}
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) Run(run func(collectionName string, shardName string)) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) Return(_a0 error) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) RunAndReturn(run func(string, string) error) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FinalizeChangeLog provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID
 func (_m *MockReplicaCopier) FinalizeChangeLog(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string) (uint64, error) {
 	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID)

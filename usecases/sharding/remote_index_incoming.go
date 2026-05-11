@@ -100,6 +100,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingCreateShard(ctx context.Context, className string, shardName string) error
 	IncomingReinitShard(ctx context.Context, shardName string) error
 	IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error)
+	IncomingProbeShardData(ctx context.Context, shardName string) (bool, error)
 	IncomingReleaseReplicaSnapshot(ctx context.Context, opID string) error
 	IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error)
 	IncomingGetReplicaSnapshotFile(ctx context.Context, opID, relativeFilePath string) (io.ReadCloser, error)

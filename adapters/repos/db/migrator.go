@@ -230,6 +230,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			MaintenanceModeEnabled:     m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:              m.db.config.HFreshEnabled,
 			AutoTenantActivation:       schema.AutoTenantActivationEnabled(class),
+			SelfRecoveryOrchestrator:   m.db.selfRecoveryOrchestrator,
+			RaftBootstrapComplete:      m.db.RaftBootstrapComplete,
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -942,7 +944,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
-		err := index.ForEachShard(func(name string, shard ShardLike) error {
+		err := index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			return shard.resetDimensionsLSM(ctx)
 		})
 		if err != nil {
@@ -1083,7 +1085,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.ForEachShard(func(name string, shard ShardLike) error {
+		index.forEachShardSkipRecovering(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -1138,7 +1140,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
-			index.ForEachShard(func(_ string, shard ShardLike) error {
+			index.forEachShardSkipRecovering(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
