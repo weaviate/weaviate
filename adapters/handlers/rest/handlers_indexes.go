@@ -532,16 +532,46 @@ func typesConflict(newType db.ReindexMigrationType, newProps []string,
 	return ""
 }
 
+// touchesSearchable reports whether migration type t writes to the searchable
+// bucket. Implemented as an exhaustive switch so that a newly-added
+// ReindexMigrationType cannot silently be treated as "doesn't touch
+// searchable" — the default case panics with a clear message, surfacing the
+// gap on the first request that exercises the new type. This matters
+// because typesConflict relies on these answers to gate concurrent reindex
+// submissions: a positive-list miss would allow conflicting writes to the
+// same bucket through.
 func touchesSearchable(t db.ReindexMigrationType) bool {
-	return t == db.ReindexTypeRepairSearchable ||
-		t == db.ReindexTypeChangeTokenization ||
-		t == db.ReindexTypeEnableSearchable
+	switch t {
+	case db.ReindexTypeRepairSearchable,
+		db.ReindexTypeChangeTokenization,
+		db.ReindexTypeEnableSearchable:
+		return true
+	case db.ReindexTypeRepairFilterable,
+		db.ReindexTypeEnableFilterable,
+		db.ReindexTypeEnableRangeable:
+		return false
+	default:
+		panic(fmt.Sprintf("touchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
+	}
 }
 
+// touchesFilterable reports whether migration type t writes to the filterable
+// bucket. Same exhaustive-switch contract as touchesSearchable: a new
+// ReindexMigrationType must be added here so the conflict checker can reason
+// about it; otherwise we panic loudly rather than allow a silent conflict.
 func touchesFilterable(t db.ReindexMigrationType) bool {
-	return t == db.ReindexTypeRepairFilterable ||
-		t == db.ReindexTypeChangeTokenization ||
-		t == db.ReindexTypeEnableFilterable
+	switch t {
+	case db.ReindexTypeRepairFilterable,
+		db.ReindexTypeChangeTokenization,
+		db.ReindexTypeEnableFilterable:
+		return true
+	case db.ReindexTypeRepairSearchable,
+		db.ReindexTypeEnableSearchable,
+		db.ReindexTypeEnableRangeable:
+		return false
+	default:
+		panic(fmt.Sprintf("touchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
+	}
 }
 
 // propsOverlap returns true if two property sets overlap. An empty set means

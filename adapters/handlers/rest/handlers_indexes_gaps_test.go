@@ -472,3 +472,63 @@ func TestContainsStr(t *testing.T) {
 	require.False(t, containsStr([]string{"a", "b", "c"}, "d"))
 	require.False(t, containsStr(nil, "anything"))
 }
+
+// -----------------------------------------------------------------------------
+// touchesSearchable / touchesFilterable — exhaustive switch, including a
+// panic on unknown ReindexMigrationType so a future type cannot silently
+// bypass the conflict check.
+// -----------------------------------------------------------------------------
+
+func TestTouchesSearchable(t *testing.T) {
+	cases := []struct {
+		t    db.ReindexMigrationType
+		want bool
+	}{
+		{db.ReindexTypeRepairSearchable, true},
+		{db.ReindexTypeChangeTokenization, true},
+		{db.ReindexTypeEnableSearchable, true},
+		{db.ReindexTypeRepairFilterable, false},
+		{db.ReindexTypeEnableFilterable, false},
+		{db.ReindexTypeEnableRangeable, false},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.t), func(t *testing.T) {
+			require.Equal(t, tc.want, touchesSearchable(tc.t))
+		})
+	}
+}
+
+func TestTouchesFilterable(t *testing.T) {
+	cases := []struct {
+		t    db.ReindexMigrationType
+		want bool
+	}{
+		{db.ReindexTypeRepairFilterable, true},
+		{db.ReindexTypeChangeTokenization, true},
+		{db.ReindexTypeEnableFilterable, true},
+		{db.ReindexTypeRepairSearchable, false},
+		{db.ReindexTypeEnableSearchable, false},
+		{db.ReindexTypeEnableRangeable, false},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.t), func(t *testing.T) {
+			require.Equal(t, tc.want, touchesFilterable(tc.t))
+		})
+	}
+}
+
+func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
+	require.PanicsWithValue(t,
+		`touchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { touchesSearchable(db.ReindexMigrationType("phantom")) },
+		"unknown migration type must panic so the gap is caught loudly",
+	)
+}
+
+func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
+	require.PanicsWithValue(t,
+		`touchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { touchesFilterable(db.ReindexMigrationType("phantom")) },
+		"unknown migration type must panic so the gap is caught loudly",
+	)
+}
