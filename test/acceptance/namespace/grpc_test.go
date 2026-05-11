@@ -150,13 +150,6 @@ func TestNamespaces_GRPC(t *testing.T) {
 	})
 
 	t.Run("Aggregate count is namespace-scoped", func(t *testing.T) {
-		// gRPC Aggregate is not yet namespace-aware. Two gaps stand in the
-		// way: the handler doesn't qualify the class via namespacing.Resolve,
-		// and count(*) fan-out goes through a cluster-API HTTP route whose
-		// URL regex is built from ClassNameRegexCore — that regex excludes
-		// ":", so namespace-qualified index names never match the route.
-		t.Skip("aggregate on namespaced classes not yet wired; tracked separately")
-
 		for _, key := range []string{user1Key, user2Key} {
 			resp, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{
 				Collection:   class,
@@ -168,13 +161,11 @@ func TestNamespaces_GRPC(t *testing.T) {
 		}
 	})
 
-	t.Run("Search via alias resolves per namespace", func(t *testing.T) {
+	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {
 		// Both namespaces register the same short alias name pointing at
 		// their own copy of MoviesGRPC. The handler must qualify the alias
 		// to "<ns>:MoviesGRPCAlias" before alias→target lookup, otherwise
 		// user1's request would land on user2's data (or vice versa).
-		// Aggregate-via-alias is intentionally not exercised — gRPC Aggregate
-		// is not yet namespace-aware (see Aggregate subtest above).
 		const aliasName = "MoviesGRPCAlias"
 		for _, key := range []string{user1Key, user2Key} {
 			_, err := helper.Client(t).Schema.AliasesCreate(
@@ -196,17 +187,29 @@ func TestNamespaces_GRPC(t *testing.T) {
 			searchResp, err := grpcClient.Search(authCtx(key), searchReq(aliasName, 10))
 			require.NoError(t, err)
 			assert.Len(t, searchResp.Results, 2)
+
+			aggResp, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{
+				Collection:   aliasName,
+				ObjectsCount: true,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, aggResp.GetSingleResult())
+			assert.Equal(t, int64(2), aggResp.GetSingleResult().GetObjectsCount())
 		}
 	})
 
 	t.Run("namespaced caller submitting :-qualified collection double-prefixes", func(t *testing.T) {
 		// user1 supplying "customer1:MoviesGRPC" gets qualified again to
 		// "customer1:customer1:MoviesGRPC" — no such class on disk.
-		// Aggregate is not exercised here — gRPC Aggregate is not yet
-		// namespace-aware (see Aggregate subtest above).
 		qualified := "customer1:" + class
 
 		_, err := grpcClient.Search(authCtx(user1Key), searchReq(qualified, 1))
+		require.Error(t, err)
+
+		_, err = grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+			Collection:   qualified,
+			ObjectsCount: true,
+		})
 		require.Error(t, err)
 
 		batchResp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
@@ -222,8 +225,6 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// Admin has no namespace, so qualify is a no-op and the supplied
 		// name flows through. Short name → no class on disk → error.
 		// Qualified name → matches storage → success.
-		// Aggregate is not exercised — gRPC Aggregate is not yet
-		// namespace-aware (see Aggregate subtest above).
 		shortReq := func() (*pb.SearchReply, error) {
 			return grpcClient.Search(authCtx(adminKey), searchReq(class, 10))
 		}
@@ -236,6 +237,19 @@ func TestNamespaces_GRPC(t *testing.T) {
 		searchResp, err := qualifiedReq()
 		require.NoError(t, err)
 		assert.Len(t, searchResp.Results, 2)
+
+		_, err = grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
+			Collection:   class,
+			ObjectsCount: true,
+		})
+		require.Error(t, err)
+		aggResp, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
+			Collection:   "customer1:" + class,
+			ObjectsCount: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, aggResp.GetSingleResult())
+		assert.Equal(t, int64(2), aggResp.GetSingleResult().GetObjectsCount())
 
 		// BatchObjects: short → per-object error; qualified → success and
 		// the row shows up via REST.
@@ -257,4 +271,54 @@ func TestNamespaces_GRPC(t *testing.T) {
 		assert.Equal(t, "customer1:"+class, got.Class)
 		assert.Equal(t, "admin-qualified", got.Properties.(map[string]any)["title"])
 	})
+}
+
+// TestNamespaces_GRPC_MultiShardAggregate spreads a namespaced class across
+// every node in the 3-node cluster and asserts that count(*) fan-out
+// returns the right number. With shards on remote nodes the gRPC entry
+// point cannot answer count locally and must hop the cluster-API
+// /indices/<ns>:<class>/shards/<sh>/objects/_count route.
+func TestNamespaces_GRPC_MultiShardAggregate(t *testing.T) {
+	user1Key, _ := twoNamespaces(t)
+
+	grpcClient, conn := newGrpcClient(t)
+	defer conn.Close()
+
+	const class = "MoviesGRPCMultiShard"
+	helper.CreateClassAuth(t, &models.Class{
+		Class: class,
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+		},
+		ShardingConfig: map[string]any{"desiredCount": 3},
+	}, user1Key)
+	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+
+	const objCount = 12
+	objects := make([]*pb.BatchObject, 0, objCount)
+	for i := range objCount {
+		objects = append(objects, &pb.BatchObject{
+			Uuid:       strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)).String(),
+			Collection: class,
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"title": structpb.NewStringValue(fmt.Sprintf("title-%d", i)),
+					},
+				},
+			},
+		})
+	}
+	resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{Objects: objects})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Empty(t, resp.Errors)
+
+	aggResp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+		Collection:   class,
+		ObjectsCount: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, aggResp.GetSingleResult())
+	assert.Equal(t, int64(objCount), aggResp.GetSingleResult().GetObjectsCount())
 }

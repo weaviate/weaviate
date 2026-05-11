@@ -22,6 +22,21 @@ var (
 	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
 	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
 	reservedPropertyNames           = []string{"_additional", "_id", "id"}
+
+	// IndexNameRegexCore matches an internal index name as it appears on
+	// cluster-internal URLs: an optional "<namespace>:" prefix followed by a
+	// ClassNameRegexCore class name. The namespace portion mirrors the
+	// namespace-name contract — lowercase letter/digit edges, hyphens only
+	// internally, length NamespaceMinLength..NamespaceMaxLength.
+	//
+	// The {N,M} middle bound subtracts 2 to account for the required
+	// leading and trailing [a-z0-9] characters; total namespace length
+	// stays in [NamespaceMinLength, NamespaceMaxLength].
+	//
+	// Used only for cluster-API URL routing; user-facing class-name
+	// validation continues to use ClassNameRegexCore (which rejects ":").
+	IndexNameRegexCore = fmt.Sprintf(`(?:[a-z0-9][a-z0-9-]{%d,%d}[a-z0-9]%s)?`,
+		NamespaceMinLength-2, NamespaceMaxLength-2, NamespaceSeparator) + ClassNameRegexCore
 )
 
 const (

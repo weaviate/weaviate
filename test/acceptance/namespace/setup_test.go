@@ -37,7 +37,7 @@ const (
 var sharedCompose *docker.DockerCompose
 
 func TestMain(m *testing.M) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	compose, err := docker.New().
@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 		WithDbUsers().
 		WithNamespaces().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
-		WithWeaviateWithGRPC().
+		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrap(err, "failed to start shared compose"))
