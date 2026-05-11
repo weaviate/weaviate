@@ -40,9 +40,10 @@ var (
 	// errors.Is rather than string-matching the error message.
 	ErrAlreadyExists = errors.New("namespace already exists")
 
-	// ErrNotFound is returned by Delete when the target namespace does not
-	// exist. Callers that need a distinct status for missing entries
-	// (e.g. an HTTP handler mapping to 404) should check with errors.Is.
+	// ErrNotFound is returned by ChangeState and RemoveEntity when the
+	// target namespace does not exist. Callers that need a distinct status
+	// for missing entries (e.g. an HTTP handler mapping to 404) should
+	// check with errors.Is.
 	ErrNotFound = errors.New("namespace not found")
 
 	// ErrNamespaceDeleting is returned when a create-like operation targets

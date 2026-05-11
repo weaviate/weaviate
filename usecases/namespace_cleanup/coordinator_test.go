@@ -171,21 +171,6 @@ func TestCoordinator_Tick_OrderingAcrossPhases(t *testing.T) {
 	assert.Equal(t, recordedCall{op: "entity", arg: "alpha", from: "alpha"}, raft.calls[5])
 }
 
-func TestCoordinator_Tick_ClassesInNamespaceErrorAbortsNamespace(t *testing.T) {
-	raft := newStubRaft()
-	wantErr := errors.New("read schema failed")
-	ns := stubNamespaces{deleting: []string{"alpha"}}
-	schema := stubSchema{classesErr: wantErr}
-	c := newTestCoordinator(t, ns, schema, raft, alwaysLeader)
-
-	// Tick logs the per-namespace error and returns nil; RemoveNamespaceEntity
-	// must not be issued because we cannot prove the namespace is empty.
-	require.NoError(t, c.Tick(context.Background()))
-	for _, call := range raft.calls {
-		assert.NotEqual(t, "entity", call.op, "RemoveNamespaceEntity must not run after a ClassesInNamespace error")
-	}
-}
-
 func TestCoordinator_Tick_RemoveEntityNotEmptyIsSwallowed(t *testing.T) {
 	tests := []struct {
 		name string
@@ -301,31 +286,66 @@ func TestCoordinator_Tick_LeaderFlipBetweenPhasesAborts(t *testing.T) {
 	}
 }
 
-func TestCoordinator_Tick_PerNamespaceErrorContinuesToNext(t *testing.T) {
-	raft := newStubRaft()
-	raft.deleteUsersErr["alpha"] = errors.New("boom")
-	ns := stubNamespaces{deleting: []string{"alpha", "beta"}}
-	schema := stubSchema{}
-	c := newTestCoordinator(t, ns, schema, raft, alwaysLeader)
-	c.Tick(context.Background())
+// TestCoordinator_Tick_ErrorBlastRadius covers how the tick contains errors.
+// A schema or per-namespace RAFT error aborts only the failing namespace and
+// leaves its entity in place; ErrNotLeader aborts the whole tick so the new
+// leader can pick up.
+func TestCoordinator_Tick_ErrorBlastRadius(t *testing.T) {
+	tests := []struct {
+		name              string
+		deleting          []string
+		schema            stubSchema
+		setupRaft         func(*stubRaft)
+		wantEntityRemoved map[string]int // expected RemoveNamespaceEntity count per namespace
+		wantUntouchedNS   []string       // namespaces that must not appear in any recorded call
+	}{
+		{
+			name:              "schema error aborts only the failing namespace",
+			deleting:          []string{"alpha"},
+			schema:            stubSchema{classesErr: errors.New("read schema failed")},
+			wantEntityRemoved: map[string]int{"alpha": 0},
+		},
+		{
+			name:     "per-namespace raft error continues to next namespace",
+			deleting: []string{"alpha", "beta"},
+			schema:   stubSchema{},
+			setupRaft: func(s *stubRaft) {
+				s.deleteUsersErr["alpha"] = errors.New("boom")
+			},
+			wantEntityRemoved: map[string]int{"alpha": 0, "beta": 1},
+		},
+		{
+			name:     "ErrNotLeader aborts the whole tick",
+			deleting: []string{"alpha", "beta"},
+			schema:   stubSchema{},
+			setupRaft: func(s *stubRaft) {
+				s.deleteUsersErr["alpha"] = types.ErrNotLeader
+			},
+			wantEntityRemoved: map[string]int{"alpha": 0, "beta": 0},
+			wantUntouchedNS:   []string{"beta"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raft := newStubRaft()
+			if tc.setupRaft != nil {
+				tc.setupRaft(raft)
+			}
+			ns := stubNamespaces{deleting: tc.deleting}
+			c := newTestCoordinator(t, ns, tc.schema, raft, alwaysLeader)
+			require.NoError(t, c.Tick(context.Background()))
 
-	// alpha aborts after the failed users call (no aliases, no classes,
-	// no entity removal). beta proceeds to entity removal.
-	assert.Contains(t, opsOf(raft.calls), "entity")
-	assert.Equal(t, 1, raft.removeEntityCall["beta"])
-	assert.Equal(t, 0, raft.removeEntityCall["alpha"])
-}
-
-func TestCoordinator_Tick_NotLeaderInsidePhaseAbortsWholeTick(t *testing.T) {
-	raft := newStubRaft()
-	raft.deleteUsersErr["alpha"] = types.ErrNotLeader
-	ns := stubNamespaces{deleting: []string{"alpha", "beta"}}
-	c := newTestCoordinator(t, ns, stubSchema{}, raft, alwaysLeader)
-	c.Tick(context.Background())
-
-	// beta must not be processed.
-	for _, call := range raft.calls {
-		assert.NotEqual(t, "beta", call.from, "tick should have aborted before reaching beta")
+			for n, want := range tc.wantEntityRemoved {
+				assert.Equal(t, want, raft.removeEntityCall[n],
+					"namespace %q: unexpected RemoveNamespaceEntity count", n)
+			}
+			for _, n := range tc.wantUntouchedNS {
+				for _, call := range raft.calls {
+					assert.NotEqual(t, n, call.from,
+						"namespace %q must not be touched after the tick aborted", n)
+				}
+			}
+		})
 	}
 }
 

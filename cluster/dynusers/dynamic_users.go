@@ -12,6 +12,7 @@
 package dynusers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +61,7 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		}
 	}
 
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
+	return m.dynUser.CreateUser(context.Background(), req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
 }
 
 func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
@@ -72,7 +73,7 @@ func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUserWithKey(req.UserId, req.ApiKeyFirstLetters, req.WeakHash, req.CreatedAt)
+	return m.dynUser.CreateUserWithKey(context.Background(), req.UserId, req.ApiKeyFirstLetters, req.WeakHash, req.CreatedAt)
 }
 
 func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
@@ -84,7 +85,7 @@ func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.DeleteUser(req.UserId)
+	return m.dynUser.DeleteUser(context.Background(), req.UserId)
 }
 
 func (m *Manager) DeleteUsersInNamespace(c *cmd.ApplyRequest) error {
@@ -110,7 +111,7 @@ func (m *Manager) ActivateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.ActivateUser(req.UserId)
+	return m.dynUser.ActivateUser(context.Background(), req.UserId)
 }
 
 func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
@@ -122,7 +123,7 @@ func (m *Manager) SuspendUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.DeactivateUser(req.UserId, req.RevokeKey)
+	return m.dynUser.DeactivateUser(context.Background(), req.UserId, req.RevokeKey)
 }
 
 func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
@@ -134,7 +135,7 @@ func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.RotateKey(req.UserId, req.ApiKeyFirstLetters, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
+	return m.dynUser.RotateKey(context.Background(), req.UserId, req.ApiKeyFirstLetters, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
 }
 
 func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {

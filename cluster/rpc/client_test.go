@@ -140,14 +140,19 @@ func TestClient_Query_ParseError(t *testing.T) {
 }
 
 // TestFromRPCError_NamespaceSentinels covers the round-trip from
-// toRPCError on the server to fromRPCError on the client for the three
-// namespace sentinels. After this round-trip a caller must be able to
-// errors.Is the returned error to the original sentinel.
+// toRPCError on the server to fromRPCError on the client for every
+// namespace sentinel. After this round-trip a caller must be able to
+// errors.Is the returned error to the original sentinel — the RPC pair
+// is the only sentinel re-chain point.
 func TestFromRPCError_NamespaceSentinels(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
 	}{
+		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
+		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
+		{name: "ErrInvalidState", send: namespaces.ErrInvalidState},
+		{name: "ErrInvalidStateTransition", send: namespaces.ErrInvalidStateTransition},
 		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
 		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
 		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
@@ -164,14 +169,18 @@ func TestFromRPCError_NamespaceSentinels(t *testing.T) {
 
 // TestClient_Apply_ReChainsNamespaceSentinels exercises the live
 // Client.Apply -> mock server -> client return path. The leader's apply
-// can return ErrNamespaceDeleting/Gone/NotEmpty when a follower forwards
-// a create-like request; the round-trip must preserve the typed sentinel
+// can return any namespace sentinel when a follower forwards a
+// create-like request; the round-trip must preserve the typed sentinel
 // so handler errors.Is checks classify correctly.
 func TestClient_Apply_ReChainsNamespaceSentinels(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
 	}{
+		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
+		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
+		{name: "ErrInvalidState", send: namespaces.ErrInvalidState},
+		{name: "ErrInvalidStateTransition", send: namespaces.ErrInvalidStateTransition},
 		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
 		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
 		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},

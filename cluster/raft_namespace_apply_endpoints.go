@@ -15,10 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // AddNamespace proposes an AddNamespace RAFT command. The apply side rejects
@@ -45,7 +43,7 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) error {
 	}
 	version, err := s.Execute(ctx, command)
 	if err != nil {
-		return rewrapNamespaceApplyError(err)
+		return err
 	}
 	if err := s.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for local apply: %w", err)
@@ -76,7 +74,7 @@ func (s *Raft) ChangeNamespaceState(ctx context.Context, name string, target cmd
 	}
 	version, err := s.Execute(ctx, command)
 	if err != nil {
-		return rewrapNamespaceApplyError(err)
+		return err
 	}
 	if err := s.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for local apply: %w", err)
@@ -106,37 +104,10 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) error {
 	}
 	version, err := s.Execute(ctx, command)
 	if err != nil {
-		return rewrapNamespaceApplyError(err)
+		return err
 	}
 	if err := s.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for local apply: %w", err)
 	}
 	return nil
-}
-
-// rewrapNamespaceApplyError restores typed sentinels on FSM errors that
-// flowed back through the follower→leader gRPC hop. The RPC layer serializes
-// the error to a plain status string and so erases errors.Is chains. The
-// handler matches usecasesNamespaces.Err* via errors.Is, so we string-match
-// known sentinels and rewrap. Mirrors the pattern in
-// cluster/raft_replication_apply_endpoints.go.
-func rewrapNamespaceApplyError(err error) error {
-	if err == nil {
-		return nil
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, usecasesNamespaces.ErrAlreadyExists.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrAlreadyExists, msg)
-	case strings.Contains(msg, usecasesNamespaces.ErrNotFound.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrNotFound, msg)
-	case strings.Contains(msg, usecasesNamespaces.ErrBadRequest.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrBadRequest, msg)
-	case strings.Contains(msg, usecasesNamespaces.ErrInvalidStateTransition.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrInvalidStateTransition, msg)
-	case strings.Contains(msg, usecasesNamespaces.ErrInvalidState.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrInvalidState, msg)
-	default:
-		return err
-	}
 }

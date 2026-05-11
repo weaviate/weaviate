@@ -360,8 +360,15 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		if params.Body.Namespace == "" {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("namespace is required on namespace-enabled clusters")))
 		}
+		// Fast-path local check before the RAFT round-trip. The apply
+		// path re-validates against authoritative state and surfaces
+		// the same sentinels (mapped below), so the worst case for a
+		// stale local view is a redundant 422.
 		if !h.namespaces.Exists(params.Body.Namespace) {
 			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q does not exist", params.Body.Namespace)))
+		}
+		if !h.namespaces.IsActive(params.Body.Namespace) {
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q is being deleted", params.Body.Namespace)))
 		}
 	}
 
@@ -390,7 +397,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 			createdAt = time.Time(params.Body.CreateTime).UTC()
 		}
 
-		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), createdAt); err != nil {
+		if err := h.dbUsers.CreateUserWithKey(ctx, params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), createdAt); err != nil {
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 		}
 
@@ -427,7 +434,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.dbUsers.CreateUser(internalKey, hash, userIdentifier, apiKey[:3], params.Body.Namespace, time.Now()); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], params.Body.Namespace, time.Now()); err != nil {
 		// Apply-time race: surface a deleted/deleting namespace as 422 so
 		// clients can retry against current state.
 		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {
@@ -473,7 +480,7 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.dbUsers.RotateKey(params.UserID, apiKey[:3], hash, oldUserIdentifier, newUserIdentifier); err != nil {
+	if err := h.dbUsers.RotateKey(ctx, params.UserID, apiKey[:3], hash, oldUserIdentifier, newUserIdentifier); err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("rotate key: %w", err)))
 	}
 
@@ -553,7 +560,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		}
 	}
 
-	if err := h.dbUsers.DeleteUser(params.UserID); err != nil {
+	if err := h.dbUsers.DeleteUser(ctx, params.UserID); err != nil {
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	return users.NewDeleteUserNoContent()
@@ -603,7 +610,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		revokeKey = *params.Body.RevokeKey
 	}
 
-	if err := h.dbUsers.DeactivateUser(params.UserID, revokeKey); err != nil {
+	if err := h.dbUsers.DeactivateUser(ctx, params.UserID, revokeKey); err != nil {
 		return users.NewDeactivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deactivate user: %w", err)))
 	}
 
@@ -644,7 +651,7 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 		return users.NewActivateUserConflict()
 	}
 
-	if err := h.dbUsers.ActivateUser(params.UserID); err != nil {
+	if err := h.dbUsers.ActivateUser(ctx, params.UserID); err != nil {
 		return users.NewActivateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("activate user: %w", err)))
 	}
 

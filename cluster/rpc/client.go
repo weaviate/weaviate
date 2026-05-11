@@ -282,10 +282,11 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	return cl.leaderRpcConn, nil
 }
 
-// fromRPCError parses the error sent by rpc server
-// to identify status and chain sentinel errors accordingly.
-// This is helpful on the client side to make decision based on
-// type-full errors rather than just string-based error.
+// fromRPCError parses the error sent by rpc server to identify status
+// and chain sentinel errors accordingly. This is the only sentinel
+// re-chain point on the client side; the gRPC hop drops the errors.Is
+// chain and callers expect typed sentinels they can match against.
+// Sentinels that share a status code are disambiguated by message text.
 func fromRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -310,6 +311,18 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrNamespaceNotEmpty)
 		case strings.Contains(msg, namespaces.ErrNamespaceDeleting.Error()):
 			return errors.Join(err, namespaces.ErrNamespaceDeleting)
+		case strings.Contains(msg, namespaces.ErrInvalidStateTransition.Error()):
+			return errors.Join(err, namespaces.ErrInvalidStateTransition)
+		case strings.Contains(msg, namespaces.ErrInvalidState.Error()):
+			return errors.Join(err, namespaces.ErrInvalidState)
+		}
+	case codes.AlreadyExists:
+		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
+			return errors.Join(err, namespaces.ErrAlreadyExists)
+		}
+	case codes.InvalidArgument:
+		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {
+			return errors.Join(err, namespaces.ErrBadRequest)
 		}
 	default:
 		// All other codes pass through unchanged.

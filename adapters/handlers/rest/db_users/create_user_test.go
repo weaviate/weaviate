@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -86,7 +87,7 @@ func TestCreateInternalServerError(t *testing.T) {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
 			}
 			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
-				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
+				dynUser.On("CreateUser", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
 			h := dynUserHandler{
@@ -146,7 +147,7 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -166,7 +167,7 @@ func TestCreateSuccessWithKey(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("CreateUserWithKey", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUserWithKey", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,
@@ -359,7 +360,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				expectedKey := apikey.MakeUserKey(userID, tt.body.Namespace)
 				dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-				dynUser.On("CreateUser", expectedKey, mock.Anything, mock.Anything, mock.Anything, tt.body.Namespace, mock.Anything).Return(nil)
+				dynUser.On("CreateUser", mock.Anything, expectedKey, mock.Anything, mock.Anything, mock.Anything, tt.body.Namespace, mock.Anything).Return(nil)
 			}
 
 			ns := namespaces.NewMockExister(t)
@@ -368,6 +369,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				known[n] = struct{}{}
 			}
 			ns.On("Exists", mock.AnythingOfType("string")).Return(func(name string) bool {
+				_, ok := known[name]
+				return ok
+			}).Maybe()
+			ns.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
 				_, ok := known[name]
 				return ok
 			}).Maybe()
@@ -384,6 +389,43 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			assert.IsType(t, tt.wantStatus, res)
 		})
 	}
+}
+
+// TestCreateUser_DeletingNamespaceFastPath asserts the handler returns
+// 422 without dispatching to RAFT when the namespace exists but is
+// being deleted. The apply path would catch this too, but the local
+// IsActive check avoids the round-trip on a guaranteed-failed request.
+func TestCreateUser_DeletingNamespaceFastPath(t *testing.T) {
+	const userID = "user"
+	principal := &models.Principal{IsGlobalOperator: true}
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+
+	// dynUser must not be called: the local check has to short-circuit.
+	dynUser := NewMockDbUserAndRolesGetter(t)
+
+	ns := namespaces.NewMockExister(t)
+	ns.On("Exists", "ns1").Return(true)
+	ns.On("IsActive", "ns1").Return(false)
+
+	h := dynUserHandler{
+		dbUsers:           dynUser,
+		authorizer:        authorizer,
+		dbUserEnabled:     true,
+		namespacesEnabled: true,
+		namespaces:        ns,
+	}
+
+	res := h.createUser(users.CreateUserParams{
+		UserID:      userID,
+		HTTPRequest: req,
+		Body:        users.CreateUserBody{Namespace: "ns1"},
+	}, principal)
+	parsed, ok := res.(*users.CreateUserUnprocessableEntity)
+	assert.True(t, ok, "expected 422, got %T", res)
+	require.NotNil(t, parsed.Payload)
+	require.Len(t, parsed.Payload.Error, 1)
+	assert.Contains(t, parsed.Payload.Error[0].Message, "being deleted")
 }
 
 // TestCreateUser_MapsApplyNamespaceErrorsTo422 asserts the createUser
@@ -427,10 +469,11 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 			expectedKey := apikey.MakeUserKey(userID, "ns1")
 			dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
 			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-			dynUser.On("CreateUser", expectedKey, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
+			dynUser.On("CreateUser", mock.Anything, expectedKey, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
 
 			ns := namespaces.NewMockExister(t)
 			ns.On("Exists", mock.AnythingOfType("string")).Return(true).Maybe()
+			ns.On("IsActive", mock.AnythingOfType("string")).Return(true).Maybe()
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,

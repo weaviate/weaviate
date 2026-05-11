@@ -661,13 +661,10 @@ func TestGetAlias(t *testing.T) {
 	})
 }
 
-// TestAliasNamespacePrefixPreserved guards the canonicalAlias contract for
-// namespace-qualified aliases: the lowercase namespace prefix must be
-// preserved verbatim so callers like SchemaNamespaceLister can match
-// "<ns>:" to find every alias in a namespace. Before the fix, canonical
-// uppercased the very first character and stored "delhappy:Films" as
-// "Delhappy:Films" — making AliasesInNamespace("delhappy") return nothing
-// and the namespace-delete cascade orphan the alias.
+// TestAliasNamespacePrefixPreserved checks that creating an alias with a
+// namespace-qualified name stores it under a key whose namespace prefix is
+// kept lowercase, and that ResolveAlias still finds it under that key. Only
+// the class portion of the name is normalized.
 func TestAliasNamespacePrefixPreserved(t *testing.T) {
 	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
 	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}

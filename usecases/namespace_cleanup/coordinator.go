@@ -20,6 +20,13 @@
 // alias points at a class. Class deletion is the slow part, which is
 // why it lives here rather than in the request path.
 //
+// The split is driven by two concerns. First, class deletion can run
+// long on large collections and would otherwise risk request
+// timeouts. Second, a node can crash mid-delete at any time, so the
+// cluster needs an after-the-fact cleanup path regardless; once that
+// path exists, routing the bulk of the work through it is cheaper
+// than duplicating the logic in the request handler.
+//
 // The user delete is re-run on every tick as a safety net in case the
 // handler crashed between marking and the eager drain.
 //
@@ -161,7 +168,13 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 		return types.ErrNotLeader
 	}
 	if err := c.raft.RemoveNamespaceEntity(ctx, ns); err != nil {
-		// This can happen when an in-flight requests creates a new entity between cleanup start and here
+		// Residuals can survive into RemoveNamespaceEntity when the
+		// coordinator's local view lagged the leader (a class or alias
+		// from before MarkDeleting wasn't visible when we enumerated)
+		// or when a leader-flip mid-tick split the cleanup across two
+		// nodes. The apply handler re-checks against authoritative
+		// state and rejects with ErrNamespaceNotEmpty; the next tick
+		// re-enumerates and retries.
 		if errors.Is(err, namespaces.ErrNamespaceNotEmpty) {
 			return nil
 		}
