@@ -1275,8 +1275,8 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		}
 
 		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
-			if time.Since(*lastLog) >= config.loggingFrequency {
-				*lastLog = time.Now()
+			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
+				s.asyncRepLastLog.Store(time.Now().Unix())
 				s.index.logger.
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
@@ -1284,7 +1284,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 					WithField("hosts", s.getLastComparedHosts()).
 					Debug("hashbeat iteration successfully completed: no differences were found")
 			}
-			return false, replica.ErrNoDiffFound
+			return false, replicaerrors.ErrNoDiffFound
 		}
 
 		if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
@@ -1416,7 +1416,7 @@ func (s *Shard) hashBeat(
 			}
 			return stats, err
 		}
-		if errors.Is(err, replica.ErrNoDiffFound) {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			return []*hashBeatHostStats{{
 				hashtreeDiffStartTime: hashtreeDiffStart,
 				hashtreeDiffTook:      time.Since(hashtreeDiffStart),
