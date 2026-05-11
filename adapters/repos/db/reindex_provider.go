@@ -448,10 +448,23 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		unitTasks := p.reindexTasks[task.TaskDescriptor][unitID]
 		p.mu.Unlock()
 
+		// rehydrate is true when we're rebuilding tasks from disk (cache
+		// was lost across a node restart). The fresh task instances do
+		// NOT have ingest/reindex buckets loaded into the LSM store and
+		// do NOT have double-write callbacks registered, so calling
+		// RunSwapOnShard directly would fail with "reindex bucket not
+		// found" for every property. Before this fix, the failure was
+		// swallowed, the task transitioned to FINISHED anyway, and the
+		// migration was left permanently half-applied.
+		//
+		// RunReindexOnlyOnShard is idempotent once rt.IsReindexed() is
+		// true on disk — it calls OnAfterLsmInit (which loads the
+		// ingest/reindex buckets and registers callbacks because
+		// IsReindexed && !IsSwapped), then exits on the first iteration
+		// without doing additional reindex work. So we use it purely as
+		// a rehydration step before RunSwapOnShard.
+		rehydrate := false
 		if len(unitTasks) == 0 {
-			// Fallback: node was restarted after reindex but before swap.
-			// Create new tasks — callbacks won't be registered but the swap
-			// can still complete if the reindex data is on disk.
 			var err error
 			unitTasks, err = p.createReindexTasks(payload)
 			if err != nil {
@@ -459,18 +472,42 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 					Error("reindex provider: OnGroupCompleted: creating reindex tasks")
 				continue
 			}
+			rehydrate = true
 			logger.WithField("unit", unitID).
-				Info("reindex provider: OnGroupCompleted: using freshly created tasks (node likely restarted)")
+				Info("reindex provider: OnGroupCompleted: rebuilding tasks from disk (node likely restarted); will rehydrate before swap")
 		}
 
+		allSwapped := true
 		for _, reindexTask := range unitTasks {
+			if rehydrate {
+				if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
+					logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+						WithError(err).Error("reindex provider: OnGroupCompleted: rehydrate failed; swap will not run for this task")
+					allSwapped = false
+					continue
+				}
+			}
 			if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed")
+					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed — migration is half-applied on this shard")
+				allSwapped = false
 			}
 		}
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Info("reindex provider: swap complete")
+		if allSwapped {
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Info("reindex provider: swap complete")
+		} else {
+			// Loud, structured log so operators and log queries can find
+			// half-applied migrations. The DTM cannot be told via this
+			// hook (the unit is already terminal by definition — that's
+			// what triggered this callback), so we surface it the only
+			// way we can: an unambiguous error-level log line at the end
+			// of OnGroupCompleted. A proper fix (RAFT-stored per-node
+			// post-swap acknowledgement) is tracked as follow-up work
+			// on issue #10675.
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; downstream schema state may be inconsistent")
+		}
 	}
 }
 

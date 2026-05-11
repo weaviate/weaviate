@@ -493,8 +493,22 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		if isMerged {
 			logger.Debug("merged, not swapped. starting ingest buckets")
 		} else {
-			if !rt.IsReindexed() {
-				logger.Debug("not reindexed. starting reindex buckets")
+			// Load reindex buckets whenever they are expected to still be
+			// on disk. They are removed during runtimeSwap (between
+			// markPrepended and markMerged); once IsPrepended is set the
+			// dirs may be gone. We must load them on a resume from
+			// "IsReindexed && !IsPrepended" just as on a fresh start
+			// (!IsReindexed). The previous condition only handled the
+			// fresh-start case, so after a crash between markReindexed and
+			// runtimeSwap a follow-up RunSwapOnShard would fail with
+			// "reindex bucket not found" even though the dirs were still
+			// on disk.
+			if !rt.IsPrepended() {
+				if !rt.IsReindexed() {
+					logger.Debug("not reindexed. starting reindex buckets")
+				} else {
+					logger.Debug("reindexed, not prepended. resuming reindex buckets from disk")
+				}
 
 				if err = t.loadReindexBuckets(ctx, logger, shard, props); err != nil {
 					err = fmt.Errorf("starting reindex buckets: %w", err)
