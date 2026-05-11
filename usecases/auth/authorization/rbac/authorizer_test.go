@@ -573,6 +573,8 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	assert.Equal(t, principal.Groups, entry.Data["groups"])
 	assert.Equal(t, authorization.ComponentName, entry.Data["component"])
 	assert.Equal(t, authorization.READ, entry.Data["request_action"])
+	assert.Equal(t, AuditLogVersion, entry.Data["rbac_log_version"])
+	assert.Contains(t, entry.Data, "source_ip", "source_ip must be present when IpInAuditDisabled=false")
 
 	// Verify the final result matches the logged permissions
 	assert.ElementsMatch(t, testResources, allowedResources,
@@ -625,6 +627,8 @@ func TestAuthorizeResourceAggregation(t *testing.T) {
 	assert.Equal(t, "admin-user", lastEntry.Data["user"])
 	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
 	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+	assert.Equal(t, AuditLogVersion, lastEntry.Data["rbac_log_version"])
+	assert.Contains(t, lastEntry.Data, "source_ip", "source_ip must be present when IpInAuditDisabled=false")
 
 	// Verify permissions field exists
 	permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)
@@ -696,6 +700,8 @@ func TestFilterAuthorizedResourcesAggregation(t *testing.T) {
 	assert.Equal(t, "admin-user", lastEntry.Data["user"])
 	assert.Equal(t, authorization.ComponentName, lastEntry.Data["component"])
 	assert.Equal(t, authorization.READ, lastEntry.Data["request_action"])
+	assert.Equal(t, AuditLogVersion, lastEntry.Data["rbac_log_version"])
+	assert.Contains(t, lastEntry.Data, "source_ip", "source_ip must be present when IpInAuditDisabled=false")
 
 	// Verify permissions field exists
 	permissions, ok := lastEntry.Data["permissions"].([]logrus.Fields)

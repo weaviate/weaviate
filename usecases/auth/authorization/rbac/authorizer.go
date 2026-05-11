@@ -124,11 +124,16 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 	}
 
 	logger := m.logger.WithFields(logrus.Fields{
-		"action":         "authorize",
-		"user":           principal.Username,
-		"component":      authorization.ComponentName,
-		"request_action": verb,
+		"action":           "authorize",
+		"user":             principal.Username,
+		"component":        authorization.ComponentName,
+		"request_action":   verb,
+		"rbac_log_version": AuditLogVersion,
 	})
+	if !m.rbacConf.IpInAuditDisabled {
+		sourceIp := ctx.Value("sourceIp")
+		logger = logger.WithField("source_ip", sourceIp)
+	}
 	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
 		logger = logger.WithField("client_identifier", clientIdentifier)
 	}
