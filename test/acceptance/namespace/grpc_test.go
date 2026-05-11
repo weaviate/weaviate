@@ -314,6 +314,44 @@ func TestNamespaces_GRPC(t *testing.T) {
 		assert.ElementsMatch(t, []string{"ns2-Memento", "ns2-Tenet"}, titles2)
 	})
 
+	t.Run("Search by filter is namespace-scoped", func(t *testing.T) {
+		// Filter parser sanity check on the gRPC Search path: each
+		// namespace's row carries its own ns-prefixed title, so an exact
+		// match on "ns1-Inception" only hits user1's namespace and vice
+		// versa. Proves the qualified-class filter path round-trips
+		// through Search the same way it does through BatchDelete.
+		searchWithFilter := func(key, title string) (*pb.SearchReply, error) {
+			r := searchReq(class, 10)
+			r.Properties = &pb.PropertiesRequest{NonRefProperties: []string{"title"}}
+			r.Filters = &pb.Filters{
+				Operator:  pb.Filters_OPERATOR_EQUAL,
+				TestValue: &pb.Filters_ValueText{ValueText: title},
+				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}},
+			}
+			return grpcClient.Search(authCtx(key), r)
+		}
+
+		// user1 matches their own row; user2 sees nothing for the same filter.
+		resp1, err := searchWithFilter(user1Key, "ns1-Inception")
+		require.NoError(t, err)
+		require.Len(t, resp1.Results, 1)
+		assert.Equal(t, "ns1-Inception", resp1.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
+
+		resp2Miss, err := searchWithFilter(user2Key, "ns1-Inception")
+		require.NoError(t, err)
+		assert.Empty(t, resp2Miss.Results)
+
+		// And the symmetric case: user2's row is only visible to user2.
+		resp2, err := searchWithFilter(user2Key, "ns2-Tenet")
+		require.NoError(t, err)
+		require.Len(t, resp2.Results, 1)
+		assert.Equal(t, "ns2-Tenet", resp2.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
+
+		resp1Miss, err := searchWithFilter(user1Key, "ns2-Tenet")
+		require.NoError(t, err)
+		assert.Empty(t, resp1Miss.Results)
+	})
+
 	t.Run("Aggregate count is namespace-scoped", func(t *testing.T) {
 		for _, key := range []string{user1Key, user2Key} {
 			resp, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{
