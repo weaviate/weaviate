@@ -163,6 +163,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -558,6 +559,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+	// Construct the usage-limits Manager now that its ObjectCounter (the
+	// DB) exists, then install it on the DB so each Index inherits it
+	// when loaded (init.go) or created at runtime (migrator.go). Both
+	// must happen *before* WaitForStartup loads the existing indices.
+	// See docs/usage_limits.md.
+	appState.UsageLimits = usagelimits.NewManager(usagelimits.Config{
+		ErrorMessage:    appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		MaxObjectsCount: appState.ServerConfig.Config.UsageLimits.MaxObjectsCount,
+	}, repo)
+	repo.SetUsageLimits(appState.UsageLimits)
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
@@ -2196,6 +2207,10 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered.MaximumAllowedObjectsCount = appState.ServerConfig.Config.UsageLimits.MaxObjectsCount
+		registered.MaximumAllowedTenantsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection
+		registered.MaximumAllowedShardsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection
+		registered.UsageLimitsErrorMessage = appState.ServerConfig.Config.UsageLimits.ErrorMessage
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AsyncReplicationSchedulerWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers
 		registered.AsyncReplicationHashtreeInitConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency

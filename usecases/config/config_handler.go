@@ -115,6 +115,30 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
+// UsageLimitsConfig holds the env-var and runtime-overrideable usage-limit
+// knobs introduced by the Free-Tier guardrails RFC. The collection-count
+// limit lives separately on SchemaHandlerConfig for backward compatibility
+// with the pre-existing MAXIMUM_ALLOWED_COLLECTIONS_COUNT env var.
+//
+// All fields are *runtime.DynamicValue[*]; nil means "unset" (treated as
+// unlimited / default). Operators set values via env vars at startup and
+// can also override at runtime via the YAML runtime-overrides file.
+type UsageLimitsConfig struct {
+	// ErrorMessage is the operator-overridable template used to render the
+	// `message` field of the structured limit-exceeded response. Recognized
+	// placeholders are {limit} and {value}; see usagelimits.RenderTemplate.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
+	// MaxObjectsCount caps the total live object count. Negative (incl.
+	// the default -1) means unlimited.
+	MaxObjectsCount *runtime.DynamicValue[int] `json:"max_objects_count" yaml:"max_objects_count"`
+	// MaxTenantsPerCollection caps the number of tenants on a multi-tenant
+	// class. Checked at tenant create time only.
+	MaxTenantsPerCollection *runtime.DynamicValue[int] `json:"max_tenants_per_collection" yaml:"max_tenants_per_collection"`
+	// MaxShardsPerCollection caps the requested shard count of a class
+	// create request. Config-time only.
+	MaxShardsPerCollection *runtime.DynamicValue[int] `json:"max_shards_per_collection" yaml:"max_shards_per_collection"`
+}
+
 type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
@@ -186,6 +210,7 @@ type Config struct {
 	Sentry                              *entsentry.ConfigOpts  `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig    `json:"schema" yaml:"schema"`
+	UsageLimits                         UsageLimitsConfig      `json:"usage_limits" yaml:"usage_limits"`
 	DistributedTasks                    DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                    `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
@@ -338,7 +363,36 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateUsageLimitsReplicationLinkage(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
+}
+
+// validateUsageLimitsReplicationLinkage enforces the RF=1 precondition for the
+// object/tenant/shard usage limits: only the RF=1 deployment shape is
+// supported, so when any of those caps is set we require
+// REPLICATION_MAXIMUM_FACTOR=1 so per-class RF cannot exceed 1. The collection
+// cap is excluded because it predates this PR and tying it would be a breaking
+// change for existing operators.
+func (c *Config) validateUsageLimitsReplicationLinkage() error {
+	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
+		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
+		dynamicIntSet(c.UsageLimits.MaxShardsPerCollection)
+	if !hasLimit {
+		return nil
+	}
+	if c.Replication.MaximumFactor != 1 {
+		return fmt.Errorf("usage limits require REPLICATION_MAXIMUM_FACTOR=1; got %d", c.Replication.MaximumFactor)
+	}
+	return nil
+}
+
+// dynamicIntSet reports whether dv carries a configured (>=0) value. A nil
+// DynamicValue or a negative value means "unset / unlimited".
+func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
+	return dv != nil && dv.Get() >= 0
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

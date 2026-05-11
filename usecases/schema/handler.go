@@ -157,6 +157,16 @@ type Handler struct {
 	asyncIndexingEnabled bool
 }
 
+// errorMessageTemplate returns the operator-overridable usage-limit
+// message template, or "" when unset (in which case the usagelimits
+// package falls back to its built-in default). See docs/usage_limits.md.
+func (h *Handler) errorMessageTemplate() string {
+	if dv := h.config.UsageLimits.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
+}
+
 // NewHandler creates a new handler
 func NewHandler(
 	schemaReader SchemaReader,
