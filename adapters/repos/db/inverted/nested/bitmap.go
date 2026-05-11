@@ -225,26 +225,27 @@ func (o *BitmapOps) OrAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar.
 	return raw, release
 }
 
-// CopresenceByMaskAll returns the union of values from all input bitmaps
-// whose (value & mask) projection appears in every input. Result is
-// allocated in a pool buffer sized to the largest input. Returns an empty
+// CrossLeafCopresenceAll returns the union of values from all input
+// bitmaps whose (root, docID) projection appears in every input — leaf
+// differences across inputs are tolerated. Equivalent to
+// sroar.CopresenceByMask with mask=zeroLeafBits. Result is allocated in
+// a pool buffer sized to the largest input. Returns an empty
 // (non-pooled) bitmap when raws is empty.
 //
-// Mask shape requirement: mask & 0xFFFF == 0xFFFF (sroar constraint).
-// Other shapes silently yield incorrect results.
-//
-// Use case: cross-disjoint-leaf AND under position-level evaluation —
-// each input is a raw position bitmap containing positions where one
-// operand holds, and the mask zeroes leaf bits so co-presence groups
-// by (root, docID). The returned raw bitmap composes with further raw
-// operations within the same nested root.
+// Use case: cross-disjoint-leaf AND under position-level evaluation.
+// When operands sit at different leaves of the same element (sibling
+// sub-arrays without a Phase 3 scalar bridge), raw AndAll gives ∅ even
+// when the same physical element satisfies every operand. This op keeps
+// the contributing leaf positions while filtering by (root, doc)
+// co-presence, so the result composes raw with further within-root
+// operations.
 //
 // TODO aliszka:nested_filtering: revisit buffer sizing. max(LenInBytes)
 // is usually adequate since the AND step at the heart of copresence can
 // only shrink contributions, but heavy overlap with disjoint groupings
 // could still grow the result above max. Sum of input sizes is the safe
 // upper bound. Profile to pick the sweet spot.
-func (o *BitmapOps) CopresenceByMaskAll(raws []*sroar.Bitmap, mask uint64) (raw *sroar.Bitmap, release func()) {
+func (o *BitmapOps) CrossLeafCopresenceAll(raws []*sroar.Bitmap) (raw *sroar.Bitmap, release func()) {
 	if len(raws) == 0 {
 		return sroar.NewBitmap(), func() {}
 	}
@@ -255,5 +256,5 @@ func (o *BitmapOps) CopresenceByMaskAll(raws []*sroar.Bitmap, mask uint64) (raw 
 		}
 	}
 	buf, release := o.pool.Get(maxLen)
-	return sroar.CopresenceByMaskToBuf(raws, mask, buf), release
+	return sroar.CopresenceByMaskToBuf(raws, zeroLeafBits, buf), release
 }

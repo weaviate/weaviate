@@ -608,7 +608,7 @@ func TestBitmapOps_OrAll(t *testing.T) {
 	})
 }
 
-func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
+func TestBitmapOps_CrossLeafCopresenceAll(t *testing.T) {
 	ops := newTrackingOps(t)
 
 	// Co-presence groups by (root, doc) via the package-level zeroLeafBits
@@ -616,7 +616,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 	// inside the docID region are all set).
 
 	t.Run("empty input returns empty bitmap", func(t *testing.T) {
-		result, release := ops.CopresenceByMaskAll(nil, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll(nil)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -626,7 +626,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		bm := sroar.NewBitmap()
 		bm.Set(Encode(1, 1, 100))
 		bm.Set(Encode(1, 2, 100))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{bm}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{bm})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{Encode(1, 1, 100), Encode(1, 2, 100)}, result.ToArray())
@@ -636,7 +636,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		a := sroar.NewBitmap()
 		a.Set(Encode(1, 1, 100))
 		empty := sroar.NewBitmap()
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, empty}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, empty})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -651,7 +651,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 2, 1))
 		or.Set(Encode(1, 3, 1))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{
@@ -666,7 +666,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		a.Set(Encode(1, 1, 8))
 		or := sroar.NewBitmap()
 		or.Set(Encode(2, 1, 8))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -677,7 +677,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		a.Set(Encode(1, 1, 1))
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 2, 2))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -691,7 +691,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		a.Set(Encode(1, 1, 3))
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 2, 2))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{Encode(1, 1, 2), Encode(1, 2, 2)}, result.ToArray())
@@ -704,7 +704,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 2, 1))
 		or.Set(Encode(2, 2, 1))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{
@@ -721,7 +721,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		a.Set(Encode(2, 1, 9))
 		or := sroar.NewBitmap()
 		or.Set(Encode(2, 2, 9))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{Encode(2, 1, 9), Encode(2, 2, 9)}, result.ToArray())
@@ -738,7 +738,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 5, 100))
 		or.Set(Encode(3, 4, 100))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{Encode(3, 3, 100), Encode(3, 4, 100)}, result.ToArray())
@@ -751,7 +751,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		b.Set(Encode(1, 2, 5))
 		c := sroar.NewBitmap()
 		c.Set(Encode(1, 3, 5))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, b, c}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b, c})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{
@@ -766,7 +766,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		b.Set(Encode(1, 2, 5))
 		c := sroar.NewBitmap()
 		c.Set(Encode(2, 3, 5))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, b, c}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b, c})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -783,7 +783,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		b.Set(Encode(2, 2, 5))
 		c := sroar.NewBitmap()
 		c.Set(Encode(1, 3, 5))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, b, c}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b, c})
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{
@@ -799,7 +799,7 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 2, 2))
 		or.Set(Encode(1, 2, 4))
-		result, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		requireBitmapValid(t, result)
 		// ToArray returns values in ascending uint64 order. With leaf bits at
@@ -818,21 +818,21 @@ func TestBitmapOps_CopresenceByMaskAll(t *testing.T) {
 		or := sroar.NewBitmap()
 		or.Set(Encode(1, 2, 1))
 		orBefore := or.ToArray()
-		_, release := ops.CopresenceByMaskAll([]*sroar.Bitmap{a, or}, zeroLeafBits)
+		_, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
 		defer release()
 		assert.Equal(t, aBefore, a.ToArray())
 		assert.Equal(t, orBefore, or.ToArray())
 	})
 }
 
-// TestBitmapOps_CopresenceByMaskAll_IdxLoopSimulation simulates the
+// TestBitmapOps_CrossLeafCopresenceAll_IdxLoopSimulation simulates the
 // position-level eval cars-level AND combining step end-to-end. For
 // each (garage K, car L) iteration, it narrows the per-condition raw
 // bitmaps by car_scope = _idx.garages.cars[L] ∩ _idx.garages[K] and
-// applies CopresenceByMaskAll. Per-iteration results are OR'd into the
+// applies CrossLeafCopresenceAll. Per-iteration results are OR'd into the
 // accumulator. Scenarios mirror the doc walkthroughs from the
 // position-level eval discussion.
-func TestBitmapOps_CopresenceByMaskAll_IdxLoopSimulation(t *testing.T) {
+func TestBitmapOps_CrossLeafCopresenceAll_IdxLoopSimulation(t *testing.T) {
 	ops := newTrackingOps(t)
 	// Co-presence groups by (root, doc) via the package-level zeroLeafBits.
 
@@ -850,7 +850,7 @@ func TestBitmapOps_CopresenceByMaskAll_IdxLoopSimulation(t *testing.T) {
 
 	// simulate runs the cars idx-loop. For each car_scope iteration, it
 	// narrows each condition by car_scope (raw AND) and feeds the narrowed
-	// bitmaps to CopresenceByMaskAll. Per-iteration results are OR'd into
+	// bitmaps to CrossLeafCopresenceAll. Per-iteration results are OR'd into
 	// the accumulator. Returns the accumulator's values.
 	simulate := func(t *testing.T, conds []*sroar.Bitmap, carScopes []*sroar.Bitmap) []uint64 {
 		t.Helper()
@@ -862,7 +862,7 @@ func TestBitmapOps_CopresenceByMaskAll_IdxLoopSimulation(t *testing.T) {
 				clone.And(carScope)
 				narrowed[i] = clone
 			}
-			result, release := ops.CopresenceByMaskAll(narrowed, zeroLeafBits)
+			result, release := ops.CrossLeafCopresenceAll(narrowed)
 			accumulator.Or(result)
 			release()
 		}
