@@ -159,8 +159,15 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 		return nil, fmt.Errorf("find bucket: %w", err)
 	}
 
+	// Use delimiter listing to get one-level-deep prefixes (one per backup ID)
+	// instead of scanning all objects
+	prefix := g.config.BackupPath
+	if prefix != "" {
+		prefix += "/"
+	}
+	iter := bucket.Objects(ctx, &storage.Query{Prefix: prefix, Delimiter: "/"})
+
 	var keys []string
-	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath, MatchGlob: "**/" + ubak.GlobalBackupFile})
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -174,7 +181,9 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 			return nil, fmt.Errorf("get next object: %w", err)
 		}
 
-		keys = append(keys, next.Name)
+		if next.Prefix != "" {
+			keys = append(keys, next.Prefix+ubak.GlobalBackupFile)
+		}
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
