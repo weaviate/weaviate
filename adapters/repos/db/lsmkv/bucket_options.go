@@ -47,6 +47,17 @@ func WithStrategy(strategy string) BucketOption {
 	}
 }
 
+// WithClassName attaches the canonical class name to the bucket. Set on the
+// objects bucket so storobj decoders stamp the canonical class on every
+// decoded object instead of trusting the on-disk className field. Leave unset
+// for buckets that do not hold storobj payloads.
+func WithClassName(className string) BucketOption {
+	return func(b *Bucket) error {
+		b.className = className
+		return nil
+	}
+}
+
 func WithMemtableThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.memtableThreshold = threshold

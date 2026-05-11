@@ -158,6 +158,16 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
+	// Canonical class name carried by the bucket. Required for any bucket
+	// whose readers go through the storobj decoders (the objects bucket); set
+	// via WithClassName at creation time so the decoders can stamp the
+	// canonical class on every decoded object instead of trusting the (no
+	// longer authoritative) on-disk class-name field. ClassName() returns an
+	// error when this is empty — buckets that do not hold storobj payloads
+	// (inverted, prop-length, etc.) leave it unset because those readers
+	// never call ClassName() in the first place.
+	className string
+
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
 	// without discontinuities in segment levels.
@@ -393,8 +403,12 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	i := 0
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryDisk(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -1968,6 +1982,21 @@ func (b *Bucket) Strategy() string {
 
 func (b *Bucket) DesiredStrategy() string {
 	return b.desiredStrategy
+}
+
+// ClassName returns the canonical class name supplied at bucket creation via
+// WithClassName. Storobj decoders use this value as the authoritative class
+// name and stamp it on every decoded object, ignoring the on-disk class-name
+// field. Buckets that do not hold storobj payloads (inverted, prop-length,
+// etc.) are not opened with WithClassName; calling ClassName() on them
+// returns an error rather than silently producing decoded objects with an
+// empty class — readers that need a class name must come from a bucket that
+// has one.
+func (b *Bucket) ClassName() (string, error) {
+	if b.className == "" {
+		return "", fmt.Errorf("bucket does not have a class name")
+	}
+	return b.className, nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

@@ -8863,13 +8863,6 @@ func init() {
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
@@ -8907,13 +8900,6 @@ func init() {
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -19468,13 +19454,6 @@ func init() {
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
@@ -19512,13 +19491,6 @@ func init() {
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,

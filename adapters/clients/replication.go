@@ -75,11 +75,11 @@ func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
 			retryer: newRetryer(),
 		},
 	}
-	// zstdEncoderPool reuses *zstd.Encoder instances across goroutines.
-	// A pool is required because zstd.Encoder is not safe for concurrent use:
-	// each caller acquires an exclusive encoder via Get, runs EncodeAll, then
-	// returns it with Put. New returns nil on failure; call sites guard with
-	// an ok+nil check and fall back to creating a fresh encoder.
+	// zstdEncoderPool amortizes *zstd.Encoder creation cost across calls.
+	// EncodeAll is safe for concurrent use on a single encoder, but allocating
+	// a fresh encoder on every RPC has measurable overhead; the pool reuses
+	// instances instead. New returns nil on failure; call sites guard with an
+	// ok+nil check and fall back to creating a fresh encoder.
 	c.zstdEncoderPool = sync.Pool{
 		New: func() any {
 			e, err := zstd.NewWriter(nil)
@@ -149,6 +149,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	req.Header.Set("X-Accept-Response-Encoding", "binary")
 
+	// No per-RPC retry: the async replication scheduler retries the full cycle
+	// on the next tick. Adding retries here would extend the per-shard context
+	// deadline without reducing overall repair latency.
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
@@ -204,10 +207,22 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.R
 	}
 }
 
-// HashTreeLevel fetches hash tree level digests
+// HashTreeLevel fetches hash tree level digests. discriminant.Size() must
+// equal hashtree.LeavesCount(level).
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hashtree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("nil discriminant")
+	}
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("discriminant size %d, expected %d (level-local) for level %d",
+			discriminant.Size(), expected, level)
+	}
 	body, err := discriminant.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)

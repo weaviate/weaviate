@@ -440,9 +440,23 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 	return clusterapi.StringsToUUIDs(resp.GetUuids()), nil
 }
 
+// HashTreeLevel fetches hash tree level digests via gRPC. discriminant must
+// be a level-local bitset of size hashtree.LeavesCount(level).
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
 	level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hashtree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("nil discriminant")
+	}
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("discriminant size %d, expected %d (level-local) for level %d",
+			discriminant.Size(), expected, level)
+	}
+
 	client, err := c.getClient(host)
 	if err != nil {
 		return nil, err

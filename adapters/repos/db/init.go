@@ -179,7 +179,7 @@ func (db *DB) init(ctx context.Context) error {
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 				AsyncReplicationConfig:                       asyncConfig,
-				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
+				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,

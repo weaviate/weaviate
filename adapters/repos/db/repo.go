@@ -44,7 +44,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -54,22 +53,22 @@ import (
 )
 
 type DB struct {
-	logger                         logrus.FieldLogger
-	localNodeName                  string
-	schemaGetter                   schemaUC.SchemaGetter
-	config                         Config
-	indices                        map[string]*Index
-	remoteIndex                    sharding.RemoteIndexClient
-	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
-	replicaClient                  replica.Client
-	nodeResolver                   cluster.NodeResolver
-	remoteNode                     *sharding.RemoteNode
-	promMetrics                    *monitoring.PrometheusMetrics
-	indexCheckpoints               *indexcheckpoint.Checkpoints
-	shutdown                       chan struct{}
-	startupComplete                atomic.Bool
-	resourceScanState              *resourceScanState
-	memMonitor                     *memwatch.Monitor
+	logger                    logrus.FieldLogger
+	localNodeName             string
+	schemaGetter              schemaUC.SchemaGetter
+	config                    Config
+	indices                   map[string]*Index
+	remoteIndex               sharding.RemoteIndexClient
+	asyncReplicationScheduler *AsyncReplicationScheduler
+	replicaClient             replica.Client
+	nodeResolver              cluster.NodeResolver
+	remoteNode                *sharding.RemoteNode
+	promMetrics               *monitoring.PrometheusMetrics
+	indexCheckpoints          *indexcheckpoint.Checkpoints
+	shutdown                  chan struct{}
+	startupComplete           atomic.Bool
+	resourceScanState         *resourceScanState
+	memMonitor                *memwatch.Monitor
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -231,39 +230,52 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
-	asyncReplicationWorkersLimiter := dynsemaphore.NewDynamicWeighted(func() int64 {
-		return int64(config.Replication.AsyncReplicationClusterMaxWorkers.Get())
-	})
+	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
+		context.Background(),
+		config.Replication,
+		promMetrics,
+		logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create async replication scheduler: %w", err)
+	}
 
 	db := &DB{
-		logger:                         logger,
-		localNodeName:                  localNodeName,
-		config:                         config,
-		indices:                        map[string]*Index{},
-		remoteIndex:                    remoteIndex,
-		nodeResolver:                   nodeResolver,
-		remoteNode:                     sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:                  replicaClient,
-		asyncReplicationWorkersLimiter: asyncReplicationWorkersLimiter,
-		promMetrics:                    promMetrics,
-		shutdown:                       make(chan struct{}),
-		maxNumberGoroutines:            int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:              newResourceScanState(),
-		memMonitor:                     memMonitor,
-		shardLoadLimiter:               loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
-		bucketLoadLimiter:              loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                      NewShardReindexerV3Noop(),
-		nodeSelector:                   nodeSelector,
-		schemaReader:                   schemaReader,
-		replicationFSM:                 replicationFSM,
-		bitmapBufPool:                  roaringset.NewBitmapBufPoolNoop(),
-		bitmapBufPoolClose:             func() {},
-		AsyncIndexingEnabled:           config.AsyncIndexingEnabled,
+		logger:                    logger,
+		localNodeName:             localNodeName,
+		config:                    config,
+		indices:                   map[string]*Index{},
+		remoteIndex:               remoteIndex,
+		nodeResolver:              nodeResolver,
+		remoteNode:                sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:             replicaClient,
+		asyncReplicationScheduler: asyncReplicationScheduler,
+		promMetrics:               promMetrics,
+		shutdown:                  make(chan struct{}),
+		maxNumberGoroutines:       int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:         newResourceScanState(),
+		memMonitor:                memMonitor,
+		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
+		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
+		reindexer:                 NewShardReindexerV3Noop(),
+		nodeSelector:              nodeSelector,
+		schemaReader:              schemaReader,
+		replicationFSM:            replicationFSM,
+		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:        func() {},
+		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,
 	}
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
+
+	schedulerOK := false
+	defer func() {
+		if !schedulerOK {
+			db.asyncReplicationScheduler.Close()
+		}
+	}()
 
 	// scheduler used by async indexing and hfresh background queues
 	db.shutDownWg.Add(1)
@@ -283,6 +295,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	schedulerOK = true
 	return db, nil
 }
 
@@ -472,6 +485,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
+	defer db.asyncReplicationScheduler.Close()
 	for id, index := range db.indices {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)

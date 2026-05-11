@@ -341,7 +341,8 @@ func Test_ServerReplicationService(t *testing.T) {
 				c := "C"
 				s := "S"
 				level := 1
-				discriminant := hashtree.NewBitset(8)
+				// level-local discriminant: size must equal hashtree.LeavesCount(level).
+				discriminant := hashtree.NewBitset(hashtree.LeavesCount(level))
 				discriminant.Set(0)
 				expectedDigests := []hashtree.Digest{
 					{1, 2},
