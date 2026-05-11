@@ -354,7 +354,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 	const ns1 = "customer1"
 
 	helper.CreateNamespace(t, ns1, adminKey)
-	defer helper.DeleteNamespace(t, ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
 
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
@@ -426,7 +426,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 	const ns1 = "customer1"
 
 	helper.CreateNamespace(t, ns1, adminKey)
-	defer helper.DeleteNamespace(t, ns1, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
 
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
