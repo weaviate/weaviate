@@ -97,6 +97,28 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 // text values in Property.RawValues. Use this only during migration reads where
 // retokenize strategies need the original text.
 func (s *Shard) AnalyzeObjectForMigration(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+	return s.AnalyzeObjectForMigrationWithOverlay(object, nil)
+}
+
+// AnalyzeObjectForMigrationWithOverlay is the overlay-aware variant of
+// AnalyzeObjectForMigration. The overlay forces the analyzer to treat
+// specific properties as if their inverted-index flag (and optionally their
+// tokenization) were already updated, even though the live RAFT-stored
+// schema still has them in the pre-migration state. The live schema is
+// never mutated.
+//
+// This is required by runtime reindex strategies that build a brand-new
+// inverted bucket (e.g. EnableFilterableStrategy, EnableSearchableStrategy):
+// during the backfill scan the schema flag is still false, so without the
+// overlay the analyzer would skip the very property the migration is
+// trying to populate, producing an empty target bucket.
+//
+// Pass overlay == nil for migrations that do not need a schema override
+// (e.g. retokenize / map→blockmax, where the source bucket already exists
+// and the schema flag is already true).
+func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
+	overlay map[string]inverted.PropertyOverlay,
+) ([]inverted.Property, []inverted.NilProperty, error) {
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
 	if c == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
@@ -107,6 +129,10 @@ func (s *Shard) AnalyzeObjectForMigration(object *storobj.Object) ([]inverted.Pr
 		return nil, nil, err
 	}
 
-	props, err := inverted.NewAnalyzerWithRawValues(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
+	analyzer := inverted.NewAnalyzerWithRawValues(s.isFallbackToSearchable, object.Class().String())
+	if len(overlay) > 0 {
+		analyzer = analyzer.WithSchemaOverlay(overlay)
+	}
+	props, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, err
 }

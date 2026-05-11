@@ -176,6 +176,13 @@ func (s *SearchableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 	// No-op: the searchable bucket already exists.
 }
 
+// AnalyzerOverlay returns nil: retokenize relies on raw values captured by
+// NewAnalyzerWithRawValues, not on the analyzer's tokenization output. The
+// live schema flag is already on.
+func (s *SearchableRetokenizeStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
+	return nil
+}
+
 // OnMigrationComplete is a no-op for the searchable strategy. The schema
 // update happens in the filterable strategy which runs after this one.
 func (s *SearchableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {

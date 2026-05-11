@@ -549,6 +549,13 @@ func (l *LazyLoadShard) AnalyzeObjectForMigration(object *storobj.Object) ([]inv
 	return l.shard.AnalyzeObjectForMigration(object)
 }
 
+func (l *LazyLoadShard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
+	overlay map[string]inverted.PropertyOverlay,
+) ([]inverted.Property, []inverted.NilProperty, error) {
+	l.mustLoad()
+	return l.shard.AnalyzeObjectForMigrationWithOverlay(object, overlay)
+}
+
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	l.mutex.Lock()
 	if l.loaded {

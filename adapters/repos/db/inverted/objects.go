@@ -68,30 +68,74 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if !HasAnyInvertedIndex(prop) {
+		// Apply the in-memory schema overlay (if any) before deciding whether
+		// to skip the property. This is how runtime reindex migrations
+		// (enable-filterable / enable-searchable) keep the analyzer in sync
+		// with the *target* schema while the live RAFT-stored schema still
+		// has the index flag off. The overlay never mutates the input prop;
+		// it produces a shallow copy with the relevant flags/tokenization
+		// overridden for the duration of this analysis call.
+		effective := a.effectiveProperty(prop)
+
+		if !HasAnyInvertedIndex(effective) {
 			continue
 		}
 
-		if schema.IsBlobDataType(prop.DataType) {
+		if schema.IsBlobDataType(effective.DataType) {
 			continue
 		}
 
-		if schema.IsRefDataType(prop.DataType) {
-			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
+		if schema.IsRefDataType(effective.DataType) {
+			if err := a.extendPropertiesWithReference(&out, effective, input, key); err != nil {
 				return nil, err
 			}
-		} else if schema.IsArrayDataType(prop.DataType) {
-			if err := a.extendPropertiesWithArrayType(&out, prop, input, key); err != nil {
+		} else if schema.IsArrayDataType(effective.DataType) {
+			if err := a.extendPropertiesWithArrayType(&out, effective, input, key); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key); err != nil {
+			if err := a.extendPropertiesWithPrimitive(&out, effective, input, key); err != nil {
 				return nil, err
 			}
 		}
 
 	}
 	return out, nil
+}
+
+// effectiveProperty returns either the input property unchanged (the common
+// case — overlay is nil or doesn't mention this property) or a shallow copy
+// with the relevant inverted-index flags / tokenization overridden. The
+// original is never modified. See PropertyOverlay for context.
+func (a *Analyzer) effectiveProperty(prop *models.Property) *models.Property {
+	if len(a.schemaOverlay) == 0 {
+		return prop
+	}
+	o, ok := a.schemaOverlay[prop.Name]
+	if !ok {
+		return prop
+	}
+	// Shallow copy. Pointer fields (IndexFilterable/IndexSearchable/...) are
+	// replaced with locally-owned bools so we never mutate the caller's
+	// schema. DataType / NestedProperties are read-only downstream so a
+	// shallow copy is safe.
+	clone := *prop
+	if o.ForceFilterable {
+		t := true
+		clone.IndexFilterable = &t
+	}
+	if o.ForceSearchable {
+		t := true
+		clone.IndexSearchable = &t
+	}
+	if o.ForceRangeable {
+		t := true
+		clone.IndexRangeFilters = &t
+	}
+	if o.Tokenization != "" {
+		clone.Tokenization = o.Tokenization
+	}
+	return &clone
 }
 
 func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {

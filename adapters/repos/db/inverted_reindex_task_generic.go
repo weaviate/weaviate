@@ -692,8 +692,15 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	}
 	defer store.ResumeObjectBucketCompaction(ctx)
 
+	// Build the analyzer overlay from the strategy. For from-scratch
+	// strategies (enable-filterable / enable-searchable) this forces the
+	// target inverted-index flag on for the backfill scan, so the analyzer
+	// produces values for the property we are populating. The live RAFT
+	// schema is unchanged; only the analyzer's per-call view is overlaid.
+	schemaOverlay := t.strategy.AnalyzerOverlay(props)
+
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
-		propExtraction, reindexStarted, breakCh)
+		propExtraction, reindexStarted, breakCh, schemaOverlay)
 
 	for md := range mdCh {
 		if md == nil {
@@ -1515,11 +1522,12 @@ type migrationData struct {
 	err   error
 }
 
-type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData)
 
 func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
 	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
+	schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData) {
 	startedCh := make(chan time.Time)
 	mdCh := make(chan *migrationData)
@@ -1551,7 +1559,11 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 			}
 
 			if obj.LastUpdateTimeUnix() < reindexStarted.UnixMilli() {
-				props, _, err := shard.AnalyzeObjectForMigration(obj)
+				// The overlay is required by from-scratch strategies whose
+				// target inverted-index flag is still false on the live
+				// schema during backfill. It is nil for retokenize / refresh
+				// strategies. See MigrationStrategy.AnalyzerOverlay.
+				props, _, err := shard.AnalyzeObjectForMigrationWithOverlay(obj, schemaOverlay)
 				if err != nil {
 					mdCh <- &migrationData{err: fmt.Errorf("analyzing object '%s': %w", ik.String(), err)}
 					break

@@ -296,9 +296,10 @@ func TestMergeReindexStatus_OverlappingTasks_FirstInListWins(t *testing.T) {
 // user never asked to touch.
 //
 // Test split into two parts to demonstrate the asymmetry:
-//   a) enable-filterable with empty Properties → no synthetic entry (safe).
-//   b) repair-searchable with empty Properties → synthetic entry on
-//      every searchable property (fan-out).
+//
+//	a) enable-filterable with empty Properties → no synthetic entry (safe).
+//	b) repair-searchable with empty Properties → synthetic entry on
+//	   every searchable property (fan-out).
 func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable::abcd",
 		distributedtask.TaskStatusStarted,

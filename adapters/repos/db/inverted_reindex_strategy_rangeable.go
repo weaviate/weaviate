@@ -152,6 +152,13 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 	}
 }
 
+// AnalyzerOverlay returns nil: the source data here is the *existing*
+// filterable bucket whose IndexFilterable flag is already true in the live
+// schema, so the analyzer sees the property without help.
+func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
+	return nil
+}
+
 // OnMigrationComplete updates the schema to set IndexRangeFilters=true on
 // the migrated properties. It uses per-property UpdateProperty RAFT commands
 // instead of UpdateClass, because UpdateClass rejects property field changes
