@@ -117,7 +117,7 @@ func TestBootstrapper(t *testing.T) {
 			test.doBefore(m)
 
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady, nil)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)

@@ -62,6 +62,8 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	// Tag ctx so the SELF_RECOVERY hook treats these as startup loads of pre-existing classes, not new ones.
+	ctx = enterrors.WithStartupDBLoad(ctx)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	g.SetLimit(_NUMCPU * 2)
 
