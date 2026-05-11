@@ -244,7 +244,12 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 
 func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersion uint64) *replica.SimpleResponse {
 	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+		wrapped := fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)
+		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusPreconditionFailed,
+			Msg:  wrapped.Error(),
+			Err:  wrapped,
+		}}}
 	}
 	return nil
 }

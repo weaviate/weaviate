@@ -145,7 +145,11 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
 				if firstErr == nil {
-					firstErr = r.Err
+					// Attach the failing replica identifier so the
+					// resulting error remains actionable regardless of
+					// whether the per-replica op wrapped it with host
+					// context.
+					firstErr = annotateReplicaErr(r.Value, r.Err)
 				} else {
 					additionalErrs++
 				}
@@ -454,4 +458,14 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 type hostRetry struct {
 	host           string
 	currentBackOff backoff.BackOff
+}
+
+// annotateReplicaErr prefixes err with the replica identifier when
+// replica is non-empty.  It returns err unchanged when no identifier is
+// available so that an empty prefix is never emitted.
+func annotateReplicaErr(replica string, err error) error {
+	if replica == "" {
+		return err
+	}
+	return fmt.Errorf("replica %q: %w", replica, err)
 }
