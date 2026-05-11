@@ -449,8 +449,30 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		i++
 	}
 	reason := fmt.Sprintf("UpdateVectorIndexConfigs: %v", targetVecs)
-	if err := s.SetStatusReadonly(reason); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
+
+	// If every vector index is already compressed, UpdateUserConfig calls its
+	// callback synchronously — there is no async compression work to protect.
+	// Skip the READONLY/READY cycle entirely to avoid a RAFT log replay trap:
+	// when UpdateClass commands are replayed rapidly after a restart, the first
+	// call correctly sets READONLY and spawns a goroutine to restore READY, but
+	// all subsequent calls hit the isReadOnly() guard above and exit early
+	// without spawning their own goroutine.  If the goroutine from the first
+	// call has not been scheduled by the time the last replay fires, the shard
+	// is left permanently READONLY until the goroutine eventually runs — during
+	// which any concurrent search fails with "store is read-only".
+	allCompressed := true
+	for targetVector := range updated {
+		index, ok := s.GetVectorIndex(targetVector)
+		if !ok || !index.Compressed() {
+			allCompressed = false
+			break
+		}
+	}
+
+	if !allCompressed {
+		if err := s.SetStatusReadonly(reason); err != nil {
+			return fmt.Errorf("attempt to mark read-only: %w", err)
+		}
 	}
 
 	wg := new(sync.WaitGroup)
@@ -467,6 +489,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 				return fmt.Errorf("creating new vector index: %w", err)
 			}
 		}
+	}
+
+	if allCompressed {
+		// All callbacks were synchronous; wg is already at zero, nothing to wait for.
+		return err
 	}
 
 	f := func() {
