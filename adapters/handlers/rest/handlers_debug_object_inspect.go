@@ -431,7 +431,109 @@ func checkObjectConsistency(ctx context.Context, shard db.ShardLike,
 			}
 		}
 	}
+
+	// (c) Vector behavioural check — issue a near-object query (top-1 on the
+	// object's own vector) per target. The top hit should be the object itself
+	// with a near-zero distance. If not, the vector index is missing or stale
+	// for this docID.
+	rep.Vectors = checkVectors(ctx, shard, obj)
+	for _, v := range rep.Vectors {
+		if !v.Ok {
+			rep.Ok = false
+		}
+	}
 	return rep
+}
+
+// checkVectors runs a top-1 near-object search on every target vector the
+// object carries. The result is the live HNSW/flat/dynamic read path, so it
+// detects missing tombstones, un-indexed docIDs, and stale shards regardless
+// of how vectors are persisted (commit log vs. LSM bucket).
+func checkVectors(ctx context.Context, shard db.ShardLike, obj *storobj.Object) []vectorCheck {
+	docID := obj.DocID
+	var out []vectorCheck
+
+	doSingle := func(target string, vec []float32) {
+		idx, ok := shard.GetVectorIndex(target)
+		if !ok {
+			out = append(out, vectorCheck{
+				Target: target, Multivector: false,
+				Error: "vector index not found",
+			})
+			return
+		}
+		check := vectorCheck{Target: target, Dimensions: len(vec)}
+		check.ContainsDoc = idx.ContainsDoc(docID)
+		if len(vec) == 0 {
+			check.Error = "object has no vector for this target"
+			out = append(out, check)
+			return
+		}
+		ids, dists, err := idx.SearchByVector(ctx, vec, 10, nil)
+		if err != nil {
+			check.Error = err.Error()
+			out = append(out, check)
+			return
+		}
+		for i, id := range ids {
+			if id == docID {
+				check.TopDocID = id
+				check.TopDistance = dists[i]
+				check.Ok = check.ContainsDoc && math.Abs(float64(dists[i])) < 1e-6
+				break
+			}
+		}
+		out = append(out, check)
+	}
+
+	doMulti := func(target string, multivec [][]float32) {
+		idx, ok := shard.GetVectorIndex(target)
+		if !ok {
+			out = append(out, vectorCheck{
+				Target: target, Multivector: true,
+				Error: "vector index not found",
+			})
+			return
+		}
+		mIdx, ok := idx.(db.VectorIndexMulti)
+		if !ok {
+			out = append(out, vectorCheck{
+				Target: target, Multivector: true,
+				Error: "vector index does not support multi-vector queries",
+			})
+			return
+		}
+		check := vectorCheck{Target: target, Multivector: true, Dimensions: len(multivec)}
+		check.ContainsDoc = idx.ContainsDoc(docID)
+		if len(multivec) == 0 {
+			check.Error = "object has no multi-vector for this target"
+			out = append(out, check)
+			return
+		}
+		ids, dists, err := mIdx.SearchByMultiVector(ctx, multivec, 1, nil)
+		if err != nil {
+			check.Error = err.Error()
+			out = append(out, check)
+			return
+		}
+		if len(ids) > 0 {
+			check.TopDocID = ids[0]
+			check.TopDistance = dists[0]
+		}
+		check.Ok = check.ContainsDoc && len(ids) > 0 && ids[0] == docID
+		out = append(out, check)
+	}
+
+	if len(obj.Vector) > 0 {
+		doSingle("", obj.Vector)
+	}
+	for target, vec := range obj.Vectors {
+		doSingle(target, vec)
+	}
+	for target, vec := range obj.MultiVectors {
+		doMulti(target, vec)
+	}
+	return out
 }
 
 func checkDuplicates(ctx context.Context, store *lsmkv.Store, objectsBucket *lsmkv.Bucket,
@@ -903,6 +1005,18 @@ type consistencyReport struct {
 	Filterable []filterableCheck `json:"filterable,omitempty"`
 	Searchable []searchableCheck `json:"searchable,omitempty"`
 	Rangeable  []rangeableCheck  `json:"rangeable,omitempty"`
+	Vectors    []vectorCheck     `json:"vectors,omitempty"`
+}
+
+type vectorCheck struct {
+	Target      string  `json:"target"`
+	Multivector bool    `json:"multivector,omitempty"`
+	Dimensions  int     `json:"dimensions,omitempty"`
+	ContainsDoc bool    `json:"containsDoc"`
+	TopDocID    uint64  `json:"topDocID,omitempty"`
+	TopDistance float32 `json:"topDistance,omitempty"`
+	Ok          bool    `json:"ok"`
+	Error       string  `json:"error,omitempty"`
 }
 
 type duplicatesReport struct {
