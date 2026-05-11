@@ -112,11 +112,18 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		defer helper.DeleteAliasWithAuthz(t, "customer2:E2EFilmsAlias", helper.CreateAuth(adminKey))
 
 		// user1 inserts via the alias name; on disk it lands as customer1:E2EFilmsTarget.
-		obj, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
-			Class:      "E2EFilmsAlias",
-			Properties: map[string]any{"title": "Inception"},
-		}, user1Key)
-		require.NoError(t, err)
+		// retryOnAliasLag absorbs the brief window where the alias entry has
+		// been applied on the leader but the follower we are talking to has
+		// not yet replicated it, so local alias resolution would 500.
+		var obj *models.Object
+		retryOnAliasLag(t, func() error {
+			var err error
+			obj, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+				Class:      "E2EFilmsAlias",
+				Properties: map[string]any{"title": "Inception"},
+			}, user1Key)
+			return err
+		})
 		require.NotEmpty(t, obj.ID)
 
 		// user1 reads it back via the alias — Resolve qualifies + maps alias → target.

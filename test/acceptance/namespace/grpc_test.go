@@ -184,8 +184,16 @@ func TestNamespaces_GRPC(t *testing.T) {
 		)
 
 		for _, key := range []string{user1Key, user2Key} {
-			searchResp, err := grpcClient.Search(authCtx(key), searchReq(aliasName, 10))
-			require.NoError(t, err)
+			// retryOnAliasLag absorbs the brief window where the alias
+			// entry has been applied on the leader but the follower has
+			// not yet replicated it. Once the first Search succeeds the
+			// alias is locally visible and the Aggregate below is safe.
+			var searchResp *pb.SearchReply
+			retryOnAliasLag(t, func() error {
+				var err error
+				searchResp, err = grpcClient.Search(authCtx(key), searchReq(aliasName, 10))
+				return err
+			})
 			assert.Len(t, searchResp.Results, 2)
 
 			aggResp, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{

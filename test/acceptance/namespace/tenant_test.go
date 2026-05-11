@@ -341,14 +341,21 @@ func TestNamespaces_TenantOps(t *testing.T) {
 		defer helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
 
 		// GetConsistentTenant via alias resolves to the underlying class.
-		got, err := getOneTenantAuth(t, alias, "present", user1Key)
-		require.NoError(t, err)
+		// retryOnAliasLag absorbs the brief window where the alias entry
+		// has been applied on the leader but the follower has not yet
+		// replicated it; once the first read succeeds the rest are safe.
+		var got *models.Tenant
+		retryOnAliasLag(t, func() error {
+			var err error
+			got, err = getOneTenantAuth(t, alias, "present", user1Key)
+			return err
+		})
 		assert.Equal(t, "present", got.Name)
 		assert.Equal(t, models.TenantActivityStatusHOT, got.ActivityStatus)
 
 		// Missing tenant on the same alias still 404s — alias resolution
 		// must not paper over a real not-found.
-		_, err = getOneTenantAuth(t, alias, "missing", user1Key)
+		_, err := getOneTenantAuth(t, alias, "missing", user1Key)
 		require.Error(t, err)
 
 		// ConsistentTenantExists via alias resolves to the underlying class.
@@ -368,8 +375,15 @@ func TestNamespaces_TenantOps(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
 
-		listed, err := getTenantsAuth(t, alias, user1Key)
-		require.NoError(t, err)
+		// retryOnAliasLag absorbs the brief window where the alias entry
+		// has been applied on the leader but the follower has not yet
+		// replicated it; once the first read succeeds the rest are safe.
+		var listed []*models.Tenant
+		retryOnAliasLag(t, func() error {
+			var err error
+			listed, err = getTenantsAuth(t, alias, user1Key)
+			return err
+		})
 		assert.ElementsMatch(t, []string{"t1", "t2"}, tenantNames(listed))
 
 		got, err := getOneTenantAuth(t, alias, "t1", user1Key)
