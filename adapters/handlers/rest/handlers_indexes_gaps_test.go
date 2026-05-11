@@ -1,0 +1,474 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package rest
+
+// Coverage-gap unit tests for runtime-reindex helper logic that previously had
+// no direct test coverage:
+//
+//   - checkReindexConflict / typesConflict / propsOverlap
+//     (concurrent same/different-type submits)
+//   - validateRangeableProperties / validateEnableFilterableProperty
+//     / validateEnableSearchableProperty (invalid request bodies)
+//   - validateTokenizationChange edge cases (same tokenization, invalid value)
+//     are exercised indirectly here via the conflict matrix because they need
+//     a live DB; see acceptance tests for end-to-end coverage.
+//   - buildUnitMaps / buildUnitSpecs (sort stability + group-ID = shard
+//     contract used for per-tenant barrier semantics)
+//   - propsOverlap with prefix-similar property names (regression: must not
+//     match "foo" against "foobar")
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
+)
+
+// -----------------------------------------------------------------------------
+// propsOverlap — property-scope correctness, including prefix-similar names.
+// -----------------------------------------------------------------------------
+
+func TestPropsOverlap_PrefixSimilarNamesDoNotCollide(t *testing.T) {
+	// Regression: properties whose names share a prefix must not be reported
+	// as overlapping. "title" should never conflict with "titleAlt" or
+	// "title_v2".
+	require.False(t, propsOverlap([]string{"title"}, []string{"titleAlt"}),
+		`"title" must not overlap "titleAlt"`)
+	require.False(t, propsOverlap([]string{"title"}, []string{"title_v2"}),
+		`"title" must not overlap "title_v2"`)
+	require.False(t, propsOverlap([]string{"foo"}, []string{"foobar", "barfoo"}),
+		`"foo" must not match "foobar" or "barfoo" by prefix`)
+}
+
+func TestPropsOverlap_ExactNameMatches(t *testing.T) {
+	require.True(t, propsOverlap([]string{"a", "b"}, []string{"b", "c"}))
+}
+
+func TestPropsOverlap_EmptyMeansAllProperties(t *testing.T) {
+	// Documented semantic: an empty Properties list means "all properties".
+	// That branch is reserved for future whole-collection migrations; the
+	// REST handler today always submits a single-property task.
+	require.True(t, propsOverlap(nil, []string{"x"}))
+	require.True(t, propsOverlap([]string{"x"}, nil))
+	require.True(t, propsOverlap(nil, nil))
+}
+
+// -----------------------------------------------------------------------------
+// typesConflict — full matrix of migration-type pairs.
+// -----------------------------------------------------------------------------
+
+func TestTypesConflict_FullMatrix(t *testing.T) {
+	type row struct {
+		name       string
+		a, b       db.ReindexMigrationType
+		props      []string
+		wantConfl  bool
+		wantReason string
+	}
+
+	// Property scope of each migration type:
+	//   - repair-searchable    -> searchable
+	//   - repair-filterable    -> filterable
+	//   - enable-searchable    -> searchable
+	//   - enable-filterable    -> filterable
+	//   - enable-rangeable     -> rangeable (does not conflict with anything else)
+	//   - change-tokenization  -> searchable + filterable
+	cases := []row{
+		// Same type, same property — conflict.
+		{"repair-searchable vs repair-searchable", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "searchable"},
+		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "filterable"},
+		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "searchable"},
+		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "filterable"},
+		{"change-tokenization vs change-tokenization", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeTokenization, []string{"p"}, true, "searchable and filterable"},
+
+		// Cross-type — change-tokenization conflicts with EVERY searchable-
+		// or filterable-touching type.
+		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairSearchable, []string{"p"}, true, "searchable"},
+		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "searchable"},
+		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "filterable"},
+		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "filterable"},
+
+		// enable-rangeable is isolated — no conflict with anything.
+		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairSearchable, []string{"p"}, false, ""},
+		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, false, ""},
+		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, false, ""},
+		{"enable-rangeable vs change-tokenization", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeTokenization, []string{"p"}, false, ""},
+
+		// Searchable-only vs filterable-only never conflicts (different bucket).
+		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable, []string{"p"}, false, ""},
+		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, false, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason := typesConflict(tc.a, tc.props, tc.b, tc.props)
+			if tc.wantConfl {
+				require.NotEmpty(t, reason, "expected conflict but got none")
+				assert.Contains(t, reason, tc.wantReason)
+			} else {
+				require.Empty(t, reason, "did not expect conflict but got: %s", reason)
+			}
+		})
+	}
+}
+
+func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
+	// Two same-type tasks on different properties of the same collection
+	// must NOT conflict. This is the parallelism contract.
+	for _, mt := range []db.ReindexMigrationType{
+		db.ReindexTypeRepairSearchable,
+		db.ReindexTypeRepairFilterable,
+		db.ReindexTypeEnableSearchable,
+		db.ReindexTypeEnableFilterable,
+		db.ReindexTypeEnableRangeable,
+		db.ReindexTypeChangeTokenization,
+	} {
+		t.Run(string(mt), func(t *testing.T) {
+			reason := typesConflict(mt, []string{"propA"}, mt, []string{"propB"})
+			require.Empty(t, reason,
+				"%s on different properties must not conflict", mt)
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// checkReindexConflict — happy path + non-STARTED tasks ignored.
+// -----------------------------------------------------------------------------
+
+func mustPayload(t *testing.T, p db.ReindexTaskPayload) []byte {
+	t.Helper()
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	return b
+}
+
+func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
+	existing := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload: mustPayload(t, db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		}),
+	}
+
+	reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.NotEmpty(t, reason)
+	require.Contains(t, reason, "conflicts")
+	require.Contains(t, reason, existing.ID)
+}
+
+func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
+	existing := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload: mustPayload(t, db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		}),
+	}
+
+	reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+		[]string{"bar"}, []*distributedtask.Task{existing})
+	require.Empty(t, reason, "different property must not conflict")
+}
+
+func TestCheckReindexConflict_IgnoresTerminalTasks(t *testing.T) {
+	// Non-STARTED tasks (FINISHED, FAILED, CANCELLED) must NOT block a fresh
+	// submit for the same (type, property). Otherwise a successful past
+	// migration would forever lock the property out.
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			existing := &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
+				Status:         status,
+				Payload: mustPayload(t, db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeEnableFilterable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				}),
+			}
+			reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+				[]string{"foo"}, []*distributedtask.Task{existing})
+			require.Empty(t, reason,
+				"%s task must not block new submission", status)
+		})
+	}
+}
+
+func TestCheckReindexConflict_DifferentCollections(t *testing.T) {
+	// A running task on collection A must not block submission on collection B.
+	existing := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "A:enable-filterable:foo:abcd"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload: mustPayload(t, db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "A",
+			Properties:    []string{"foo"},
+		}),
+	}
+
+	reason := checkReindexConflict("B", db.ReindexTypeEnableFilterable,
+		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.Empty(t, reason)
+}
+
+func TestCheckReindexConflict_CollectionMatchIsCaseInsensitive(t *testing.T) {
+	// strings.EqualFold is used; document this is intentional.
+	existing := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "MyClass:enable-filterable:foo:abcd"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload: mustPayload(t, db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "MyClass",
+			Properties:    []string{"foo"},
+		}),
+	}
+
+	reason := checkReindexConflict("myclass", db.ReindexTypeEnableFilterable,
+		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.NotEmpty(t, reason, "case-insensitive collection match expected")
+}
+
+func TestCheckReindexConflict_MalformedPayloadIsSkipped(t *testing.T) {
+	// A task with corrupt JSON should be silently ignored (defensive).
+	existing := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "corrupt"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        []byte(`{not valid json`),
+	}
+	reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.Empty(t, reason)
+}
+
+// -----------------------------------------------------------------------------
+// validateRangeableProperties — invalid request bodies.
+// -----------------------------------------------------------------------------
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestValidateRangeableProperties(t *testing.T) {
+	trueVal := true
+	class := &models.Class{
+		Class: "C",
+		Properties: []*models.Property{
+			{Name: "score", DataType: []string{"number"}},
+			{Name: "qty", DataType: []string{"int"}},
+			{Name: "when", DataType: []string{"date"}},
+			{Name: "label", DataType: []string{"text"}},
+			{Name: "alreadyRange", DataType: []string{"int"}, IndexRangeFilters: &trueVal},
+			// Reference property (non-primitive).
+			{Name: "ref", DataType: []string{"OtherClass"}},
+		},
+	}
+
+	t.Run("valid numeric props", func(t *testing.T) {
+		require.NoError(t, validateRangeableProperties(class, []string{"score", "qty", "when"}))
+	})
+
+	t.Run("unknown property", func(t *testing.T) {
+		err := validateRangeableProperties(class, []string{"nope"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("non-numeric (text)", func(t *testing.T) {
+		err := validateRangeableProperties(class, []string{"label"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a numeric type")
+	})
+
+	t.Run("non-primitive (reference)", func(t *testing.T) {
+		err := validateRangeableProperties(class, []string{"ref"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a numeric type")
+	})
+
+	t.Run("already rangeable", func(t *testing.T) {
+		err := validateRangeableProperties(class, []string{"alreadyRange"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already")
+	})
+}
+
+// -----------------------------------------------------------------------------
+// validateEnableFilterableProperty — type allow-list and already-filterable.
+// -----------------------------------------------------------------------------
+
+func TestValidateEnableFilterableProperty(t *testing.T) {
+	cases := []struct {
+		name    string
+		prop    *models.Property
+		wantErr string
+	}{
+		{"text ok", &models.Property{Name: "p", DataType: []string{"text"}}, ""},
+		{"int ok", &models.Property{Name: "p", DataType: []string{"int"}}, ""},
+		{"number ok", &models.Property{Name: "p", DataType: []string{"number"}}, ""},
+		{"boolean ok", &models.Property{Name: "p", DataType: []string{"boolean"}}, ""},
+		{"date ok", &models.Property{Name: "p", DataType: []string{"date"}}, ""},
+		{"uuid ok", &models.Property{Name: "p", DataType: []string{"uuid"}}, ""},
+
+		// Disallowed primitive types.
+		{"blob rejected", &models.Property{Name: "p", DataType: []string{"blob"}}, "does not support"},
+		{"geoCoordinates rejected", &models.Property{Name: "p", DataType: []string{"geoCoordinates"}}, "does not support"},
+		{"phoneNumber rejected", &models.Property{Name: "p", DataType: []string{"phoneNumber"}}, "does not support"},
+
+		// References are non-primitive.
+		{"reference rejected", &models.Property{Name: "p", DataType: []string{"OtherClass"}}, "does not support"},
+
+		// Already-filterable rejected.
+		{"already filterable", &models.Property{Name: "p", DataType: []string{"text"}, IndexFilterable: boolPtr(true)}, "already has a filterable index"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateEnableFilterableProperty(tc.prop)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// validateEnableSearchableProperty — tokenization required + valid + text type.
+// -----------------------------------------------------------------------------
+
+func TestValidateEnableSearchableProperty(t *testing.T) {
+	cases := []struct {
+		name    string
+		prop    *models.Property
+		tok     string
+		wantErr string
+	}{
+		// Happy paths — every valid tokenization.
+		{"word", &models.Property{Name: "p", DataType: []string{"text"}}, "word", ""},
+		{"lowercase", &models.Property{Name: "p", DataType: []string{"text"}}, "lowercase", ""},
+		{"whitespace", &models.Property{Name: "p", DataType: []string{"text"}}, "whitespace", ""},
+		{"field", &models.Property{Name: "p", DataType: []string{"text"}}, "field", ""},
+		{"trigram", &models.Property{Name: "p", DataType: []string{"text"}}, "trigram", ""},
+		{"gse", &models.Property{Name: "p", DataType: []string{"text"}}, "gse", ""},
+		{"text[] ok", &models.Property{Name: "p", DataType: []string{"text[]"}}, "word", ""},
+
+		// Reject paths.
+		{"empty tokenization", &models.Property{Name: "p", DataType: []string{"text"}}, "", "requires a tokenization"},
+		{"invalid tokenization", &models.Property{Name: "p", DataType: []string{"text"}}, "splat", "invalid tokenization"},
+		{"non-text (int)", &models.Property{Name: "p", DataType: []string{"int"}}, "word", "not a text type"},
+		{"already searchable", &models.Property{Name: "p", DataType: []string{"text"}, IndexSearchable: boolPtr(true)}, "word", "already has a searchable index"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateEnableSearchableProperty(tc.prop, tc.tok)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// -----------------------------------------------------------------------------
+// buildUnitMaps / buildUnitSpecs — sort stability + GroupID == shard contract.
+// -----------------------------------------------------------------------------
+
+func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
+	// Multiple shards × multiple nodes; unit IDs should be sorted and the
+	// reverse maps must correctly identify shard and node.
+	ownership := map[string][]string{
+		"node-2": {"shard-b", "shard-a"},
+		"node-1": {"shard-a"},
+	}
+	unitIDs, unitToShard, unitToNode := buildUnitMaps(ownership)
+
+	// Sorted ascending — go map iteration order must not leak.
+	require.Equal(t, []string{
+		"shard-a__node-1",
+		"shard-a__node-2",
+		"shard-b__node-2",
+	}, unitIDs)
+
+	require.Equal(t, "shard-a", unitToShard["shard-a__node-1"])
+	require.Equal(t, "node-1", unitToNode["shard-a__node-1"])
+	require.Equal(t, "shard-b", unitToShard["shard-b__node-2"])
+	require.Equal(t, "node-2", unitToNode["shard-b__node-2"])
+}
+
+func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
+	// Critical contract: GroupID == shardName so OnGroupCompleted fires
+	// per-tenant for MT semantic migrations.
+	ownership := map[string][]string{
+		"node-1": {"tenant-a", "tenant-b"},
+		"node-2": {"tenant-a", "tenant-b"},
+	}
+	specs := buildUnitSpecs(ownership)
+	require.Len(t, specs, 4)
+
+	// Each unit spec's GroupID must equal the tenant/shard portion of the ID.
+	groupsForTenantA := 0
+	groupsForTenantB := 0
+	for _, s := range specs {
+		// Pull the shard prefix back out and compare to GroupID.
+		switch s.GroupID {
+		case "tenant-a":
+			require.Contains(t, s.ID, "tenant-a__")
+			groupsForTenantA++
+		case "tenant-b":
+			require.Contains(t, s.ID, "tenant-b__")
+			groupsForTenantB++
+		default:
+			t.Fatalf("unexpected GroupID %q", s.GroupID)
+		}
+	}
+	require.Equal(t, 2, groupsForTenantA, "should have one unit per replica node")
+	require.Equal(t, 2, groupsForTenantB)
+}
+
+func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
+	ownership := map[string][]string{
+		"zz": {"b", "a"},
+		"aa": {"b"},
+	}
+	specs := buildUnitSpecs(ownership)
+	for i := 1; i < len(specs); i++ {
+		require.Less(t, specs[i-1].ID, specs[i].ID,
+			"specs must be sorted by ID — got %v", specs)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Containment helpers — sanity checks on the small helper funcs.
+// -----------------------------------------------------------------------------
+
+func TestContainsStr(t *testing.T) {
+	require.True(t, containsStr([]string{"a", "b", "c"}, "b"))
+	require.False(t, containsStr([]string{"a", "b", "c"}, "d"))
+	require.False(t, containsStr(nil, "anything"))
+}

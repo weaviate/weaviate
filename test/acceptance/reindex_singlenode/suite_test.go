@@ -142,6 +142,15 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testReindexScopeAssertion(t, restURI)
 	})
 
+	// --- Subtest 8: API validation contract (no indexing involved) ---
+	// Pins the HTTP contract for invalid / malformed requests: which
+	// inputs must return 400, which must return 404, which 409. Uses
+	// its own ephemeral collections and cleans them up. Cheap — no
+	// indexing waits.
+	t.Run("APIValidationContract", func(t *testing.T) {
+		testReindexAPIValidation(t, restURI)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")
