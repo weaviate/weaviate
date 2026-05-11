@@ -162,7 +162,7 @@ type ModulesProvider interface {
 	VectorizerName(className string) (string, error)
 }
 
-// NewManager creates a new manager
+// NewManager creates a new manager.
 func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,

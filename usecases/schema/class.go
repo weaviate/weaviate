@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
@@ -166,12 +167,27 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		return nil, 0, fmt.Errorf(
-			"cannot create collection: maximum number of collections (%d) reached - "+
-				"please consider switching to multi-tenancy or increasing the collection count limit - "+
-				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
-				"when working with multiple collections and tenants",
-			limit)
+		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+		// in the usage-limits work; see docs/usage_limits.md for the wire
+		// contract.
+		return nil, 0, usagelimits.NewLimitExceededError(
+			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+	}
+
+	// Per-collection shard cap. Config-time check only — shard count comes
+	// straight from the create request, no live state to consult.
+	// Multi-tenant collections set DesiredCount=0 (shards are created
+	// per-tenant on demand) so the cap is naturally satisfied for those;
+	// the check meaningfully constrains single-tenant configurations only.
+	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
+		shardCap := dv.Get()
+		if shardCap >= 0 {
+			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
+			if requested > shardCap {
+				return nil, 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
+			}
+		}
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -506,6 +522,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
 		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
 			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if globalCfg.MaximumFactor > 0 && class.ReplicationConfig.Factor > int64(globalCfg.MaximumFactor) {
+		return fmt.Errorf("invalid replication factor: setup caps replication at %d: got %d",
+			globalCfg.MaximumFactor, class.ReplicationConfig.Factor)
 	}
 
 	if class.ReplicationConfig.Factor < 1 {

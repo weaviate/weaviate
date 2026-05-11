@@ -28,6 +28,7 @@ import (
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -58,6 +59,24 @@ func (h *Handler) AddTenants(ctx context.Context,
 
 	if err = h.validateActivityStatuses(ctx, validated, true, false); err != nil {
 		return 0, err
+	}
+
+	// Per-collection tenant cap. Same pattern as the collection-count check
+	// in class.go — count current tenants, compare against the cap, return
+	// a typed *usagelimits.LimitExceededError on miss. Tenants are checked
+	// at create time only (not on subsequent MT config changes).
+	if dv := h.config.UsageLimits.MaxTenantsPerCollection; dv != nil {
+		cap := dv.Get()
+		if cap >= 0 {
+			existing, _, err := h.schemaManager.QueryTenants(class, nil)
+			if err != nil {
+				return 0, fmt.Errorf("count tenants for limit check: %w", err)
+			}
+			if len(existing)+len(validated) > cap {
+				return 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitTenants, int64(cap))
+			}
+		}
 	}
 
 	request := api.AddTenantsRequest{

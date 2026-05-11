@@ -2142,6 +2142,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -3275,6 +3281,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -5218,6 +5230,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -5893,6 +5911,12 @@ func init() {
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -9948,6 +9972,38 @@ func init() {
         }
       }
     },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "UserApiKey": {
       "type": "object",
       "required": [
@@ -12449,6 +12505,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -13629,6 +13691,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -15644,6 +15712,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -16319,6 +16393,12 @@ func init() {
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -20746,6 +20826,38 @@ func init() {
         "target": {
           "description": "The string to replace with.",
           "type": "string"
+        }
+      }
+    },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
