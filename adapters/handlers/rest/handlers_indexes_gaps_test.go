@@ -380,6 +380,82 @@ func TestValidateEnableSearchableProperty(t *testing.T) {
 		{"invalid tokenization", &models.Property{Name: "p", DataType: []string{"text"}}, "splat", "invalid tokenization"},
 		{"non-text (int)", &models.Property{Name: "p", DataType: []string{"int"}}, "word", "not a text type"},
 		{"already searchable", &models.Property{Name: "p", DataType: []string{"text"}, IndexSearchable: boolPtr(true)}, "word", "already has a searchable index"},
+
+		// Reject: filterable index already built with a different
+		// tokenization. EnableSearchable.OnMigrationComplete writes
+		// Tokenization=s.tokenization unconditionally, which would silently
+		// desynchronize the existing filterable bucket's terms.
+		{
+			"filterable with different tokenization",
+			&models.Property{
+				Name:            "p",
+				DataType:        []string{"text"},
+				IndexFilterable: boolPtr(true),
+				Tokenization:    "word",
+			},
+			"field",
+			"would silently desynchronize",
+		},
+		{
+			"filterable with different tokenization (text[])",
+			&models.Property{
+				Name:            "p",
+				DataType:        []string{"text[]"},
+				IndexFilterable: boolPtr(true),
+				Tokenization:    "lowercase",
+			},
+			"whitespace",
+			"would silently desynchronize",
+		},
+
+		// Allow: filterable index with the SAME tokenization — the new
+		// searchable bucket will agree with the existing filterable one.
+		{
+			"filterable with same tokenization",
+			&models.Property{
+				Name:            "p",
+				DataType:        []string{"text"},
+				IndexFilterable: boolPtr(true),
+				Tokenization:    "word",
+			},
+			"word",
+			"",
+		},
+		// Allow: no filterable index at all (irrelevant) — divergence
+		// cannot happen.
+		{
+			"no filterable, different stored tokenization",
+			&models.Property{
+				Name:            "p",
+				DataType:        []string{"text"},
+				IndexFilterable: boolPtr(false),
+				Tokenization:    "word",
+			},
+			"field",
+			"",
+		},
+		{
+			"nil filterable, different stored tokenization",
+			&models.Property{
+				Name:         "p",
+				DataType:     []string{"text"},
+				Tokenization: "word",
+			},
+			"field",
+			"",
+		},
+		// Allow: filterable with empty stored tokenization (e.g. legacy
+		// property without an explicit tokenization recorded).
+		{
+			"filterable with empty stored tokenization",
+			&models.Property{
+				Name:            "p",
+				DataType:        []string{"text"},
+				IndexFilterable: boolPtr(true),
+			},
+			"word",
+			"",
+		},
 	}
 
 	for _, tc := range cases {

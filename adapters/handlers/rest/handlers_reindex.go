@@ -99,6 +99,17 @@ func validateEnableFilterableProperty(prop *models.Property) error {
 // validateEnableSearchableProperty validates that the property is a
 // suitable target for enable-searchable: text/text[] type, not already
 // searchable, with a valid tokenization specified.
+//
+// We also reject the request if the property already has a filterable
+// index AND a stored tokenization that differs from the requested one.
+// EnableSearchable.OnMigrationComplete unconditionally writes
+// Tokenization = s.tokenization alongside IndexSearchable = true; if the
+// property has a pre-existing filterable bucket built with the old
+// tokenization, that bucket's terms would silently diverge from the
+// schema's tokenization and from the newly built searchable bucket. The
+// only safe path in that case is to retokenize the filterable index too
+// (a separate operation) — fail fast here rather than let the divergence
+// happen on RAFT apply.
 func validateEnableSearchableProperty(prop *models.Property, tokenization string) error {
 	if prop.IndexSearchable != nil && *prop.IndexSearchable {
 		return fmt.Errorf("property %q already has a searchable index", prop.Name)
@@ -112,6 +123,16 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 	}
 	if !entschema.IsValidTokenization(tokenization) {
 		return fmt.Errorf("invalid tokenization %q", tokenization)
+	}
+	// Reject if the property already has a filterable index built with a
+	// different tokenization — silently rewriting Tokenization here would
+	// desynchronize the filterable bucket's terms from the schema.
+	if prop.IndexFilterable != nil && *prop.IndexFilterable &&
+		prop.Tokenization != "" && prop.Tokenization != tokenization {
+		return fmt.Errorf("property %q has an existing filterable index built with tokenization %q; "+
+			"enabling searchable with tokenization %q would silently desynchronize the filterable index. "+
+			"Retokenize the filterable index first or use the matching tokenization",
+			prop.Name, prop.Tokenization, tokenization)
 	}
 	return nil
 }
