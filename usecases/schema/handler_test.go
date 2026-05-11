@@ -411,12 +411,12 @@ func TestShardsStatus(t *testing.T) {
 	}
 
 	cases := []struct {
-		name          string
-		nsEnabled     bool
-		principal     *models.Principal
-		aliasMap      map[string]string
-		inputClass    string
-		resolvedClass string
+		name              string
+		namespacesEnabled bool
+		principal         *models.Principal
+		aliasMap          map[string]string
+		inputClass        string
+		resolvedClass     string
 	}{
 		{
 			name:          "alias resolves to existing class",
@@ -437,33 +437,33 @@ func TestShardsStatus(t *testing.T) {
 			resolvedClass: "RealClass",
 		},
 		{
-			name:          "namespaced principal + alias short name resolves to qualified alias",
-			nsEnabled:     true,
-			principal:     namespacedPrincipal("customer1"),
-			aliasMap:      map[string]string{"customer1:Films": "customer1:Movies"},
-			inputClass:    "Films",
-			resolvedClass: "customer1:Movies",
+			name:              "namespaced principal + alias short name resolves to qualified alias",
+			namespacesEnabled: true,
+			principal:         namespacedPrincipal("customer1"),
+			aliasMap:          map[string]string{"customer1:Films": "customer1:Movies"},
+			inputClass:        "Films",
+			resolvedClass:     "customer1:Movies",
 		},
 		{
-			name:          "namespaced principal + raw class short name qualifies to <ns>:<class>",
-			nsEnabled:     true,
-			principal:     namespacedPrincipal("customer1"),
-			aliasMap:      map[string]string{},
-			inputClass:    "Movies",
-			resolvedClass: "customer1:Movies",
+			name:              "namespaced principal + raw class short name qualifies to <ns>:<class>",
+			namespacesEnabled: true,
+			principal:         namespacedPrincipal("customer1"),
+			aliasMap:          map[string]string{},
+			inputClass:        "Movies",
+			resolvedClass:     "customer1:Movies",
 		},
 		{
-			name:          "nsEnabled with nil principal skips qualification",
-			nsEnabled:     true,
-			aliasMap:      map[string]string{"TestAlias": "RealClass"},
-			inputClass:    "TestAlias",
-			resolvedClass: "RealClass",
+			name:              "namespacesEnabled with nil principal skips qualification",
+			namespacesEnabled: true,
+			aliasMap:          map[string]string{"TestAlias": "RealClass"},
+			inputClass:        "TestAlias",
+			resolvedClass:     "RealClass",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.nsEnabled)
+			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.namespacesEnabled)
 			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
 			handler.schemaReader = &fakeSchemaManagerWithAlias{
 				fakeSchemaManager: fakeSchemaManager,

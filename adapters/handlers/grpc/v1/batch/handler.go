@@ -31,22 +31,22 @@ import (
 )
 
 type Handler struct {
-	authorizer    authorization.Authorizer
-	authenticator *auth.Handler
-	batchManager  *objects.BatchManager
-	logger        logrus.FieldLogger
-	schemaManager *schema.Manager
-	nsEnabled     bool
+	authorizer        authorization.Authorizer
+	authenticator     *auth.Handler
+	batchManager      *objects.BatchManager
+	logger            logrus.FieldLogger
+	schemaManager     *schema.Manager
+	namespacesEnabled bool
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, nsEnabled bool) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
 	return &Handler{
-		authorizer:    authorizer,
-		authenticator: authenticator,
-		batchManager:  batchManager,
-		logger:        logger,
-		schemaManager: schemaManager,
-		nsEnabled:     nsEnabled,
+		authorizer:        authorizer,
+		authenticator:     authenticator,
+		batchManager:      batchManager,
+		logger:            logger,
+		schemaManager:     schemaManager,
+		namespacesEnabled: namespacesEnabled,
 	}
 }
 
@@ -66,7 +66,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
-		classname, _ = namespacing.Resolve(principal, h.schemaManager, h.nsEnabled, classname)
+		classname, _ = namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]

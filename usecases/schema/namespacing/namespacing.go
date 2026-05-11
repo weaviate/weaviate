@@ -41,8 +41,8 @@ const ShortNameMaxLength = schema.ClassNameMaxLength - schema.NamespaceMaxLength
 // On NS-enabled clusters, callers without a namespace are rejected with
 // ErrCreateRequiresNamespace; the call site is responsible for translating
 // that into a 403 with the appropriate verb and resources.
-func QualifyForCreate(principal *models.Principal, nsEnabled bool, raw string) (string, error) {
-	if !nsEnabled {
+func QualifyForCreate(principal *models.Principal, namespacesEnabled bool, raw string) (string, error) {
+	if !namespacesEnabled {
 		return raw, nil
 	}
 	if principal == nil || principal.Namespace == "" {
