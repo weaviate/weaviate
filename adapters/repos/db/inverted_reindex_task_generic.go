@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1409,21 +1410,33 @@ func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []s
 		return propNames, false
 	}
 
-	checkPropSelected := func(propName string) bool { return true }
+	// When selection is enabled and an explicit list of properties is given,
+	// the selected list IS the authoritative reindex target. Existing
+	// strategies (e.g. repair-searchable, change-tokenization) target
+	// properties whose source bucket already exists; new from-scratch
+	// strategies (enable-filterable, enable-searchable) target properties
+	// whose source bucket does not exist yet and will be created in
+	// PreReindexHook. Both cases reduce to "use the selected list".
 	if t.config.selectionEnabled {
 		if selectedProps := t.config.selectedPropsByCollection[collectionName]; len(selectedProps) > 0 {
-			checkPropSelected = func(propName string) bool {
-				_, ok := selectedProps[propName]
-				return ok
+			for propName := range selectedProps {
+				propNames = append(propNames, propName)
 			}
+			// Sort for determinism — map iteration order is randomized
+			// and downstream sentinel/tracker state hashes the list.
+			sort.Strings(propNames)
+			return propNames, true
 		}
 	}
 
+	// Fallback: discover props by scanning existing buckets that have the
+	// expected source strategy + index type. Used when selection is not
+	// enabled (whole-collection migrations).
 	for name, bucket := range shard.Store().GetBucketsByName() {
 		if bucket.Strategy() == t.strategy.SourceStrategy() {
 			propName, indexType := GetPropNameAndIndexTypeFromBucketName(name)
 
-			if indexType == t.strategy.SourceIndexType() && checkPropSelected(propName) {
+			if indexType == t.strategy.SourceIndexType() {
 				propNames = append(propNames, propName)
 			}
 		}

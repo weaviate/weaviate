@@ -27,6 +27,15 @@ const (
 	// ReindexTypeEnableRangeable adds RoaringSetRange indexes for numeric properties.
 	ReindexTypeEnableRangeable ReindexMigrationType = "enable-rangeable"
 
+	// ReindexTypeEnableFilterable creates a RoaringSet filterable index on a
+	// property that currently has none. Flips IndexFilterable=true on completion.
+	ReindexTypeEnableFilterable ReindexMigrationType = "enable-filterable"
+
+	// ReindexTypeEnableSearchable creates a blockmax searchable index on a
+	// property that currently has none. Flips IndexSearchable=true (and sets
+	// Tokenization) on completion.
+	ReindexTypeEnableSearchable ReindexMigrationType = "enable-searchable"
+
 	// ReindexTypeChangeTokenization retokenizes text properties (searchable + filterable).
 	ReindexTypeChangeTokenization ReindexMigrationType = "change-tokenization"
 )

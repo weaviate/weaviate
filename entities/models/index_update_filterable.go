@@ -28,6 +28,9 @@ import (
 // swagger:model IndexUpdateFilterable
 type IndexUpdateFilterable struct {
 
+	// enabled
+	Enabled bool `json:"enabled,omitempty"`
+
 	// rebuild
 	Rebuild bool `json:"rebuild,omitempty"`
 }

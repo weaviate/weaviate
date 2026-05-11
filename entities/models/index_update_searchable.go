@@ -28,6 +28,9 @@ import (
 // swagger:model IndexUpdateSearchable
 type IndexUpdateSearchable struct {
 
+	// enabled
+	Enabled bool `json:"enabled,omitempty"`
+
 	// rebuild
 	Rebuild bool `json:"rebuild,omitempty"`
 

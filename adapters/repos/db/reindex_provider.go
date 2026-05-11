@@ -302,6 +302,25 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
 		}, nil
 
+	case ReindexTypeEnableFilterable:
+		if len(payload.Properties) == 0 {
+			return nil, fmt.Errorf("enable-filterable requires at least one property")
+		}
+		return []*ShardReindexTaskGeneric{
+			NewRuntimeEnableFilterableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
+		}, nil
+
+	case ReindexTypeEnableSearchable:
+		if len(payload.Properties) == 0 {
+			return nil, fmt.Errorf("enable-searchable requires at least one property")
+		}
+		if payload.TargetTokenization == "" {
+			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
+		}
+		return []*ShardReindexTaskGeneric{
+			NewRuntimeEnableSearchableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, payload.TargetTokenization),
+		}, nil
+
 	case ReindexTypeChangeTokenization:
 		if len(payload.Properties) != 1 {
 			return nil, fmt.Errorf("change-tokenization requires exactly one property")
@@ -475,8 +494,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 // and filterable bucket content, so partial swap would serve mixed
 // old/new tokenization across shards.
 //
-// enable-rangeable is NOT semantic because it adds a new bucket alongside
-// the existing one without changing existing bucket content.
+// enable-rangeable / enable-filterable / enable-searchable are NOT semantic:
+// they add a new bucket alongside the existing data without changing existing
+// bucket content, and the partial-results window during cluster-wide cutover
+// is accepted (same shape as enable-rangeable, which shipped with this
+// trade-off). A safer two-phase barrier for index enablement is tracked as
+// follow-up work — see issue #10675 ("Crash safety analysis...").
 func isSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization
 }

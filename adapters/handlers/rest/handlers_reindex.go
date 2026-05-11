@@ -43,6 +43,13 @@ func buildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitTo
 	return unitIDs, unitToShard, unitToNode
 }
 
+// validateRangeableProperties validates that the named properties are
+// eligible for enable-rangeable: numeric type, not already rangeable.
+// Whether the property currently has a filterable index is deliberately
+// NOT checked — the migration sources from the objects bucket and can
+// build a rangeable index on a numeric property regardless of whether
+// it already has a filterable one. Time-series and similar use cases
+// often want rangeable without filterable.
 func validateRangeableProperties(class *models.Class, propNames []string) error {
 	propsByName := make(map[string]*models.Property, len(class.Properties))
 	for _, p := range class.Properties {
@@ -61,6 +68,61 @@ func validateRangeableProperties(class *models.Class, propNames []string) error 
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
 			return fmt.Errorf("property %q already has indexRangeFilters enabled", pn)
 		}
+	}
+	return nil
+}
+
+// validateEnableFilterableProperty validates that the property is a
+// suitable target for enable-filterable: it must not already have a
+// filterable index, and its data type must support inverted filtering
+// (everything except blob, geoCoordinates, and references).
+func validateEnableFilterableProperty(prop *models.Property) error {
+	if prop.IndexFilterable != nil && *prop.IndexFilterable {
+		return fmt.Errorf("property %q already has a filterable index", prop.Name)
+	}
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok {
+		// Non-primitive (references) — not supported for filterable enable.
+		return fmt.Errorf("property %q type %v does not support a filterable index", prop.Name, prop.DataType)
+	}
+	// Allow every primitive type EXCEPT the three below. Using a default
+	// keeps the allow-list implicit so newly-added primitive types are
+	// permitted by default; only types we have positively decided cannot
+	// support a filterable index need to be listed.
+	switch dt { //nolint:exhaustive // intentional allow-by-default
+	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
+		return fmt.Errorf("property %q type %q does not support a filterable index", prop.Name, dt)
+	}
+	return nil
+}
+
+// validateEnableSearchableProperty validates that the property is a
+// suitable target for enable-searchable: text/text[] type, not already
+// searchable, with a valid tokenization specified.
+func validateEnableSearchableProperty(prop *models.Property, tokenization string) error {
+	if prop.IndexSearchable != nil && *prop.IndexSearchable {
+		return fmt.Errorf("property %q already has a searchable index", prop.Name)
+	}
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
+		return fmt.Errorf("property %q is not a text type", prop.Name)
+	}
+	if tokenization == "" {
+		return fmt.Errorf("enable-searchable requires a tokenization to be set on the request body")
+	}
+	validTokenizations := map[string]struct{}{
+		models.PropertyTokenizationWord:       {},
+		models.PropertyTokenizationLowercase:  {},
+		models.PropertyTokenizationWhitespace: {},
+		models.PropertyTokenizationField:      {},
+		models.PropertyTokenizationTrigram:    {},
+		models.PropertyTokenizationGse:        {},
+		models.PropertyTokenizationKagomeKr:   {},
+		models.PropertyTokenizationKagomeJa:   {},
+		models.PropertyTokenizationGseCh:      {},
+	}
+	if _, ok := validTokenizations[tokenization]; !ok {
+		return fmt.Errorf("invalid tokenization %q", tokenization)
 	}
 	return nil
 }
@@ -150,7 +212,8 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 }
 
 // isSemanticMigration returns true for migration types that change query
-// behavior and require barrier semantics.
+// behavior and require barrier semantics. Must stay in sync with the
+// provider-side isSemanticMigration in adapters/repos/db/reindex_provider.go.
 func isSemanticMigration(mt db.ReindexMigrationType) bool {
 	return mt == db.ReindexTypeChangeTokenization
 }

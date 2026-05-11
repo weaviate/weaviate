@@ -697,6 +697,9 @@
         },
         "rebuild": {
           "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
         }
       }
     },
@@ -704,6 +707,9 @@
       "type": "object",
       "properties": {
         "rebuild": {
+          "type": "boolean"
+        },
+        "enabled": {
           "type": "boolean"
         }
       }

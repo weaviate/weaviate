@@ -7905,6 +7905,9 @@ func init() {
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
         "rebuild": {
           "type": "boolean"
         }
@@ -7946,6 +7949,9 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
         "rebuild": {
           "type": "boolean"
         },
@@ -18429,6 +18435,9 @@ func init() {
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
         "rebuild": {
           "type": "boolean"
         }
@@ -18470,6 +18479,9 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
         "rebuild": {
           "type": "boolean"
         },

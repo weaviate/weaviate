@@ -69,20 +69,36 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 
 		var indexes []*models.IndexStatus
 
-		// Filterable index.
+		// Filterable index. If the schema flag is on we always emit the
+		// entry; if it's off we emit a synthetic "indexing"/"pending" entry
+		// when an enable-filterable task is actively building it, so the
+		// frontend can surface progress for the new index.
 		if prop.IndexFilterable == nil || *prop.IndexFilterable {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			idx.Tokenization = prop.Tokenization
 			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks)
 			indexes = append(indexes, idx)
+		} else {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks)
+			if idx.Status == "indexing" || idx.Status == "pending" {
+				indexes = append(indexes, idx)
+			}
 		}
 
-		// Searchable index.
+		// Searchable index. Same pattern as filterable: show a synthetic
+		// entry while enable-searchable is building the index.
 		if prop.IndexSearchable == nil || *prop.IndexSearchable {
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
 			idx.Tokenization = prop.Tokenization
 			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks)
 			indexes = append(indexes, idx)
+		} else {
+			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
+			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks)
+			if idx.Status == "indexing" || idx.Status == "pending" {
+				indexes = append(indexes, idx)
+			}
 		}
 
 		// Rangeable index.
@@ -161,8 +177,23 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	)
 
 	switch {
+	// enable-searchable must be matched BEFORE change-tokenization: an
+	// enable request carries tokenization in the same body, but a property
+	// that has no searchable index yet cannot have its tokenization
+	// "changed" — validateTokenizationChange would fail looking for a
+	// non-existent searchable bucket.
+	case body.Searchable != nil && body.Searchable.Enabled:
+		migrationType = db.ReindexTypeEnableSearchable
+		properties = []string{propertyName}
+		targetTok = body.Searchable.Tokenization
+		if err := validateEnableSearchableProperty(targetProp, targetTok); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+		}
+
 	case body.Searchable != nil && body.Searchable.Tokenization != "":
-		// Change tokenization.
+		// Change tokenization on a property whose searchable index already
+		// exists. If Enabled was also set it would have matched the case
+		// above.
 		migrationType = db.ReindexTypeChangeTokenization
 		properties = []string{propertyName}
 		targetTok = body.Searchable.Tokenization
@@ -179,6 +210,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
 				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
+		}
+
+	case body.Filterable != nil && body.Filterable.Enabled:
+		migrationType = db.ReindexTypeEnableFilterable
+		properties = []string{propertyName}
+		if err := validateEnableFilterableProperty(targetProp); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
 		}
 
 	case body.Filterable != nil && body.Filterable.Rebuild:
@@ -198,7 +236,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	default:
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
-			"no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, filterable.rebuild, rangeable.enabled"))
+			"no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, searchable.enabled, filterable.rebuild, filterable.enabled, rangeable.enabled"))
 	}
 
 	// --- Multi-tenancy handling ---
@@ -330,6 +368,13 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			targets = indexType == "searchable" && propertyMatches
 		case db.ReindexTypeRepairFilterable:
 			targets = indexType == "filterable" && propertyMatches
+		case db.ReindexTypeEnableFilterable:
+			targets = indexType == "filterable" && containsStr(payload.Properties, propName)
+		case db.ReindexTypeEnableSearchable:
+			targets = indexType == "searchable" && containsStr(payload.Properties, propName)
+			if targets && payload.TargetTokenization != "" {
+				idx.Tokenization = payload.TargetTokenization
+			}
 		case db.ReindexTypeEnableRangeable:
 			targets = indexType == "rangeable" && containsStr(payload.Properties, propName)
 		case db.ReindexTypeChangeTokenization:
@@ -411,6 +456,8 @@ func errorResponse(msg string) *models.ErrorResponse {
 // The bucket types each migration touches on its targeted property:
 //   - repair-searchable:    searchable bucket
 //   - repair-filterable:    filterable bucket
+//   - enable-searchable:    searchable bucket (from scratch)
+//   - enable-filterable:    filterable bucket (from scratch)
 //   - change-tokenization:  searchable + filterable buckets
 //   - enable-rangeable:     rangeable bucket — no cross-type conflicts
 func checkReindexConflict(collection string, newType db.ReindexMigrationType,
@@ -467,11 +514,15 @@ func typesConflict(newType db.ReindexMigrationType, newProps []string,
 }
 
 func touchesSearchable(t db.ReindexMigrationType) bool {
-	return t == db.ReindexTypeRepairSearchable || t == db.ReindexTypeChangeTokenization
+	return t == db.ReindexTypeRepairSearchable ||
+		t == db.ReindexTypeChangeTokenization ||
+		t == db.ReindexTypeEnableSearchable
 }
 
 func touchesFilterable(t db.ReindexMigrationType) bool {
-	return t == db.ReindexTypeRepairFilterable || t == db.ReindexTypeChangeTokenization
+	return t == db.ReindexTypeRepairFilterable ||
+		t == db.ReindexTypeChangeTokenization ||
+		t == db.ReindexTypeEnableFilterable
 }
 
 // propsOverlap returns true if two property sets overlap. An empty set means
