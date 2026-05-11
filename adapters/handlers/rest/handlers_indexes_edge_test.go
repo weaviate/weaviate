@@ -75,7 +75,7 @@ func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "pending", idx.Status, "STARTED task with zero progress should show pending")
 	require.Equal(t, float32(0), idx.Progress)
@@ -104,7 +104,7 @@ func TestMergeReindexStatus_StaleStartedTask_StillShowsPending(t *testing.T) {
 	task.StartedAt = staleTime
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	// A 72h-old STARTED task that has not made a byte of progress is
 	// reported as "pending" — same as a brand-new task. There is no
@@ -130,7 +130,7 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status)
 	require.InDelta(t, 0.4, idx.Progress, 0.0001)
@@ -155,7 +155,7 @@ func TestMergeReindexStatus_FailedTask_NoSyntheticEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	// Status is unchanged (still "ready"). Combined with the
 	// IndexFilterable=false branch in getIndexes that drops "ready"
@@ -184,7 +184,7 @@ func TestMergeReindexStatus_CancelledTask_NoSyntheticEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "ready", idx.Status,
 		"CANCELLED task produces no synthetic state; user can't tell the build was cancelled")
@@ -215,7 +215,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_DisappearsFromResponse(t *t
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	// Status is unchanged → caller of getIndexes will drop the entry
 	// (schema flag is false, idx.Status is "ready" not "indexing"/"pending").
@@ -260,11 +260,11 @@ func TestMergeReindexStatus_OverlappingTasks_FirstInListWins(t *testing.T) {
 
 	// Order A: enable first.
 	idxA := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idxA, "C", "foo", "filterable", tasksMap(enableTask, changeTokTask))
+	mergeReindexStatus(idxA, "C", "foo", "filterable", tasksMap(enableTask, changeTokTask), nil)
 
 	// Order B: change-tokenization first.
 	idxB := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idxB, "C", "foo", "filterable", tasksMap(changeTokTask, enableTask))
+	mergeReindexStatus(idxB, "C", "foo", "filterable", tasksMap(changeTokTask, enableTask), nil)
 
 	// The same input set produces different observable results purely
 	// based on slice order — neither is "wrong" per se, but the answer is
@@ -309,7 +309,7 @@ func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "anyprop", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "C", "anyprop", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "ready", idx.Status,
 		"empty Properties is treated uniformly as 'match nothing'")
@@ -332,7 +332,7 @@ func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.
 	// Previously repair-* matched every property in the collection.
 	for _, propName := range []string{"alpha", "beta", "gamma"} {
 		idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-		mergeReindexStatus(idx, "C", propName, "searchable", tasksMap(task))
+		mergeReindexStatus(idx, "C", propName, "searchable", tasksMap(task), nil)
 		require.Equal(t, "ready", idx.Status,
 			"empty Properties + repair-searchable must match no property (here: %s)", propName)
 		require.Equal(t, float32(0), idx.Progress)
@@ -356,7 +356,7 @@ func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "myclass", "foo", "filterable", tasksMap(task))
+	mergeReindexStatus(idx, "myclass", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status, "collection name match is case-insensitive")
 }
