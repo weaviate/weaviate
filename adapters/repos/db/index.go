@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -178,14 +179,23 @@ func (m *shardMap) Loaded(name string) ShardLike {
 		return nil
 	}
 
-	// If it's a lazy shard, only return it if it's loaded
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
-		if !lazyShard.isLoaded() {
+	// If it's a deferred-load wrapper (lazy or recovering), only return
+	// it once the inner shard is loaded.
+	if l, ok := shard.(loadableShard); ok {
+		if !l.isLoaded() {
 			return nil
 		}
 	}
 
 	return shard
+}
+
+// loadableShard is the small surface implemented by both
+// *LazyLoadShard and *RecoveringShard, used by callers that need to
+// know "is the inner shard materialized?" or "trigger the load".
+type loadableShard interface {
+	Load(ctx context.Context) error
+	isLoaded() bool
 }
 
 // Store sets a shard giving its name and value
@@ -513,6 +523,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 		hotShardNames = append(hotShardNames, shard.name)
 		shardName := shard.name
+
+		// SELF_RECOVERY: if dir is missing and feature is on, hand off
+		// to the orchestrator instead of creating an empty shard.
+		if i.recoverShardFromPeerIfNeeded(ctx, class, shardName, promMetrics) {
+			continue
+		}
+
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
@@ -610,12 +627,90 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		return nil
 	}
 
-	lazyShard, ok := shard.(*LazyLoadShard)
-	if ok {
-		return lazyShard.Load(context.Background())
+	if l, ok := shard.(loadableShard); ok {
+		return l.Load(context.Background())
 	}
 
 	return nil
+}
+
+// recoverShardFromPeerIfNeeded installs a RecoveringShard and submits to
+// the orchestrator when the on-disk dir is missing at startup AND the
+// SELF_RECOVERY feature is on. Returns true if recovery was kicked off
+// (caller skips normal init); false otherwise (caller proceeds with
+// normal init: empty dir + async-rep backfill). Only the startup path
+// calls this; runtime shard creation is unaffected.
+//
+// The wrapper is installed BEFORE SubmitRecovery so a worker that fires
+// immediately (e.g. empty-fallback) doesn't land LoadLocalShard ahead
+// of the install and get its loaded shard clobbered. If SubmitRecovery
+// declines, the wrapper is reverted and normal init takes over.
+func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.Class,
+	shardName string, promMetrics *monitoring.PrometheusMetrics,
+) bool {
+	if !i.shouldRecoverShardFromPeer(ctx, shardName) {
+		return false
+	}
+	collection := i.Config.ClassName.String()
+	logFields := logrus.Fields{"collection": collection, "shard": shardName}
+
+	// Install FIRST so concurrent LoadLocalShard sees the wrapper.
+	rec := NewRecoveringShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
+		i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter, i.shardReindexer, i.bitmapBufPool)
+	i.shards.Store(shardName, rec)
+
+	// Capture fromBootstrap before submit so the classification reflects
+	// submission time, not the orchestrator's later decision time.
+	fromBootstrap := i.Config.RaftBootstrapComplete != nil && !i.Config.RaftBootstrapComplete()
+
+	// Detach from caller ctx: recovery outlives schema-reload AddClass.
+	orch := i.Config.SelfRecoveryOrchestrator
+	if !orch.SubmitRecovery(context.Background(), collection, shardName, fromBootstrap) {
+		// Queue full / feature flipped off: revert and fall through to
+		// normal init.
+		i.shards.LoadAndDelete(shardName)
+		i.logger.WithFields(logFields).
+			Warn("self-recovery: submission was not queued (queue full or feature disabled); falling back to normal shard init")
+		return false
+	}
+	i.logger.WithFields(logFields).
+		WithField("action", "self_recovery_submitted").
+		Info("local shard directory missing at startup; recovery from peer scheduled")
+	return true
+}
+
+// shouldRecoverShardFromPeer is a pure eligibility predicate (no side
+// effects on i.shards, no submission). The caller owns install + submit.
+func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string) bool {
+	orch := i.Config.SelfRecoveryOrchestrator
+	if orch == nil || !orch.Enabled() {
+		return false
+	}
+	// Only the startup DB-load pass triggers recovery; runtime
+	// AddClass/AddTenants leave the ctx untagged.
+	if !enterrors.IsStartupDBLoad(ctx) {
+		return false
+	}
+	dir := shardPath(i.path(), shardName)
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+
+	collection := i.Config.ClassName.String()
+	logFields := logrus.Fields{"collection": collection, "shard": shardName}
+
+	// An in-flight COPY/MOVE/SELF_RECOVERY op already owns the dir;
+	// submitting another would clobber it on rename.
+	if inflight, err := orch.HasInflightReplicationOp(ctx, collection, shardName); err != nil {
+		i.logger.WithError(err).WithFields(logFields).
+			Warn("self-recovery: could not check for in-flight replication op; falling back to normal shard init")
+		return false
+	} else if inflight {
+		i.logger.WithFields(logFields).
+			Info("self-recovery: an in-flight replication op already targets this shard; leaving recovery to that op")
+		return false
+	}
+	return true
 }
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
@@ -683,9 +778,9 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 
 func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(func(name string, shard ShardLike) error {
-		// Skip lazy loaded shard which are not loaded
-		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
-			if !asLazyLoadShard.isLoaded() {
+		// Skip deferred-load wrappers (lazy or recovering) until loaded.
+		if l, ok := shard.(loadableShard); ok {
+			if !l.isLoaded() {
 				return nil
 			}
 		}
@@ -704,9 +799,9 @@ func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) er
 
 func (i *Index) ForEachLoadedShardConcurrently(f func(name string, shard ShardLike) error) error {
 	return i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
-		// Skip lazy loaded shard which are not loaded
-		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
-			if !asLazyLoadShard.isLoaded() {
+		// Skip deferred-load wrappers (lazy or recovering) until loaded.
+		if l, ok := shard.(loadableShard); ok {
+			if !l.isLoaded() {
 				return nil
 			}
 		}
@@ -988,6 +1083,20 @@ type IndexConfig struct {
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
 	MaintenanceModeEnabled func() bool
+
+	// SelfRecoveryOrchestrator, when non-nil, is consulted at startup
+	// for shards whose on-disk directory is missing: it submits a
+	// SELF_RECOVERY copy from a healthy peer. Nil-safe.
+	SelfRecoveryOrchestrator SelfRecoveryOrchestrator
+	// RaftBootstrapComplete reports whether RAFT has finished its initial
+	// FSM replay. recoverShardFromPeerIfNeeded reads it when it submits a
+	// SELF_RECOVERY op (passing !RaftBootstrapComplete() as fromBootstrap)
+	// so the orchestrator can treat an all-peers-empty result during the
+	// bootstrap window as a likely fresh-class-added-during-downtime case
+	// rather than a catastrophic wipe. Captured at submit time to avoid a
+	// race with MarkRaftBootstrapComplete. Nil-safe: when nil, recoveries
+	// are treated as post-bootstrap.
+	RaftBootstrapComplete func() bool
 
 	HFreshEnabled bool
 
@@ -2699,9 +2808,8 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
 		if mustLoad {
-			lazyShard, ok := shard.(*LazyLoadShard)
-			if ok {
-				return lazyShard.Load(ctx)
+			if l, ok := shard.(loadableShard); ok {
+				return l.Load(ctx)
 			}
 		}
 

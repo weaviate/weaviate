@@ -33,9 +33,9 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-// stopNodeAt stops the node container at the given index.
+// StopNodeAt stops the node container at the given index.
 //
-// NOTE: the index is 1-based, so stopping the first node requires index=1, not 0
+// NOTE: the index is 0-based, so stopping the first node requires index=0.
 func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, nil); err != nil {
@@ -46,6 +46,10 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
+// StopNodeAtWithTimeout is StopNodeAt with an explicit graceful-shutdown
+// timeout (timeout=0 = SIGKILL).
+//
+// NOTE: the index is 0-based, so stopping the first node requires index=0.
 func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, &timeout); err != nil {
@@ -56,9 +60,32 @@ func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.Do
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
+// WipeNodeDataAt simulates a data-loss event by deleting the persistence
+// directory contents inside the container at the given (0-based) index,
+// then SIGKILL-stops the container. The caller restarts via StartNodeAt
+// to bring the node back up with an empty data dir.
+//
+// The wipe is two-pronged: (1) `find /data -mindepth 1 -delete` inside
+// the live container removes everything under /data — including
+// dotfiles/dotdirs like .raft that a shell glob would miss; (2) when
+// WithWeaviateTmpfsData is set, the docker stop also unmounts the /data
+// tmpfs, so even files kept alive by weaviate's open fds disappear.
+// SELF_RECOVERY tests rely on (2) — without it, weaviate's writes
+// between the delete and SIGKILL race the wipe and the post-restart
+// /data is not empty.
+func WipeNodeDataAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
+	t.Helper()
+	c, err := compose.ContainerAt(index)
+	require.NoError(t, err, "WipeNodeDataAt: container at index %d", index)
+	code, _, err := c.Container().Exec(ctx, []string{"sh", "-c", "find /data -mindepth 1 -delete"})
+	require.NoError(t, err, "WipeNodeDataAt: exec find /data -mindepth 1 -delete failed")
+	require.Equal(t, 0, code, "WipeNodeDataAt: find /data -mindepth 1 -delete exited %d", code)
+	StopNodeAtWithTimeout(ctx, t, compose, index, 0)
+}
+
 // startNodeAt starts the node container at the given index.
 //
-// NOTE: the index is 1-based, so starting the first node requires index=1, not 0
+// NOTE: the index is 0-based, so starting the first node requires index=0.
 func StartNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	if err := compose.StartAt(ctx, index); err != nil {
