@@ -131,34 +131,37 @@ type migrationBucketSuffixes struct {
 }
 
 func migrationSuffixes(migName string) *migrationBucketSuffixes {
+	// Dir-name constants live in inverted_reindex_strategy_dir_names.go and
+	// are referenced by each strategy's MigrationDirName() — keep finalize
+	// in sync with the writer side by reusing the same constants here.
 	switch {
-	case migName == "searchable_map_to_blockmax":
+	case migName == MigrationDirSearchableMapToBlockmax:
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
 			ingestSuffix:     "__blockmax_ingest",
 			backupSuffix:     "__blockmax_map",
 		}
-	case migName == "filterable_roaringset_refresh":
+	case migName == MigrationDirFilterableRoaringsetRefresh:
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p },
 			ingestSuffix:     "__roaringset_ingest",
 			backupSuffix:     "__roaringset_backup",
 		}
-	case strings.HasPrefix(migName, "filterable_to_rangeable"):
+	case strings.HasPrefix(migName, MigrationDirPrefixFilterableToRangeable):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p + "_rangeable" },
 			ingestSuffix:     "__rangeable_ingest",
 			backupSuffix:     "__rangeable_backup",
 		}
-	// Per-property dir names: "searchable_retokenize_propName"
-	case strings.HasPrefix(migName, "searchable_retokenize"):
+	// Per-property dir names: "searchable_retokenize_<propName>"
+	case strings.HasPrefix(migName, MigrationDirPrefixSearchableRetokenize):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
 			ingestSuffix:     "__retokenize_ingest",
 			backupSuffix:     "__retokenize_backup",
 		}
-	// Per-property dir names: "filterable_retokenize_propName"
-	case strings.HasPrefix(migName, "filterable_retokenize"):
+	// Per-property dir names: "filterable_retokenize_<propName>"
+	case strings.HasPrefix(migName, MigrationDirPrefixFilterableRetokenize):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p },
 			ingestSuffix:     "__filt_retokenize_ingest",
@@ -167,7 +170,7 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 	// Per-property dir names: "enable_filterable_<prop1>_<prop2>..." (see
 	// EnableFilterableStrategy.MigrationDirName). The list of properties is
 	// authoritative in properties.mig; the dir name is informational.
-	case strings.HasPrefix(migName, "enable_filterable"):
+	case strings.HasPrefix(migName, MigrationDirPrefixEnableFilterable):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p },
 			ingestSuffix:     "__enable_filterable_ingest",
@@ -175,7 +178,7 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 		}
 	// Per-property dir names: "enable_searchable_<prop1>_<prop2>..." (see
 	// EnableSearchableStrategy.MigrationDirName).
-	case strings.HasPrefix(migName, "enable_searchable"):
+	case strings.HasPrefix(migName, MigrationDirPrefixEnableSearchable):
 		return &migrationBucketSuffixes{
 			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
 			ingestSuffix:     "__enable_searchable_ingest",

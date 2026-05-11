@@ -36,7 +36,7 @@ type SearchableRetokenizeStrategy struct {
 func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
 	// Include property name in the dir so concurrent retokenize tasks on
 	// different properties don't share tracker state.
-	return "searchable_retokenize_" + s.propName
+	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName
 }
 
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {

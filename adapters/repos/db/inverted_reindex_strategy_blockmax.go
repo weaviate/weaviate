@@ -28,7 +28,7 @@ type MapToBlockmaxStrategy struct {
 }
 
 func (s *MapToBlockmaxStrategy) MigrationDirName() string {
-	return "searchable_map_to_blockmax"
+	return MigrationDirSearchableMapToBlockmax
 }
 
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {

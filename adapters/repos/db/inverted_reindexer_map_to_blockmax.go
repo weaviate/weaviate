@@ -66,7 +66,9 @@ func NewRuntimeMapToBlockmaxTask(
 
 // NewFileMapToBlockmaxReindexTracker creates a file-based reindex tracker
 // for the searchable map-to-blockmax migration. This is a backward-compatible
-// wrapper around NewFileReindexTracker used by the debug handler.
+// wrapper around NewFileReindexTracker used by the debug handler. The dir
+// name must match MapToBlockmaxStrategy.MigrationDirName() — both reference
+// MigrationDirSearchableMapToBlockmax so they cannot drift.
 func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	return NewFileReindexTracker(lsmPath, "searchable_map_to_blockmax", keyParser)
+	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax, keyParser)
 }

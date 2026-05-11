@@ -27,7 +27,7 @@ import (
 type RoaringSetRefreshStrategy struct{}
 
 func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
-	return "filterable_roaringset_refresh"
+	return MigrationDirFilterableRoaringsetRefresh
 }
 
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {

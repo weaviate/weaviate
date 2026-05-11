@@ -39,9 +39,9 @@ type EnableSearchableStrategy struct {
 
 func (s *EnableSearchableStrategy) MigrationDirName() string {
 	if len(s.propNames) > 0 {
-		return "enable_searchable_" + strings.Join(s.propNames, "_")
+		return MigrationDirPrefixEnableSearchable + "_" + strings.Join(s.propNames, "_")
 	}
-	return "enable_searchable"
+	return MigrationDirPrefixEnableSearchable
 }
 
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {

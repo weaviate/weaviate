@@ -42,9 +42,9 @@ func (s *EnableFilterableStrategy) MigrationDirName() string {
 	// Include property names in the dir so multiple per-property tasks
 	// on the same shard don't share tracker state.
 	if len(s.propNames) > 0 {
-		return "enable_filterable_" + strings.Join(s.propNames, "_")
+		return MigrationDirPrefixEnableFilterable + "_" + strings.Join(s.propNames, "_")
 	}
-	return "enable_filterable"
+	return MigrationDirPrefixEnableFilterable
 }
 
 func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {

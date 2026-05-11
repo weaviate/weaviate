@@ -66,7 +66,7 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 			func(shardName string, shard db.ShardLike) error {
 				alreadyDid := false
 				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					shardPath := filepath.Join(rootPath, classNameString, shardName, "lsm", ".migrations", "searchable_map_to_blockmax")
+					shardPath := filepath.Join(rootPath, classNameString, shardName, "lsm", ".migrations", db.MigrationDirSearchableMapToBlockmax)
 					filenameShard := filepath.Join(shardPath, filename)
 					_, err := os.Stat(shardPath)
 					if err != nil {
