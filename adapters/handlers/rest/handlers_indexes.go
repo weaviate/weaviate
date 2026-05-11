@@ -339,6 +339,18 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 // mergeReindexStatus checks if there's an active reindex task that targets
 // the given property+indexType and updates the IndexStatus accordingly.
+//
+// Property matching is uniform across all migration types: every branch
+// requires payload.Properties to be non-empty and to contain propName.
+// Previously the repair-* branches treated an empty Properties list as
+// "match all properties" (via the now-removed propertyMatches helper),
+// while every other branch treated it as "match nothing" — so a single
+// repair-searchable payload with an empty list would fan out a synthetic
+// "indexing" entry to every searchable property in the collection. The
+// current REST handler always populates Properties with exactly one
+// entry, so the empty-means-all branch was unreachable from the API and
+// only reachable via direct cluster payload authoring; we now reject
+// empty Properties consistently.
 func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, allTasks map[string][]*distributedtask.Task) {
 	if allTasks == nil {
 		return
@@ -357,29 +369,32 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		// An empty payload.Properties list means "all properties" (whole-collection
-		// scope). That branch is kept for forward compatibility; the current REST
-		// handler always populates Properties with a single entry.
-		propertyMatches := len(payload.Properties) == 0 || containsStr(payload.Properties, propName)
+		// Require a non-empty Properties list. The REST handler always
+		// populates this with one entry; an empty list only happens via
+		// direct cluster payload authoring and is treated as "match
+		// nothing" so we never silently fan out a synthetic entry to
+		// every property in the collection.
+		if !containsStr(payload.Properties, propName) {
+			continue
+		}
 
 		targets := false
 		switch payload.MigrationType {
 		case db.ReindexTypeRepairSearchable:
-			targets = indexType == "searchable" && propertyMatches
+			targets = indexType == "searchable"
 		case db.ReindexTypeRepairFilterable:
-			targets = indexType == "filterable" && propertyMatches
+			targets = indexType == "filterable"
 		case db.ReindexTypeEnableFilterable:
-			targets = indexType == "filterable" && containsStr(payload.Properties, propName)
+			targets = indexType == "filterable"
 		case db.ReindexTypeEnableSearchable:
-			targets = indexType == "searchable" && containsStr(payload.Properties, propName)
+			targets = indexType == "searchable"
 			if targets && payload.TargetTokenization != "" {
 				idx.Tokenization = payload.TargetTokenization
 			}
 		case db.ReindexTypeEnableRangeable:
-			targets = indexType == "rangeable" && containsStr(payload.Properties, propName)
+			targets = indexType == "rangeable"
 		case db.ReindexTypeChangeTokenization:
-			targets = (indexType == "searchable" || indexType == "filterable") &&
-				containsStr(payload.Properties, propName)
+			targets = indexType == "searchable" || indexType == "filterable"
 			if targets && payload.TargetTokenization != "" {
 				idx.TargetTokenization = payload.TargetTokenization
 			}

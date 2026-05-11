@@ -281,25 +281,20 @@ func TestMergeReindexStatus_OverlappingTasks_FirstInListWins(t *testing.T) {
 }
 
 // Edge case 7: A task whose payload.Properties is empty.
-// mergeReindexStatus has `propertyMatches := len(payload.Properties) == 0
-// || containsStr(...)` — i.e. an empty list means "all properties". But
-// for enable-filterable / enable-searchable / enable-rangeable /
-// change-tokenization the `targets =` branch then re-checks with
-// `containsStr(payload.Properties, propName)` which is `false` for an
-// empty list.
+// Previously this branch was asymmetric: repair-* matched every property
+// in the collection (fan-out: a single payload could mark dozens of
+// properties "indexing"), while enable-* and change-tokenization matched
+// nothing. After the fix every migration type rejects empty Properties
+// consistently — the task is treated as targeting nothing, producing no
+// synthetic entry. The current REST handler always populates Properties
+// with exactly one entry, so the empty-means-all branch was only
+// reachable via direct cluster payload authoring.
 //
-// For repair-searchable / repair-filterable however the `targets =`
-// branch uses the original `propertyMatches` variable — so an empty
-// Properties list matches every property in the collection. This means a
-// single repair-searchable task with no Properties would emit a synthetic
-// "indexing" entry on every searchable property — including ones the
-// user never asked to touch.
+// Test split into two parts to assert symmetry:
 //
-// Test split into two parts to demonstrate the asymmetry:
-//
-//	a) enable-filterable with empty Properties → no synthetic entry (safe).
-//	b) repair-searchable with empty Properties → synthetic entry on
-//	   every searchable property (fan-out).
+//	a) enable-filterable with empty Properties → no synthetic entry.
+//	b) repair-searchable with empty Properties → no synthetic entry
+//	   (previously: matched every property — now matches none).
 func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable::abcd",
 		distributedtask.TaskStatusStarted,
@@ -316,33 +311,31 @@ func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 	mergeReindexStatus(idx, "C", "anyprop", "filterable", tasksMap(task))
 
-	// enable-filterable's `targets` re-checks containsStr against an
-	// empty list → false. No synthetic entry produced.
-	require.Equal(t, "ready", idx.Status, "empty Properties + enable-* → no match")
+	require.Equal(t, "ready", idx.Status,
+		"empty Properties is treated uniformly as 'match nothing'")
 }
 
-func TestMergeReindexStatus_EmptyProperties_RepairMatchesEverything(t *testing.T) {
+func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.T) {
 	task := buildTask(t, "C:repair-searchable::abcd",
 		distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
 			MigrationType: db.ReindexTypeRepairSearchable,
 			Collection:    "C",
-			Properties:    nil, // empty → "all properties"
+			Properties:    nil, // empty — previously matched every property
 		},
 		map[string]*distributedtask.Unit{
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.5},
 		},
 	)
 
-	// Three different properties — all should be reported as "indexing"
-	// even though the user never told the task to touch them
-	// individually.
+	// Three different properties — none should be reported as "indexing".
+	// Previously repair-* matched every property in the collection.
 	for _, propName := range []string{"alpha", "beta", "gamma"} {
 		idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
 		mergeReindexStatus(idx, "C", propName, "searchable", tasksMap(task))
-		require.Equal(t, "indexing", idx.Status,
-			"empty Properties + repair-searchable matches every property (here: %s)", propName)
-		require.InDelta(t, 0.5, idx.Progress, 0.0001)
+		require.Equal(t, "ready", idx.Status,
+			"empty Properties + repair-searchable must match no property (here: %s)", propName)
+		require.Equal(t, float32(0), idx.Progress)
 	}
 }
 
