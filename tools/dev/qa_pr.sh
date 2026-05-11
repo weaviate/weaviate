@@ -26,14 +26,14 @@ usage() {
   sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-if [ $# -eq 0 ]; then
+if [[ $# -eq 0 ]]; then
   echo "ERROR: missing required argument <pr_number_or_url>" >&2
   echo "" >&2
   usage >&2
   exit 1
 fi
 
-if [ $# -ne 1 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 1
 fi
@@ -89,16 +89,16 @@ log "Commits:   $COMMIT_COUNT"
 # "prepare release v1.36.13"). Anything else is treated as a regular PR being
 # QA'd ad-hoc, so the issue title doesn't claim to be a release.
 IS_RELEASE_PR=false
-if [ "$COMMIT_COUNT" = "1" ]; then
+if [[ "$COMMIT_COUNT" == "1" ]]; then
   COMMIT_HEADLINE=$(echo "$PR_INFO" | jq -r '.commits[0].messageHeadline // ""')
   if echo "$COMMIT_HEADLINE" | grep -qi 'prepare release'; then
     IS_RELEASE_PR=true
   fi
 fi
 
-if [ "$IS_RELEASE_PR" = true ]; then
+if [[ "$IS_RELEASE_PR" == true ]]; then
   VERSION=$(echo "$PR_TITLE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-  if [ -z "$VERSION" ]; then
+  if [[ -z "$VERSION" ]]; then
     log "ERROR: Could not extract semver (vX.Y.Z) from PR title: $PR_TITLE"
     exit 1
   fi
@@ -118,7 +118,7 @@ log "Locating Tests workflow run on branch $PR_BRANCH..."
 TESTS_RUNS=$(gh run list --repo "$WEAVIATE_REPO" --branch "$PR_BRANCH" \
   --workflow Tests --json databaseId,status,conclusion,createdAt --limit 10)
 
-if [ -z "$TESTS_RUNS" ] || [ "$TESTS_RUNS" = "[]" ]; then
+if [[ -z "$TESTS_RUNS" || "$TESTS_RUNS" == "[]" ]]; then
   log "ERROR: No Tests workflow runs found for branch $PR_BRANCH"
   exit 1
 fi
@@ -131,7 +131,7 @@ for run_id in $(echo "$TESTS_RUNS" | jq -r '.[].databaseId'); do
   JOB_INFO=$(gh run view "$run_id" --repo "$WEAVIATE_REPO" --json jobs \
     --jq '.jobs[] | select(.name | test("^docker report$|^generate-docker-report$"))' 2>&1 || true)
 
-  if [ -z "$JOB_INFO" ] || [ "$JOB_INFO" = "null" ]; then
+  if [[ -z "$JOB_INFO" || "$JOB_INFO" == "null" ]]; then
     # Run is too fresh — no docker report job queued yet. Treat as in-progress.
     DOCKER_RUN_ID="$run_id"
     log "  Tests run $run_id has no docker report job yet; will wait"
@@ -141,12 +141,12 @@ for run_id in $(echo "$TESTS_RUNS" | jq -r '.[].databaseId'); do
   job_status=$(echo "$JOB_INFO" | jq -r '.status // "unknown"')
   job_conclusion=$(echo "$JOB_INFO" | jq -r '.conclusion // "unknown"')
 
-  if [ "$job_status" = "completed" ] && [ "$job_conclusion" = "success" ]; then
+  if [[ "$job_status" == "completed" && "$job_conclusion" == "success" ]]; then
     DOCKER_RUN_ID="$run_id"
     JOB_ID=$(echo "$JOB_INFO" | jq -r '.databaseId')
     log "  Tests run $run_id has successful docker report (job ID: $JOB_ID)"
     break
-  elif [ "$job_status" != "completed" ]; then
+  elif [[ "$job_status" != "completed" ]]; then
     DOCKER_RUN_ID="$run_id"
     log "  Tests run $run_id docker report is $job_status; will wait"
     break
@@ -155,25 +155,25 @@ for run_id in $(echo "$TESTS_RUNS" | jq -r '.[].databaseId'); do
   log "  Tests run $run_id docker report is $job_status/$job_conclusion; trying older run"
 done
 
-if [ -z "$DOCKER_RUN_ID" ]; then
+if [[ -z "$DOCKER_RUN_ID" ]]; then
   log "ERROR: No Tests workflow run with a usable docker report job found for branch $PR_BRANCH"
   exit 1
 fi
 log "Tests run ID: $DOCKER_RUN_ID"
 
-if [ -z "$JOB_ID" ]; then
+if [[ -z "$JOB_ID" ]]; then
   log "Waiting for docker report job to complete..."
   while true; do
     JOB_INFO=$(gh run view "$DOCKER_RUN_ID" --repo "$WEAVIATE_REPO" --json jobs \
       --jq '.jobs[] | select(.name | test("^docker report$|^generate-docker-report$"))' 2>&1 || true)
 
-    if [ -n "$JOB_INFO" ] && [ "$JOB_INFO" != "null" ]; then
+    if [[ -n "$JOB_INFO" && "$JOB_INFO" != "null" ]]; then
       JOB_STATUS=$(echo "$JOB_INFO" | jq -r '.status // "unknown"')
       JOB_CONCLUSION=$(echo "$JOB_INFO" | jq -r '.conclusion // "unknown"')
       log "  [$(date '+%H:%M:%S')] status=$JOB_STATUS conclusion=$JOB_CONCLUSION"
 
-      if [ "$JOB_STATUS" = "completed" ]; then
-        if [ "$JOB_CONCLUSION" = "success" ]; then
+      if [[ "$JOB_STATUS" == "completed" ]]; then
+        if [[ "$JOB_CONCLUSION" == "success" ]]; then
           JOB_ID=$(echo "$JOB_INFO" | jq -r '.databaseId')
           log "docker report completed successfully (job ID: $JOB_ID)"
           break
@@ -202,7 +202,7 @@ TAGS=$(gh api "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
 AMD64_TAG=$(echo "$TAGS" | grep '^semitechnologies/weaviate:preview-.*\.amd64$' | head -1 || true)
 ARM64_TAG=$(echo "$TAGS" | grep '^semitechnologies/weaviate:preview-.*\.arm64$' | head -1 || true)
 
-if [ -z "$AMD64_TAG" ] || [ -z "$ARM64_TAG" ]; then
+if [[ -z "$AMD64_TAG" || -z "$ARM64_TAG" ]]; then
   log "ERROR: Could not extract preview-* amd64/arm64 docker tags from job logs"
   log "Tags found:"
   echo "$TAGS" | sed 's/^/  /' >&2
@@ -218,7 +218,7 @@ WEAVIATE_VERSION_INPUT="${AMD64_TAG#semitechnologies/weaviate:}"
 log ""
 log "Step 2: Creating QA issue in $QA_REPO"
 
-if [ "$IS_RELEASE_PR" = true ]; then
+if [[ "$IS_RELEASE_PR" == true ]]; then
   ISSUE_BODY=$(cat <<EOF
 This issue tracks the testing executed to validate the Weaviate version $VERSION.
 
@@ -265,7 +265,7 @@ mutation {
 ITEM_ID=$(echo "$ITEM_RESPONSE" | jq -r '.data.addProjectV2ItemById.item.id')
 ITEM_DB_ID=$(echo "$ITEM_RESPONSE" | jq -r '.data.addProjectV2ItemById.item.databaseId')
 
-if [ -z "${ITEM_ID:-}" ] || [ "$ITEM_ID" = "null" ]; then
+if [[ -z "${ITEM_ID:-}" || "$ITEM_ID" == "null" ]]; then
   log "ERROR: Failed to add issue to project board (missing 'project' scope?)"
   log "  Run: gh auth refresh -h github.com -s project"
   exit 1
