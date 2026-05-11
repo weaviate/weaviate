@@ -68,6 +68,10 @@ type LazyLoadShard struct {
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
+	// loadBlocked makes Load return loadBlockedErr without calling NewShard;
+	// RecoveringShard uses it to prevent an empty shard before the rename.
+	loadBlocked    bool
+	loadBlockedErr error
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -116,6 +120,12 @@ func (l *LazyLoadShard) mustLoad() {
 
 func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 	if err := l.Load(ctx); err != nil {
+		// Reaching a mustLoad-backed method on a recovering shard is a
+		// routing bug; panic explicitly. See docs/self-recovery.md.
+		if enterrors.IsShardRecovering(err) {
+			panic(fmt.Sprintf("shard %q is recovering from a peer; this code path must not touch a recovering shard: %v",
+				l.shardOpts.name, err))
+		}
 		panic(err.Error())
 	}
 }
@@ -134,6 +144,10 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	if l.loaded {
 		return false, nil
+	}
+
+	if l.loadBlocked {
+		return false, l.loadBlockedErr
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -177,6 +191,26 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 	l.loaded = true
 
 	return true, nil
+}
+
+func (l *LazyLoadShard) blockLoad(blockErr error) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.loadBlocked = true
+	l.loadBlockedErr = blockErr
+}
+
+func (l *LazyLoadShard) clearLoadBlock() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.loadBlocked = false
+	l.loadBlockedErr = nil
+}
+
+func (l *LazyLoadShard) isLoadBlocked() bool {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.loadBlocked
 }
 
 func (l *LazyLoadShard) Index() *Index {

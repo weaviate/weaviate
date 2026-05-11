@@ -55,7 +55,6 @@ func TestCopyReplicaFiles(t *testing.T) {
 		write(remoteShardDir, f.rel, f.buf)
 	}
 
-	// local unexpected file that must be deleted
 	_ = write(localTmpDir, "collection/shard/old", []byte("OLD"))
 
 	mockClient := copier.NewMockFileReplicationServiceClient(t)
@@ -70,7 +69,6 @@ func TestCopyReplicaFiles(t *testing.T) {
 	mockClient.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything).
 		Return(&protocol.ReleaseReplicaSnapshotResponse{}, nil)
 
-	// Metadata calls
 	for _, f := range remoteFiles {
 		st, err := os.Stat(filepath.Join(remoteShardDir, f.rel))
 		require.NoError(t, err)
@@ -90,7 +88,6 @@ func TestCopyReplicaFiles(t *testing.T) {
 		}, nil)
 	}
 
-	// File download streams
 	for _, f := range remoteFiles {
 		stream := copier.NewMockFileChunkStream(t)
 

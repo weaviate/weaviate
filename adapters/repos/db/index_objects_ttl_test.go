@@ -98,6 +98,8 @@ func TestShardIsLazyUnloaded(t *testing.T) {
 		{name: "lazy shard not loaded", shard: &LazyLoadShard{loaded: false}, want: true},
 		{name: "lazy shard loaded", shard: &LazyLoadShard{loaded: true}, want: false},
 		{name: "non-lazy shard", shard: &Shard{}, want: false},
+		{name: "recovering shard not loaded", shard: &RecoveringShard{LazyLoadShard: &LazyLoadShard{loaded: false}}, want: true},
+		{name: "recovering shard loaded", shard: &RecoveringShard{LazyLoadShard: &LazyLoadShard{loaded: true}}, want: false},
 	}
 
 	for _, tt := range tests {
