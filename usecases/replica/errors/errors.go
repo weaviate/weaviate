@@ -17,6 +17,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // MsgCLevel is the human-readable prefix used in consistency-level errors.
@@ -26,12 +27,16 @@ const MsgCLevel = "cannot achieve consistency level"
 var (
 	// ErrReplicas is the canonical sentinel for "not enough replicas were
 	// reachable".  It is intentionally kept simple so that callers can rely
-	// on errors.Is for detection while the richer NotEnoughReplicasError
-	// type carries the underlying cause.
+	// on errors.Is for detection while richer wrapper types carry the
+	// underlying cause.
 	ErrReplicas = errors.New("cannot reach enough replicas")
 
-	ErrRepair      = errors.New("read repair error")
-	ErrRead        = errors.New("read error")
+	// ErrRepair is the canonical sentinel for read-repair failures.
+	ErrRepair = errors.New("read repair error")
+
+	// ErrRead is the canonical sentinel for replica read failures.
+	ErrRead = errors.New("read error")
+
 	ErrNoDiffFound = errors.New("no diff found")
 
 	// ErrConflictExistOrDeleted is returned during read-repair when an object
@@ -43,36 +48,116 @@ var (
 	ErrConflictObjectChanged = errors.New("source object changed during repair")
 )
 
-// NotEnoughReplicasError is returned by the coordinator when it cannot reach
+// notEnoughReplicasError is returned by the coordinator when it cannot reach
 // a sufficient number of replicas to satisfy the requested consistency level.
-// It wraps the underlying per-replica causes so that callers can inspect
-// what went wrong, while still being detectable via errors.Is(err, ErrReplicas).
-type NotEnoughReplicasError struct {
-	cause error
+// It preserves the first underlying cause and tracks how many additional
+// errors were observed (without retaining them) so memory remains O(1).
+//
+// Use errors.Is(err, ErrReplicas) for detection and errors.Unwrap / errors.As
+// to inspect the underlying cause.
+type notEnoughReplicasError struct {
+	required   int   // total replicas required to satisfy the consistency level
+	got        int   // number of replicas that succeeded
+	cause      error // first error observed from a failed replica (may be nil)
+	additional int   // count of further errors observed beyond cause
 }
 
-// NewNotEnoughReplicasError constructs a NotEnoughReplicasError that wraps
-// cause.  cause may be nil when no underlying diagnostic is available.
+// NewNotEnoughReplicasError wraps cause in an error that satisfies
+// errors.Is(err, ErrReplicas).  Use this form when only the underlying
+// error is known (e.g. a routing-plan failure); for richer diagnostics
+// from the coordinator use NewNotEnoughReplicasErrorWithCounts.
 func NewNotEnoughReplicasError(cause error) error {
-	return &NotEnoughReplicasError{cause: cause}
+	return &notEnoughReplicasError{cause: cause}
 }
 
-func (e *NotEnoughReplicasError) Error() string {
-	if e.cause != nil {
-		return ErrReplicas.Error() + ": " + e.cause.Error()
+// NewNotEnoughReplicasErrorWithCounts is the rich form of
+// NewNotEnoughReplicasError used by the coordinator when it knows how
+// many replicas were required vs. succeeded.  additional is the count of
+// further errors observed beyond the first one (cause); the count is kept
+// rather than the errors themselves so memory remains O(1).
+func NewNotEnoughReplicasErrorWithCounts(required, got int, cause error, additional int) error {
+	return &notEnoughReplicasError{
+		required:   required,
+		got:        got,
+		cause:      cause,
+		additional: additional,
 	}
-	return ErrReplicas.Error()
+}
+
+func (e *notEnoughReplicasError) Error() string {
+	var sb strings.Builder
+	sb.WriteString(ErrReplicas.Error())
+	if e.required > 0 {
+		fmt.Fprintf(&sb, ": required %d replicas, got %d", e.required, e.got)
+	}
+	if e.cause != nil {
+		fmt.Fprintf(&sb, ": %v", e.cause)
+	}
+	if e.additional > 0 {
+		fmt.Fprintf(&sb, " (and %d more errors)", e.additional)
+	}
+	return sb.String()
 }
 
 // Unwrap returns the underlying cause so that errors.Is / errors.As can
 // traverse the chain.
-func (e *NotEnoughReplicasError) Unwrap() error { return e.cause }
+func (e *notEnoughReplicasError) Unwrap() error { return e.cause }
 
-// Is makes errors.Is(err, ErrReplicas) match any NotEnoughReplicasError,
+// Is makes errors.Is(err, ErrReplicas) match any notEnoughReplicasError,
 // preserving backward-compatible error detection for callers that check for
 // the sentinel directly.
-func (e *NotEnoughReplicasError) Is(target error) bool {
+func (e *notEnoughReplicasError) Is(target error) bool {
 	return target == ErrReplicas
+}
+
+// readError wraps the underlying cause of a replica read failure while
+// remaining detectable via errors.Is(err, ErrRead).
+type readError struct {
+	cause error
+}
+
+// NewReadError constructs an error that satisfies errors.Is(err, ErrRead)
+// and wraps cause.
+func NewReadError(cause error) error {
+	return &readError{cause: cause}
+}
+
+func (e *readError) Error() string {
+	if e.cause != nil {
+		return ErrRead.Error() + ": " + e.cause.Error()
+	}
+	return ErrRead.Error()
+}
+
+func (e *readError) Unwrap() error { return e.cause }
+
+func (e *readError) Is(target error) bool {
+	return target == ErrRead
+}
+
+// repairError wraps the underlying cause of a read-repair failure while
+// remaining detectable via errors.Is(err, ErrRepair).
+type repairError struct {
+	cause error
+}
+
+// NewRepairError constructs an error that satisfies errors.Is(err, ErrRepair)
+// and wraps cause.
+func NewRepairError(cause error) error {
+	return &repairError{cause: cause}
+}
+
+func (e *repairError) Error() string {
+	if e.cause != nil {
+		return ErrRepair.Error() + ": " + e.cause.Error()
+	}
+	return ErrRepair.Error()
+}
+
+func (e *repairError) Unwrap() error { return e.cause }
+
+func (e *repairError) Is(target error) bool {
+	return target == ErrRepair
 }
 
 // ---------------------------------------------------------------------------

@@ -13,9 +13,7 @@ package replica
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -135,14 +133,22 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 
 	// handle responses to prepare requests
 	resChan := make(chan Result[string], len(replicas))
+	required := level
 	f := func() {
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
-		var replicaErrs []error
+		// Track only the first error and a count of additional errors to
+		// keep memory usage O(1) regardless of the replica count.
+		var firstErr error
+		var additionalErrs int
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
-				replicaErrs = append(replicaErrs, r.Err)
+				if firstErr == nil {
+					firstErr = r.Err
+				} else {
+					additionalErrs++
+				}
 				continue
 			}
 
@@ -164,7 +170,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasError(errors.Join(replicaErrs...))}
+			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), firstErr, additionalErrs)}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -225,15 +231,23 @@ func (c *coordinator[T, R]) read(
 	onFlatten onFlatten[T, R],
 	batchSize int,
 ) []R {
+	required := level
 	failures := make([]T, 0, level)
 	successes := make([]T, 0, level)
+	// Track only the first error and a count of additional errors to keep
+	// memory usage O(1) regardless of the number of replicas.
 	var firstError error
+	var additionalErrs int
 	for x := range ch {
 		var err error
 		var shouldDecreaseLevel bool
 		successes, failures, shouldDecreaseLevel, err = onResult(x, successes, failures)
-		if err != nil && firstError == nil {
-			firstError = err
+		if err != nil {
+			if firstError == nil {
+				firstError = err
+			} else {
+				additionalErrs++
+			}
 		}
 		if shouldDecreaseLevel {
 			level--
@@ -242,8 +256,8 @@ func (c *coordinator[T, R]) read(
 			return onFlatten(batchSize, successes, nil)
 		}
 	}
-	if level > 0 && firstError == nil {
-		firstError = replicaerrors.NewNotEnoughReplicasError(nil)
+	if level > 0 {
+		firstError = replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, required-level, firstError, additionalErrs)
 	}
 	failures = append(failures, successes...)
 	return onFlatten(batchSize, failures, firstError)

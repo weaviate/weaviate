@@ -30,6 +30,7 @@ import (
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -513,10 +514,10 @@ func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResp
 	if r == nil {
 		return replica.SimpleResponse{}
 	}
-	errs := make([]replica.Error, len(r.GetErrors()))
+	errs := make([]replicaerrors.Error, len(r.GetErrors()))
 	for i, e := range r.GetErrors() {
-		errs[i] = replica.Error{
-			Code: replica.StatusCode(e.GetCode()),
+		errs[i] = replicaerrors.Error{
+			Code: replicaerrors.StatusCode(e.GetCode()),
 			Msg:  e.GetMsg(),
 		}
 	}
