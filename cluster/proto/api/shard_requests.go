@@ -47,7 +47,16 @@ func (s ShardReplicationTransferType) String() string {
 const (
 	COPY ShardReplicationTransferType = "COPY"
 	MOVE ShardReplicationTransferType = "MOVE"
+	// SELF_RECOVERY re-hydrates a shard whose target is already a replica.
+	SELF_RECOVERY ShardReplicationTransferType = "SELF_RECOVERY"
 )
+
+// RecoveryFolderSuffix names the in-flight SELF_RECOVERY landing dir.
+const RecoveryFolderSuffix = ".recovering"
+
+func RecoveryFolderName(shardName string) string {
+	return shardName + RecoveryFolderSuffix
+}
 
 type ReplicationReplicateShardRequest struct {
 	// Version is the version with which this command was generated

@@ -51,6 +51,8 @@ type raftPeers interface {
 	Notify(id string, addr string) error
 	Remove(id string) error
 	Leader() string
+	// local committed RAFT index, served to a joiner as its catch-up barrier.
+	CommitIndex() uint64
 }
 
 type raftFSM interface {
@@ -101,7 +103,9 @@ func (s *Server) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.Joi
 		return &cmd.JoinPeerResponse{Leader: s.raftPeers.Leader()}, toRPCError(err)
 	}
 
-	return &cmd.JoinPeerResponse{}, nil
+	// Only the leader reaches here; hand the joiner the committed index as its
+	// catch-up barrier.
+	return &cmd.JoinPeerResponse{LeaderCommitIndex: s.raftPeers.CommitIndex()}, nil
 }
 
 // RemovePeer will notify the RAFT cluster that a peer is removed from the cluster.
