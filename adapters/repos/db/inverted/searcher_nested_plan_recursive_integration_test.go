@@ -520,3 +520,331 @@ func TestRecPlanBuilderBucketingRules(t *testing.T) {
 			makeCorrelatedPvp(class, "countries", carsMake, postcode, city))
 	})
 }
+
+// TestRecPlanBuilderOrShape covers the recOrNode plan-shape: OR children
+// are planned at their own natural scope and wrapped under an OR node
+// whose lcaPath is the deepest common ancestor of children's lcaPaths.
+//
+// These cases aren't produced by the planner today (step 5 dispatch
+// refactor will start passing OR/NOT into the planner). The tests
+// exercise the planner directly with hand-constructed OR propValuePairs.
+func TestRecPlanBuilderOrShape(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	builder := newRecPlanBuilder(props)
+
+	t.Run("OR_of_two_leaves_at_same_LCA_under_cars", func(t *testing.T) {
+		// OR(make=tesla, model=civic) — both at garages.cars LCA.
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
+		)
+		want := `OR lcaPath="garages.cars"
+  children:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.model]
+      subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{orPv})))
+	})
+
+	t.Run("OR_of_leaves_at_different_LCAs_picks_common_ancestor", func(t *testing.T) {
+		// OR(garages.city=berlin, garages.cars.make=tesla) — operands at
+		// different LCAs (garages vs garages.cars). Common ancestor: garages.
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.city", "berlin"),
+			makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+		)
+		want := `OR lcaPath="garages"
+  children:
+    GROUP lcaPath="garages"
+      here=[garages.city]
+      subs=[]
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{orPv})))
+	})
+
+	t.Run("OR_inside_correlated_AND_alongside_leaf", func(t *testing.T) {
+		// make=tesla AND (color=red OR model=civic). All at garages.cars.
+		// Root recGroupNode wraps the leaf-derived sub and the OR sub.
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
+			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
+		)
+		want := `GROUP lcaPath=""
+  here=[]
+  subs:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]
+    OR lcaPath="garages.cars"
+      children:
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.color]
+          subs=[]
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.model]
+          subs=[]`
+		assert.Equal(t, want, describePlan(builder.build(
+			[]*propValuePair{
+				makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+				orPv,
+			},
+		)))
+	})
+
+	t.Run("nested_OR_of_OR_preserved_not_flattened", func(t *testing.T) {
+		// OR(make=tesla, OR(model=civic, color=red)) — nested as written.
+		// Flattening is a possible later optimization; Step 3 keeps the
+		// structure as the user wrote it.
+		innerOr := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
+			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
+		)
+		outerOr := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+			innerOr,
+		)
+		want := `OR lcaPath="garages.cars"
+  children:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]
+    OR lcaPath="garages.cars"
+      children:
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.model]
+          subs=[]
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.color]
+          subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{outerOr})))
+	})
+
+	t.Run("OR_of_leaves_at_different_depths_through_garages_chain", func(t *testing.T) {
+		// OR(tires.width=205, accessories.type=spoiler) — both deeper than
+		// garages.cars; common ancestor is garages.cars.
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.tires.width", "205"),
+			makeLeafPvp(class, "countries", "garages.cars.accessories.type", "spoiler"),
+		)
+		want := `OR lcaPath="garages.cars"
+  children:
+    GROUP lcaPath="garages.cars.tires"
+      here=[garages.cars.tires.width]
+      subs=[]
+    GROUP lcaPath="garages.cars.accessories"
+      here=[garages.cars.accessories.type]
+      subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{orPv})))
+	})
+}
+
+// TestRecPlanBuilderNotShape covers the recNotNode plan-shape: the
+// operand is planned recursively at its own scope and wrapped in a NOT
+// node whose lcaPath is the operand's natural LCA. arr[N] pins on a
+// leaf operand are lifted into the NOT node for universe restriction.
+func TestRecPlanBuilderNotShape(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	builder := newRecPlanBuilder(props)
+
+	t.Run("NOT_of_leaf", func(t *testing.T) {
+		notPv := makeNotPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+		)
+		want := `NOT lcaPath="garages.cars" pins=[]
+  operand:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{notPv})))
+	})
+
+	t.Run("NOT_inside_correlated_AND_alongside_leaf", func(t *testing.T) {
+		notPv := makeNotPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.tires.width", "205"),
+		)
+		want := `GROUP lcaPath=""
+  here=[]
+  subs:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]
+    NOT lcaPath="garages.cars.tires" pins=[]
+      operand:
+        GROUP lcaPath="garages.cars.tires"
+          here=[garages.cars.tires.width]
+          subs=[]`
+		assert.Equal(t, want, describePlan(builder.build(
+			[]*propValuePair{
+				makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+				notPv,
+			},
+		)))
+	})
+
+	t.Run("NOT_of_leaf_with_root_arrN_pin", func(t *testing.T) {
+		// NOT countries[1].garages.cars.make=tesla — pin at root scope.
+		// The operand plan is a root-level SPLIT, so the NOT inherits
+		// lcaPath="" from the operand. Universe restriction at evaluation
+		// time uses _exists."" (root positions) ∩ _idx.""[1] = cars-element
+		// positions of root index 1.
+		pin := filnested.ArrayIndex{RelPath: "", Index: 1}
+		operand := makeLeafPvpWithIdx(class, "countries", "garages.cars.make", "tesla", pin)
+		notPv := makeNotPvp(class, operand)
+		want := `NOT lcaPath="" pins=[[1]]
+  operand:
+    SPLIT lcaPath=""
+      branches:
+        index=1
+          GROUP lcaPath="garages.cars"
+            here=[garages.cars.make]
+            subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{notPv})))
+	})
+
+	t.Run("NOT_of_leaf_with_intermediate_arrN_pin", func(t *testing.T) {
+		// NOT cars.tires[1].width=205 — pin at "tires" relpath (not lifted
+		// to root). Verifies multi-level pin propagation.
+		pin := filnested.ArrayIndex{RelPath: "garages.cars.tires", Index: 1}
+		operand := makeLeafPvpWithIdx(class, "countries", "garages.cars.tires.width", "205", pin)
+		notPv := makeNotPvp(class, operand)
+		want := `NOT lcaPath="garages.cars.tires" pins=[garages.cars.tires[1]]
+  operand:
+    SPLIT lcaPath="garages.cars.tires"
+      branches:
+        index=1
+          GROUP lcaPath="garages.cars.tires"
+            here=[garages.cars.tires.width]
+            subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{notPv})))
+	})
+
+	// NOTE: NOT of a nested correlated AND is intentionally not tested here.
+	// The planner treats the inner correlated AND as a single opaque item
+	// (using its first child's path for placement), which is the existing
+	// behavior for compound items and is outside Step 3's scope. NOT-of-OR
+	// (covered by TestRecPlanBuilderOrNotMixed/OR_inside_NOT) exercises the
+	// compound-operand path that Step 3 does extend.
+}
+
+// TestRecPlanBuilderOrNotMixed exercises filters with OR and NOT
+// combined inside correlated AND, including NOT inside OR and OR inside
+// NOT. Confirms recursive planning composes the new node types
+// correctly without unintended interactions with the AND-side dispatch.
+func TestRecPlanBuilderOrNotMixed(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	builder := newRecPlanBuilder(props)
+
+	t.Run("AND_with_leaf_OR_NOT_at_same_LCA", func(t *testing.T) {
+		// make=tesla AND (color=red OR model=civic) AND NOT tires.width=205.
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
+			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
+		)
+		notPv := makeNotPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.tires.width", "205"),
+		)
+		want := `GROUP lcaPath=""
+  here=[]
+  subs:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]
+    OR lcaPath="garages.cars"
+      children:
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.color]
+          subs=[]
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.model]
+          subs=[]
+    NOT lcaPath="garages.cars.tires" pins=[]
+      operand:
+        GROUP lcaPath="garages.cars.tires"
+          here=[garages.cars.tires.width]
+          subs=[]`
+		assert.Equal(t, want, describePlan(builder.build(
+			[]*propValuePair{
+				makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+				orPv,
+				notPv,
+			},
+		)))
+	})
+
+	t.Run("NOT_inside_OR", func(t *testing.T) {
+		// OR(make=tesla, NOT color=red)
+		notPv := makeNotPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
+		)
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+			notPv,
+		)
+		want := `OR lcaPath="garages.cars"
+  children:
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]
+    NOT lcaPath="garages.cars" pins=[]
+      operand:
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.color]
+          subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{orPv})))
+	})
+
+	t.Run("OR_inside_NOT", func(t *testing.T) {
+		// NOT (make=tesla OR color=red)
+		orPv := makeOrPvp(class,
+			makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
+			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
+		)
+		notPv := makeNotPvp(class, orPv)
+		want := `NOT lcaPath="garages.cars" pins=[]
+  operand:
+    OR lcaPath="garages.cars"
+      children:
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.make]
+          subs=[]
+        GROUP lcaPath="garages.cars"
+          here=[garages.cars.color]
+          subs=[]`
+		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{notPv})))
+	})
+}
+
+// TestDeepestCommonLCA exercises the LCA-computing helper directly.
+// Covers boundary cases that aren't easily exercised through the higher-
+// level OR-plan tests.
+func TestDeepestCommonLCA(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []string
+		want  string
+	}{
+		{name: "empty list returns empty", paths: nil, want: ""},
+		{name: "single path returns itself", paths: []string{"cars.tires"}, want: "cars.tires"},
+		{name: "two identical paths", paths: []string{"cars.tires", "cars.tires"}, want: "cars.tires"},
+		{name: "one is prefix of other", paths: []string{"cars", "cars.tires"}, want: "cars"},
+		{name: "sibling sub-arrays share parent", paths: []string{"cars.tires", "cars.accessories"}, want: "cars"},
+		{name: "no common prefix returns empty", paths: []string{"cars.tires", "garages.city"}, want: ""},
+		{name: "empty path forces empty common", paths: []string{"cars.tires", ""}, want: ""},
+		{name: "three paths converge at deepest", paths: []string{"cars.tires.width", "cars.tires.brand", "cars.tires"}, want: "cars.tires"},
+		{name: "three paths converge at parent", paths: []string{"cars.tires.width", "cars.accessories.type", "cars.model"}, want: "cars"},
+		{name: "segment boundary not character prefix", paths: []string{"cars.tires", "cars.tirestore"}, want: "cars"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, deepestCommonLCA(tc.paths))
+		})
+	}
+}

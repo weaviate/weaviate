@@ -106,11 +106,11 @@ func (e *recExecutor) withPlanLCAs(lcas map[string]struct{}) *recExecutor {
 
 // excludeMatchesGroup reports whether the given exclude must be subtracted
 // inside this group at raw level. True iff exclude.lcaPath is non-empty and
-// equals g.lcaPath. The caller still has to be in a code path that can mix
+// equals g.lca. The caller still has to be in a code path that can mix
 // raw-shape exclude bitmaps with raw-shape inputs (canUseRawAndAll path or
 // runIdxLoopRecursive); other paths fall back to rootDoc subtraction.
 func (e *recExecutor) excludeMatchesGroup(excl recExclude, g *recGroupNode) bool {
-	return excl.lcaPath != "" && excl.lcaPath == g.lcaPath
+	return excl.lcaPath != "" && excl.lcaPath == g.lca
 }
 
 // excludeConsumedByPlan reports whether the exclude is subtracted somewhere
@@ -261,7 +261,7 @@ func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScop
 // The here=0, subs=1 case is collapsed away by the planner so it does not
 // reach evalGroup (see buildGroup).
 func (e *recExecutor) evalGroup(ctx context.Context, g *recGroupNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	if e.canUseRawAndAll(g) || g.lcaPath == "" {
+	if e.canUseRawAndAll(g) || g.lca == "" {
 		return e.evalGroupRoot(ctx, g, parentScope)
 	}
 	if flat, ok := e.collectFlatSubtree(g); ok {
@@ -326,7 +326,7 @@ func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
 				return false
 			}
 		}
-		out.lcaPaths[grp.lcaPath] = struct{}{}
+		out.lcaPaths[grp.lca] = struct{}{}
 		for _, leaf := range grp.here {
 			path := childRelPath(leaf)
 			if _, dup := seen[path]; dup {
@@ -444,12 +444,12 @@ func (e *recExecutor) evalGroupRoot(ctx context.Context, g *recGroupNode, parent
 		bitmaps = append(bitmaps, parentScope)
 	}
 	if len(bitmaps) == 0 {
-		return nil, nil, fmt.Errorf("evalGroupRoot: no inputs for group at lcaPath=%q", g.lcaPath)
+		return nil, nil, fmt.Errorf("evalGroupRoot: no inputs for group at lcaPath=%q", g.lca)
 	}
 
 	if e.canUseRawAndAll(g) {
 		anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
-		// Apply matching excludes (lcaPath == g.lcaPath) at raw level — the
+		// Apply matching excludes (lcaPath == g.lca) at raw level — the
 		// anded bitmap is still raw-shape (leaf-precise) here, so AndNot'ing a
 		// raw _exists.{path} bitmap removes only the exact same-element leaf
 		// position that carries the absent property's existence. This is the
@@ -529,13 +529,13 @@ func (e *recExecutor) canUseRawAndAll(g *recGroupNode) bool {
 // into the accumulator.
 func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	if e.metaBucket == nil {
-		return nil, nil, fmt.Errorf("runIdxLoopRecursive: meta bucket is nil for %q", g.lcaPath)
+		return nil, nil, fmt.Errorf("runIdxLoopRecursive: meta bucket is nil for %q", g.lca)
 	}
 	if err := ctxExpired(ctx); err != nil {
 		return nil, nil, err
 	}
 
-	idxPrefix := invnested.PathPrefix("_idx." + g.lcaPath)
+	idxPrefix := invnested.PathPrefix("_idx." + g.lca)
 
 	capHint := 64
 	for _, leaf := range g.here {
@@ -557,7 +557,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 	c := e.metaBucket.CursorRoaringSet()
 	defer c.Close()
 
-	for k, elemBitmap := c.Seek(invnested.IdxKey(g.lcaPath, 0)); k != nil; k, elemBitmap = c.Next() {
+	for k, elemBitmap := c.Seek(invnested.IdxKey(g.lca, 0)); k != nil; k, elemBitmap = c.Next() {
 		if err := ctxExpired(ctx); err != nil {
 			return nil, nil, err
 		}
@@ -573,7 +573,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 			effRelease()
 			continue
 		}
-		// Apply matching excludes (lcaPath == g.lcaPath) at raw level on a
+		// Apply matching excludes (lcaPath == g.lca) at raw level on a
 		// per-element copy of effective. AndNot'ing the raw _exists.{path}
 		// bitmap removes leaf positions that carry the absent property's
 		// existence, so matchElementRecursive only intersects positives
@@ -696,10 +696,10 @@ func (e *recExecutor) matchElementRecursive(ctx context.Context, g *recGroupNode
 //     root, so a plain rootDoc AND gives the correct same-root semantics.
 func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	if e.metaBucket == nil {
-		return nil, nil, fmt.Errorf("evalSplit: meta bucket is nil for %q", n.lcaPath)
+		return nil, nil, fmt.Errorf("evalSplit: meta bucket is nil for %q", n.lca)
 	}
 	if len(n.branches) == 0 {
-		return nil, nil, fmt.Errorf("evalSplit: split with no branches at %q", n.lcaPath)
+		return nil, nil, fmt.Errorf("evalSplit: split with no branches at %q", n.lca)
 	}
 
 	branchResults := make([]*sroar.Bitmap, 0, len(n.branches))
@@ -717,7 +717,7 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 		if err := ctxExpired(ctx); err != nil {
 			return nil, nil, err
 		}
-		bm, rel, err := e.evalSplitBranch(ctx, n.lcaPath, br, parentScope)
+		bm, rel, err := e.evalSplitBranch(ctx, n.lca, br, parentScope)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -730,7 +730,7 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 		return branchResults[0], branchReleases[0], nil
 	}
 
-	if n.lcaPath == "" {
+	if n.lca == "" {
 		return e.andBranchesAtDocID(branchResults, branchReleases, &succeeded)
 	}
 	result, resultRel := e.bitmapOps.AndAll(branchResults, e.maxConcurrency)

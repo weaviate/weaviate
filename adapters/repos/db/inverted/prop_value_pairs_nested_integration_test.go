@@ -153,6 +153,24 @@ func makeAndPvp(class *models.Class, children ...*propValuePair) *propValuePair 
 	}
 }
 
+// makeOrPvp wraps children in an OR propValuePair.
+func makeOrPvp(class *models.Class, children ...*propValuePair) *propValuePair {
+	return &propValuePair{
+		operator: filters.OperatorOr,
+		children: children,
+		Class:    class,
+	}
+}
+
+// makeNotPvp wraps a single operand in a NOT propValuePair.
+func makeNotPvp(class *models.Class, operand *propValuePair) *propValuePair {
+	return &propValuePair{
+		operator: filters.OperatorNot,
+		children: []*propValuePair{operand},
+		Class:    class,
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

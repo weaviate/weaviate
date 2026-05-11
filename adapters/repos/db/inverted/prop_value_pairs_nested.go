@@ -372,10 +372,15 @@ func (pv *propValuePair) fetchRootAnchor(s *Searcher, metaBucket *lsmkv.Bucket, 
 // ---------------------------------------------------------------------------
 
 // childRelPath returns the relative path of a child, handling both direct leaf
-// conditions and tokenization compound AND children.
+// conditions and tokenization compound AND children. OR/NOT operator items
+// have no single representative path — their structure is planned recursively;
+// returning "" defers placement to the OR/NOT-aware dispatch in buildGroup.
 func childRelPath(child *propValuePair) string {
 	if child.nested.isNested {
 		return child.nested.relPath
+	}
+	if child.operator == filters.OperatorOr || child.operator == filters.OperatorNot {
+		return ""
 	}
 	if len(child.children) > 0 {
 		return child.children[0].nested.relPath
@@ -383,10 +388,17 @@ func childRelPath(child *propValuePair) string {
 	return ""
 }
 
-// childArrayIndices returns the arr[N] constraints of a child.
+// childArrayIndices returns the arr[N] constraints of a child. OR/NOT
+// operator items are not subject to outer arr[N] dispatch — their pins are
+// internal (lifted into recNotNode for universe restriction, or carried by
+// each OR child's own plan). Returning nil keeps the outer planner from
+// wrapping an OR/NOT in a SPLIT based on inner-leaf pins.
 func childArrayIndices(child *propValuePair) arrayIndices {
 	if child.nested.isNested {
 		return child.nested.arrayIndices
+	}
+	if child.operator == filters.OperatorOr || child.operator == filters.OperatorNot {
+		return nil
 	}
 	if len(child.children) > 0 {
 		return child.children[0].nested.arrayIndices

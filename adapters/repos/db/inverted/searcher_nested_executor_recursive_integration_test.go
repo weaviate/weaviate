@@ -1387,7 +1387,7 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 			leaves[i] = newLeaf("cars.x")
 			raws[leaves[i]] = bm
 		}
-		g := &recGroupNode{lcaPath: "cars", here: leaves}
+		g := &recGroupNode{lca: "cars", here: leaves}
 		exec := newRecExecutor(raws, bucket, ops, concurrency.SROAR_MERGE)
 		result, release, err := exec.runIdxLoopRecursive(context.Background(), g, nil)
 		require.NoError(t, err)
@@ -1407,7 +1407,7 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 			leaves[i] = newLeaf("cars.x")
 			raws[leaves[i]] = bm
 		}
-		g := &recGroupNode{lcaPath: "cars", here: leaves}
+		g := &recGroupNode{lca: "cars", here: leaves}
 		exec := newRecExecutor(raws, bucket, ops, concurrency.SROAR_MERGE)
 		result, release, err := exec.runIdxLoopRecursive(context.Background(), g, nil)
 		require.NoError(t, err)
