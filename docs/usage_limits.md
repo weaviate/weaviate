@@ -18,6 +18,12 @@ All limits are **opt-in**: env vars unset means no enforcement.
 
 All values are **runtime-overrideable** via the existing runtime overrides YAML file (see `RUNTIME_OVERRIDES_*`). Field names in the YAML are the lowercase-snake-case forms of the env-var names.
 
+### Required pairing: `REPLICATION_MAXIMUM_FACTOR=1`
+
+The object/tenant/shard caps only work in the RF=1 deployment shape (see *Scope* below). When **any** of `MAXIMUM_ALLOWED_OBJECTS_COUNT`, `MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION`, or `MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION` is set, you must also set `REPLICATION_MAXIMUM_FACTOR=1`. Startup fails otherwise. `REPLICATION_MAXIMUM_FACTOR` also caps the per-class `replicationConfig.factor` for new classes, so the invariant holds at runtime too.
+
+`MAXIMUM_ALLOWED_COLLECTIONS_COUNT` is **not** part of the linkage — it predates this RFC and tying it would break existing operators.
+
 ## Where each check fires
 
 | Limit | Hook | File |

@@ -363,7 +363,36 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateUsageLimitsReplicationLinkage(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
+}
+
+// validateUsageLimitsReplicationLinkage enforces the RF=1 precondition for the
+// object/tenant/shard usage limits: only the RF=1 deployment shape is
+// supported, so when any of those caps is set we require
+// REPLICATION_MAXIMUM_FACTOR=1 so per-class RF cannot exceed 1. The collection
+// cap is excluded because it predates this PR and tying it would be a breaking
+// change for existing operators.
+func (c *Config) validateUsageLimitsReplicationLinkage() error {
+	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
+		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
+		dynamicIntSet(c.UsageLimits.MaxShardsPerCollection)
+	if !hasLimit {
+		return nil
+	}
+	if c.Replication.MaximumFactor != 1 {
+		return fmt.Errorf("usage limits require REPLICATION_MAXIMUM_FACTOR=1; got %d", c.Replication.MaximumFactor)
+	}
+	return nil
+}
+
+// dynamicIntSet reports whether dv carries a configured (>=0) value. A nil
+// DynamicValue or a negative value means "unset / unlimited".
+func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
+	return dv != nil && dv.Get() >= 0
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

@@ -35,7 +35,14 @@ func (db *DB) LocalObjectCount(ctx context.Context) (int64, error) {
 
 	var total int64
 	for _, idx := range indices {
-		if err := idx.ForEachLoadedShard(func(_ string, shard ShardLike) error {
+		if err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
+			// Guard against concurrent tenant deactivation between
+			// iteration and the count call.
+			idx.shardCreateLocks.RLock(name)
+			defer idx.shardCreateLocks.RUnlock(name)
+			if idx.shards.Load(name) == nil {
+				return nil
+			}
 			count, err := shard.ObjectCountAsync(ctx)
 			if err != nil {
 				// Per-shard counting failures are recoverable: a transient

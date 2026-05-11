@@ -169,8 +169,8 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 }
 
 // translateTypedError maps Weaviate's typed errors (auth, usage limits)
-// to gRPC statuses; returns err unchanged when no mapping applies.
-// Shared by the unary and stream interceptors.
+// to gRPC statuses. Returns nil when no mapping applies so callers can
+// fall through. Shared by the unary and stream interceptors.
 func translateTypedError(err error) error {
 	if err == nil {
 		return nil
@@ -184,7 +184,7 @@ func translateTypedError(err error) error {
 	if le, ok := usagelimits.AsLimitExceeded(err); ok {
 		return limitExceededToGrpcError(le)
 	}
-	return err
+	return nil
 }
 
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {
@@ -192,8 +192,7 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
 		resp, err := handler(ctx, req)
-		// On typed match, drop the response; otherwise pass through.
-		if translated := translateTypedError(err); translated != err {
+		if translated := translateTypedError(err); translated != nil {
 			return nil, translated
 		}
 		return resp, err
@@ -232,7 +231,11 @@ func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor 
 			return status.Error(codes.Unauthenticated, err.Error())
 		}
 		// Mirror makeAuthInterceptor so streams get the same wire contract.
-		return translateTypedError(handler(srv, ss))
+		err := handler(srv, ss)
+		if translated := translateTypedError(err); translated != nil {
+			return translated
+		}
+		return err
 	}
 }
 

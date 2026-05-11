@@ -53,11 +53,6 @@ type batchRepoNew interface {
 }
 
 // NewBatchManager creates a new manager.
-//
-// Note: object usage-limit enforcement does NOT live here — see
-// the matching note on NewManager. The chokepoint is at
-// Shard.PutObjectBatch (adapters/repos/db/shard_write_batch_objects.go).
-// docs/usage_limits.md has the full rationale.
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,

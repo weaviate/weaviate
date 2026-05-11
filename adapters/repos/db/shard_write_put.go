@@ -35,11 +35,6 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	// Usage-limits chokepoint. Both local and forwarded writes converge
-	// here for RF=1. On the forwarded path a hit currently surfaces as
-	// HTTP 500 (cluster-API stringifies errors) — fine for the supported
-	// shapes where no forwarding happens. RF>1 bypasses this. See
-	// docs/usage_limits.md.
 	if err := s.index.usageLimits.CheckObjects(ctx, 1); err != nil {
 		return err
 	}

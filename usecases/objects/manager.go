@@ -162,12 +162,6 @@ type ModulesProvider interface {
 }
 
 // NewManager creates a new manager.
-//
-// Note: object usage-limit enforcement does NOT live here — it fires
-// at the storage chokepoint (Shard.PutObject{,Batch}). The use-case
-// layer is invoked only on the entry node, while the chokepoint
-// catches both local and forwarded writes (RF=1). See
-// docs/usage_limits.md.
 func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,

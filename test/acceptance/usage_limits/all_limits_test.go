@@ -68,6 +68,7 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 		"MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION": "2",
 		"MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION":  "1",
 		"USAGE_LIMITS_ERROR_MESSAGE":             "hit limit of {value} {limit}, upgrade at https://x",
+		"REPLICATION_MAXIMUM_FACTOR":             "1",
 	}))
 	defer terminate()
 
@@ -86,6 +87,21 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 			"shardingConfig":{"desiredCount":4}
 		}`)
 		assertLimitExceeded(t, ctx, httpURI+"/v1/schema", body, "shards", 1)
+	})
+
+	t.Run("class create with replicationConfig.factor > MaximumFactor is rejected", func(t *testing.T) {
+		// MaximumFactor=1 is required when any object/tenant/shard cap is
+		// set (see Config.validateUsageLimitsReplicationLinkage). A class
+		// asking for RF=3 must be rejected before any other validation.
+		body := []byte(`{
+			"class":"RFTooHigh",
+			"vectorizer":"none",
+			"replicationConfig":{"factor":3}
+		}`)
+		resp := postRaw(t, ctx, httpURI+"/v1/schema", body)
+		defer resp.Body.Close()
+		require.GreaterOrEqual(t, resp.StatusCode, 400,
+			"AddClass with factor=3 should be rejected when MaximumFactor=1")
 	})
 
 	t.Run("collection limit hit after cap", func(t *testing.T) {

@@ -985,6 +985,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseInt(
+		"REPLICATION_MAXIMUM_FACTOR",
+		func(val int) { config.Replication.MaximumFactor = val },
+		DefaultMaximumReplicationFactor,
+	); err != nil {
+		return err
+	}
+
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
 	if err := parseIntVerify(
@@ -1770,6 +1778,7 @@ const (
 	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
+	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
 	DefaultAsyncReplicationSchedulerWorkers    = 10
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,

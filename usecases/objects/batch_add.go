@@ -140,16 +140,8 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
-	// Free-Tier guardrail: the per-object cap is enforced at the storage
-	// chokepoint (Shard.PutObjectBatch in adapters/repos/db). When it
-	// fires, every object in the shard-slice carries the same
-	// *LimitExceededError. Surface that as a top-level error so the
-	// REST/gRPC handler maps it to 429 / RESOURCE_EXHAUSTED, preserving
-	// the whole-batch-rejection contract from the RFC. This only fires
-	// when *all* returned objects carry the same limit-exceeded — for
-	// multi-shard collections where only some shard-slices were rejected,
-	// the per-object errors flow through unchanged. See
-	// docs/usage_limits.md.
+	// Reaggregate a unanimous limit-exceeded into a top-level error so
+	// the REST/gRPC handler can map it to 429 / RESOURCE_EXHAUSTED.
 	if le := unanimousLimitExceeded(res); le != nil {
 		return nil, le
 	}

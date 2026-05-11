@@ -500,11 +500,8 @@ func Test_AddClassWithLimits(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with max collections limit", func(t *testing.T) {
-		// After the Free-Tier guardrails RFC, a hit on the collection-count
-		// limit returns *usagelimits.LimitExceededError so the REST/gRPC
-		// layer can map it to HTTP 429 / RESOURCE_EXHAUSTED with the
-		// structured USAGE_LIMIT_EXCEEDED body. The free-text 422-mapped
-		// error is gone; assertions now check the typed shape instead.
+		// Asserts the typed *usagelimits.LimitExceededError on miss; the
+		// REST/gRPC layer maps it to HTTP 429 / RESOURCE_EXHAUSTED.
 		tests := []struct {
 			name          string
 			existingCount int

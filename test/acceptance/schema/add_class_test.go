@@ -494,10 +494,6 @@ func TestMaximumAllowedCollectionsCount(t *testing.T) {
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
 
-		// Second class should fail with the new HTTP 429 + structured
-		// USAGE_LIMIT_EXCEEDED body. Pre-RFC, this same condition surfaced
-		// as HTTP 422 with a free-text message; the migration is
-		// documented under the RFC's Backward compatibility section.
 		className2 := "TestCollection2"
 		c2 := &models.Class{
 			Class:      className2,
