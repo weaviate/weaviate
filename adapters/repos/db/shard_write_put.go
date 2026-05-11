@@ -35,25 +35,11 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	// Free-Tier guardrail. Fires once per write on the home node — the
-	// *enforcement* covers both local writes (Index.putObject →
-	// Shard.PutObject) and writes forwarded by another node
-	// (Index.IncomingPutObject → Shard.PutObject), because both paths
-	// converge here for RF=1.
-	//
-	// Wire-contract caveat for the forwarded path: the cluster-API
-	// handler in adapters/handlers/rest/clusterapi/indices.go currently
-	// stringifies any PutObject error as HTTP 500, so a forwarded write
-	// that hits this guardrail reaches the public REST/gRPC handler as a
-	// 500 rather than the structured 429 the rest of this PR builds. In
-	// the supported deployment shapes (single-node, namespace-pinned
-	// phase 1) no forwarding happens and the wire contract holds end to
-	// end. Distributed shapes are out of scope (see docs/usage_limits.md
-	// "Scope"); if/when we add them, the cluster-API handler needs to
-	// propagate *LimitExceededError so the coordinator can re-type it.
-	//
-	// RF>1 bypasses this helper (replica path uses preparePutObject →
-	// s.putOne directly) and is also out of scope.
+	// Usage-limits chokepoint. Both local and forwarded writes converge
+	// here for RF=1. On the forwarded path a hit currently surfaces as
+	// HTTP 500 (cluster-API stringifies errors) — fine for the supported
+	// shapes where no forwarding happens. RF>1 bypasses this. See
+	// docs/usage_limits.md.
 	if err := s.index.usageLimits.CheckObjects(ctx, 1); err != nil {
 		return err
 	}

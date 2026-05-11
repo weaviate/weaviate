@@ -168,10 +168,9 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 	}
 }
 
-// translateTypedError maps Weaviate's typed errors (auth, usage limits) to
-// the appropriate gRPC status. Returns the original err when no mapping
-// applies, so callers can return it unchanged. Shared by the unary and
-// stream interceptors so both surfaces speak the same wire contract.
+// translateTypedError maps Weaviate's typed errors (auth, usage limits)
+// to gRPC statuses; returns err unchanged when no mapping applies.
+// Shared by the unary and stream interceptors.
 func translateTypedError(err error) error {
 	if err == nil {
 		return nil
@@ -193,9 +192,7 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
 		resp, err := handler(ctx, req)
-		// If a typed error matches, drop the response (we replaced it with a
-		// gRPC status). Otherwise preserve whatever the handler returned
-		// verbatim — matches the prior pass-through behavior.
+		// On typed match, drop the response; otherwise pass through.
 		if translated := translateTypedError(err); translated != err {
 			return nil, translated
 		}
@@ -234,9 +231,7 @@ func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor 
 		if _, err := auth.PrincipalFromContext(ss.Context()); err != nil {
 			return status.Error(codes.Unauthenticated, err.Error())
 		}
-		// Translate typed handler errors (incl. usage-limit-exceeded) so
-		// streaming methods like BatchStream get the same gRPC contract
-		// as their unary counterparts. Mirrors makeAuthInterceptor.
+		// Mirror makeAuthInterceptor so streams get the same wire contract.
 		return translateTypedError(handler(srv, ss))
 	}
 }
