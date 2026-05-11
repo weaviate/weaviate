@@ -490,18 +490,37 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 // behavior. These require barrier semantics: all shards must finish
 // reindexing before any shard swaps.
 //
-// Currently only change-tokenization qualifies: it replaces the searchable
-// and filterable bucket content, so partial swap would serve mixed
-// old/new tokenization across shards.
+// Qualifying migrations:
 //
-// enable-rangeable / enable-filterable / enable-searchable are NOT semantic:
-// they add a new bucket alongside the existing data without changing existing
-// bucket content, and the partial-results window during cluster-wide cutover
-// is accepted (same shape as enable-rangeable, which shipped with this
-// trade-off). A safer two-phase barrier for index enablement is tracked as
-// follow-up work — see issue #10675 ("Crash safety analysis...").
+//   - change-tokenization replaces the searchable and filterable bucket
+//     content; a partial swap would serve mixed old/new tokenization
+//     across shards.
+//
+//   - enable-filterable / enable-searchable flip a per-property schema
+//     flag from false to true. The flag is global across shards once the
+//     first shard flips it, so without a barrier readers would see the
+//     index as "queryable" while shards still mid-reindex have empty
+//     source buckets, returning partial results. Barrier semantics
+//     shrink that window to the per-shard swap time, after every shard
+//     has finished backfilling its ingest bucket.
+//
+// enable-rangeable is intentionally NOT semantic: it ships the same
+// partial-results trade-off but was already deployed without a barrier
+// before the enable-* family was introduced. Promoting it would change
+// behavior for existing operators and is tracked separately.
+//
+// NOTE: the FINISHED transition in the DTM fires when all units are
+// terminal, which is BEFORE OnGroupCompleted runs the swap on each
+// node. So a poller waiting for FINISHED may see "done" before the
+// schema flag has flipped on this node; callers must Eventually-poll
+// the schema for the actual post-swap state.
+//
+// Must stay in sync with the handler-side isSemanticMigration in
+// adapters/handlers/rest/handlers_reindex.go.
 func isSemanticMigration(mt ReindexMigrationType) bool {
-	return mt == ReindexTypeChangeTokenization
+	return mt == ReindexTypeChangeTokenization ||
+		mt == ReindexTypeEnableFilterable ||
+		mt == ReindexTypeEnableSearchable
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.

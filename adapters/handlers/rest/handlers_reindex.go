@@ -215,7 +215,9 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 // behavior and require barrier semantics. Must stay in sync with the
 // provider-side isSemanticMigration in adapters/repos/db/reindex_provider.go.
 func isSemanticMigration(mt db.ReindexMigrationType) bool {
-	return mt == db.ReindexTypeChangeTokenization
+	return mt == db.ReindexTypeChangeTokenization ||
+		mt == db.ReindexTypeEnableFilterable ||
+		mt == db.ReindexTypeEnableSearchable
 }
 
 // validateTenants checks that all specified tenants exist in the collection's
