@@ -46,7 +46,20 @@ func (s ShardReplicationTransferType) String() string {
 const (
 	COPY ShardReplicationTransferType = "COPY"
 	MOVE ShardReplicationTransferType = "MOVE"
+	// SELF_RECOVERY re-hydrates a shard whose target node is already in
+	// the replica set; the validator skips its "target already exists"
+	// check for this type only.
+	SELF_RECOVERY ShardReplicationTransferType = "SELF_RECOVERY"
 )
+
+// RecoveryFolderSuffix names the in-flight SELF_RECOVERY landing dir
+// ("<shard>.recovering/"). Defined here (leaf package) so both the
+// copier and the consumer can reference it without an import cycle.
+const RecoveryFolderSuffix = ".recovering"
+
+func RecoveryFolderName(shardName string) string {
+	return shardName + RecoveryFolderSuffix
+}
 
 type ReplicationReplicateShardRequest struct {
 	// Version is the version with which this command was generated

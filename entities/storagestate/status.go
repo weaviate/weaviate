@@ -23,6 +23,10 @@ const (
 	StatusLazyLoading Status = "LAZY_LOADING"
 	StatusReady       Status = "READY"
 	StatusShutdown    Status = "SHUTDOWN"
+	// StatusRecovering: shard exists in schema but local data is being
+	// re-hydrated from a peer (SELF_RECOVERY). Reads/writes return
+	// ErrShardRecovering; the router filters this replica via the FSM.
+	StatusRecovering Status = "RECOVERING"
 )
 
 var ErrStatusReadOnlyWithReason = func(reason string) error {

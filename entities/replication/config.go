@@ -57,4 +57,10 @@ type GlobalConfig struct {
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
+
+	// SELF_RECOVERY: when enabled, a node with missing local shard
+	// dirs at startup probes peers and registers SELF_RECOVERY ops.
+	// Concurrency caps simultaneous per-shard recoveries. Default OFF.
+	SelfRecoveryEnabled     *runtime.DynamicValue[bool] `json:"self_recovery_enabled" yaml:"self_recovery_enabled"`
+	SelfRecoveryConcurrency *runtime.DynamicValue[int]  `json:"self_recovery_concurrency" yaml:"self_recovery_concurrency"`
 }

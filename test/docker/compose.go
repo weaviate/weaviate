@@ -126,6 +126,7 @@ type Compose struct {
 	withQnATransformers         bool
 	withWeaviateExposeGRPCPort  bool
 	withWeaviateExposeDebugPort bool
+	withWeaviateTmpfsData       bool
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
@@ -563,8 +564,26 @@ func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
 }
 
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
-	d.With1NodeCluster()
+	// Only default to a 1-node cluster when the caller hasn't already
+	// configured a size — otherwise this would silently overwrite e.g.
+	// WithWeaviateCluster(3) and the test would end up with a 1-node
+	// "cluster" that fails RF=3 schema operations.
+	if !d.withWeaviateCluster {
+		d.With1NodeCluster()
+	}
 	d.withWeaviateExposeDebugPort = true
+	return d
+}
+
+// WithWeaviateTmpfsData mounts /data as a tmpfs in every weaviate
+// container. The tmpfs is wiped automatically when the container is
+// stopped (and remounted fresh on next start), giving tests true
+// data-loss semantics — required by SELF_RECOVERY tests because the
+// alternative (rm -rf /data/* via docker exec while weaviate is
+// running) races with weaviate's own writes (open fds + flushes
+// recreate files between rm and SIGKILL).
+func (d *Compose) WithWeaviateTmpfsData() *Compose {
+	d.withWeaviateTmpfsData = true
 	return d
 }
 
@@ -969,7 +988,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.weaviateFiles)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1142,7 +1161,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
+				cfg, networkName, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.weaviateFiles)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

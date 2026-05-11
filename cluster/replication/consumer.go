@@ -577,7 +577,14 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	// SELF_RECOVERY lands files in "<shard>.recovering/"; FINALIZING
+	// renames it into place atomically.
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		if err := c.replicaCopier.CopyReplicaFilesToLocalShard(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, api.RecoveryFolderName(op.Op.TargetShard.ShardId), op.Status.SchemaVersion); err != nil {
+			logger.WithError(err).Error("failure while copying replica shard for self-recovery")
+			return api.ShardReplicationState(""), err
+		}
+	} else if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.WithError(err).Error("failure while copying replica shard")
 		return api.ShardReplicationState(""), err
 	}
@@ -606,7 +613,16 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
-	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+	// SELF_RECOVERY: rename "<shard>.recovering/" -> "<shard>/" before
+	// LoadLocalShard so init reads from the live dir.
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		if err := c.replicaCopier.PromoteRecoveryFolder(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.WithError(err).Error("failure while promoting recovery folder")
+			return api.ShardReplicationState(""), err
+		}
+	}
+
+	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while loading shard")
 		return api.ShardReplicationState(""), err
 	}
@@ -662,10 +678,13 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	switch op.Op.TransferType {
-	case api.COPY:
+	case api.COPY, api.SELF_RECOVERY:
+		// SELF_RECOVERY mirrors COPY here: source stays a replica, the
+		// membership check above already saw replicaExists=true so
+		// AddReplicaToShard was skipped.
 		c.stopAsyncReplication(ctx, op, overrides, logger)
 		// sync the replica shard to ensure that the schema and store are consistent on each node
-		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
+		// In a COPY/SELF_RECOVERY this happens now, in a MOVE this happens in the DEHYDRATING state
 		if err := c.sync(ctx, op); err != nil {
 			logger.WithError(err).Error("failure while syncing replica shard in finalizing state")
 			return api.ShardReplicationState(""), err

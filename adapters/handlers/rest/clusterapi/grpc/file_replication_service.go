@@ -13,11 +13,14 @@ package grpc
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/grpc/codes"
@@ -88,11 +91,25 @@ func (fps *FileReplicationService) ListFiles(ctx context.Context, req *pb.ListFi
 
 	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
-		return nil, status.Errorf(codes.Internal, "local index %q not found", indexName)
+		// Treat as transient: a nil index can mean the schema-replay
+		// hasn't reached this peer yet (eventual consistency), not just
+		// "this collection truly doesn't exist". NotFound would tell a
+		// self-recovery probe "definitive empty" and could push the
+		// orchestrator into the catastrophic-wipe empty-fallback path.
+		return nil, status.Errorf(codes.Unavailable, "local index %q not loaded yet", indexName)
 	}
 
 	files, err := index.IncomingListFiles(ctx, shardName)
 	if err != nil {
+		// Self-recovery probes (and similar callers) interpret the
+		// gRPC code: NotFound = peer definitively has no shard;
+		// Unavailable = peer is itself recovering / busy.
+		switch {
+		case stderrors.Is(err, enterrors.ErrShardRecovering):
+			return nil, status.Errorf(codes.Unavailable, "shard %q on index %q is recovering: %v", shardName, indexName, err)
+		case isShardAbsent(err):
+			return nil, status.Errorf(codes.NotFound, "shard %q not present on index %q: %v", shardName, indexName, err)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to list files for index %q, shard %q: %v", indexName, shardName, err)
 	}
 
@@ -172,6 +189,21 @@ func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.Fil
 			return nil
 		}
 	}
+}
+
+// isShardAbsent reports whether err signals that the requested shard
+// does not exist on this node (vs. a transient/availability issue).
+// Match only shard-specific phrasings — the index layer's canonical
+// errors are "shard not found" / "shard is nil". A bare "not found"
+// substring would misclassify unrelated failures (missing file inside
+// an existing shard etc.) as shard-absence.
+func isShardAbsent(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "shard is nil") ||
+		strings.Contains(msg, "shard not found")
 }
 
 func (fps *FileReplicationService) indexForIncomingWrite(ctx context.Context, indexName string,

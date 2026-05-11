@@ -103,9 +103,19 @@ func (st *Store) Apply(l *raft.Log) any {
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+
+	// A wiped node rejoining an existing cluster via log replay must replay
+	// schema-only (so no shard folders are created per entry); the catch-up
+	// watcher then does a single DB load once caught up. See
+	// noteWipedJoinerProgress / watchWipedJoinerCatchUp.
+	wipedJoinerCatchingUp, startWipedJoinerWatcher := st.noteWipedJoinerProgress(l.Index, st.raftLastIndex())
+	if startWipedJoinerWatcher {
+		enterrors.GoWrapper(st.watchWipedJoinerCatchUp, st.log)
+	}
+
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || wipedJoinerCatchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.

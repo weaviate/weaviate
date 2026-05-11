@@ -70,6 +70,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/replication/selfrecovery"
 	"github.com/weaviate/weaviate/cluster/usage"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -704,6 +705,45 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
+	// Wired after Cluster (Raft dep) and before WaitForStartup so the
+	// schema-replay shard-init pass can hand off missing-on-disk shards.
+	// (The bootstrap-window classification of empty-fallbacks is captured
+	// per-op at submit time from IndexConfig.RaftBootstrapComplete, so the
+	// orchestrator itself doesn't need that hook.)
+	selfRecoveryOrch := selfrecovery.New(selfrecovery.Config{
+		Raft:                   appState.ClusterService.Raft,
+		Schema:                 selfRecoverySchemaReader{r: appState.ClusterService.SchemaReader()},
+		PathResolver:           selfRecoveryDBPathResolver{db: appState.DB, root: dataPath},
+		ClientFactory:          remoteClientFactory,
+		NodeSelector:           nodeSelector,
+		NodeName:               nodeName,
+		Enabled:                appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
+		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		OnRecoveryComplete: func(ctx context.Context, collection, shard string) error {
+			idx := appState.DB.GetIndex(entschema.ClassName(collection))
+			if idx == nil {
+				return fmt.Errorf("self-recovery promote: index %q not found", collection)
+			}
+			return idx.LoadLocalShard(ctx, shard, false)
+		},
+		Logger: appState.Logger,
+	})
+	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)
+	// The operator/debug HTTP endpoints (and the test-only force-snapshot
+	// endpoint) only make sense when the feature is on; don't expose them
+	// — even on the profiling port — when it's off.
+	if cfg := appState.ServerConfig.Config.Replication.SelfRecoveryEnabled; cfg != nil && cfg.Get() {
+		setupSelfRecoveryHandlers(appState, selfRecoveryOrch)
+		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
+	}
+	// One-shot reclaim of *.recovering/ leftovers from a downgrade.
+	if removed, err := selfRecoveryOrch.CleanupOrphanRecoveryDirs(dataPath); err != nil {
+		appState.Logger.WithError(err).Warn("self-recovery orphan cleanup failed")
+	} else if len(removed) > 0 {
+		appState.Logger.WithField("count", len(removed)).Info("self-recovery: removed orphan recovery dirs")
+	}
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
@@ -813,6 +853,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				Fatal("could not open cloud meta store")
 			metaStoreReady.failure(err)
 		} else {
+			// Past initial FSM replay: any further AddClass calls are
+			// runtime additions, not data-loss candidates.
+			appState.DB.MarkRaftBootstrapComplete()
 			metaStoreReady.success()
 		}
 	}, appState.Logger)

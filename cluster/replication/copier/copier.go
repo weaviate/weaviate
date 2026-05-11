@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -85,6 +86,15 @@ func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.Re
 
 // CopyReplicaFiles copies a shard replica from the source node to this node.
 func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
+	return c.CopyReplicaFilesToLocalShard(ctx, srcNodeId, collectionName, shardName, "", schemaVersion)
+}
+
+// CopyReplicaFilesToLocalShard is like CopyReplicaFiles but lands files
+// in a different local shard directory when localShardOverride is set
+// (used by SELF_RECOVERY to write into "<shard>.recovering/"; the caller
+// then renames via PromoteRecoveryFolder). CRC32 per-file resume still
+// works across crashes since it operates on the local destination paths.
+func (c *Copier) CopyReplicaFilesToLocalShard(ctx context.Context, srcNodeId, collectionName, shardName, localShardOverride string, schemaVersion uint64) error {
 	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
 
 	sourceNodeGRPCPort, err := c.nodeSelector.NodeGRPCPort(srcNodeId)
@@ -138,7 +148,8 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		time.Sleep(sleepTime)
 	}
 
-	err = c.prepareLocalFolder(collectionName, shardName, fileListResp.FileNames)
+	localShard := c.localShardName(shardName, localShardOverride)
+	err = c.prepareLocalFolder(collectionName, shardName, localShard, fileListResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
@@ -158,7 +169,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	dWg := enterrors.NewErrorGroupWrapper(c.logger)
 	for range c.concurrentWorkers {
 		dWg.Go(func() error {
-			err := c.downloadWorker(ctx, client, metadataChan)
+			err := c.downloadWorker(ctx, client, metadataChan, shardName, localShard)
 			if err != nil {
 				c.logger.WithError(err).Error("failed to download files")
 			}
@@ -177,7 +188,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to download files: %w", err)
 	}
 
-	err = c.validateLocalFolder(collectionName, shardName, fileListResp.FileNames)
+	err = c.validateLocalFolder(collectionName, shardName, localShard, fileListResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
@@ -185,20 +196,45 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	return nil
 }
 
+func (c *Copier) localShardName(srcShard, override string) string {
+	if override == "" {
+		return srcShard
+	}
+	return override
+}
+
+// rewriteRelPathToLocalShard rewrites the shard segment of a
+// source-relative path (e.g. "coll/shard/.../file") to the local
+// destination shard. No-op when srcShard == localShard.
+func (c *Copier) rewriteRelPathToLocalShard(srcRelPath, srcShard, localShard string) string {
+	if localShard == srcShard {
+		return srcRelPath
+	}
+	sep := string(filepath.Separator)
+	parts := strings.SplitN(srcRelPath, sep, 3)
+	if len(parts) >= 2 && parts[1] == srcShard {
+		parts[1] = localShard
+		return strings.Join(parts, sep)
+	}
+	return srcRelPath
+}
+
 func (c *Copier) shardPath(collectionName, shardName string) string {
 	return path.Join(c.rootDataPath, strings.ToLower(collectionName), shardName)
 }
 
-func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames []string) error {
+func (c *Copier) prepareLocalFolder(collectionName, shardName, localShard string, fileNames []string) error {
+	// Keyed by LOCAL relative path so we can compare against on-disk
+	// files (which live under localShard, not srcShard, for SELF_RECOVERY).
 	fileNamesMap := make(map[string]struct{}, len(fileNames))
 	for _, fileName := range fileNames {
-		fileNamesMap[fileName] = struct{}{}
+		fileNamesMap[c.rewriteRelPathToLocalShard(fileName, shardName, localShard)] = struct{}{}
 	}
 
 	var dirs []string
 
-	// remove files that are not in the source node
-	basePath := c.shardPath(collectionName, shardName)
+	// remove files in the local destination not in the source manifest.
+	basePath := c.shardPath(collectionName, localShard)
 
 	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -272,10 +308,12 @@ func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServi
 }
 
 func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServiceClient,
-	metadataChan <-chan *protocol.FileMetadata,
+	metadataChan <-chan *protocol.FileMetadata, srcShard, localShard string,
 ) error {
 	for meta := range metadataChan {
-		localFilePath := filepath.Join(c.rootDataPath, meta.FileName)
+		// Rewrite the shard segment so SELF_RECOVERY writes land in
+		// "<shard>.recovering/" rather than the live "<shard>/".
+		localFilePath := filepath.Join(c.rootDataPath, c.rewriteRelPathToLocalShard(meta.FileName, srcShard, localShard))
 
 		_, checksum, err := integrity.CRC32(localFilePath)
 		if err != nil {
@@ -388,15 +426,50 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 	return idx.LoadLocalShard(ctx, shardName, false)
 }
 
-func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {
+// PromoteRecoveryFolder atomically renames "<shard>.recovering/" into
+// "<shard>/" after a SELF_RECOVERY copy completes. Idempotent across
+// crashes: if both dirs exist the live one is canonical and the
+// recovery one is erased. On error the recovery dir is left in place so
+// the next attempt resumes via CRC32 per-file logic.
+func (c *Copier) PromoteRecoveryFolder(collectionName, shardName string) error {
+	recoveryPath := c.shardPath(collectionName, api.RecoveryFolderName(shardName))
+	livePath := c.shardPath(collectionName, shardName)
+
+	if _, err := os.Stat(recoveryPath); err != nil {
+		return fmt.Errorf("promote recovery folder: stat %q: %w", recoveryPath, err)
+	}
+	if _, err := os.Stat(livePath); err == nil {
+		// Live dir is canonical; recovery dir is stale. No-op promote.
+		if err := os.RemoveAll(recoveryPath); err != nil {
+			return fmt.Errorf("promote recovery folder: live dir already exists, but failed to remove stale %q: %w", recoveryPath, err)
+		}
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("promote recovery folder: stat %q: %w", livePath, err)
+	}
+
+	if err := os.Rename(recoveryPath, livePath); err != nil {
+		return fmt.Errorf("promote recovery folder: rename %q -> %q: %w", recoveryPath, livePath, err)
+	}
+
+	// fsync parent so the rename is durable across a crash (POSIX).
+	parent := filepath.Dir(livePath)
+	if err := diskio.Fsync(parent); err != nil {
+		return fmt.Errorf("promote recovery folder: fsync parent %q: %w", parent, err)
+	}
+	return nil
+}
+
+func (c *Copier) validateLocalFolder(collectionName, shardName, localShard string, fileNames []string) error {
+	// Keyed by LOCAL relative path; see prepareLocalFolder.
 	fileNamesMap := make(map[string]struct{}, len(fileNames))
 	for _, fileName := range fileNames {
-		fileNamesMap[fileName] = struct{}{}
+		fileNamesMap[c.rewriteRelPathToLocalShard(fileName, shardName, localShard)] = struct{}{}
 	}
 
 	var dirs []string
 
-	basePath := c.shardPath(collectionName, shardName)
+	basePath := c.shardPath(collectionName, localShard)
 
 	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

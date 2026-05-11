@@ -140,6 +140,9 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 			continue
 		}
 		index.ForEachShard(func(name string, shard ShardLike) error {
+			if shard.GetStatus() == storagestate.StatusRecovering {
+				return nil
+			}
 			m.logShard(shard).Debug("setting fallback mode for shard")
 			shard.setFallbackToSearchable(true)
 			return nil
@@ -166,6 +169,13 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 			continue
 		}
 		if err := index.ForEachShard(func(name string, shard ShardLike) error {
+			// Shards being SELF_RECOVERY-restored have no usable Store
+			// yet (LazyLoadShard.mustLoad will panic on a blocked load).
+			// Skip them; the source-peer data is already in the
+			// post-migration format.
+			if shard.GetStatus() == storagestate.StatusRecovering {
+				return nil
+			}
 			if toFix, err := m.isPropToFix(ctx, prop, shard); toFix {
 				if _, ok := shard2PropsToFix[shard.Name()]; !ok {
 					shard2PropsToFix[shard.Name()] = map[string]struct{}{}
