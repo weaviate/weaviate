@@ -195,23 +195,35 @@ func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bit
 
 // executeRootAnchor handles the no-positive path. The anchor is the universe
 // of element positions (from _exists.{scope}); excludes are subtracted at raw
-// level so leaf-position alignment with the anchor is preserved before the
-// per-element MaskLeaf collapses the result to (root, 0, docID). The trailing
-// MaskRootLeaf is skipped when returnMasked is set.
+// level so leaf-position alignment with the anchor is preserved. The trailing
+// MaskRootLeaf produces docIDs (skipped when returnMasked is set, in which
+// case the caller receives a leaf-precise raw bitmap and is responsible for
+// collapsing to docIDs itself).
+//
+// Phase 2a of the position-level eval rollout: dropped the prior MaskLeaf
+// step before MaskRootLeaf — it was redundant since MaskRootLeaf zeros both
+// root and leaf, and removing it lets the raw bitmap flow through to the
+// boundary unchanged.
 func (e *recExecutor) executeRootAnchor() (*sroar.Bitmap, func(), error) {
 	if e.rootAnchor == nil {
 		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan requires a non-nil rootAnchor")
 	}
-	anchor := e.rootAnchor.Clone()
+	// Clone the anchor into a pool buffer so AndNot mutations don't disturb
+	// the shared rootAnchor; the clone becomes the result.
+	raw, rawRel := e.bitmapOps.AndAll([]*sroar.Bitmap{e.rootAnchor}, e.maxConcurrency)
 	for _, excl := range e.excludes {
-		anchor.AndNotConc(excl.bitmap, e.maxConcurrency)
+		raw.AndNotConc(excl.bitmap, e.maxConcurrency)
 	}
-	masked, maskedRel := e.bitmapOps.MaskLeaf(anchor)
 	if e.returnMasked {
+		// returnMasked callers expect a leaf-zeroed bitmap. Apply MaskLeaf
+		// here to preserve that contract until Step 4 phase 2b refactors
+		// returnMasked to mean "skip MaskRootLeaf, return raw".
+		masked, maskedRel := e.bitmapOps.MaskLeaf(raw)
+		rawRel()
 		return masked, maskedRel, nil
 	}
-	defer maskedRel()
-	docs, docRel := e.bitmapOps.MaskRootLeaf(masked)
+	defer rawRel()
+	docs, docRel := e.bitmapOps.MaskRootLeaf(raw)
 	return docs, docRel, nil
 }
 
