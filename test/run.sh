@@ -74,6 +74,7 @@ function main() {
   run_acceptance_backup_dedupe_cross_version=false
   run_acceptance_backup_dedupe_incremental=false
   run_acceptance_backup_dedupe_misc=false
+  run_acceptance_self_recovery=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -148,6 +149,7 @@ function main() {
           --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
           --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
           --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
+          --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -207,6 +209,7 @@ function main() {
               "--acceptance-backup-dedupe-cross-version | -abdcv"\
               "--acceptance-backup-dedupe-incremental | -abdi"\
               "--acceptance-backup-dedupe-misc | -abdm"\
+              "--acceptance-self-recovery | -asr"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -532,6 +535,11 @@ function main() {
     echo "running backup dedupe misc acceptance tests"
     run_acceptance_backup_dedupe_misc
   fi
+
+  if $run_acceptance_self_recovery || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery acceptance tests"
+    run_acceptance_self_recovery
+  fi
   echo "Done!"
 }
 
@@ -730,6 +738,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
+    | grep -v 'test/acceptance/selfrecovery' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
@@ -1169,6 +1178,11 @@ function run_acceptance_reindex_backup() {
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
 }
+function run_acceptance_self_recovery() {
+  build_weaviate_test_image
+  run_aof_group "self-recovery" test/acceptance/selfrecovery
+}
+
 
 function run_acceptance_drop_vector_index() {
   build_weaviate_test_image
