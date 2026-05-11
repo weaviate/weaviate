@@ -7194,8 +7194,10 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 	//
 	// Two compatibility groups — {cars[0]} and {cars[1]} — conflict at
 	// RelPath="cars", so allRootConstrained is false and dispatch goes through
-	// resolveMultiGroupRootDocIDAnd (returnMasked=true → AND at root+docID
-	// level → MaskRootLeaf). Within each group the plan is SPLIT@"cars"[idx]
+	// resolveMultiGroupRootDocIDAnd: each group resolves to a raw position
+	// bitmap and the per-group raw bitmaps are combined via
+	// CrossLeafCopresenceAll before MaskRootLeaf. Within each group the
+	// plan is SPLIT@"cars"[idx]
 	// → GROUP@"cars" with two deeper subs (tires + accessories), exercising
 	// runIdxLoopRecursive at lcaPath="cars" inside the per-group execution.
 	//
@@ -7432,9 +7434,9 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 	// Compatibility grouping always yields three groups (for ABCD order it is
 	// {A}, {B, C}, {D}; for DACB order it is {D, B}, {A}, {C}). In both cases
 	// allRootConstrained=false (outermost RelPath="garages") so dispatch goes
-	// through resolveMultiGroupRootDocIDAnd: each group resolves with
-	// returnMasked=true, and the per-group root+docID outputs are AndAll'd
-	// before MaskRootLeaf.
+	// through resolveMultiGroupRootDocIDAnd: each group resolves to a raw
+	// position bitmap and the per-group raw bitmaps are combined via
+	// CrossLeafCopresenceAll before MaskRootLeaf.
 	//
 	// Per-group plans (ABCD order):
 	//   {A}     SPLIT@"garages"[0] → GROUP@"garages" here=[city]

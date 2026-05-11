@@ -33,8 +33,10 @@ type recExclude struct {
 	lcaPath string
 }
 
-// recExecutor evaluates a recPlanNode tree to produce the docID bitmap of
-// matching documents.
+// recExecutor evaluates a recPlanNode tree to produce a raw position bitmap.
+// Callers strip to docIDs via bitmapOps.MaskRootLeaf when needed — the
+// executor itself stays position-level so multi-group fallback can combine
+// raw bitmaps via CrossLeafCopresenceAll before stripping.
 //
 // Each leaf condition in the plan (a *propValuePair appearing in some
 // recGroupNode.here) maps to a raw position bitmap via rawsByCond. The
@@ -47,10 +49,9 @@ type recExclude struct {
 // LCA. When the LCA matches a group's lcaPath in the plan (planLCAs), the
 // exclude is subtracted raw-level inside that group — preserving leaf-precise
 // per-element semantics for §8.5 sibling-element negation. Otherwise it is
-// subtracted at rootDoc level via MaskLeaf+AndNot in execute(). rootAnchor is
+// subtracted at raw level by execute() after evalNode returns. rootAnchor is
 // the seed for the no-positive path: when plan is nil, the executor clones
-// the anchor, AndNots excludes at raw level (preserving leaf alignment), then
-// MaskLeaf to produce a rootDoc bitmap.
+// the anchor and AndNots excludes at raw level (preserving leaf alignment).
 //
 // Position lifecycle: every bitmap returned to a caller comes with a release
 // function. Internal intermediates are released before this method returns.
@@ -62,7 +63,6 @@ type recExecutor struct {
 	metaBucket     *lsmkv.Bucket
 	bitmapOps      *invnested.BitmapOps
 	maxConcurrency int
-	returnMasked   bool
 	// props is the nested schema of the root property the executor operates
 	// on. Used by collectFlatSubtree to identify scalar-array (text[], int[],
 	// uuid[], …) here paths — those values get distinct leaves per element
@@ -131,15 +131,6 @@ func (e *recExecutor) withRootAnchor(anchor *sroar.Bitmap) *recExecutor {
 	return e
 }
 
-// withReturnMasked toggles masked-output mode. When true, execute returns a
-// root+docID position bitmap (leaf bits zeroed) instead of plain docIDs — i.e.
-// it skips the trailing MaskRootLeaf. Used by resolveMultiGroupRootDocIDAnd to
-// AND multiple groups at root+docID level before stripping root bits.
-func (e *recExecutor) withReturnMasked(returnMasked bool) *recExecutor {
-	e.returnMasked = returnMasked
-	return e
-}
-
 // withProps attaches the root property's nested schema. Required for the
 // flat raw-AndAll path in evalGroup to detect scalar-array (narrow-leaf)
 // here paths.
@@ -148,20 +139,17 @@ func (e *recExecutor) withProps(props []*models.NestedProperty) *recExecutor {
 	return e
 }
 
-// execute runs the plan and returns either the final docID bitmap (root and
-// leaf bits stripped) or the intermediate root+docID position bitmap when
-// returnMasked is set. The caller must invoke the returned release.
+// execute runs the plan and returns a raw position bitmap. The caller is
+// responsible for stripping to docIDs via bitmapOps.MaskRootLeaf when needed
+// and must invoke the returned release.
 //
-// When plan is nil the executor takes the rootAnchor path: clone the anchor,
-// AndNot each exclude at raw position level (preserves leaf alignment with the
-// anchor's positions), MaskLeaf to a rootDoc bitmap, then MaskRootLeaf (skipped
-// if returnMasked).
+// When plan is nil the executor takes the rootAnchor path: clone the anchor
+// and AndNot each exclude at raw level (preserves leaf alignment).
 //
-// When plan is non-nil: evalNode produces a rootDoc bitmap; each exclude that
-// is NOT consumed inside the plan tree is MaskLeaf'd and AndNot'd from it
-// (root+docID-level subtraction). Excludes with lcaPath ∈ planLCAs were already
-// applied raw-level inside the matching group(s) — see §8.5. MaskRootLeaf
-// produces the final docID set (skipped if returnMasked).
+// When plan is non-nil: evalNode produces a raw bitmap; each exclude that
+// is NOT consumed inside the plan tree is AndNot'd at raw level (leaf-precise
+// per-element subtraction). Excludes with lcaPath ∈ planLCAs were already
+// applied raw-level inside the matching group(s) — see §8.5.
 func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bitmap, func(), error) {
 	if err := ctxExpired(ctx); err != nil {
 		return nil, nil, err
@@ -175,43 +163,24 @@ func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bit
 		return nil, nil, err
 	}
 
-	// Apply non-plan-consumed excludes at raw level. bm is raw under Phase 2;
-	// excludes are raw _exists.{path} bitmaps. AndNot is leaf-precise,
-	// preserving per-element semantics — a sibling element at the same LCA
-	// without the absent property's existence survives.
+	// Apply non-plan-consumed excludes at raw level. bm is raw; excludes are
+	// raw _exists.{path} bitmaps. AndNot is leaf-precise, preserving
+	// per-element semantics — a sibling element at the same LCA without the
+	// absent property's existence survives.
 	for _, excl := range e.excludes {
 		if e.excludeConsumedByPlan(excl) {
 			continue
 		}
 		bm.AndNotConc(excl.bitmap, e.maxConcurrency)
 	}
-
-	if e.returnMasked {
-		// returnMasked callers (multi-group fallback) expect a leaf-zeroed
-		// bitmap for cross-group AndConc. Apply MaskLeaf to preserve the
-		// Phase 1 contract; switching the contract to "skip MaskRootLeaf,
-		// return raw" is a Phase 2c follow-up that would also require
-		// resolveMultiGroupRootDocIDAnd to use CrossLeafCopresenceAll.
-		masked, maskedRel := e.bitmapOps.MaskLeaf(bm)
-		release()
-		return masked, maskedRel, nil
-	}
-	defer release()
-	docs, docRel := e.bitmapOps.MaskRootLeaf(bm)
-	return docs, docRel, nil
+	return bm, release, nil
 }
 
 // executeRootAnchor handles the no-positive path. The anchor is the universe
-// of element positions (from _exists.{scope}); excludes are subtracted at raw
-// level so leaf-position alignment with the anchor is preserved. The trailing
-// MaskRootLeaf produces docIDs (skipped when returnMasked is set, in which
-// case the caller receives a leaf-precise raw bitmap and is responsible for
-// collapsing to docIDs itself).
-//
-// Phase 2a of the position-level eval rollout: dropped the prior MaskLeaf
-// step before MaskRootLeaf — it was redundant since MaskRootLeaf zeros both
-// root and leaf, and removing it lets the raw bitmap flow through to the
-// boundary unchanged.
+// of element positions (from _exists.{scope}); excludes are subtracted at
+// raw level so leaf-position alignment with the anchor is preserved. Returns
+// the resulting raw position bitmap — callers strip to docIDs via
+// bitmapOps.MaskRootLeaf when needed.
 func (e *recExecutor) executeRootAnchor() (*sroar.Bitmap, func(), error) {
 	if e.rootAnchor == nil {
 		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan requires a non-nil rootAnchor")
@@ -222,17 +191,7 @@ func (e *recExecutor) executeRootAnchor() (*sroar.Bitmap, func(), error) {
 	for _, excl := range e.excludes {
 		raw.AndNotConc(excl.bitmap, e.maxConcurrency)
 	}
-	if e.returnMasked {
-		// returnMasked callers expect a leaf-zeroed bitmap. Apply MaskLeaf
-		// here to preserve that contract until Step 4 phase 2b refactors
-		// returnMasked to mean "skip MaskRootLeaf, return raw".
-		masked, maskedRel := e.bitmapOps.MaskLeaf(raw)
-		rawRel()
-		return masked, maskedRel, nil
-	}
-	defer rawRel()
-	docs, docRel := e.bitmapOps.MaskRootLeaf(raw)
-	return docs, docRel, nil
+	return raw, rawRel, nil
 }
 
 // evalNode dispatches by node type. parentScope (a raw position bitmap) limits

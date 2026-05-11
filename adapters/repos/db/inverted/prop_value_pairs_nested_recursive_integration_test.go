@@ -67,8 +67,10 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 				rel()
 			}
 		}()
-		docs, docRel, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		docs, docRel := s.nestedBitmapOps.MaskRootLeaf(raw)
 		defer docRel()
 		requireBitmapValid(t, docs)
 		assert.Equal(t, want, docs.ToArray())

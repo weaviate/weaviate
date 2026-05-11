@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -51,8 +50,10 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build(pv.children)
 		exec := newRecExecutor(rawsByCond, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, want, result.ToArray())
@@ -726,8 +727,10 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build(pv.children)
 		exec := newRecExecutor(rawsByCond, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		assert.Empty(t, result.ToArray())
 	}
@@ -815,125 +818,16 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 	})
 }
 
-// TestRecExecutorReturnMasked exercises withReturnMasked across both execute
-// paths. It runs the same scenario twice — once unmasked (final docIDs), once
-// masked (root+docID positions) — and asserts that MaskRootLeaf'ing the masked
-// output produces the same docID set as the unmasked output. This is the
-// invariant resolveMultiGroupRootDocIDAnd relies on when ANDing groups at
-// root+docID level before stripping root bits.
-func TestRecExecutorReturnMasked(t *testing.T) {
-	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
-
-	t.Run("normal_path_returnMasked_then_MaskRootLeaf_equals_unmasked", func(t *testing.T) {
-		const (
-			docMatch   = uint64(101)
-			docNoMatch = uint64(102)
-		)
-		valueBucket := helpers.BucketNestedFromPropNameLSM("addresses")
-		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
-		s, store := newNestedTestSearcher(t, valueBucket, metaBucket)
-		class := correlationTestClass()
-
-		vb := store.Bucket(valueBucket)
-		writeNestedValue(t, vb, "city", "berlin", []uint64{enc(1, 1, docMatch), enc(1, 1, docNoMatch)})
-		writeNestedValue(t, vb, "postcode", "10115", []uint64{enc(1, 1, docMatch), enc(1, 2, docNoMatch)})
-
-		pv := makeCorrelatedPvp(class, "addresses",
-			makeLeafPvp(class, "addresses", "city", "berlin"),
-			makeLeafPvp(class, "addresses", "postcode", "10115"),
-		)
-
-		// Unmasked: plain docIDs.
-		planU, execU, relsU, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		docs, docsRel, err := execU.execute(context.Background(), planU)
-		require.NoError(t, err)
-		unmaskedDocs := docs.ToArray()
-		docsRel()
-		for _, rel := range relsU {
-			rel()
-		}
-
-		// Masked: root+docID positions. MaskRootLeaf'ing must give the same docs.
-		planM, execM, relsM, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		execM.withReturnMasked(true)
-		masked, maskedRel, err := execM.execute(context.Background(), planM)
-		require.NoError(t, err)
-		ops := newLifecycleOps(t)
-		fromMasked, fromMaskedRel := ops.MaskRootLeaf(masked)
-		assert.Equal(t, unmaskedDocs, fromMasked.ToArray(),
-			"MaskRootLeaf(returnMasked output) must equal unmasked output")
-		fromMaskedRel()
-		maskedRel()
-		for _, rel := range relsM {
-			rel()
-		}
-	})
-
-	t.Run("root_anchor_path_returnMasked_then_MaskRootLeaf_equals_unmasked", func(t *testing.T) {
-		// addresses.city IS NULL — no positives, only excludes; execute takes the
-		// rootAnchor branch in both modes. Same MaskRootLeaf invariant must hold.
-		const (
-			docMatch   = uint64(111)
-			docNoMatch = uint64(112)
-		)
-		valueBucket := helpers.BucketNestedFromPropNameLSM("addresses")
-		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
-		s, store := newNestedTestSearcher(t, valueBucket, metaBucket)
-		class := correlationTestClass()
-
-		mb := store.Bucket(metaBucket)
-		require.NoError(t, mb.RoaringSetAddList(invnested.ExistsKey(""), []uint64{
-			enc(1, 1, docMatch), enc(1, 1, docNoMatch),
-		}))
-		require.NoError(t, mb.RoaringSetAddList(invnested.ExistsKey("city"), []uint64{
-			enc(1, 1, docNoMatch),
-		}))
-
-		pv := makeCorrelatedPvp(class, "addresses",
-			makeIsNullPvp(class, "addresses", "city", true),
-		)
-
-		planU, execU, relsU, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		docs, docsRel, err := execU.execute(context.Background(), planU)
-		require.NoError(t, err)
-		unmaskedDocs := docs.ToArray()
-		docsRel()
-		for _, rel := range relsU {
-			rel()
-		}
-
-		planM, execM, relsM, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		execM.withReturnMasked(true)
-		masked, maskedRel, err := execM.execute(context.Background(), planM)
-		require.NoError(t, err)
-		assert.Nil(t, planM, "rootAnchor scenario yields nil plan")
-		ops := newLifecycleOps(t)
-		fromMasked, fromMaskedRel := ops.MaskRootLeaf(masked)
-		assert.Equal(t, unmaskedDocs, fromMasked.ToArray(),
-			"MaskRootLeaf(returnMasked rootAnchor output) must equal unmasked output")
-		fromMaskedRel()
-		maskedRel()
-		for _, rel := range relsM {
-			rel()
-		}
-	})
-}
-
 // TestRecExecutorRootAnchor exercises the executeRootAnchor path of execute()
 // — the branch taken when plan==nil. The path applies for correlated AND
 // filters that contain only IsNull conditions: there is no positive anchor, so
 // the executor uses _exists.{scope} as the element universe. Each exclude (a
 // raw _exists.{path} position bitmap) is AndNot'd at raw level (preserving
-// leaf alignment with the anchor), then MaskLeaf collapses to rootDoc, then
-// MaskRootLeaf to docIDs.
+// leaf alignment with the anchor); the caller strips to docIDs via
+// MaskRootLeaf when needed.
 //
-// TestRecExecutorReturnMasked already proves the masked-vs-unmasked invariant
-// for this path. This test exercises absolute-result and lifecycle invariants:
-// single vs. multiple excludes, partial-element subtraction (one element of a
+// This test exercises absolute-result and lifecycle invariants: single vs.
+// multiple excludes, partial-element subtraction (one element of a
 // multi-element doc excluded while another survives), and the nil-anchor
 // error.
 func TestRecExecutorRootAnchor(t *testing.T) {
@@ -950,8 +844,10 @@ func TestRecExecutorRootAnchor(t *testing.T) {
 			withRootAnchor(anchor).
 			withExcludes([]recExclude{{bitmap: exclude}})
 
-		result, release, err := exec.execute(context.Background(), nil)
+		raw, rawRel, err := exec.execute(context.Background(), nil)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{101}, result.ToArray())
@@ -972,8 +868,10 @@ func TestRecExecutorRootAnchor(t *testing.T) {
 			withRootAnchor(anchor).
 			withExcludes([]recExclude{{bitmap: excl1}, {bitmap: excl2}})
 
-		result, release, err := exec.execute(context.Background(), nil)
+		raw, rawRel, err := exec.execute(context.Background(), nil)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{200, 202, 204}, result.ToArray())
@@ -998,8 +896,10 @@ func TestRecExecutorRootAnchor(t *testing.T) {
 			withRootAnchor(anchor).
 			withExcludes([]recExclude{{bitmap: exclude}})
 
-		result, release, err := exec.execute(context.Background(), nil)
+		raw, rawRel, err := exec.execute(context.Background(), nil)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{300}, result.ToArray())
@@ -1058,8 +958,10 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
 			withExcludes([]recExclude{{bitmap: excludeZip}, {bitmap: excludeAge}})
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{1}, result.ToArray())
@@ -1080,8 +982,10 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
 			withExcludes([]recExclude{{bitmap: excludeZip}})
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{500}, result.ToArray())
@@ -1113,8 +1017,10 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 			withExcludes([]recExclude{{bitmap: excludeZip, lcaPath: "garages"}}).
 			withPlanLCAs(collectPlanLCAs(plan))
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{1}, result.ToArray())
@@ -1147,44 +1053,13 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 			withExcludes([]recExclude{{bitmap: excludeZip, lcaPath: "garages.cars"}}).
 			withPlanLCAs(collectPlanLCAs(plan))
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{1}, result.ToArray(), "raw AndNot preserves doc1 via the surviving leaf-5 city position")
-	})
-
-	t.Run("returnMasked_keeps_rootDoc_after_excludes", func(t *testing.T) {
-		// With returnMasked=true, execute returns the post-AndNot rootDoc
-		// bitmap directly — MaskRootLeaf is skipped. Verify the equivalence
-		// invariant: MaskRootLeaf'ing the masked result equals the unmasked
-		// docID set. Confirms the exclude loop runs identically in both modes
-		// (the returnMasked check happens after the loop, not before).
-		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
-		rawCity := roaringset.NewBitmap(enc(1, 1, 700), enc(2, 1, 701))
-		excludeZip := roaringset.NewBitmap(enc(2, 5, 701))
-
-		opsU := newLifecycleOps(t)
-		planU := newRecPlanBuilder(props).build([]*propValuePair{city})
-		execU := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, opsU, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip}})
-		unmasked, unmaskedRel, err := execU.execute(context.Background(), planU)
-		require.NoError(t, err)
-		unmaskedDocs := unmasked.ToArray()
-		unmaskedRel()
-
-		opsM := newLifecycleOps(t)
-		planM := newRecPlanBuilder(props).build([]*propValuePair{city})
-		execM := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, opsM, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip}}).
-			withReturnMasked(true)
-		masked, maskedRel, err := execM.execute(context.Background(), planM)
-		require.NoError(t, err)
-		ops := newLifecycleOps(t)
-		fromMasked, fromMaskedRel := ops.MaskRootLeaf(masked)
-		assert.Equal(t, unmaskedDocs, fromMasked.ToArray())
-		fromMaskedRel()
-		maskedRel()
 	})
 }
 
@@ -1615,8 +1490,10 @@ func TestRecExecutorEvalOr(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build([]*propValuePair{pv})
 		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, want, result.ToArray())
@@ -1672,8 +1549,10 @@ func TestRecExecutorEvalOr(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build([]*propValuePair{makeOrPvp(class, makeBm, modelBm)})
 		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -1719,8 +1598,10 @@ func TestRecExecutorEvalNot(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build([]*propValuePair{pv})
 		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, want, result.ToArray())
@@ -1819,8 +1700,10 @@ func TestRecExecutorEvalNot(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build([]*propValuePair{makeNotPvp(class, makeBm)})
 		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())
@@ -1857,8 +1740,10 @@ func TestRecExecutorEvalNot(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build([]*propValuePair{makeNotPvp(class, makeBm)})
 		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.True(t, result.IsEmpty())

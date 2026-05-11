@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 )
@@ -237,11 +236,16 @@ func (pv *propValuePair) resolveMultiGroupDocIDLevelAnd(ctx context.Context, s *
 	return dbm, nil
 }
 
-// resolveMultiGroupRootDocIDAnd resolves each group to root+docID positions and
-// AND's them so all conditions must land in the same root element. Applied when
-// groups have conflicting intermediate constraints or no common intermediate LCA.
+// resolveMultiGroupRootDocIDAnd resolves each group to a raw position bitmap
+// and combines them via CrossLeafCopresenceAll so all conditions must land in
+// the same root element. Applied when groups have conflicting intermediate
+// constraints or no common intermediate LCA — different groups' leaves are
+// disjoint by construction, so plain raw AndAll would give ∅. The leaf-zeroed
+// (root, doc) co-presence check across groups keeps positions whose root
+// element contains a passing element in every group.
 func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *Searcher, groups [][]*propValuePair) (*docBitmap, error) {
-	var releases []func()
+	rawBitmaps := make([]*sroar.Bitmap, 0, len(groups))
+	releases := make([]func(), 0, len(groups))
 	succeeded := false
 	defer func() {
 		if !succeeded {
@@ -251,22 +255,18 @@ func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *S
 		}
 	}()
 
-	masked, rel, err := pv.resolveGroupMasked(ctx, s, groups[0])
-	if err != nil {
-		return nil, err
-	}
-	releases = append(releases, rel)
-
-	for _, group := range groups[1:] {
-		groupMasked, groupRel, err := pv.resolveGroupMasked(ctx, s, group)
+	for _, group := range groups {
+		raw, rel, err := pv.resolveGroupRaw(ctx, s, group)
 		if err != nil {
 			return nil, err
 		}
-		releases = append(releases, groupRel)
-		masked.AndConc(groupMasked, concurrency.SROAR_MERGE)
+		rawBitmaps = append(rawBitmaps, raw)
+		releases = append(releases, rel)
 	}
 
-	docIDs, docRelease := s.nestedBitmapOps.MaskRootLeaf(masked)
+	combined, combinedRel := s.nestedBitmapOps.CrossLeafCopresenceAll(rawBitmaps)
+	docIDs, docRelease := s.nestedBitmapOps.MaskRootLeaf(combined)
+	combinedRel()
 	succeeded = true
 	for _, rel := range releases {
 		rel()
@@ -276,30 +276,23 @@ func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *S
 
 // resolveNestedCorrelatedGroup resolves a single set of children using
 // position-aware same-element correlation through the recursive plan + executor.
+// The raw position bitmap returned by the executor is stripped to docIDs via
+// MaskRootLeaf.
 func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Searcher, children []*propValuePair) (*docBitmap, error) {
-	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
+	raw, rawRelease, err := pv.resolveGroupRaw(ctx, s, children)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		for _, rel := range releases {
-			rel()
-		}
-	}()
-
-	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
-	// consider deriving it from the request context or shard-level config.
-	docIDs, release, err := executor.execute(ctx, plan)
-	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
-	}
+	defer rawRelease()
+	docIDs, release := s.nestedBitmapOps.MaskRootLeaf(raw)
 	return &docBitmap{docIDs: docIDs, release: release}, nil
 }
 
-// resolveGroupMasked resolves children to root+docID positions (leaf bits zeroed)
-// instead of plain docIDs by toggling returnMasked on the recursive executor.
-// Used by resolveMultiGroupRootDocIDAnd to AND groups at root+docID level.
-func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, children []*propValuePair) (*sroar.Bitmap, func(), error) {
+// resolveGroupRaw resolves children to a raw position bitmap through the
+// recursive plan + executor. Used directly by resolveMultiGroupRootDocIDAnd
+// to combine groups via CrossLeafCopresenceAll before stripping to docIDs,
+// and indirectly by resolveNestedCorrelatedGroup which strips immediately.
+func (pv *propValuePair) resolveGroupRaw(ctx context.Context, s *Searcher, children []*propValuePair) (*sroar.Bitmap, func(), error) {
 	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
 	if err != nil {
 		return nil, nil, err
@@ -310,12 +303,13 @@ func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, ch
 		}
 	}()
 
-	executor.withReturnMasked(true)
-	masked, maskedRelease, err := executor.execute(ctx, plan)
+	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
+	// consider deriving it from the request context or shard-level config.
+	raw, rawRelease, err := executor.execute(ctx, plan)
 	if err != nil {
-		return nil, nil, fmt.Errorf("nested correlated AND: execute masked for %q: %w", pv.prop, err)
+		return nil, nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}
-	return masked, maskedRelease, nil
+	return raw, rawRelease, nil
 }
 
 // fetchRootAnchor returns the bitmap of element positions used as the starting
