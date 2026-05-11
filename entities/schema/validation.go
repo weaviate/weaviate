@@ -18,22 +18,24 @@ import (
 
 var (
 	validateClassNameRegex          = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
+	validateQualifiedClassNameRegex = regexp.MustCompile(`^` + IndexNameRegexCore + `$`)
 	validateTenantNameRegex         = regexp.MustCompile(`^` + ShardNameRegexCore + `$`)
 	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
 	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
 	reservedPropertyNames           = []string{"_additional", "_id", "id"}
 
-	// IndexNameRegexCore matches an internal index name as it appears on
-	// cluster-internal URLs: an optional "<namespace>:" prefix followed by a
-	// ClassNameRegexCore class name. The namespace portion mirrors the
-	// namespace-name contract — lowercase letter/digit edges, hyphens only
-	// internally, length NamespaceMinLength..NamespaceMaxLength.
+	// IndexNameRegexCore matches an internal index name: an optional
+	// "<namespace>:" prefix followed by a ClassNameRegexCore class name.
+	// The namespace portion mirrors the namespace-name contract — lowercase
+	// letter/digit edges, hyphens only internally, length
+	// NamespaceMinLength..NamespaceMaxLength.
 	//
 	// The {N,M} middle bound subtracts 2 to account for the required
 	// leading and trailing [a-z0-9] characters; total namespace length
 	// stays in [NamespaceMinLength, NamespaceMaxLength].
 	//
-	// Used only for cluster-API URL routing; user-facing class-name
+	// Used by cluster-API URL routing and by ValidateQualifiedClassName
+	// at post-resolver boundaries (filter parser). User-facing class-name
 	// validation continues to use ClassNameRegexCore (which rejects ":").
 	IndexNameRegexCore = fmt.Sprintf(`(?:[a-z0-9][a-z0-9-]{%d,%d}[a-z0-9]%s)?`,
 		NamespaceMinLength-2, NamespaceMaxLength-2, NamespaceSeparator) + ClassNameRegexCore
@@ -106,6 +108,29 @@ func ValidateClassName(name string) (ClassName, error) {
 		return "", err
 	}
 	return ClassName(c), nil
+}
+
+// ValidateQualifiedClassName validates that name is either a plain class
+// name matching ClassNameRegexCore, or a namespace-qualified name
+// "<namespace>:<Class>" where the namespace portion matches the shared
+// namespace-name contract (lowercase ASCII letter/digit edges, hyphens
+// only internally, length NamespaceMinLength..NamespaceMaxLength) and the
+// class portion matches ClassNameRegexCore. The full qualified name is
+// returned unchanged.
+//
+// Use at post-resolver boundaries (e.g. the filter parser) where a
+// qualified class name is a legitimate input that has already been
+// produced by namespacing.Resolve. User-facing inputs (schema create,
+// alias create, cross-ref data types) must continue to call
+// ValidateClassName, which rejects ":".
+func ValidateQualifiedClassName(name string) (ClassName, error) {
+	if len(name) > NamespaceMaxLength+len(NamespaceSeparator)+ClassNameMaxLength {
+		return "", fmt.Errorf("'%s' is not a valid class name", name)
+	}
+	if !validateQualifiedClassNameRegex.MatchString(name) {
+		return "", fmt.Errorf("'%s' is not a valid class name", name)
+	}
+	return ClassName(name), nil
 }
 
 func ValidateAliasName(name string) (string, error) {

@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -71,11 +70,6 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		autoSchemaManager: autoSchemaManager,
 		metrics:           NewMetrics(prom),
 	}
-}
-
-// Alias support
-func (m *BatchManager) resolveAlias(class string) (className, aliasName string) {
-	return alias.ResolveAlias(m.schemaManager, class)
 }
 
 // resolveNS qualifies name with the principal's namespace (if enabled)

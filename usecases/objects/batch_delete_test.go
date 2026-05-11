@@ -14,10 +14,13 @@ package objects
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -178,6 +181,112 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DeletionTimeUnixMilli, test.input.DryRun, test.input.Output, nil, "")
 			assert.Equal(t, test.expectedError, err.Error())
 		}
+	})
+}
+
+// Test_BatchDelete_NamespaceResolution proves DeleteObjects routes the
+// caller's short class name through namespacing.Resolve before authz and
+// schema lookup. The namespaced principal submits "Foo"; the manager must
+// authorize and look up "customer1:Foo" and the qualified name must reach
+// the vector repo on BatchDeleteParams.ClassName. The global-principal
+// case is the regression guard that resolveNS is a no-op without a
+// namespace.
+func Test_BatchDelete_NamespaceResolution(t *testing.T) {
+	makeManager := func(t *testing.T, classes []*models.Class) (*BatchManager, *fakeVectorRepo, *mocks.FakeAuthorizer) {
+		t.Helper()
+		sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
+		vectorRepo := &fakeVectorRepo{}
+		cfg := &config.WeaviateConfig{
+			Config: config.Config{
+				AutoSchema: config.AutoSchema{
+					Enabled: runtime.NewDynamicValue(false),
+				},
+				Namespaces: config.Namespaces{
+					Enabled: true,
+				},
+			},
+		}
+		schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
+		logger, _ := test.NewNullLogger()
+		authorizer := mocks.NewMockAuthorizer()
+		manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+		return manager, vectorRepo, authorizer
+	}
+
+	fooClass := func(name string) *models.Class {
+		return &models.Class{
+			Class: name,
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				},
+			},
+			VectorIndexConfig: hnsw.UserConfig{},
+			Vectorizer:        config.VectorizerModuleNone,
+		}
+	}
+
+	// DeleteObjects mutates match.Class in place via resolveNS, so each
+	// subtest builds its own match.
+	newMatch := func() *models.BatchDeleteMatch {
+		return &models.BatchDeleteMatch{
+			Class: "Foo",
+			Where: &models.WhereFilter{
+				Path:      []string{"name"},
+				Operator:  "Equal",
+				ValueText: ptString("v"),
+			},
+		}
+	}
+
+	t.Run("namespaced principal qualifies the class end to end", func(t *testing.T) {
+		manager, vectorRepo, authorizer := makeManager(t, []*models.Class{fooClass("customer1:Foo")})
+		vectorRepo.On("BatchDeleteObjects", mock.MatchedBy(func(p BatchDeleteParams) bool {
+			return string(p.ClassName) == "customer1:Foo" && p.Filters != nil && string(p.Filters.Root.On.Class) == "customer1:Foo"
+		})).Return(BatchDeleteResult{DeletionTime: time.Time{}}, nil)
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		_, err := manager.DeleteObjects(context.Background(), principal, newMatch(), nil, ptBool(false), ptString(verbosity.OutputMinimal), nil, "")
+		require.NoError(t, err)
+
+		// Authz was invoked against the qualified resource.
+		require.NotEmpty(t, authorizer.Calls())
+		require.Contains(t, authorizer.Calls()[0].Resources[0], "customer1:Foo")
+
+		vectorRepo.AssertExpectations(t)
+	})
+
+	t.Run("namespaced principal cannot reach a foreign-namespace class", func(t *testing.T) {
+		// Schema only has customer2:Foo. customer1's "Foo" resolves to
+		// "customer1:Foo" which is not present, so GetCachedClass fails
+		// and the delete is rejected before reaching the repo.
+		manager, _, _ := makeManager(t, []*models.Class{fooClass("customer2:Foo")})
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		_, err := manager.DeleteObjects(context.Background(), principal, newMatch(), nil, ptBool(false), ptString(verbosity.OutputMinimal), nil, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "customer1:Foo")
+	})
+
+	t.Run("global principal leaves the class unchanged", func(t *testing.T) {
+		// Global principal (no namespace) must observe the pre-WS16
+		// behavior: short class name flows through untouched.
+		manager, vectorRepo, authorizer := makeManager(t, []*models.Class{fooClass("Foo")})
+		vectorRepo.On("BatchDeleteObjects", mock.MatchedBy(func(p BatchDeleteParams) bool {
+			return string(p.ClassName) == "Foo" && string(p.Filters.Root.On.Class) == "Foo"
+		})).Return(BatchDeleteResult{DeletionTime: time.Time{}}, nil)
+
+		principal := &models.Principal{Username: "admin"}
+		_, err := manager.DeleteObjects(context.Background(), principal, newMatch(), nil, ptBool(false), ptString(verbosity.OutputMinimal), nil, "")
+		require.NoError(t, err)
+		require.NotEmpty(t, authorizer.Calls())
+		require.Contains(t, authorizer.Calls()[0].Resources[0], "Foo")
+		require.NotContains(t, authorizer.Calls()[0].Resources[0], ":Foo")
+
+		vectorRepo.AssertExpectations(t)
 	})
 }
 

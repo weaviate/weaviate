@@ -379,3 +379,57 @@ func TestIndexNameRegexCore(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateQualifiedClassName covers the post-resolver validator used by
+// the filter parser: plain class names continue to validate, qualified
+// "<namespace>:<Class>" names are accepted, and malformed qualified names
+// (uppercase namespace, lowercase class, empty parts, oversized namespace,
+// double-prefix, hyphen edges) are rejected. The function returns the input
+// name unchanged on success — qualification is preserved for downstream
+// schema lookups.
+func TestValidateQualifiedClassName(t *testing.T) {
+	minNs := strings.Repeat("a", NamespaceMinLength)
+	maxNs := strings.Repeat("a", NamespaceMaxLength)
+	tooShortNs := strings.Repeat("a", NamespaceMinLength-1)
+	tooLongNs := strings.Repeat("a", NamespaceMaxLength+1)
+
+	accept := []string{
+		"Movies",
+		"M",
+		"customer1:Movies",
+		"abc:M",
+		"cust--er:Movies", // consecutive hyphens are allowed in the namespace interior
+		"tenant-a:My_Class",
+		minNs + ":Movies",
+		maxNs + ":Movies",
+	}
+	for _, name := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			got, err := ValidateQualifiedClassName(name)
+			assert.NoError(t, err)
+			assert.Equal(t, ClassName(name), got, "qualified name must be returned unchanged")
+		})
+	}
+
+	reject := []string{
+		"",
+		":Movies",
+		"customer1:",
+		"cust:movies",  // lowercase class
+		"Cust:Movies",  // uppercase namespace
+		"-cust:Movies", // leading hyphen on namespace
+		"cust-:Movies", // trailing hyphen on namespace
+		tooShortNs + ":Movies",
+		tooLongNs + ":Movies",
+		"a:b:Movies",          // double-prefix — only one ":" is allowed
+		"customer:1Movies",    // class portion must start with [A-Z_]
+		"customer:Movies/bad", // class portion has invalid character
+		strings.Repeat("a", NamespaceMaxLength+1+ClassNameMaxLength+1), // exceeds combined cap
+	}
+	for _, name := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := ValidateQualifiedClassName(name)
+			assert.Error(t, err, "expected %q to be rejected", name)
+		})
+	}
+}

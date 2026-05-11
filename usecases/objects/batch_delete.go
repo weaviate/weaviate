@@ -35,7 +35,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	class := "*"
 	if match != nil {
-		match.Class, _ = b.resolveAlias(match.Class)
+		match.Class, _ = b.resolveNS(principal, match.Class)
 		class = match.Class
 	}
 
@@ -141,7 +141,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 	class := vclasses[match.Class].Class
 
-	filter, err := filterext.Parse(match.Where, class.Class)
+	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
 	}

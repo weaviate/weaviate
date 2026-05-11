@@ -343,13 +343,6 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 	})
 
 	t.Run("batch delete by filter is namespace-scoped", func(t *testing.T) {
-		// Filter validation rejects namespace-qualified class names: the path
-		// validator in entities/filters/path.go runs each path element through
-		// schema.ValidateClassName, whose regex disallows the `:` separator.
-		// Until filter parsing is taught to accept qualified names,
-		// namespace-aware batch delete cannot succeed.
-		t.Skip("blocked: filter parser rejects namespace-qualified class names; tracked as a separate WS item")
-
 		const class = "BatchDelete"
 		setupClassInBothNamespaces(t, class, user1Key, user2Key)
 
@@ -399,5 +392,150 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		got22, err := helper.GetObjectAuth(t, class, id2, user2Key)
 		require.NoError(t, err)
 		assert.Equal(t, "keep", got22.Properties.(map[string]any)["title"])
+	})
+
+	t.Run("batch delete by filter via namespace-local alias", func(t *testing.T) {
+		// Each namespace registers its own short alias name for its copy of
+		// the class. b.resolveNS resolves "<ns>:BDAlias" to the underlying
+		// "<ns>:BatchDeleteAlias" before authz and filter parsing, so the
+		// delete must only touch user1's data.
+		const (
+			class = "BatchDeleteAlias"
+			alias = "BDAlias"
+		)
+		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user1Key)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: class}, user2Key)
+		t.Cleanup(func() {
+			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, "customer2:"+alias, helper.CreateAuth(adminKey))
+		})
+
+		id1 := strfmt.UUID("55555555-eeee-eeee-eeee-eeeeeeeeeeee")
+		id2 := strfmt.UUID("66666666-ffff-ffff-ffff-ffffffffffff")
+		helper.CreateObjectsBatchAuth(t, []*models.Object{
+			{ID: id1, Class: class, Properties: map[string]any{"title": "kill"}},
+			{ID: id2, Class: class, Properties: map[string]any{"title": "keep"}},
+		}, user1Key)
+		helper.CreateObjectsBatchAuth(t, []*models.Object{
+			{ID: id1, Class: class, Properties: map[string]any{"title": "kill"}},
+			{ID: id2, Class: class, Properties: map[string]any{"title": "keep"}},
+		}, user2Key)
+
+		killText := "kill"
+		body := &models.BatchDelete{
+			Match: &models.BatchDeleteMatch{
+				Class: alias,
+				Where: &models.WhereFilter{
+					Operator:  "Equal",
+					Path:      []string{"title"},
+					ValueText: &killText,
+				},
+			},
+		}
+		var resp *batch.BatchObjectsDeleteOK
+		retryOnAliasLag(t, func() error {
+			var err error
+			resp, err = helper.Client(t).Batch.BatchObjectsDelete(
+				batch.NewBatchObjectsDeleteParams().WithBody(body),
+				helper.CreateAuth(user1Key),
+			)
+			return err
+		})
+		require.NotNil(t, resp.Payload.Results)
+		assert.EqualValues(t, 1, resp.Payload.Results.Successful)
+
+		// ns1: kill gone, keep survives.
+		_, err := helper.GetObjectAuth(t, class, id1, user1Key)
+		require.Error(t, err)
+		got1Keep, err := helper.GetObjectAuth(t, class, id2, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got1Keep.Properties.(map[string]any)["title"])
+
+		// ns2 untouched.
+		got2Kill, err := helper.GetObjectAuth(t, class, id1, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "kill", got2Kill.Properties.(map[string]any)["title"])
+		got2Keep, err := helper.GetObjectAuth(t, class, id2, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got2Keep.Properties.(map[string]any)["title"])
+	})
+
+	t.Run("batch delete by filter as global admin via qualified class name", func(t *testing.T) {
+		// Admin has no namespace, so namespacing.Resolve is a no-op on the
+		// class portion: the qualified name flows through to storage and
+		// matches; the short name does not exist on disk and 422s.
+		const class = "BatchDeleteAdmin"
+		setupClassInNs1(t, class, user1Key)
+
+		id1 := strfmt.UUID("99999999-1111-1111-1111-111111111111")
+		id2 := strfmt.UUID("aaaaaaaa-2222-2222-2222-222222222222")
+		helper.CreateObjectsBatchAuth(t, []*models.Object{
+			{ID: id1, Class: class, Properties: map[string]any{"title": "kill"}},
+			{ID: id2, Class: class, Properties: map[string]any{"title": "keep"}},
+		}, user1Key)
+
+		killText := "kill"
+		mkBody := func(matchClass string) *models.BatchDelete {
+			return &models.BatchDelete{
+				Match: &models.BatchDeleteMatch{
+					Class: matchClass,
+					Where: &models.WhereFilter{
+						Operator:  "Equal",
+						Path:      []string{"title"},
+						ValueText: &killText,
+					},
+				},
+			}
+		}
+
+		// Admin with the short class name cannot reach the namespaced data.
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(mkBody(class)),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+
+		// Admin with the qualified class name resolves directly to storage.
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(mkBody("customer1:"+class)),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload.Results)
+		assert.EqualValues(t, 1, resp.Payload.Results.Successful)
+
+		// kill is gone, keep survives — verify via the namespaced user.
+		_, err = helper.GetObjectAuth(t, class, id1, user1Key)
+		require.Error(t, err)
+		got, err := helper.GetObjectAuth(t, class, id2, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got.Properties.(map[string]any)["title"])
+	})
+
+	t.Run("batch delete by reference-path filter is rejected", func(t *testing.T) {
+		// Inner class segments in reference-path filters are caller-supplied
+		// and not auto-qualified. The REST handler rejects path-len > 1
+		// upfront on namespace-enabled clusters; this guards against silent
+		// "class not found" failures downstream.
+		const class = "BatchDeleteRefPath"
+		setupClassInNs1(t, class, user1Key)
+
+		x := "x"
+		body := &models.BatchDelete{
+			Match: &models.BatchDeleteMatch{
+				Class: class,
+				Where: &models.WhereFilter{
+					Operator:  "Equal",
+					Path:      []string{"hasOther", "Other", "name"},
+					ValueText: &x,
+				},
+			},
+		}
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(body),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err)
 	})
 }

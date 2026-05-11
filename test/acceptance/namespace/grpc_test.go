@@ -122,6 +122,171 @@ func TestNamespaces_GRPC(t *testing.T) {
 		assert.Equal(t, "ns2-Memento", got2.Properties.(map[string]any)["title"])
 	})
 
+	t.Run("BatchDelete by filter is namespace-scoped", func(t *testing.T) {
+		// Self-contained against the rest of TestNamespaces_GRPC: own class,
+		// own UUIDs, no reliance on (or mutation of) the MoviesGRPC rows above.
+		const delClass = "BatchDeleteGRPC"
+		setupClassInBothNamespaces(t, delClass, user1Key, user2Key)
+
+		killID := strfmt.UUID("33333333-cccc-cccc-cccc-cccccccccccc")
+		keepID := strfmt.UUID("44444444-dddd-dddd-dddd-dddddddddddd")
+
+		seedDelete := func(key, killTitle, keepTitle string) {
+			r, err := grpcClient.BatchObjects(authCtx(key), &pb.BatchObjectsRequest{
+				Objects: []*pb.BatchObject{
+					makeBatchObj(killID, delClass, killTitle),
+					makeBatchObj(keepID, delClass, keepTitle),
+				},
+			})
+			require.NoError(t, err)
+			require.Empty(t, r.Errors)
+		}
+		seedDelete(user1Key, "kill", "keep")
+		seedDelete(user2Key, "kill", "keep")
+
+		// Delete by filter from user1: title == "kill" → only ns1's kill row.
+		delResp, err := grpcClient.BatchDelete(authCtx(user1Key), &pb.BatchDeleteRequest{
+			Collection: delClass,
+			Filters: &pb.Filters{
+				Operator:  pb.Filters_OPERATOR_EQUAL,
+				TestValue: &pb.Filters_ValueText{ValueText: "kill"},
+				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), delResp.Successful)
+		assert.Equal(t, int64(0), delResp.Failed)
+		assert.Equal(t, int64(1), delResp.Matches)
+
+		// ns1: kill is gone, keep survives.
+		_, err = helper.GetObjectAuth(t, delClass, killID, user1Key)
+		require.Error(t, err)
+		got1Keep, err := helper.GetObjectAuth(t, delClass, keepID, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got1Keep.Properties.(map[string]any)["title"])
+
+		// ns2: both rows untouched.
+		got2Kill, err := helper.GetObjectAuth(t, delClass, killID, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "kill", got2Kill.Properties.(map[string]any)["title"])
+		got2Keep, err := helper.GetObjectAuth(t, delClass, keepID, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got2Keep.Properties.(map[string]any)["title"])
+	})
+
+	t.Run("BatchDelete by filter via namespace-local alias", func(t *testing.T) {
+		// Each namespace registers its own short alias for its copy of the
+		// class. namespacing.Resolve in the gRPC handler resolves the alias
+		// after qualifying with the principal's namespace, so user1's delete
+		// only touches ns1 data.
+		const (
+			delClass = "BatchDeleteAliasGRPC"
+			alias    = "BDAliasGRPC"
+		)
+		setupClassInBothNamespaces(t, delClass, user1Key, user2Key)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: delClass}, user1Key)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: alias, Class: delClass}, user2Key)
+		t.Cleanup(func() {
+			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, "customer2:"+alias, helper.CreateAuth(adminKey))
+		})
+
+		killID := strfmt.UUID("77777777-7777-7777-7777-777777777777")
+		keepID := strfmt.UUID("88888888-8888-8888-8888-888888888888")
+
+		seed := func(key string) {
+			r, err := grpcClient.BatchObjects(authCtx(key), &pb.BatchObjectsRequest{
+				Objects: []*pb.BatchObject{
+					makeBatchObj(killID, delClass, "kill"),
+					makeBatchObj(keepID, delClass, "keep"),
+				},
+			})
+			require.NoError(t, err)
+			require.Empty(t, r.Errors)
+		}
+		seed(user1Key)
+		seed(user2Key)
+
+		// Delete via the alias — retry to absorb leader→follower alias lag.
+		var delResp *pb.BatchDeleteReply
+		retryOnAliasLag(t, func() error {
+			var err error
+			delResp, err = grpcClient.BatchDelete(authCtx(user1Key), &pb.BatchDeleteRequest{
+				Collection: alias,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "kill"},
+					Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}},
+				},
+			})
+			return err
+		})
+		assert.Equal(t, int64(1), delResp.Successful)
+		assert.Equal(t, int64(0), delResp.Failed)
+
+		// ns1: kill gone, keep survives.
+		_, err := helper.GetObjectAuth(t, delClass, killID, user1Key)
+		require.Error(t, err)
+		got1Keep, err := helper.GetObjectAuth(t, delClass, keepID, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got1Keep.Properties.(map[string]any)["title"])
+
+		// ns2 untouched.
+		got2Kill, err := helper.GetObjectAuth(t, delClass, killID, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "kill", got2Kill.Properties.(map[string]any)["title"])
+		got2Keep, err := helper.GetObjectAuth(t, delClass, keepID, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got2Keep.Properties.(map[string]any)["title"])
+	})
+
+	t.Run("BatchDelete as global admin via qualified class name", func(t *testing.T) {
+		// Admin has no namespace, so namespacing.Resolve is a no-op on the
+		// class portion: the qualified name flows through to storage and
+		// matches; the short name does not exist on disk.
+		const delClass = "BatchDeleteAdminGRPC"
+		setupClassInNs1(t, delClass, user1Key)
+
+		killID := strfmt.UUID("bbbbbbbb-3333-3333-3333-333333333333")
+		keepID := strfmt.UUID("cccccccc-4444-4444-4444-444444444444")
+		r, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				makeBatchObj(killID, delClass, "kill"),
+				makeBatchObj(keepID, delClass, "keep"),
+			},
+		})
+		require.NoError(t, err)
+		require.Empty(t, r.Errors)
+
+		mkReq := func(collection string) *pb.BatchDeleteRequest {
+			return &pb.BatchDeleteRequest{
+				Collection: collection,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "kill"},
+					Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}},
+				},
+			}
+		}
+
+		// Short class name → not found in storage, request errors.
+		_, err = grpcClient.BatchDelete(authCtx(adminKey), mkReq(delClass))
+		require.Error(t, err)
+
+		// Qualified class name → resolves to storage, delete succeeds.
+		delResp, err := grpcClient.BatchDelete(authCtx(adminKey), mkReq("customer1:"+delClass))
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), delResp.Successful)
+		assert.Equal(t, int64(0), delResp.Failed)
+
+		// kill is gone, keep survives — verify via the namespaced user.
+		_, err = helper.GetObjectAuth(t, delClass, killID, user1Key)
+		require.Error(t, err)
+		got, err := helper.GetObjectAuth(t, delClass, keepID, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "keep", got.Properties.(map[string]any)["title"])
+	})
+
 	t.Run("Search is namespace-scoped", func(t *testing.T) {
 		req := func(key string) (*pb.SearchReply, error) {
 			r := searchReq(class, 10)
