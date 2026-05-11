@@ -125,14 +125,20 @@ func TestNamespaces_DeleteUserAuthBlockedClusterWide(t *testing.T) {
 // 409 (still deleting) and success are acceptable; any other response
 // fails the test.
 func TestNamespaces_RecreateAfterDelete(t *testing.T) {
-	const ns = "delrecreate"
-	const className = "Movies"
+	const (
+		ns        = "delrecreate"
+		userID    = "creator"
+		className = "Movies"
+	)
 
 	helper.CreateNamespace(t, ns, adminKey)
+	// On NS-enabled clusters QualifyForCreate rejects principals without a
+	// namespace claim, so class creation must run as a namespaced user.
+	userKey := createNamespacedUser(t, userID, ns, adminKey)
 	helper.CreateClassAuth(t, &models.Class{
 		Class:      className,
 		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
-	}, adminKey)
+	}, userKey)
 	// Best-effort cleanup in case the namespace delete fails partway
 	// through; if it succeeds the cascade has already removed the class.
 	defer helper.DeleteClassWithoutAssert(t, ns+":"+className, adminKey)
