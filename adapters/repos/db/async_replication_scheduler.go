@@ -814,13 +814,18 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		// Add(1) before sending to workCh so that Deregister+asyncRepWg.Wait()
 		// reliably waits for the cycle even if the worker hasn't started yet.
 		entry.shard.asyncRepWg.Add(1)
+		// Set inFlight before the send: the channel send→receive carries this
+		// write to the worker, so the worker's ctx-cancelled drain path (which
+		// also writes entry.inFlight without holding sched.mu) does not race.
+		entry.inFlight = true
 
 		select {
 		case sched.workCh <- entry:
 			heap.Pop(&sched.h)
-			entry.inFlight = true
 		default:
-			// workCh buffer full (all workers busy): undo Add(1) and leave entry in heap.
+			// workCh buffer full (all workers busy): roll back inFlight + Add(1)
+			// and leave entry in heap.
+			entry.inFlight = false
 			entry.shard.asyncRepWg.Done()
 			sched.metrics.setQueueDepth(len(sched.h))
 			return
