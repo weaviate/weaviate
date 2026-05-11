@@ -67,8 +67,12 @@ func asyncRepRebuildBackoffDuration(consecutiveFailures uint32) time.Duration {
 type asyncSchedulerEntry struct {
 	shard     *Shard
 	nextRunAt time.Time
-	inFlight  bool // true while a worker is executing runHashbeatCycle
-	heapIdx   int  // maintained by the heap for O(log n) Fix/Remove
+	// inFlight is true while a worker is executing runHashbeatCycle. It is
+	// atomic because the worker's shutdown drain branch (see worker()) clears
+	// it without holding sched.mu; all other reads/writes happen under
+	// sched.mu but use the atomic accessors for consistency.
+	inFlight atomic.Bool
+	heapIdx  int // maintained by the heap for O(log n) Fix/Remove
 	// seq is a monotonically-increasing counter assigned every time the entry
 	// is pushed onto the heap. Entries with the same nextRunAt are served in
 	// the order they were enqueued (FIFO within a tie).
@@ -775,7 +779,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 	now := time.Now()
 	for len(sched.h) > 0 && !sched.h[0].nextRunAt.After(now) {
 		entry := sched.h[0]
-		if entry.inFlight {
+		if entry.inFlight.Load() {
 			// Invariant violation: an inFlight entry must never be in the heap
 			// (onResultLocked pops it before clearing inFlight). Reaching here
 			// means the scheduler has a bug.
@@ -795,7 +799,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 			//
 			// onResultLocked guards against a double heap insertion via heapIdx.
 			heap.Pop(&sched.h)
-			entry.inFlight = false
+			entry.inFlight.Store(false)
 			entry.nextRunAt = time.Now()
 			entry.seq = sched.nextSeq
 			sched.nextSeq++
@@ -818,7 +822,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 		select {
 		case sched.workCh <- entry:
 			heap.Pop(&sched.h)
-			entry.inFlight = true
+			entry.inFlight.Store(true)
 		default:
 			// workCh buffer full (all workers busy): undo Add(1) and leave entry in heap.
 			entry.shard.asyncRepWg.Done()
@@ -834,7 +838,7 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 // mu must be held.
 func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResult) {
 	entry := result.entry
-	entry.inFlight = false
+	entry.inFlight.Store(false)
 
 	// If the shard is no longer in the registry it was deregistered while
 	// the cycle was running — do not re-enqueue.
@@ -926,7 +930,7 @@ func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	}
 	delete(sched.entries, s)
 	sched.metrics.decShardsRegistered()
-	if !entry.inFlight {
+	if !entry.inFlight.Load() {
 		heap.Remove(&sched.h, entry.heapIdx)
 	}
 	// If inFlight: the worker will finish and send on resultCh; onResultLocked
@@ -965,15 +969,15 @@ func (sched *AsyncReplicationScheduler) worker() {
 			// subsequent inspection. Do NOT call decWorkersActive here: incWorkersActive
 			// is called inside runEntry, not at dispatch time, so these buffered entries
 			// never incremented the gauge — decrementing would drive it negative.
-			// Each entry is owned by exactly one worker (workCh sends are 1:1), so
-			// touching entry.inFlight here without sched.mu is safe.
+			// inFlight is atomic.Bool, so the lock-free clear here is safe against
+			// the dispatcher's concurrent inFlight.Store(true) at dispatch time.
 			for {
 				select {
 				case entry, ok := <-sched.workCh:
 					if !ok || entry == nil {
 						return
 					}
-					entry.inFlight = false
+					entry.inFlight.Store(false)
 					entry.shard.asyncRepWg.Done()
 				default:
 					return
