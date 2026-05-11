@@ -103,6 +103,48 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 	// Enable-rangeable fixture: multiple numeric props, only one gets rangeable enabled.
 	enableRangeableProps := append([]*models.Property{}, rangeScopeProps...)
 
+	// Enable-filterable fixture: multiple non-filterable numeric/boolean props,
+	// only one gets filterable enabled. Filterable=false is explicit so the
+	// pre-migration state is unambiguous.
+	falseVal := false
+	enableFilterableProps := []*models.Property{
+		{Name: "score", DataType: []string{"number"}, IndexFilterable: &falseVal},
+		{Name: "quantity", DataType: []string{"int"}, IndexFilterable: &falseVal},
+		{Name: "active", DataType: []string{"boolean"}, IndexFilterable: &falseVal},
+	}
+
+	// Enable-searchable fixture: multiple non-searchable text props, only one
+	// gets searchable enabled. The other text props remain filterable so the
+	// scope poller can observe filterable status without it being "missing".
+	enableSearchableProps := []*models.Property{
+		{Name: "title", DataType: []string{"text"}, Tokenization: "field", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
+		{Name: "body", DataType: []string{"text"}, Tokenization: "field", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
+		{Name: "tag", DataType: []string{"text"}, Tokenization: "field", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
+	}
+
+	// The scope-assertion fixture uses textScopeObjects, which carries keys
+	// "title", "description", "author", "score", "quantity", "released".
+	// For enable-filterable we need a "score"/"quantity"/"active" object set
+	// — synthesize a small one inline.
+	enableFilterableObjects := make([]map[string]interface{}, 0, 200)
+	for i := 0; i < 200; i++ {
+		enableFilterableObjects = append(enableFilterableObjects, map[string]interface{}{
+			"score":    float64(i),
+			"quantity": int64(i % 97),
+			"active":   i%2 == 0,
+		})
+	}
+
+	// And for enable-searchable: title/body/tag.
+	enableSearchableObjects := make([]map[string]interface{}, 0, 200)
+	for i := 0; i < 200; i++ {
+		enableSearchableObjects = append(enableSearchableObjects, map[string]interface{}{
+			"title": fmt.Sprintf("doc_%d", i),
+			"body":  fmt.Sprintf("lorem ipsum dolor %d sit amet", i),
+			"tag":   fmt.Sprintf("tag_%d", i%17),
+		})
+	}
+
 	cases := []scopeCase{
 		{
 			name:       "repair-searchable",
@@ -143,6 +185,24 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			target:     "score",
 			body:       `{"rangeable":{"enabled":true}}`,
 			indexType:  "rangeable",
+		},
+		{
+			name:       "enable-filterable",
+			className:  "ScopeEnableFilterable",
+			properties: enableFilterableProps,
+			objects:    enableFilterableObjects,
+			target:     "score",
+			body:       `{"filterable":{"enabled":true}}`,
+			indexType:  "filterable",
+		},
+		{
+			name:       "enable-searchable",
+			className:  "ScopeEnableSearchable",
+			properties: enableSearchableProps,
+			objects:    enableSearchableObjects,
+			target:     "title",
+			body:       `{"searchable":{"enabled":true,"tokenization":"word"}}`,
+			indexType:  "searchable",
 		},
 	}
 
@@ -204,6 +264,16 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 
 			stopCh := make(chan struct{})
 			var wg sync.WaitGroup
+			// Defer the poller shutdown so a mid-test t.FailNow (e.g. a 400
+			// response from submit) still drains the goroutine — otherwise
+			// it would keep calling require.NoError on a completed parent
+			// test, which Go's testing package surfaces as a panic.
+			stopOnce := sync.Once{}
+			stopPoller := func() {
+				stopOnce.Do(func() { close(stopCh) })
+				wg.Wait()
+			}
+			defer stopPoller()
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -258,8 +328,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 
 			awaitReindexFinished(t, restURI, taskID)
 
-			close(stopCh)
-			wg.Wait()
+			stopPoller()
 
 			t.Logf("scope poller: %d samples taken", samples.Load())
 

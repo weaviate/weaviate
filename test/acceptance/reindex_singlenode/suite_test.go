@@ -117,7 +117,23 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		shardInfos = append(shardInfos, shardInfo{"RoaringSetRefreshTest", sn})
 	}
 
-	// --- Subtest 5: Scope assertion (all four migration types) ---
+	// --- Subtest 5: Enable Filterable (from-scratch) ---
+	t.Run("EnableFilterable", func(t *testing.T) {
+		testEnableFilterable(t, restURI)
+	})
+	if sn := getFirstShardName(t, restURI, "EnableFilterableTest"); sn != "" {
+		shardInfos = append(shardInfos, shardInfo{"EnableFilterableTest", sn})
+	}
+
+	// --- Subtest 6: Enable Searchable (from-scratch) ---
+	t.Run("EnableSearchable", func(t *testing.T) {
+		testEnableSearchable(t, restURI)
+	})
+	if sn := getFirstShardName(t, restURI, "EnableSearchableTest"); sn != "" {
+		shardInfos = append(shardInfos, shardInfo{"EnableSearchableTest", sn})
+	}
+
+	// --- Subtest 7: Scope assertion (all six migration types) ---
 	// Pins the blast radius of every migration type: each reindex must
 	// stay inside the property named in the URL path. Uses its own
 	// collections and cleans them up, so it runs after the correctness
@@ -145,6 +161,10 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		// Post-restart: verify roaring set queries.
 		testRoaringSetRefreshPostRestart(t)
 
+		// Post-restart: verify enable-filterable / enable-searchable queries.
+		testEnableFilterablePostRestart(t)
+		testEnableSearchablePostRestart(t)
+
 		// Post-restart: verify filesystem cleanup for all migrations.
 		for _, si := range shardInfos {
 			dirs := listLSMDirs(ctx, t, container, si.className, si.shardName)
@@ -166,6 +186,16 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 				assertBucketExists(t, dirs, "property_price")
 			case "RoaringSetRefreshTest":
 				assertNoSuffixedBuckets(t, dirs, "__roaringset_")
+			case "EnableFilterableTest":
+				// Reindex/ingest staging dirs must not leak across restart.
+				assertNoSuffixedBuckets(t, dirs, "__enable_filterable_")
+				// The freshly-created filterable buckets must survive the
+				// restart under their canonical names.
+				assertBucketExists(t, dirs, "property_score")
+				assertBucketExists(t, dirs, "property_available")
+			case "EnableSearchableTest":
+				assertNoSuffixedBuckets(t, dirs, "__enable_searchable_")
+				assertBucketExists(t, dirs, "property_description_searchable")
 			}
 		}
 	})
