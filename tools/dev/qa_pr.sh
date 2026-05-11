@@ -315,5 +315,5 @@ gh workflow run main.yaml \
 
 log ""
 log "QA pipeline triggered successfully!"
-log "  Issue: $ISSUE_URL"
 log "  Board: $BOARD_URL"
+log "  Issue: $ISSUE_URL"
