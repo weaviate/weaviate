@@ -199,6 +199,8 @@ func (db *DB) init(ctx context.Context) error {
 				MaintenanceModeEnabled:       db.config.MaintenanceModeEnabled,
 				AutoTenantActivation:         schema.AutoTenantActivationEnabled(class),
 				DisableDimensionMetrics:      db.config.DisableDimensionMetrics,
+				SelfRecoveryOrchestrator:     db.selfRecoveryOrchestrator,
+				RaftBootstrapComplete:        db.RaftBootstrapComplete,
 			},
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

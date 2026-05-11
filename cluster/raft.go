@@ -167,3 +167,8 @@ func (s *Raft) IsLeader() bool {
 func (s *Raft) ClusterID() string {
 	return s.store.ClusterID()
 }
+
+// ForceSnapshot triggers an immediate RAFT snapshot. See Store.ForceSnapshot.
+func (s *Raft) ForceSnapshot() error {
+	return s.store.ForceSnapshot()
+}

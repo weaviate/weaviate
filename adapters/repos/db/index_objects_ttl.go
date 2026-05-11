@@ -53,11 +53,13 @@ type tenantTTLLoop struct {
 	processBatch          func(ctx context.Context, uuids []strfmt.UUID) error
 }
 
-// shardIsLazyUnloaded reports whether the named shard is a lazy shard not yet materialized.
+// shardIsLazyUnloaded reports whether the named shard is a deferred-load wrapper
+// (lazy or recovering) not yet materialized. A load-blocked RecoveringShard must
+// count as unloaded here: proceeding would force-load it and panic mid-recovery.
 // Only HOT tenants are lazy shards, so this never hides a COLD tenant from auto-activation.
 func (i *Index) shardIsLazyUnloaded(shardName string) bool {
-	lazy, ok := i.shards.Load(shardName).(*LazyLoadShard)
-	return ok && !lazy.isLoaded()
+	l, ok := i.shards.Load(shardName).(loadableShard)
+	return ok && !l.isLoaded()
 }
 
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,

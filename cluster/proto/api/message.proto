@@ -19,6 +19,13 @@ message JoinPeerRequest {
 
 message JoinPeerResponse {
   string leader = 1;
+  // leader_commit_index is the leader's committed RAFT index at the moment
+  // it accepted this join. A wiped joiner uses it as the catch-up barrier:
+  // every pre-existing class's ADD_CLASS has index <= this value, so the
+  // joiner defers its DB load until it has applied up to here, then runs the
+  // self-recovery startup pass instead of materialising empty shards. 0 from
+  // an older leader => joiner falls back to the legacy eager load.
+  uint64 leader_commit_index = 2;
 }
 
 message RemovePeerRequest {
