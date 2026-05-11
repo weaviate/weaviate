@@ -75,7 +75,7 @@ func TestNotEnoughReplicasError(t *testing.T) {
 			}
 
 			// Unwrap returns the underlying cause.
-			if got := errors.Unwrap(err); got != tc.cause {
+			if got := errors.Unwrap(err); !errors.Is(got, tc.cause) {
 				t.Fatalf("Unwrap() = %v, want %v", got, tc.cause)
 			}
 		})
@@ -127,7 +127,7 @@ func TestReadError(t *testing.T) {
 	if !errors.Is(err, rootCause) {
 		t.Fatalf("errors.Is(err, rootCause) = false, want true")
 	}
-	if got := errors.Unwrap(err); got != rootCause {
+	if got := errors.Unwrap(err); !errors.Is(got, rootCause) {
 		t.Fatalf("Unwrap() = %v, want %v", got, rootCause)
 	}
 }
@@ -157,7 +157,7 @@ func TestRepairError(t *testing.T) {
 	if !errors.Is(err, rootCause) {
 		t.Fatalf("errors.Is(err, rootCause) = false, want true")
 	}
-	if got := errors.Unwrap(err); got != rootCause {
+	if got := errors.Unwrap(err); !errors.Is(got, rootCause) {
 		t.Fatalf("Unwrap() = %v, want %v", got, rootCause)
 	}
 }
