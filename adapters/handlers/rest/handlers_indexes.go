@@ -76,6 +76,18 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// merge below doesn't re-unmarshal each task N times.
 	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
 
+	// BM25 algorithm currently backing searchable indexes for this class.
+	// The schema-level UsingBlockMaxWAND flag flips only after every
+	// searchable bucket on every shard has been migrated to blockmax (see
+	// MapToBlockmaxStrategy.OnMigrationComplete). While a per-property
+	// repair-searchable is in flight the flag is still false; the
+	// targetAlgorithm field (set by mergeReindexStatus) carries the
+	// "incoming" signal in that case.
+	searchableAlgorithm := models.IndexStatusAlgorithmWand
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+		searchableAlgorithm = models.IndexStatusAlgorithmBlockmax
+	}
+
 	// Build per-property index status.
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
 	for _, prop := range class.Properties {
@@ -109,6 +121,12 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			idx := &models.IndexStatus{Type: e.indexType, Status: "ready"}
 			if e.flagOn && e.carryTokenization {
 				idx.Tokenization = prop.Tokenization
+			}
+			// Only searchable indexes have a BM25 algorithm; surface the
+			// class-level wand/blockmax state so the UI can render it
+			// honestly. Filterable / rangeable have no equivalent today.
+			if e.indexType == "searchable" && e.flagOn {
+				idx.Algorithm = searchableAlgorithm
 			}
 			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			// Flag on → always emit. Flag off → emit only when a reindex
@@ -647,10 +665,17 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if bestPayload.TargetTokenization != "" {
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
-	case db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable,
+	case db.ReindexTypeRepairSearchable:
+		// repair-searchable today always migrates WAND -> Block Max WAND.
+		// Surfacing the targetAlgorithm lets the UI render the in-flight
+		// algorithm switch the same way it renders targetTokenization for
+		// change-tokenization. The reverse direction is not yet supported;
+		// see the docs on IndexUpdateSearchable.rebuild.
+		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
+	case db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable,
 		db.ReindexTypeRepairRangeable:
-		// No tokenization side effects for these types.
+		// No tokenization or algorithm side effects for these types.
 	}
 
 	switch best.Status {

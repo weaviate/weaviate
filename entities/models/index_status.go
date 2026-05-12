@@ -31,12 +31,20 @@ import (
 // swagger:model IndexStatus
 type IndexStatus struct {
 
+	// BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for `type=searchable` entries. Not populated for filterable or rangeable indexes.
+	// Enum: [wand blockmax]
+	Algorithm string `json:"algorithm,omitempty"`
+
 	// progress
 	Progress float32 `json:"progress,omitempty"`
 
 	// status
 	// Enum: [ready indexing pending failed cancelled]
 	Status string `json:"status,omitempty"`
+
+	// BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors `targetTokenization` for the change-tokenization verb. Today the only supported transition is wand -> blockmax.
+	// Enum: [wand blockmax]
+	TargetAlgorithm string `json:"targetAlgorithm,omitempty"`
 
 	// target tokenization
 	TargetTokenization string `json:"targetTokenization,omitempty"`
@@ -53,7 +61,15 @@ type IndexStatus struct {
 func (m *IndexStatus) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAlgorithm(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTargetAlgorithm(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -64,6 +80,90 @@ func (m *IndexStatus) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+var indexStatusTypeAlgorithmPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["wand","blockmax"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		indexStatusTypeAlgorithmPropEnum = append(indexStatusTypeAlgorithmPropEnum, v)
+	}
+}
+
+const (
+
+	// IndexStatusAlgorithmWand captures enum value "wand"
+	IndexStatusAlgorithmWand string = "wand"
+
+	// IndexStatusAlgorithmBlockmax captures enum value "blockmax"
+	IndexStatusAlgorithmBlockmax string = "blockmax"
+)
+
+// prop value enum
+func (m *IndexStatus) validateAlgorithmEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, indexStatusTypeAlgorithmPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IndexStatus) validateAlgorithm(formats strfmt.Registry) error {
+	if swag.IsZero(m.Algorithm) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateAlgorithmEnum("algorithm", "body", m.Algorithm); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var indexStatusTypeTargetAlgorithmPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["wand","blockmax"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		indexStatusTypeTargetAlgorithmPropEnum = append(indexStatusTypeTargetAlgorithmPropEnum, v)
+	}
+}
+
+const (
+
+	// IndexStatusTargetAlgorithmWand captures enum value "wand"
+	IndexStatusTargetAlgorithmWand string = "wand"
+
+	// IndexStatusTargetAlgorithmBlockmax captures enum value "blockmax"
+	IndexStatusTargetAlgorithmBlockmax string = "blockmax"
+)
+
+// prop value enum
+func (m *IndexStatus) validateTargetAlgorithmEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, indexStatusTypeTargetAlgorithmPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IndexStatus) validateTargetAlgorithm(formats strfmt.Registry) error {
+	if swag.IsZero(m.TargetAlgorithm) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateTargetAlgorithmEnum("targetAlgorithm", "body", m.TargetAlgorithm); err != nil {
+		return err
+	}
+
 	return nil
 }
 

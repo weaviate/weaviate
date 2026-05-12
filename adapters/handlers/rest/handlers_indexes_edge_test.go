@@ -467,3 +467,119 @@ func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 
 	require.Equal(t, "indexing", idx.Status, "collection name match is case-insensitive")
 }
+
+// repair-searchable on a property must surface TargetAlgorithm="blockmax"
+// on the IndexStatus while the task is in flight. This is the algorithm
+// equivalent of change-tokenization's TargetTokenization and is what lets
+// the UI render the in-flight WAND -> Block Max WAND switch.
+func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
+	tests := []struct {
+		name           string
+		taskStatus     distributedtask.TaskStatus
+		expectStatus   string
+		expectAlgoSet  bool
+		progress       float32
+		expectProgress float32
+	}{
+		{
+			name:           "started no progress emits pending + target algorithm",
+			taskStatus:     distributedtask.TaskStatusStarted,
+			expectStatus:   "pending",
+			expectAlgoSet:  true,
+			progress:       0,
+			expectProgress: 0,
+		},
+		{
+			name:           "started with progress emits indexing + target algorithm",
+			taskStatus:     distributedtask.TaskStatusStarted,
+			expectStatus:   "indexing",
+			expectAlgoSet:  true,
+			progress:       0.42,
+			expectProgress: 0.42,
+		},
+		{
+			name:           "failed task still surfaces target algorithm for the failed attempt",
+			taskStatus:     distributedtask.TaskStatusFailed,
+			expectStatus:   "failed",
+			expectAlgoSet:  true,
+			progress:       0.5,
+			expectProgress: 0.5,
+		},
+		{
+			name:           "cancelled task still surfaces target algorithm for the cancelled attempt",
+			taskStatus:     distributedtask.TaskStatusCancelled,
+			expectStatus:   "cancelled",
+			expectAlgoSet:  true,
+			progress:       0.3,
+			expectProgress: 0.3,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := buildTask(t, "C:repair-searchable:foo:abcd",
+				tt.taskStatus,
+				db.ReindexTaskPayload{
+					MigrationType: db.ReindexTypeRepairSearchable,
+					Collection:    "C",
+					Properties:    []string{"foo"},
+				},
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Progress: tt.progress},
+				},
+			)
+
+			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "searchable", tasksMap(task), nil)
+
+			require.Equal(t, tt.expectStatus, idx.Status)
+			require.InDelta(t, tt.expectProgress, idx.Progress, 0.0001)
+			if tt.expectAlgoSet {
+				require.Equal(t, models.IndexStatusTargetAlgorithmBlockmax, idx.TargetAlgorithm,
+					"repair-searchable must surface targetAlgorithm=blockmax for honest UI rendering of the in-flight WAND -> Block Max WAND switch")
+			}
+			require.Empty(t, idx.Algorithm,
+				"merge does not write Algorithm; that field is sourced from the class config in getIndexes")
+		})
+	}
+}
+
+// repair-filterable / repair-rangeable / enable-* must NOT populate
+// TargetAlgorithm on the IndexStatus. The algorithm field is searchable-only;
+// adding it to other index types would mislead the UI into showing a BM25
+// algorithm switch for an index that has no BM25 algorithm.
+func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testing.T) {
+	tests := []struct {
+		name          string
+		migrationType db.ReindexMigrationType
+		indexType     string
+	}{
+		{"repair-filterable", db.ReindexTypeRepairFilterable, "filterable"},
+		{"repair-rangeable", db.ReindexTypeRepairRangeable, "rangeable"},
+		{"enable-filterable", db.ReindexTypeEnableFilterable, "filterable"},
+		{"enable-rangeable", db.ReindexTypeEnableRangeable, "rangeable"},
+		{"enable-searchable", db.ReindexTypeEnableSearchable, "searchable"},
+		{"change-tokenization", db.ReindexTypeChangeTokenization, "searchable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := buildTask(t, "C:"+string(tt.migrationType)+":foo:abcd",
+				distributedtask.TaskStatusStarted,
+				db.ReindexTaskPayload{
+					MigrationType:      tt.migrationType,
+					Collection:         "C",
+					Properties:         []string{"foo"},
+					TargetTokenization: "word",
+				},
+				map[string]*distributedtask.Unit{
+					"u1": {ID: "u1", Progress: 0.5},
+				},
+			)
+
+			idx := &models.IndexStatus{Type: tt.indexType, Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", tt.indexType, tasksMap(task), nil)
+
+			require.Empty(t, idx.TargetAlgorithm,
+				"%s must not set TargetAlgorithm — algorithm is a searchable-only concept", tt.migrationType)
+		})
+	}
+}

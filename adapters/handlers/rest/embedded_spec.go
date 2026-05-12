@@ -7860,6 +7860,14 @@ func init() {
     "IndexStatus": {
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for ` + "`" + `type=searchable` + "`" + ` entries. Not populated for filterable or rangeable indexes.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
         "progress": {
           "type": "number",
           "format": "float"
@@ -7872,6 +7880,14 @@ func init() {
             "pending",
             "failed",
             "cancelled"
+          ]
+        },
+        "targetAlgorithm": {
+          "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors ` + "`" + `targetTokenization` + "`" + ` for the change-tokenization verb. Today the only supported transition is wand -> blockmax.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
           ]
         },
         "targetTokenization": {
@@ -7971,6 +7987,7 @@ func init() {
           "type": "boolean"
         },
         "rebuild": {
+          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -> wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
           "type": "boolean"
         },
         "tokenization": {
@@ -18408,6 +18425,14 @@ func init() {
     "IndexStatus": {
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for ` + "`" + `type=searchable` + "`" + ` entries. Not populated for filterable or rangeable indexes.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
         "progress": {
           "type": "number",
           "format": "float"
@@ -18420,6 +18445,14 @@ func init() {
             "pending",
             "failed",
             "cancelled"
+          ]
+        },
+        "targetAlgorithm": {
+          "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors ` + "`" + `targetTokenization` + "`" + ` for the change-tokenization verb. Today the only supported transition is wand -> blockmax.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
           ]
         },
         "targetTokenization": {
@@ -18519,6 +18552,7 @@ func init() {
           "type": "boolean"
         },
         "rebuild": {
+          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -> wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
           "type": "boolean"
         },
         "tokenization": {

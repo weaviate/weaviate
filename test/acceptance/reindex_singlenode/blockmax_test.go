@@ -84,6 +84,11 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 	createdClass := helper.GetClass(t, blockmaxClassName)
 	require.False(t, createdClass.InvertedIndexConfig.UsingBlockMaxWAND)
 
+	// Pre-rebuild: GET /indexes must surface algorithm=wand because the
+	// class was created with USE_INVERTED_SEARCHABLE=false. Honest UI
+	// rendering depends on this; frontend-claude flagged the gap.
+	assertSearchableAlgorithm(t, restURI, blockmaxClassName, "text", "wand", "")
+
 	for i, text := range blockmaxDocuments {
 		obj := &models.Object{
 			Class:      blockmaxClassName,
@@ -128,8 +133,24 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 	taskID := submitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
+	// While the rebuild is in flight, GET /indexes must surface
+	// targetAlgorithm="blockmax" (and may still show algorithm="wand"
+	// because the class flag flips only after every shard completes).
+	// This is the algorithm-side equivalent of targetTokenization.
+	// We make this best-effort: very fast rebuilds may not be observed,
+	// but the field must never be unset on an in-flight repair-searchable.
+	sawTargetAlgorithm := pollForTargetAlgorithm(t, restURI, blockmaxClassName, "text", "blockmax", 5*time.Second)
+	if !sawTargetAlgorithm {
+		t.Log("rebuild completed before targetAlgorithm could be observed (fast path)")
+	}
+
 	awaitReindexViaIndexes(t, restURI, blockmaxClassName, "text", "searchable")
 	awaitReindexFinished(t, restURI, taskID)
+
+	// Post-rebuild: GET /indexes must surface algorithm=blockmax and must
+	// no longer carry targetAlgorithm (the rebuild has completed and the
+	// class flag has flipped).
+	assertSearchableAlgorithm(t, restURI, blockmaxClassName, "text", "blockmax", "")
 
 	close(stopCh)
 	wg.Wait()
@@ -153,6 +174,57 @@ func testBlockmaxPostRestart(t *testing.T) {
 		assert.ElementsMatch(t, bl.ids, ids,
 			"post-restart query %q results differ", bl.query)
 	}
+}
+
+// assertSearchableAlgorithm fetches GET /v1/schema/{collection}/indexes and
+// requires that the searchable entry for the named property carries the
+// expected algorithm and targetAlgorithm values. Empty string means "must
+// not be set". This is the public contract surface for the BM25 algorithm
+// (WAND vs Block Max WAND) that frontend-claude flagged as missing.
+func assertSearchableAlgorithm(t *testing.T, restURI, collection, property, wantAlgorithm, wantTargetAlgorithm string) {
+	t.Helper()
+	resp := getIndexes(t, restURI, collection)
+	for _, prop := range resp.Properties {
+		if prop.Name != property {
+			continue
+		}
+		for _, idx := range prop.Indexes {
+			if idx.Type != "searchable" {
+				continue
+			}
+			require.Equal(t, wantAlgorithm, idx.Algorithm,
+				"GET /indexes: prop=%s algorithm mismatch", property)
+			require.Equal(t, wantTargetAlgorithm, idx.TargetAlgorithm,
+				"GET /indexes: prop=%s targetAlgorithm mismatch", property)
+			return
+		}
+	}
+	t.Fatalf("GET /indexes: searchable entry for property %q not found", property)
+}
+
+// pollForTargetAlgorithm polls GET /indexes for up to timeout, returning
+// true as soon as the named property's searchable entry surfaces
+// targetAlgorithm=want. Used to verify the in-flight signal during a
+// repair-searchable rebuild without making the test flaky on fast paths
+// (small data sets) where the rebuild may complete before we can observe.
+func pollForTargetAlgorithm(t *testing.T, restURI, collection, property, want string, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp := getIndexes(t, restURI, collection)
+		for _, prop := range resp.Properties {
+			if prop.Name != property {
+				continue
+			}
+			for _, idx := range prop.Indexes {
+				if idx.Type == "searchable" && idx.TargetAlgorithm == want {
+					return true
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
 }
 
 func blockmaxBM25Query(t *testing.T, query string) []string {

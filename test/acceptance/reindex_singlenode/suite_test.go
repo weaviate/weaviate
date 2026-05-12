@@ -256,6 +256,8 @@ type indexesResponse struct {
 			Progress           float32 `json:"progress"`
 			Tokenization       string  `json:"tokenization,omitempty"`
 			TargetTokenization string  `json:"targetTokenization,omitempty"`
+			Algorithm          string  `json:"algorithm,omitempty"`
+			TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
 		} `json:"indexes"`
 	} `json:"properties"`
 }
