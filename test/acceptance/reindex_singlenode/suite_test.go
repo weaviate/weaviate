@@ -151,6 +151,16 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testReindexAPIValidation(t, restURI)
 	})
 
+	// --- Subtest 9: Cancel verb ---
+	t.Run("CancelReindex", func(t *testing.T) {
+		testCancelReindex(t, restURI)
+	})
+
+	// --- Subtest 10: Rangeable rebuild ---
+	t.Run("RepairRangeable", func(t *testing.T) {
+		testRepairRangeable(t, restURI)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")
