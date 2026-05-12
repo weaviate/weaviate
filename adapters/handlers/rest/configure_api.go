@@ -506,7 +506,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ObjectsTTLPauseDuration:             appState.ServerConfig.Config.ObjectsTTLPauseDuration,
 		ObjectsTTLConcurrencyFactor:         appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
-		LSMSkipClassnameEnabled:             appState.ServerConfig.Config.Persistence.LSMSkipClassnameEnabled,
+		LSMSkipWriteClassNameEnabled:        appState.ServerConfig.Config.Persistence.LSMSkipWriteClassNameEnabled,
 		NamespacesEnabled:                   appState.ServerConfig.Config.Namespaces.Enabled,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class

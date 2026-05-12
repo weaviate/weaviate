@@ -471,8 +471,8 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SKIP_CLASSNAME_ENABLED")) {
-		config.Persistence.LSMSkipClassnameEnabled = true
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SKIP_WRITE_CLASSNAME_ENABLED")) {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {

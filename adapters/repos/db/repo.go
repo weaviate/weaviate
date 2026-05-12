@@ -321,7 +321,7 @@ type Config struct {
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
-	LSMSkipClassnameEnabled             bool
+	LSMSkipWriteClassNameEnabled        bool
 	NamespacesEnabled                   bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
