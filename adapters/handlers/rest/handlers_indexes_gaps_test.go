@@ -437,26 +437,31 @@ func TestRequestedCancel(t *testing.T) {
 
 func TestMigrationTypeTargetsIndex(t *testing.T) {
 	cases := []struct {
-		mt        db.ReindexMigrationType
-		indexType string
-		want      bool
+		mt          db.ReindexMigrationType
+		indexType   string
+		wantMatches bool
+		wantKnown   bool
 	}{
-		{db.ReindexTypeEnableSearchable, "searchable", true},
-		{db.ReindexTypeEnableSearchable, "filterable", false},
-		{db.ReindexTypeRepairSearchable, "searchable", true},
-		{db.ReindexTypeEnableFilterable, "filterable", true},
-		{db.ReindexTypeEnableFilterable, "searchable", false},
-		{db.ReindexTypeRepairFilterable, "filterable", true},
-		{db.ReindexTypeEnableRangeable, "rangeable", true},
-		{db.ReindexTypeRepairRangeable, "rangeable", true},
-		{db.ReindexTypeRepairRangeable, "searchable", false},
-		{db.ReindexTypeChangeTokenization, "searchable", true},
-		{db.ReindexTypeChangeTokenization, "filterable", true},
-		{db.ReindexTypeChangeTokenization, "rangeable", false},
+		{db.ReindexTypeEnableSearchable, "searchable", true, true},
+		{db.ReindexTypeEnableSearchable, "filterable", false, true},
+		{db.ReindexTypeRepairSearchable, "searchable", true, true},
+		{db.ReindexTypeEnableFilterable, "filterable", true, true},
+		{db.ReindexTypeEnableFilterable, "searchable", false, true},
+		{db.ReindexTypeRepairFilterable, "filterable", true, true},
+		{db.ReindexTypeEnableRangeable, "rangeable", true, true},
+		{db.ReindexTypeRepairRangeable, "rangeable", true, true},
+		{db.ReindexTypeRepairRangeable, "searchable", false, true},
+		{db.ReindexTypeChangeTokenization, "searchable", true, true},
+		{db.ReindexTypeChangeTokenization, "filterable", true, true},
+		{db.ReindexTypeChangeTokenization, "rangeable", false, true},
+		// Unknown migration type — both returns must be false.
+		{db.ReindexMigrationType("totally-new-migration"), "searchable", false, false},
 	}
 	for _, c := range cases {
 		t.Run(string(c.mt)+"/"+c.indexType, func(t *testing.T) {
-			require.Equal(t, c.want, migrationTypeTargetsIndex(c.mt, c.indexType))
+			matches, known := migrationTypeTargetsIndex(c.mt, c.indexType)
+			require.Equal(t, c.wantMatches, matches, "matches")
+			require.Equal(t, c.wantKnown, known, "isKnown")
 		})
 	}
 }

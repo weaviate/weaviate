@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
@@ -90,8 +89,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		// the historical behavior: filterable and searchable expose the
 		// property's tokenization on the flag-on entry; rangeable does not.
 		// Rangeable only applies to numeric/date properties.
-		dt, ok := entschema.AsPrimitive(prop.DataType)
-		isNumeric := ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
+		isNumeric := isNumericProperty(prop)
 		entries := []struct {
 			indexType         string
 			flagOn            bool
@@ -464,7 +462,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		if !slices.Contains(payload.Properties, propertyName) {
 			continue
 		}
-		if !migrationTypeTargetsIndex(payload.MigrationType, indexType) {
+		if matches, _ := migrationTypeTargetsIndex(payload.MigrationType, indexType); !matches {
 			continue
 		}
 		target = task
@@ -497,22 +495,28 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	})
 }
 
-// migrationTypeTargetsIndex returns true if the migration type writes to
-// the named index bucket. Used by cancelReindexTask to disambiguate when
-// multiple in-flight tasks could target the same property.
-func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) bool {
+// migrationTypeTargetsIndex returns:
+//
+//   - matches: true if the migration type writes to the named index bucket.
+//   - isKnown: true if the migration type is one this function knows about.
+//
+// A new ReindexType added to the codebase without being mapped here would
+// return (false, false). Callers that need to log/alert on that case can
+// check the second return; cancel-path callers can ignore it because a
+// (false, false) result still means "this task is not a cancel target".
+func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	switch mt {
 	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable:
-		return indexType == "searchable"
+		return indexType == "searchable", true
 	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return indexType == "filterable"
+		return indexType == "filterable", true
 	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return indexType == "rangeable"
+		return indexType == "rangeable", true
 	case db.ReindexTypeChangeTokenization:
 		// touches both searchable and filterable buckets
-		return indexType == "searchable" || indexType == "filterable"
+		return indexType == "searchable" || indexType == "filterable", true
 	}
-	return false
+	return false, false
 }
 
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
@@ -604,35 +608,19 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		targets := false
-		switch payload.MigrationType {
-		case db.ReindexTypeRepairSearchable:
-			targets = indexType == "searchable"
-		case db.ReindexTypeRepairFilterable:
-			targets = indexType == "filterable"
-		case db.ReindexTypeEnableFilterable:
-			targets = indexType == "filterable"
-		case db.ReindexTypeEnableSearchable:
-			targets = indexType == "searchable"
-		case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-			targets = indexType == "rangeable"
-		case db.ReindexTypeChangeTokenization:
-			targets = indexType == "searchable" || indexType == "filterable"
-		default:
-			// Unknown migration type. A new ReindexType was added without
-			// being mapped to a bucket here, which would silently report
-			// "ready" for an in-flight task. Log loudly so this surfaces in
-			// CI/staging before it hits production. targets stays false so
-			// we fall through and leave the synthetic entry alone.
-			if logger != nil {
-				logger.WithFields(logrus.Fields{
-					"migration_type": payload.MigrationType,
-					"task_id":        task.ID,
-					"collection":     collection,
-				}).Error(fmt.Errorf("mergeReindexStatus: unknown migration type %q; index status may be stale", payload.MigrationType))
-			}
+		targets, known := migrationTypeTargetsIndex(payload.MigrationType, indexType)
+		if !known && logger != nil {
+			// A new ReindexType was added without being mapped to a bucket,
+			// which would silently report "ready" for an in-flight task. Log
+			// loudly so this surfaces in CI/staging before it hits prod.
+			// targets is false here too, so we fall through and leave the
+			// synthetic entry alone.
+			logger.WithFields(logrus.Fields{
+				"migration_type": payload.MigrationType,
+				"task_id":        task.ID,
+				"collection":     collection,
+			}).Error(fmt.Errorf("mergeReindexStatus: unknown migration type %q; index status may be stale", payload.MigrationType))
 		}
-
 		if !targets {
 			continue
 		}

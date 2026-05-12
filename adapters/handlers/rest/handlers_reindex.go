@@ -43,6 +43,15 @@ func buildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitTo
 	return unitIDs, unitToShard, unitToNode
 }
 
+// isNumericProperty reports whether the property's primitive data type is
+// one of int / number / date — the three types eligible for a rangeable
+// index. Used by every rangeable validator + the getIndexes emitter so a
+// new numeric type added in the future only needs to be added here.
+func isNumericProperty(prop *models.Property) bool {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	return ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
+}
+
 // validateRangeableProperties validates that the named properties are
 // eligible for enable-rangeable: numeric type, not already rangeable.
 // Whether the property currently has a filterable index is deliberately
@@ -61,8 +70,7 @@ func validateRangeableProperties(class *models.Class, propNames []string) error 
 		if !ok {
 			return fmt.Errorf("property %q not found", pn)
 		}
-		dt, ok := entschema.AsPrimitive(prop.DataType)
-		if !ok || (dt != entschema.DataTypeInt && dt != entschema.DataTypeNumber && dt != entschema.DataTypeDate) {
+		if !isNumericProperty(prop) {
 			return fmt.Errorf("property %q is not a numeric type (int, number, date)", pn)
 		}
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -77,8 +85,7 @@ func validateRangeableProperties(class *models.Class, propNames []string) error 
 // indexing enabled (otherwise there's nothing to rebuild — the caller
 // wants enable-rangeable instead). Type must still be numeric/date.
 func validateRebuildRangeableProperty(prop *models.Property) error {
-	dt, ok := entschema.AsPrimitive(prop.DataType)
-	if !ok || (dt != entschema.DataTypeInt && dt != entschema.DataTypeNumber && dt != entschema.DataTypeDate) {
+	if !isNumericProperty(prop) {
 		return fmt.Errorf("property %q is not a numeric type (int, number, date)", prop.Name)
 	}
 	if prop.IndexRangeFilters == nil || !*prop.IndexRangeFilters {
