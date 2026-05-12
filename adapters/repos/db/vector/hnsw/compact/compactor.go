@@ -361,36 +361,49 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 		return ActionNone
 	}
 
-	// Guard: if there are condensed or raw files whose timestamps fall within
-	// the sorted file range, skip merge/snapshot for this cycle. This can
-	// happen when allocChecker defers conversion of some files due to memory
-	// pressure. Creating a snapshot or merge now would give the output an
-	// endTS that covers those timestamps; the Loader would then treat the
-	// un-incorporated files as redundant (filtering them on load) and
-	// resolveOverlaps would delete them on the next cycle — both causing
-	// permanent data loss. Returning ActionNone lets the next cycle retry
-	// the conversion when memory is available.
-	if len(state.SortedFiles) > 0 {
-		maxSortedEndTS := int64(0)
+	// Compute endTS values used by the safety guards below.
+	//
+	// maxSortedEndTS: endTS of the newest sorted file. A snapshot consumes ALL
+	// sorted files, so its output claims coverage up to this timestamp.
+	//
+	// mergeEndTS: endTS of the N-th oldest sorted file (where N = MaxFilesPerMerge).
+	// A merge only touches the oldest N files, so its output claims coverage only
+	// up to this timestamp.
+	//
+	// When allocChecker skips conversion of some files, condensed or raw files
+	// whose endTS falls within an output's claimed range would be treated as
+	// redundant by the Loader (filtered on load) and deleted by resolveOverlaps
+	// on the next cycle — permanent data loss. The guards below prevent that by
+	// deferring merge/snapshot until all interleaved files have been converted.
+	maxSortedEndTS := int64(0)
+	mergeEndTS := int64(0)
+	if sortedCount > 0 {
 		for _, f := range state.SortedFiles {
 			if f.EndTS > maxSortedEndTS {
 				maxSortedEndTS = f.EndTS
 			}
 		}
+		n := sortedCount
+		if n > c.config.MaxFilesPerMerge {
+			n = c.config.MaxFilesPerMerge
+		}
+		mergeEndTS = state.SortedFiles[n-1].EndTS
+	}
+
+	// hasInterleaved returns true if any condensed or raw file has endTS <= limit,
+	// meaning it was skipped by allocChecker and its data is not yet in sorted form.
+	hasInterleaved := func(limit int64) bool {
 		for _, f := range state.CondensedFiles {
-			if f.EndTS <= maxSortedEndTS {
-				log.WithField("reason", "condensed file within sorted range, defer until converted").
-					Debug("decision: no action - defer merge/snapshot until interleaved condensed files are converted")
-				return ActionNone
+			if f.EndTS <= limit {
+				return true
 			}
 		}
 		for _, f := range state.RawFiles {
-			if f.EndTS <= maxSortedEndTS {
-				log.WithField("reason", "raw file within sorted range, defer until converted").
-					Debug("decision: no action - defer merge/snapshot until interleaved raw files are converted")
-				return ActionNone
+			if f.EndTS <= limit {
+				return true
 			}
 		}
+		return false
 	}
 
 	sortedRatio := float64(sortedSize) / float64(totalSize)
@@ -399,11 +412,21 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	if state.Snapshot == nil {
 		// No snapshot exists yet
 		if sortedCount > c.config.MaxFilesPerMerge {
+			if hasInterleaved(mergeEndTS) {
+				log.WithField("reason", "unconverted files within merge range, defer until converted").
+					Debug("decision: no action - defer merge until interleaved files are converted")
+				return ActionNone
+			}
 			log.WithField("reason", "no snapshot exists, but too many sorted files to snapshot at once").
 				Debugf("decision: merge sorted files first (%d files > max %d)", sortedCount, c.config.MaxFilesPerMerge)
 			return ActionMergeSorted
 		}
 		if sortedCount > 0 {
+			if hasInterleaved(maxSortedEndTS) {
+				log.WithField("reason", "unconverted files within snapshot range, defer until converted").
+					Debug("decision: no action - defer snapshot until interleaved files are converted")
+				return ActionNone
+			}
 			log.WithField("reason", "no snapshot exists, creating initial snapshot").
 				Debugf("decision: create snapshot from %d sorted file(s)", sortedCount)
 			return ActionCreateSnapshot
@@ -416,10 +439,20 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	if sortedRatio > c.config.SnapshotThreshold {
 		// Sorted files are large relative to snapshot - worth creating new snapshot
 		if sortedCount > c.config.MaxFilesPerMerge {
+			if hasInterleaved(mergeEndTS) {
+				log.WithField("reason", "unconverted files within merge range, defer until converted").
+					Debug("decision: no action - defer merge until interleaved files are converted")
+				return ActionNone
+			}
 			log.WithField("reason", "sorted ratio exceeds threshold, but too many files to snapshot at once").
 				Debugf("decision: merge sorted files first (%d files > max %d, ratio %.1f%% > threshold %.1f%%)",
 					sortedCount, c.config.MaxFilesPerMerge, sortedRatio*100, c.config.SnapshotThreshold*100)
 			return ActionMergeSorted
+		}
+		if hasInterleaved(maxSortedEndTS) {
+			log.WithField("reason", "unconverted files within snapshot range, defer until converted").
+				Debug("decision: no action - defer snapshot until interleaved files are converted")
+			return ActionNone
 		}
 		log.WithField("reason", "sorted ratio exceeds threshold, write amplification is acceptable").
 			Debugf("decision: create snapshot (ratio %.1f%% > threshold %.1f%%)",
@@ -429,6 +462,11 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 
 	// Sorted ratio is below threshold - write amplification not worth it
 	if sortedCount > 1 {
+		if hasInterleaved(mergeEndTS) {
+			log.WithField("reason", "unconverted files within merge range, defer until converted").
+				Debug("decision: no action - defer merge until interleaved files are converted")
+			return ActionNone
+		}
 		log.WithField("reason", "sorted ratio below threshold, merging sorted files to reduce count").
 			Debugf("decision: merge %d sorted files (ratio %.1f%% <= threshold %.1f%%)",
 				sortedCount, sortedRatio*100, c.config.SnapshotThreshold*100)

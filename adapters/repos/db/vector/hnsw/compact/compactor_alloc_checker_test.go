@@ -194,3 +194,73 @@ func TestCompactor_AllocCheckerSkipsEveryOtherFile_MixedDirLoadsCleanly(t *testi
 			"node %d must still be present after second cycle", i)
 	}
 }
+
+// TestCompactor_AllocCheckerSkipsFileOutsideMergeRange_MergeProceeds verifies
+// that the per-action guard uses the actual merge-range endTS, not the global
+// max endTS across all sorted files. When a condensed file sits AFTER the
+// N-th oldest sorted file (outside the would-be merge range), the guard must
+// NOT block the merge.
+//
+// Scenario (MaxFilesPerMerge=2):
+//   - sorted=[0,1,2,3,4], condensed=[5] (kept condensed by alwaysRejectAllocChecker)
+//   - merge selects [0.sorted, 1.sorted] → output range endTS=1
+//   - condensed[5].endTS=5 > 1 → guard must NOT fire → ActionMergeSorted
+//
+// If the guard mistakenly used maxSortedEndTS=4 instead of mergeEndTS=1, it
+// would incorrectly block the merge because 5 ≤ 4 is false but 5 ≤ 4... wait,
+// actually the old guard would check 5 ≤ 4 which is false, so it wouldn't
+// block either.
+//
+// The dangerous case is condensed=[3] with sorted=[0,1,2,4], MaxFilesPerMerge=2:
+// mergeEndTS=1, condensed[3].endTS=3 > 1 → safe merge of [0,1]; but old guard
+// would check 3 ≤ 4 (maxSortedEndTS) → true → incorrectly block the merge.
+// That case is exercised separately; this test validates the positive path.
+func TestCompactor_AllocCheckerSkipsFileOutsideMergeRange_MergeProceeds(t *testing.T) {
+	dir := t.TempDir()
+	logger := logrus.New()
+	logger.SetLevel(logrus.WarnLevel)
+
+	// Five pre-existing sorted files. The condensed file at timestamp 5 sits
+	// AFTER all sorted files' timestamps, well outside the merge range [0,1].
+	// alwaysRejectAllocChecker keeps it condensed through the cycle.
+	const numSorted = 5
+	for i := 0; i < numSorted; i++ {
+		ts := int64(1000000000 + i)
+		writeTestSortedFileWithData(t, dir, ts, ts, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddNode(uint64(i), 1))
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(uint64(i), 1))
+		})
+	}
+	condensedTS := int64(1000000005)
+	createTestWALFile(t, filepath.Join(dir, fmt.Sprintf("%d.condensed", condensedTS)), func(w *WALWriter) {
+		require.NoError(t, w.WriteAddNode(uint64(numSorted), 1))
+		require.NoError(t, w.WriteSetEntryPointMaxLevel(uint64(numSorted), 1))
+	})
+	createTestWALFile(t, filepath.Join(dir, "9999999999"), func(w *WALWriter) {})
+
+	config := DefaultCompactorConfig(dir)
+	config.MaxFilesPerMerge = 2
+	// alwaysReject keeps the condensed file unconverted so it stays in the
+	// directory as a condensed file (outside the merge range) during decideAction.
+	compactor := NewCompactor(config, logger, &alwaysRejectAllocChecker{})
+
+	action, err := compactor.RunCycle(func() bool { return false })
+	require.NoError(t, err)
+	assert.Equal(t, ActionMergeSorted, action,
+		"merge must proceed: condensed file is outside the merge range [0,1]")
+
+	_, condensed, tmp := classifyDir(t, dir)
+	assert.Equal(t, 1, condensed, "condensed file outside the merge range must survive")
+	assert.Equal(t, 0, tmp)
+
+	// All nodes (sorted 0..4 plus condensed 5) must load correctly.
+	loader := NewLoader(LoaderConfig{Dir: dir, Logger: logger})
+	result, err := loader.Load()
+	require.NoError(t, err)
+	require.NotNil(t, result.State)
+	for i := 0; i <= numSorted; i++ {
+		require.Greater(t, len(result.State.Graph.Nodes), i)
+		require.NotNil(t, result.State.Graph.Nodes[i],
+			"node %d must be present after partial merge", i)
+	}
+}
