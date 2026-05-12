@@ -2048,12 +2048,8 @@ func (t *fileReindexTracker) filepath(filename string) string {
 }
 
 func (t *fileReindexTracker) fileExists(filename string) bool {
-	if _, err := os.Stat(t.filepath(filename)); err == nil {
-		return true
-	} else if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	return false
+	_, err := os.Stat(t.filepath(filename))
+	return err == nil
 }
 
 func (t *fileReindexTracker) createFile(filename string, content []byte) error {
