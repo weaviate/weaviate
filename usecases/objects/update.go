@@ -36,7 +36,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return nil, err
+		return nil, NewErrInvalidUserInput("%v", err)
 	}
 	updates.Class = className
 

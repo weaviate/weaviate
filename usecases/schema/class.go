@@ -69,7 +69,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// with correct `collectionName` for permissions and errors UX
 	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	name = resolved
 

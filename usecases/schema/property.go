@@ -181,7 +181,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	}
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {

@@ -39,7 +39,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 ) (*models.Object, error) {
 	className, _, err := m.resolveNS(principal, object.Class)
 	if err != nil {
-		return nil, err
+		return nil, NewErrInvalidUserInput("%v", err)
 	}
 	object.Class = className
 

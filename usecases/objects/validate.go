@@ -30,7 +30,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 ) error {
 	className, _, err := m.resolveNS(principal, obj.Class)
 	if err != nil {
-		return err
+		return NewErrInvalidUserInput("%v", err)
 	}
 	obj.Class = className
 
