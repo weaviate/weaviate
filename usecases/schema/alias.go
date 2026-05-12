@@ -123,8 +123,18 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 ) (*models.Alias, error) {
 	targetClassName = schema.UppercaseClassName(targetClassName)
 	aliasName = schema.UppercaseClassName(aliasName)
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Aliases(targetClassName, aliasName)...)
+	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, aliasName)
 	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+	qTarget, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, targetClassName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+	aliasName = qAlias
+	targetClassName = qTarget
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Aliases(targetClassName, aliasName)...); err != nil {
 		return nil, err
 	}
 	aliases, err := h.schemaManager.GetAliases(ctx, aliasName, nil)
@@ -149,6 +159,11 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
+	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, aliasName)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+	aliasName = qAlias
 
 	a, err := h.schemaManager.GetAlias(ctx, aliasName)
 	if err != nil {
@@ -158,12 +173,11 @@ func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, 
 		return err
 	}
 
-	err = h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases(a.Class, a.Alias)...)
-	if err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases(a.Class, a.Alias)...); err != nil {
 		return err
 	}
 
-	if _, err = h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {
+	if _, err := h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {
 		return err
 	}
 	return nil
