@@ -72,6 +72,21 @@ func validateRangeableProperties(class *models.Class, propNames []string) error 
 	return nil
 }
 
+// validateRebuildRangeableProperty is the inverse-precondition counterpart
+// of validateRangeableProperties: the property must already have rangeable
+// indexing enabled (otherwise there's nothing to rebuild — the caller
+// wants enable-rangeable instead). Type must still be numeric/date.
+func validateRebuildRangeableProperty(prop *models.Property) error {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeInt && dt != entschema.DataTypeNumber && dt != entschema.DataTypeDate) {
+		return fmt.Errorf("property %q is not a numeric type (int, number, date)", prop.Name)
+	}
+	if prop.IndexRangeFilters == nil || !*prop.IndexRangeFilters {
+		return fmt.Errorf("property %q does not have a rangeable index to rebuild; use enable to create one", prop.Name)
+	}
+	return nil
+}
+
 // validateEnableFilterableProperty validates that the property is a
 // suitable target for enable-filterable: it must not already have a
 // filterable index, and its data type must support inverted filtering
@@ -260,8 +275,11 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		if body.Searchable.Tokenization != "" && !body.Searchable.Enabled {
 			verbs = append(verbs, "searchable.tokenization")
 		}
+		if body.Searchable.Cancel {
+			verbs = append(verbs, "searchable.cancel")
+		}
 		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, or tokenization (tokenization combined with enabled is allowed)", verbs)
+			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
 		}
 		if len(verbs) == 1 {
 			groupsSet = append(groupsSet, "searchable")
@@ -277,17 +295,33 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		if body.Filterable.Rebuild {
 			verbs = append(verbs, "filterable.rebuild")
 		}
+		if body.Filterable.Cancel {
+			verbs = append(verbs, "filterable.cancel")
+		}
 		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled or rebuild", verbs)
+			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled, rebuild, or cancel", verbs)
 		}
 		if len(verbs) == 1 {
 			groupsSet = append(groupsSet, "filterable")
 		}
 	}
 
-	// Rangeable group. Only Enabled is a verb today.
+	// Rangeable group.
 	if body.Rangeable != nil {
+		var verbs []string
 		if body.Rangeable.Enabled {
+			verbs = append(verbs, "rangeable.enabled")
+		}
+		if body.Rangeable.Rebuild {
+			verbs = append(verbs, "rangeable.rebuild")
+		}
+		if body.Rangeable.Cancel {
+			verbs = append(verbs, "rangeable.cancel")
+		}
+		if len(verbs) > 1 {
+			return fmt.Errorf("conflicting fields in rangeable: %v — set exactly one of enabled, rebuild, or cancel", verbs)
+		}
+		if len(verbs) == 1 {
 			groupsSet = append(groupsSet, "rangeable")
 		}
 	}
@@ -296,7 +330,7 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
 	}
 	if len(groupsSet) == 0 {
-		return fmt.Errorf("no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, searchable.enabled, filterable.rebuild, filterable.enabled, rangeable.enabled")
+		return fmt.Errorf("no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, searchable.enabled, searchable.cancel, filterable.rebuild, filterable.enabled, filterable.cancel, rangeable.enabled, rangeable.rebuild, rangeable.cancel")
 	}
 	return nil
 }

@@ -370,6 +370,97 @@ func TestValidateRangeableProperties(t *testing.T) {
 	})
 }
 
+func TestValidateRebuildRangeableProperty(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	t.Run("rangeable enabled numeric ok", func(t *testing.T) {
+		prop := &models.Property{Name: "qty", DataType: []string{"int"}, IndexRangeFilters: &trueVal}
+		require.NoError(t, validateRebuildRangeableProperty(prop))
+	})
+
+	t.Run("rebuild rejected when rangeable not enabled", func(t *testing.T) {
+		prop := &models.Property{Name: "qty", DataType: []string{"int"}}
+		err := validateRebuildRangeableProperty(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not have a rangeable index to rebuild")
+	})
+
+	t.Run("rebuild rejected when rangeable explicitly false", func(t *testing.T) {
+		prop := &models.Property{Name: "qty", DataType: []string{"int"}, IndexRangeFilters: &falseVal}
+		err := validateRebuildRangeableProperty(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not have a rangeable index to rebuild")
+	})
+
+	t.Run("rebuild rejected for non-numeric type", func(t *testing.T) {
+		prop := &models.Property{Name: "label", DataType: []string{"text"}, IndexRangeFilters: &trueVal}
+		err := validateRebuildRangeableProperty(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not a numeric type")
+	})
+}
+
+func TestRequestedCancel(t *testing.T) {
+	t.Run("none", func(t *testing.T) {
+		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+			Searchable: &models.IndexUpdateSearchable{Enabled: true},
+		})
+		require.False(t, ok)
+		require.Empty(t, typ)
+	})
+
+	t.Run("searchable.cancel", func(t *testing.T) {
+		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+			Searchable: &models.IndexUpdateSearchable{Cancel: true},
+		})
+		require.True(t, ok)
+		require.Equal(t, "searchable", typ)
+	})
+
+	t.Run("filterable.cancel", func(t *testing.T) {
+		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+			Filterable: &models.IndexUpdateFilterable{Cancel: true},
+		})
+		require.True(t, ok)
+		require.Equal(t, "filterable", typ)
+	})
+
+	t.Run("rangeable.cancel", func(t *testing.T) {
+		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+			Rangeable: &models.IndexUpdateRangeable{Cancel: true},
+		})
+		require.True(t, ok)
+		require.Equal(t, "rangeable", typ)
+	})
+}
+
+func TestMigrationTypeTargetsIndex(t *testing.T) {
+	cases := []struct {
+		mt        db.ReindexMigrationType
+		indexType string
+		want      bool
+	}{
+		{db.ReindexTypeEnableSearchable, "searchable", true},
+		{db.ReindexTypeEnableSearchable, "filterable", false},
+		{db.ReindexTypeRepairSearchable, "searchable", true},
+		{db.ReindexTypeEnableFilterable, "filterable", true},
+		{db.ReindexTypeEnableFilterable, "searchable", false},
+		{db.ReindexTypeRepairFilterable, "filterable", true},
+		{db.ReindexTypeEnableRangeable, "rangeable", true},
+		{db.ReindexTypeRepairRangeable, "rangeable", true},
+		{db.ReindexTypeRepairRangeable, "searchable", false},
+		{db.ReindexTypeChangeTokenization, "searchable", true},
+		{db.ReindexTypeChangeTokenization, "filterable", true},
+		{db.ReindexTypeChangeTokenization, "rangeable", false},
+	}
+	for _, c := range cases {
+		t.Run(string(c.mt)+"/"+c.indexType, func(t *testing.T) {
+			require.Equal(t, c.want, migrationTypeTargetsIndex(c.mt, c.indexType))
+		})
+	}
+}
+
 // -----------------------------------------------------------------------------
 // validateEnableFilterableProperty — type allow-list and already-filterable.
 // -----------------------------------------------------------------------------

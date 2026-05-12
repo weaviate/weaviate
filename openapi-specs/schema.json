@@ -700,6 +700,10 @@
         },
         "enabled": {
           "type": "boolean"
+        },
+        "cancel": {
+          "type": "boolean",
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize."
         }
       }
     },
@@ -711,6 +715,10 @@
         },
         "enabled": {
           "type": "boolean"
+        },
+        "cancel": {
+          "type": "boolean",
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index."
         }
       }
     },
@@ -719,6 +727,14 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "rebuild": {
+          "type": "boolean",
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable)."
+        },
+        "cancel": {
+          "type": "boolean",
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index."
         }
       }
     },

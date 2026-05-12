@@ -28,6 +28,9 @@ import (
 // swagger:model IndexUpdateSearchable
 type IndexUpdateSearchable struct {
 
+	// When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.
+	Cancel bool `json:"cancel,omitempty"`
+
 	// enabled
 	Enabled bool `json:"enabled,omitempty"`
 

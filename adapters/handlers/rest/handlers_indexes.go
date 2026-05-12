@@ -187,6 +187,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
 	}
 
+	// Cancel is fundamentally different from the other actions: it does not
+	// submit a new task, it asks DTM to abort one. Handle it up front so the
+	// switch below stays focused on submit-shaped intents.
+	if cancelIndexType, cancelling := requestedCancel(body); cancelling {
+		return h.cancelReindexTask(params.HTTPRequest.Context(), collection, propertyName, cancelIndexType, principal)
+	}
+
 	// Determine which migration type to submit based on the diff.
 	var (
 		migrationType  db.ReindexMigrationType
@@ -250,6 +257,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		migrationType = db.ReindexTypeEnableRangeable
 		properties = []string{propertyName}
 		if err := validateRangeableProperties(class, properties); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+		}
+
+	case body.Rangeable != nil && body.Rangeable.Rebuild:
+		migrationType = db.ReindexTypeRepairRangeable
+		properties = []string{propertyName}
+		if err := validateRebuildRangeableProperty(targetProp); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
 		}
 
@@ -398,6 +412,109 @@ func principalUsername(principal *models.Principal) string {
 	return principal.Username
 }
 
+// requestedCancel returns (indexType, true) if the body asks to cancel an
+// in-flight reindex on this property, where indexType is one of
+// "filterable", "searchable", or "rangeable". Returns ("", false)
+// otherwise. validateBodyExclusivity has already guaranteed at most one
+// cancel field is set across the body.
+func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
+	switch {
+	case body.Searchable != nil && body.Searchable.Cancel:
+		return "searchable", true
+	case body.Filterable != nil && body.Filterable.Cancel:
+		return "filterable", true
+	case body.Rangeable != nil && body.Rangeable.Cancel:
+		return "rangeable", true
+	}
+	return "", false
+}
+
+// cancelReindexTask finds the STARTED reindex task targeting
+// (collection, propertyName, indexType) and asks DTM to cancel it.
+// Returns 404 if no matching task exists, 202 with the cancelled
+// task ID on success. The DTM scheduler picks up the CANCELLED state on
+// its next tick and terminates the local handle; the task's ctx (the
+// provider's per-task ctx via runningHandles) is then cancelled, and
+// the worker goroutine returns.
+func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
+	if h.appState.ClusterService == nil {
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(
+			"cluster service unavailable; cannot cancel reindex task"))
+	}
+
+	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
+	if err != nil {
+		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(
+			fmt.Sprintf("listing tasks: %v", err)))
+	}
+
+	// Find the STARTED task that targets this (collection, prop, indexType).
+	var target *distributedtask.Task
+	for _, task := range tasks[db.ReindexNamespace] {
+		if task.Status != distributedtask.TaskStatusStarted {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if !strings.EqualFold(payload.Collection, collection) {
+			continue
+		}
+		if !slices.Contains(payload.Properties, propertyName) {
+			continue
+		}
+		if !migrationTypeTargetsIndex(payload.MigrationType, indexType) {
+			continue
+		}
+		target = task
+		break
+	}
+
+	if target == nil {
+		return schema.NewSchemaObjectsIndexesUpdateNotFound()
+	}
+
+	if err := h.appState.ClusterService.CancelDistributedTask(
+		ctx, target.Namespace, target.ID, target.Version,
+	); err != nil {
+		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(
+			fmt.Sprintf("cancelling task: %v", err)))
+	}
+
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event": "reindex_task_cancelled",
+		"taskID":      target.ID,
+		"collection":  collection,
+		"property":    propertyName,
+		"index_type":  indexType,
+		"principal":   principalUsername(principal),
+	}).Info("reindex provider: cancelled task")
+
+	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+		TaskID: target.ID,
+		Status: "CANCELLED",
+	})
+}
+
+// migrationTypeTargetsIndex returns true if the migration type writes to
+// the named index bucket. Used by cancelReindexTask to disambiguate when
+// multiple in-flight tasks could target the same property.
+func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) bool {
+	switch mt {
+	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable:
+		return indexType == "searchable"
+	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
+		return indexType == "filterable"
+	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
+		return indexType == "rangeable"
+	case db.ReindexTypeChangeTokenization:
+		// touches both searchable and filterable buckets
+		return indexType == "searchable" || indexType == "filterable"
+	}
+	return false
+}
+
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
 // reindex payload. The handler builds a slice of these once per request
 // so mergeReindexStatus doesn't re-unmarshal task.Payload N times where
@@ -497,7 +614,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			targets = indexType == "filterable"
 		case db.ReindexTypeEnableSearchable:
 			targets = indexType == "searchable"
-		case db.ReindexTypeEnableRangeable:
+		case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
 			targets = indexType == "rangeable"
 		case db.ReindexTypeChangeTokenization:
 			targets = indexType == "searchable" || indexType == "filterable"
@@ -543,7 +660,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
 	case db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable,
-		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable:
+		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable,
+		db.ReindexTypeRepairRangeable:
 		// No tokenization side effects for these types.
 	}
 
@@ -771,7 +889,8 @@ func touchesSearchable(t db.ReindexMigrationType) bool {
 		return true
 	case db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableFilterable,
-		db.ReindexTypeEnableRangeable:
+		db.ReindexTypeEnableRangeable,
+		db.ReindexTypeRepairRangeable:
 		return false
 	default:
 		panic(fmt.Sprintf("touchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
@@ -790,7 +909,8 @@ func touchesFilterable(t db.ReindexMigrationType) bool {
 		return true
 	case db.ReindexTypeRepairSearchable,
 		db.ReindexTypeEnableSearchable,
-		db.ReindexTypeEnableRangeable:
+		db.ReindexTypeEnableRangeable,
+		db.ReindexTypeRepairRangeable:
 		return false
 	default:
 		panic(fmt.Sprintf("touchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))

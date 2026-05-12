@@ -28,6 +28,9 @@ import (
 // swagger:model IndexUpdateFilterable
 type IndexUpdateFilterable struct {
 
+	// When true, cancels the in-flight reindex task targeting this property's filterable index.
+	Cancel bool `json:"cancel,omitempty"`
+
 	// enabled
 	Enabled bool `json:"enabled,omitempty"`
 

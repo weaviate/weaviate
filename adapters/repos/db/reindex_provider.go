@@ -312,7 +312,11 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection),
 		}, nil
 
-	case ReindexTypeEnableRangeable:
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		// Repair-rangeable uses the same strategy as enable-rangeable —
+		// rangeable is rebuilt from the existing filterable bucket either
+		// way. The validator at submit time gates which one is allowed
+		// based on the property's current IndexRangeFilters state.
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
 		}, nil

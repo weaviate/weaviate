@@ -28,8 +28,14 @@ import (
 // swagger:model IndexUpdateRangeable
 type IndexUpdateRangeable struct {
 
+	// When true, cancels the in-flight reindex task targeting this property's rangeable index.
+	Cancel bool `json:"cancel,omitempty"`
+
 	// enabled
 	Enabled bool `json:"enabled,omitempty"`
+
+	// When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).
+	Rebuild bool `json:"rebuild,omitempty"`
 }
 
 // Validate validates this index update rangeable

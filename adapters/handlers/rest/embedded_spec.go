@@ -7907,6 +7907,10 @@ func init() {
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "type": "boolean"
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -7918,7 +7922,15 @@ func init() {
     "IndexUpdateRangeable": {
       "type": "object",
       "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "type": "boolean"
+        },
         "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
           "type": "boolean"
         }
       }
@@ -7951,6 +7963,10 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "type": "boolean"
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -18439,6 +18455,10 @@ func init() {
     "IndexUpdateFilterable": {
       "type": "object",
       "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "type": "boolean"
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -18450,7 +18470,15 @@ func init() {
     "IndexUpdateRangeable": {
       "type": "object",
       "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "type": "boolean"
+        },
         "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
           "type": "boolean"
         }
       }
@@ -18483,6 +18511,10 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "type": "boolean"
+        },
         "enabled": {
           "type": "boolean"
         },

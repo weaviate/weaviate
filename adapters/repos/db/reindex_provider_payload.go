@@ -27,6 +27,11 @@ const (
 	// ReindexTypeEnableRangeable adds RoaringSetRange indexes for numeric properties.
 	ReindexTypeEnableRangeable ReindexMigrationType = "enable-rangeable"
 
+	// ReindexTypeRepairRangeable rebuilds an existing RoaringSetRange index from
+	// the current filterable bucket (same source-of-truth as enable-rangeable).
+	// Use when a rangeable bucket is suspected corrupted or out of sync.
+	ReindexTypeRepairRangeable ReindexMigrationType = "repair-rangeable"
+
 	// ReindexTypeEnableFilterable creates a RoaringSet filterable index on a
 	// property that currently has none. Flips IndexFilterable=true on completion.
 	ReindexTypeEnableFilterable ReindexMigrationType = "enable-filterable"
