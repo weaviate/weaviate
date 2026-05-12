@@ -136,12 +136,10 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 	require.InDelta(t, 0.4, idx.Progress, 0.0001)
 }
 
-// Edge case 3: FAILED task. mergeReindexStatus only considers STARTED
-// tasks, so a FAILED enable-filterable task produces no synthetic entry.
-// In getIndexes, the filterable=false branch then drops the entry — so the
-// user has no way to learn from this endpoint that a previous attempt
-// failed. Demonstrates a silent-failure UX problem.
-func TestMergeReindexStatus_FailedTask_NoSyntheticEntry(t *testing.T) {
+// Edge case 3: FAILED task. mergeReindexStatus surfaces a "failed"
+// synthetic entry so the user can see from the /indexes endpoint that a
+// previous attempt failed (and inspect /distributed-tasks for the error).
+func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusFailed,
 		db.ReindexTaskPayload{
@@ -157,20 +155,15 @@ func TestMergeReindexStatus_FailedTask_NoSyntheticEntry(t *testing.T) {
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
-	// Status is unchanged (still "ready"). Combined with the
-	// IndexFilterable=false branch in getIndexes that drops "ready"
-	// synthetic entries, this means the user never sees that an attempt
-	// failed.
-	require.Equal(t, "ready", idx.Status,
-		"FAILED task produces no synthetic state; user can't tell from this endpoint that a build failed")
-	require.Equal(t, float32(0), idx.Progress)
+	require.Equal(t, "failed", idx.Status,
+		"FAILED task must surface as the 'failed' synthetic status; "+
+			"this is how the user learns a previous build attempt failed")
 }
 
-// Edge case 4: CANCELLED task. Same situation as FAILED — only STARTED is
-// considered. A user who cancelled enable-filterable mid-flight cannot
-// distinguish "never asked for it" from "asked for it and cancelled" via
-// this endpoint.
-func TestMergeReindexStatus_CancelledTask_NoSyntheticEntry(t *testing.T) {
+// Edge case 4: CANCELLED task. Same situation as FAILED — the synthetic
+// entry surfaces a "cancelled" status so the caller can tell the build
+// was explicitly stopped (vs. never requested).
+func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusCancelled,
 		db.ReindexTaskPayload{
@@ -186,8 +179,10 @@ func TestMergeReindexStatus_CancelledTask_NoSyntheticEntry(t *testing.T) {
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
-	require.Equal(t, "ready", idx.Status,
-		"CANCELLED task produces no synthetic state; user can't tell the build was cancelled")
+	require.Equal(t, "cancelled", idx.Status,
+		"CANCELLED task must surface as the 'cancelled' synthetic status")
+	require.InDelta(t, 0.5, idx.Progress, 0.0001,
+		"progress recorded before cancellation is preserved")
 }
 
 // Edge case 5: Task moved to FINISHED but the schema flag flip

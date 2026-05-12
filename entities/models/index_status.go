@@ -35,7 +35,7 @@ type IndexStatus struct {
 	Progress float32 `json:"progress,omitempty"`
 
 	// status
-	// Enum: [ready indexing pending]
+	// Enum: [ready indexing pending failed cancelled]
 	Status string `json:"status,omitempty"`
 
 	// target tokenization
@@ -71,7 +71,7 @@ var indexStatusTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ready","indexing","pending"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ready","indexing","pending","failed","cancelled"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -89,6 +89,12 @@ const (
 
 	// IndexStatusStatusPending captures enum value "pending"
 	IndexStatusStatusPending string = "pending"
+
+	// IndexStatusStatusFailed captures enum value "failed"
+	IndexStatusStatusFailed string = "failed"
+
+	// IndexStatusStatusCancelled captures enum value "cancelled"
+	IndexStatusStatusCancelled string = "cancelled"
 )
 
 // prop value enum

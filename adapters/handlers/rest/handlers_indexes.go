@@ -71,9 +71,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		var indexes []*models.IndexStatus
 
 		// Filterable index. If the schema flag is on we always emit the
-		// entry; if it's off we emit a synthetic "indexing"/"pending" entry
-		// when an enable-filterable task is actively building it, so the
-		// frontend can surface progress for the new index.
+		// entry; if it's off we emit a synthetic entry when a reindex
+		// task carries actionable signal for the user (in-progress,
+		// pending, failed, or cancelled).
 		if prop.IndexFilterable == nil || *prop.IndexFilterable {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			idx.Tokenization = prop.Tokenization
@@ -82,13 +82,13 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		} else {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks, h.appState.Logger)
-			if idx.Status == "indexing" || idx.Status == "pending" {
+			if isSyntheticStatus(idx.Status) {
 				indexes = append(indexes, idx)
 			}
 		}
 
 		// Searchable index. Same pattern as filterable: show a synthetic
-		// entry while enable-searchable is building the index.
+		// entry while enable-searchable is in flight or has failed/cancelled.
 		if prop.IndexSearchable == nil || *prop.IndexSearchable {
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
 			idx.Tokenization = prop.Tokenization
@@ -97,7 +97,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		} else {
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
 			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks, h.appState.Logger)
-			if idx.Status == "indexing" || idx.Status == "pending" {
+			if isSyntheticStatus(idx.Status) {
 				indexes = append(indexes, idx)
 			}
 		}
@@ -111,10 +111,11 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks, h.appState.Logger)
 				indexes = append(indexes, idx)
 			} else {
-				// Check if there's an active enable-rangeable task for this property.
+				// Check if there's an active or recently-terminated
+				// enable-rangeable task for this property.
 				idx := &models.IndexStatus{Type: "rangeable", Status: "ready"}
 				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks, h.appState.Logger)
-				if idx.Status == "indexing" || idx.Status == "pending" {
+				if isSyntheticStatus(idx.Status) {
 					indexes = append(indexes, idx)
 				}
 				// If not active and not enabled, don't show it.
@@ -344,8 +345,20 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	})
 }
 
-// mergeReindexStatus checks if there's an active reindex task that targets
-// the given property+indexType and updates the IndexStatus accordingly.
+// mergeReindexStatus checks if there's an active or recently-terminated
+// reindex task that targets the given property+indexType and updates the
+// IndexStatus accordingly.
+//
+// Status values produced (in addition to the caller-supplied default
+// "ready"):
+//
+//   - "pending":    STARTED task, no unit progress yet.
+//   - "indexing":   STARTED task, some unit progress.
+//   - "failed":     latest matching task ended in FAILED.
+//   - "cancelled":  latest matching task ended in CANCELLED.
+//
+// FINISHED tasks are skipped — once a reindex finishes, the schema flag
+// flips and the regular "ready" entry takes over.
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
@@ -369,7 +382,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	}
 	tasks := allTasks[db.ReindexNamespace]
 	for _, task := range tasks {
-		if task.Status != distributedtask.TaskStatusStarted {
+		// Skip FINISHED tasks — handled by the schema-flag-on path.
+		// STARTED / FAILED / CANCELLED each carry user-visible signal.
+		if task.Status == distributedtask.TaskStatusFinished {
 			continue
 		}
 
@@ -429,26 +444,46 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		// Compute aggregate progress across all units.
-		var totalProgress float32
-		var unitCount int
-		for _, unit := range task.Units {
-			unitCount++
-			totalProgress += unit.Progress
+		// Terminal failure modes carry user-visible signal even though
+		// no progress is being made. STARTED falls through to the
+		// indexing/pending logic below; FINISHED was already skipped at
+		// the top of the loop.
+		switch task.Status {
+		case distributedtask.TaskStatusFailed:
+			idx.Status = "failed"
+			idx.Progress = aggregateProgress(task)
+			return
+		case distributedtask.TaskStatusCancelled:
+			idx.Status = "cancelled"
+			idx.Progress = aggregateProgress(task)
+			return
+		case distributedtask.TaskStatusStarted, distributedtask.TaskStatusFinished:
+			// handled outside this switch
 		}
-		if unitCount > 0 {
-			progress := totalProgress / float32(unitCount)
-			idx.Progress = float32(progress)
-			if progress > 0 {
-				idx.Status = "indexing"
-			} else {
-				idx.Status = "pending"
-			}
+
+		// STARTED: report indexing / pending.
+		progress := aggregateProgress(task)
+		idx.Progress = progress
+		if progress > 0 {
+			idx.Status = "indexing"
 		} else {
 			idx.Status = "pending"
 		}
 		return
 	}
+}
+
+// aggregateProgress averages Unit.Progress across all units in the task.
+// Returns 0 when there are no units.
+func aggregateProgress(task *distributedtask.Task) float32 {
+	if len(task.Units) == 0 {
+		return 0
+	}
+	var total float32
+	for _, u := range task.Units {
+		total += u.Progress
+	}
+	return total / float32(len(task.Units))
 }
 
 func dataTypeString(prop *models.Property) string {
@@ -464,6 +499,22 @@ func shortRandomSuffix() string {
 		return "0000"
 	}
 	return hex.EncodeToString(b)
+}
+
+// isSyntheticStatus reports whether the IndexStatus.Status value was
+// emitted by mergeReindexStatus (i.e. driven by a reindex task) and so
+// should be surfaced even when the property's schema flag for that index
+// type is off. The default "ready" remains invisible when the flag is
+// off, since it carries no actionable signal.
+func isSyntheticStatus(s string) bool {
+	switch s {
+	case models.IndexStatusStatusIndexing,
+		models.IndexStatusStatusPending,
+		models.IndexStatusStatusFailed,
+		models.IndexStatusStatusCancelled:
+		return true
+	}
+	return false
 }
 
 func containsStr(ss []string, s string) bool {
