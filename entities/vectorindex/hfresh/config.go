@@ -37,7 +37,7 @@ const (
 	// This controls how many HNSW posting representatives (medoids) are rescored
 	// with full-precision vectors during the centroid search phase.
 	// Configurable via postingRescoreLimit.
-	DefaultPostingRescoreLimit = 100
+	DefaultPostingRescoreLimit = 15
 )
 
 // UserConfig defines the configuration options for the HFresh index.
