@@ -21,6 +21,14 @@ type Classification struct {
 	Scope            []string        `json:"scope"`
 }
 
+type Highlight struct {
+	Fields            []string `json:"fields,omitempty"`
+	NumberOfFragments int      `json:"numberOfFragments,omitempty"`
+	FragmentSize      int      `json:"fragmentSize,omitempty"`
+	PreTag            string   `json:"preTag,omitempty"`
+	PostTag           string   `json:"postTag,omitempty"`
+}
+
 type Properties struct {
 	Classification bool     `json:"classification"`
 	RefMeta        bool     `json:"refMeta"`
@@ -43,6 +51,7 @@ type Properties struct {
 	Group                   bool                   `json:"group"`
 	// QueryProfile enables per-shard query profiling data collection and return.
 	QueryProfile bool `json:"queryProfile"`
+	Highlight    *Highlight
 
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.

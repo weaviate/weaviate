@@ -14,7 +14,10 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -503,6 +506,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		if params.AdditionalProperties.ExplainScore {
 			additionalProperties["explainScore"] = res.ExplainScore
 		}
+		if params.AdditionalProperties.Highlight != nil {
+			highlight := buildHighlightResult(res.Schema, params)
+			if len(highlight) > 0 {
+				additionalProperties["highlight"] = highlight
+			}
+		}
 
 		if params.AdditionalProperties.Vector {
 			additionalProperties["vector"] = res.Vector
@@ -541,6 +550,145 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 	}
 
 	return output, nil
+}
+
+func buildHighlightResult(schemaObj interface{}, params dto.GetParams) []map[string]interface{} {
+	schemaMap, ok := schemaObj.(map[string]interface{})
+	if !ok || params.AdditionalProperties.Highlight == nil {
+		return nil
+	}
+	cfg := params.AdditionalProperties.Highlight
+	query := ""
+	switch {
+	case params.KeywordRanking != nil:
+		query = params.KeywordRanking.Query
+	case params.HybridSearch != nil:
+		query = params.HybridSearch.Query
+	}
+	terms := tokenizeHighlightTerms(query)
+	if len(terms) == 0 {
+		return nil
+	}
+
+	fields := cfg.Fields
+	if len(fields) == 0 {
+		fields = make([]string, 0, len(params.Properties))
+		for _, p := range params.Properties {
+			if p.IsPrimitive {
+				fields = append(fields, p.Name)
+			}
+		}
+	}
+
+	out := make([]map[string]interface{}, 0, len(fields))
+	for _, field := range fields {
+		raw, ok := schemaMap[field]
+		if !ok {
+			continue
+		}
+		text, ok := raw.(string)
+		if !ok || text == "" {
+			continue
+		}
+		fragments := extractHighlightedFragments(text, terms, cfg)
+		if len(fragments) == 0 {
+			continue
+		}
+		out = append(out, map[string]interface{}{
+			"property":  field,
+			"fragments": fragments,
+		})
+	}
+	return out
+}
+
+func tokenizeHighlightTerms(query string) []string {
+	normalized := strings.ToLower(query)
+	normalized = strings.NewReplacer(",", " ", ".", " ", ";", " ", ":", " ", "(", " ", ")", " ", "\"", " ", "'", " ").Replace(normalized)
+	parts := strings.Fields(normalized)
+	terms := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, p := range parts {
+		if len(p) < 2 {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		terms = append(terms, p)
+	}
+	return terms
+}
+
+func extractHighlightedFragments(text string, terms []string, cfg *additional.Highlight) []string {
+	if cfg == nil || len(terms) == 0 || text == "" {
+		return nil
+	}
+	maxFragments := cfg.NumberOfFragments
+	if maxFragments <= 0 {
+		maxFragments = 1
+	}
+	fragmentSize := cfg.FragmentSize
+	if fragmentSize <= 0 {
+		fragmentSize = 150
+	}
+	preTag := cfg.PreTag
+	if preTag == "" {
+		preTag = "<em>"
+	}
+	postTag := cfg.PostTag
+	if postTag == "" {
+		postTag = "</em>"
+	}
+
+	lowerText := strings.ToLower(text)
+	type pos struct {
+		start int
+		end   int
+	}
+	positions := make([]pos, 0, len(terms))
+	for _, term := range terms {
+		idx := strings.Index(lowerText, term)
+		if idx >= 0 {
+			positions = append(positions, pos{start: idx, end: idx + len(term)})
+		}
+	}
+	if len(positions) == 0 {
+		return nil
+	}
+	sort.Slice(positions, func(i, j int) bool { return positions[i].start < positions[j].start })
+
+	fragments := make([]string, 0, maxFragments)
+	for _, p := range positions {
+		if len(fragments) >= maxFragments {
+			break
+		}
+		start := p.start - fragmentSize/2
+		if start < 0 {
+			start = 0
+		}
+		end := start + fragmentSize
+		if end > len(text) {
+			end = len(text)
+		}
+		frag := text[start:end]
+		for _, term := range terms {
+			re := regexp.MustCompile("(?i)" + regexp.QuoteMeta(term))
+			frag = re.ReplaceAllStringFunc(frag, func(m string) string {
+				return preTag + m + postTag
+			})
+		}
+		if start > 0 {
+			frag = "..." + frag
+		}
+		if end < len(text) {
+			frag = frag + "..."
+		}
+		fragments = append(fragments, frag)
+	}
+
+	return fragments
 }
 
 func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(

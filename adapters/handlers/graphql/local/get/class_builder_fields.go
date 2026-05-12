@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -590,7 +591,7 @@ func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
-			name == "group" || name == "queryProfile" {
+			name == "group" || name == "queryProfile" || name == "highlight" {
 			return true
 		}
 		if ac.isModuleAdditional(name) {
@@ -701,6 +702,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							additionalProps.QueryProfile = true
 							continue
 						}
+						if additionalProperty == "highlight" {
+							additionalProps.Highlight = extractHighlightArgs(s.Arguments)
+							continue
+						}
 						if additionalProperty == "lastUpdateTimeUnix" {
 							additionalProps.LastUpdateTimeUnix = true
 							continue
@@ -767,6 +772,52 @@ func extractProperties(className string, selections *ast.SelectionSet,
 	}
 
 	return properties, additionalProps, additionalGroupHitProperties, nil
+}
+
+func extractHighlightArgs(args []*ast.Argument) *additional.Highlight {
+	highlight := &additional.Highlight{
+		NumberOfFragments: 1,
+		FragmentSize:      150,
+		PreTag:            "<em>",
+		PostTag:           "</em>",
+	}
+
+	for _, arg := range args {
+		switch arg.Name.Value {
+		case "fields":
+			if lv, ok := arg.Value.(*ast.ListValue); ok {
+				fields := make([]string, 0, len(lv.Values))
+				for _, v := range lv.Values {
+					if sv, ok := v.(*ast.StringValue); ok {
+						fields = append(fields, sv.Value)
+					}
+				}
+				highlight.Fields = fields
+			}
+		case "numberOfFragments":
+			if iv, ok := arg.Value.(*ast.IntValue); ok {
+				if n, err := strconv.Atoi(iv.Value); err == nil && n > 0 {
+					highlight.NumberOfFragments = n
+				}
+			}
+		case "fragmentSize":
+			if iv, ok := arg.Value.(*ast.IntValue); ok {
+				if n, err := strconv.Atoi(iv.Value); err == nil && n > 0 {
+					highlight.FragmentSize = n
+				}
+			}
+		case "preTag":
+			if sv, ok := arg.Value.(*ast.StringValue); ok && sv.Value != "" {
+				highlight.PreTag = sv.Value
+			}
+		case "postTag":
+			if sv, ok := arg.Value.(*ast.StringValue); ok && sv.Value != "" {
+				highlight.PostTag = sv.Value
+			}
+		}
+	}
+
+	return highlight
 }
 
 func extractGroupHitProperties(

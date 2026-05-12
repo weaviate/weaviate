@@ -13,6 +13,7 @@ package traverser
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -2905,4 +2906,46 @@ func getFakeModulesProviderWithCustomExtenders(
 
 func getFakeModulesProvider() ModulesProvider {
 	return &fakeModulesProvider{}
+}
+
+func TestExtractHighlightedFragments(t *testing.T) {
+	cfg := &additional.Highlight{
+		NumberOfFragments: 2,
+		FragmentSize:      60,
+		PreTag:            "<b>",
+		PostTag:           "</b>",
+	}
+	text := "Weaviate supports keyword highlighting for search workflows and highlighting helps review relevance."
+	fragments := extractHighlightedFragments(text, []string{"highlighting"}, cfg)
+
+	require.NotEmpty(t, fragments)
+	assert.True(t, strings.Contains(strings.ToLower(fragments[0]), "<b>highlighting</b>"))
+}
+
+func TestBuildHighlightResult(t *testing.T) {
+	params := dto.GetParams{
+		Properties: []search.SelectProperty{
+			{Name: "title", IsPrimitive: true},
+		},
+		KeywordRanking: &searchparams.KeywordRanking{Query: "fusion"},
+		AdditionalProperties: additional.Properties{
+			Highlight: &additional.Highlight{
+				NumberOfFragments: 1,
+				FragmentSize:      80,
+				PreTag:            "<em>",
+				PostTag:           "</em>",
+			},
+		},
+	}
+
+	result := buildHighlightResult(map[string]interface{}{
+		"title": "Hybrid fusion in weaviate combines sparse and dense retrieval",
+	}, params)
+
+	require.Len(t, result, 1)
+	assert.Equal(t, "title", result[0]["property"])
+	frags, ok := result[0]["fragments"].([]string)
+	require.True(t, ok)
+	require.NotEmpty(t, frags)
+	assert.Contains(t, strings.ToLower(frags[0]), "<em>fusion</em>")
 }

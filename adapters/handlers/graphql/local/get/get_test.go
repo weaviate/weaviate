@@ -512,6 +512,46 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		{
+			name:  "with _additional highlight and args",
+			query: `{ Get { SomeAction { _additional { highlight(fields: ["title", "description"], numberOfFragments: 2, fragmentSize: 80, preTag: "<b>", postTag: "</b>") { property fragments } } } } }`,
+			expectedParams: dto.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					Highlight: &additional.Highlight{
+						Fields:            []string{"title", "description"},
+						NumberOfFragments: 2,
+						FragmentSize:      80,
+						PreTag:            "<b>",
+						PostTag:           "</b>",
+					},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"highlight": []map[string]interface{}{
+							{
+								"property":  "title",
+								"fragments": []string{"...sample <b>query</b> fragment..."},
+							},
+						},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"highlight": []interface{}{
+						map[string]interface{}{
+							"property": "title",
+							"fragments": []interface{}{
+								"...sample <b>query</b> fragment...",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:  "with _additional interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: dto.GetParams{
