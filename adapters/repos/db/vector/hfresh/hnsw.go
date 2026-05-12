@@ -59,27 +59,14 @@ func (m *MedoidVectorProvider) GetVector(ctx context.Context, postingID uint64) 
 }
 
 type HNSWIndex struct {
-	metrics        *Metrics
-	hnsw           *hnsw.HNSW
-	counter        atomic.Int32
-	quantizer      *compressionhelpers.BinaryRotationalQuantizer
-	vectorProvider *MedoidVectorProvider
-	version        uint8 // Index version for version-aware behavior
+	metrics             *Metrics
+	hnsw                *hnsw.HNSW
+	counter             atomic.Int32
+	quantizer           *compressionhelpers.BinaryRotationalQuantizer
+	vectorProvider      *MedoidVectorProvider
+	version             uint8 // Index version for version-aware behavior
+	postingRescoreLimit int   // Configured posting rescore limit
 }
-
-// DefaultPostingRescoreLimit is the HNSW posting-level representative rescore limit for V2+ indexes.
-// This is distinct from the final vector rescore limit (DefaultHFreshRescoreLimit = 350).
-//
-// The posting rescore limit controls how many HNSW posting representatives (medoids) are rescored
-// with full-precision vectors during the centroid search phase. Since each posting can contain
-// ~100 vectors (for 1536-dimensional data), rescoring too many postings is expensive.
-//
-// The final vector rescore limit (rq.rescoreLimit in user config) controls how many actual
-// vectors are rescored at the final stage after all posting candidates have been collected.
-//
-// V1 indexes use 0 (no posting rescoring) because they don't have medoid mappings.
-// V2+ indexes use 100 by default to balance recall and performance.
-const DefaultPostingRescoreLimit = 100
 
 // rqBitsForVersion returns the RQ bit depth based on index version.
 // V1: RQ8 (8-bit) - traditional compression, no medoid rescoring
@@ -91,26 +78,27 @@ func rqBitsForVersion(version uint8) int16 {
 	return 8 // RQ8 for V1
 }
 
-// rqRescoreLimitForVersion returns the HNSW posting-level RQ rescore limit based on index version.
+// postingRescoreLimitForVersion returns the HNSW posting-level RQ rescore limit based on index version.
 // V1: 0 (no posting rescoring - V1 has no medoid mappings)
-// V2+: DefaultPostingRescoreLimit (100) (rescoring enabled with medoid vectors)
+// V2+: uses the configured postingRescoreLimit (rescoring enabled with medoid vectors)
 //
-// Note: This is separate from the final vector rescore limit (DefaultHFreshRescoreLimit = 350)
+// Note: This is separate from the final vector rescore limit (rq.rescoreLimit)
 // which controls how many vectors are rescored at the final stage after posting search.
-func rqRescoreLimitForVersion(version uint8) int {
+func postingRescoreLimitForVersion(version uint8, configuredLimit int) int {
 	if version >= HFreshIndexVersion2 {
-		return DefaultPostingRescoreLimit
+		return configuredLimit
 	}
 	return 0 // V1: no HNSW posting rescoring
 }
 
-func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uint8, pages, pageSize uint64) (*HNSWIndex, error) {
+func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uint8, postingRescoreLimit int, pages, pageSize uint64) (*HNSWIndex, error) {
 	vectorProvider := &MedoidVectorProvider{}
 
 	index := HNSWIndex{
-		metrics:        metrics,
-		vectorProvider: vectorProvider,
-		version:        version,
+		metrics:             metrics,
+		vectorProvider:      vectorProvider,
+		version:             version,
+		postingRescoreLimit: postingRescoreLimitForVersion(version, postingRescoreLimit),
 	}
 
 	// Configure vector provider thunks based on version.
@@ -141,7 +129,7 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uin
 	userConfig.EFConstruction = 64
 	userConfig.RQ.Enabled = true
 	userConfig.RQ.Bits = rqBitsForVersion(version)
-	userConfig.RQ.RescoreLimit = rqRescoreLimitForVersion(version)
+	userConfig.RQ.RescoreLimit = postingRescoreLimitForVersion(version, postingRescoreLimit)
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
 	cfg.Centroids.HNSWConfig.AcornFilterRatio = math.MaxFloat64
@@ -153,9 +141,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uin
 
 	// Force the posting rescore limit to override any stored config value.
 	// This is needed because existing indexes may have been created with a different
-	// default value, and changing DefaultPostingRescoreLimit won't affect them.
+	// default value, and the HNSW may have loaded its stored config.
 	if version >= HFreshIndexVersion2 {
-		h.SetRQRescoreLimit(DefaultPostingRescoreLimit)
+		h.SetRQRescoreLimit(postingRescoreLimit)
 	}
 
 	h.PostStartup(context.Background())
@@ -182,10 +170,10 @@ func (i *HNSWIndex) RQBits() int16 {
 }
 
 // RQRescoreLimit returns the HNSW posting-level RQ rescore limit used by this index.
-// V1: 0 (no posting rescoring), V2+: DefaultPostingRescoreLimit (100)
+// V1: 0 (no posting rescoring), V2+: configured postingRescoreLimit
 // This is the posting/HNSW representative rescore limit, not the final vector rescore limit.
 func (i *HNSWIndex) RQRescoreLimit() int {
-	return rqRescoreLimitForVersion(i.version)
+	return i.postingRescoreLimit
 }
 
 func (i *HNSWIndex) Get(id uint64) (*Centroid, error) {

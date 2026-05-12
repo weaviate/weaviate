@@ -163,7 +163,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		version:          indexVersion,
 	}
 
-	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, indexVersion, 1024*1024, 1024)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, indexVersion, uc.PostingRescoreLimit, 1024*1024, 1024)
 	if err != nil {
 		return nil, err
 	}

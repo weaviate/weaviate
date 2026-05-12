@@ -104,7 +104,7 @@ func TestIndexVersion_V2UsesRQ1AndRescore(t *testing.T) {
 	// CurrentVersion is V2, should use RQ1 with rescoring enabled
 	assert.Equal(t, uint8(HFreshIndexVersion2), index.Version())
 	assert.Equal(t, int16(1), index.Centroids.RQBits())
-	assert.Equal(t, DefaultPostingRescoreLimit, index.Centroids.RQRescoreLimit())
+	assert.Equal(t, ent.DefaultPostingRescoreLimit, index.Centroids.RQRescoreLimit())
 
 	vectors, _ := testinghelpers.RandomVecs(1, 0, 64)
 	err := index.Add(t.Context(), 0, vectors[0])
@@ -117,7 +117,7 @@ func TestIndexVersion_V2UsesRQ1AndRescore(t *testing.T) {
 	index2 := makeHFreshWithConfig(t, store, cfg, uc)
 	assert.Equal(t, uint8(HFreshIndexVersion2), index2.Version())
 	assert.Equal(t, int16(1), index2.Centroids.RQBits())
-	assert.Equal(t, DefaultPostingRescoreLimit, index2.Centroids.RQRescoreLimit())
+	assert.Equal(t, ent.DefaultPostingRescoreLimit, index2.Centroids.RQRescoreLimit())
 }
 
 func TestIndexVersion_UnsupportedFutureVersionFails(t *testing.T) {
@@ -270,7 +270,7 @@ func TestRQRescoreLimitForVersion(t *testing.T) {
 		{
 			name:     "V2 has HNSW rescoring enabled",
 			version:  HFreshIndexVersion2,
-			expected: DefaultPostingRescoreLimit,
+			expected: ent.DefaultPostingRescoreLimit,
 		},
 		{
 			name:     "V0 (hypothetical legacy) has no rescoring",
@@ -280,13 +280,13 @@ func TestRQRescoreLimitForVersion(t *testing.T) {
 		{
 			name:     "V3 (future) has rescoring enabled",
 			version:  3,
-			expected: DefaultPostingRescoreLimit,
+			expected: ent.DefaultPostingRescoreLimit,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			limit := rqRescoreLimitForVersion(tt.version)
+			limit := postingRescoreLimitForVersion(tt.version, ent.DefaultPostingRescoreLimit)
 			assert.Equal(t, tt.expected, limit)
 		})
 	}
@@ -297,15 +297,15 @@ func TestRQRescoreLimitForVersion(t *testing.T) {
 // - HNSW RQ rescore limit == 0
 func TestV1ConfigSelection(t *testing.T) {
 	assert.Equal(t, int16(8), rqBitsForVersion(HFreshIndexVersion1))
-	assert.Equal(t, 0, rqRescoreLimitForVersion(HFreshIndexVersion1))
+	assert.Equal(t, 0, postingRescoreLimitForVersion(HFreshIndexVersion1, ent.DefaultPostingRescoreLimit))
 }
 
 // TestV2ConfigSelection verifies V2 uses correct RQ config:
 // - RQ bits == 1
-// - HNSW posting rescore limit == 10 (DefaultPostingRescoreLimit)
+// - HNSW posting rescore limit == ent.DefaultPostingRescoreLimit (100)
 func TestV2ConfigSelection(t *testing.T) {
 	assert.Equal(t, int16(1), rqBitsForVersion(HFreshIndexVersion2))
-	assert.Equal(t, DefaultPostingRescoreLimit, rqRescoreLimitForVersion(HFreshIndexVersion2))
+	assert.Equal(t, ent.DefaultPostingRescoreLimit, postingRescoreLimitForVersion(HFreshIndexVersion2, ent.DefaultPostingRescoreLimit))
 }
 
 // TestV1BackwardCompatibility_NoMedoidRescoreError is a regression test for the V1
@@ -399,7 +399,7 @@ func TestVersionConstants(t *testing.T) {
 // rescore limit are properly decoupled.
 func TestDecoupledRescoreLimits(t *testing.T) {
 	t.Run("posting rescore limit is 100 for V2", func(t *testing.T) {
-		assert.Equal(t, 100, DefaultPostingRescoreLimit, "posting rescore limit should be 100")
+		assert.Equal(t, 100, ent.DefaultPostingRescoreLimit, "posting rescore limit should be 100")
 	})
 
 	t.Run("final vector rescore limit is 350", func(t *testing.T) {
@@ -407,7 +407,7 @@ func TestDecoupledRescoreLimits(t *testing.T) {
 	})
 
 	t.Run("limits are different", func(t *testing.T) {
-		assert.NotEqual(t, DefaultPostingRescoreLimit, ent.DefaultHFreshRescoreLimit,
+		assert.NotEqual(t, ent.DefaultPostingRescoreLimit, ent.DefaultHFreshRescoreLimit,
 			"posting and final vector rescore limits should be different")
 	})
 }
@@ -430,8 +430,8 @@ func TestCustomFinalRescoreLimitDoesNotChangePostingRescoreLimit(t *testing.T) {
 	// Final vector rescore limit should be the custom value
 	assert.Equal(t, uint32(500), index.rescoreLimit)
 
-	// HNSW posting rescore limit should still be DefaultPostingRescoreLimit (100)
-	assert.Equal(t, DefaultPostingRescoreLimit, index.Centroids.RQRescoreLimit(),
+	// HNSW posting rescore limit should still be ent.DefaultPostingRescoreLimit (100)
+	assert.Equal(t, ent.DefaultPostingRescoreLimit, index.Centroids.RQRescoreLimit(),
 		"custom final vector rescore limit should not change posting rescore limit")
 }
 
@@ -461,7 +461,7 @@ func TestPostingRescoreLimitValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			limit := rqRescoreLimitForVersion(tt.version)
+			limit := postingRescoreLimitForVersion(tt.version, ent.DefaultPostingRescoreLimit)
 			assert.Equal(t, tt.expected, limit)
 		})
 	}
@@ -486,4 +486,23 @@ func TestV2PostingRescoreLimitIs100(t *testing.T) {
 	// Ensure it's not the old value
 	assert.NotEqual(t, 350, postingRescoreLimit,
 		"V2 posting rescore limit should NOT be 350 (the old value)")
+}
+
+// TestCustomPostingRescoreLimit verifies that users can configure a custom
+// posting rescore limit via the postingRescoreLimit config parameter.
+func TestCustomPostingRescoreLimit(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	// Set a custom posting rescore limit
+	uc.PostingRescoreLimit = 200
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	// Verify V2 is created by default
+	assert.Equal(t, uint8(HFreshIndexVersion2), index.Version())
+
+	// Posting rescore limit should be the custom value
+	assert.Equal(t, 200, index.Centroids.RQRescoreLimit(),
+		"posting rescore limit should be the custom configured value")
 }
