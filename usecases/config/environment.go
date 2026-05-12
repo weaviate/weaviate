@@ -990,6 +990,9 @@ func FromEnv(config *Config) error {
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
+	if config.Namespaces.Enabled {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
