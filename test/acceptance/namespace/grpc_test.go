@@ -13,7 +13,9 @@ package namespace
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -514,9 +516,10 @@ func TestNamespaces_GRPC(t *testing.T) {
 		var errs []*pb.BatchStreamReply_Results_Error
 		for {
 			msg, err := stream.Recv()
-			if err != nil {
+			if errors.Is(err, io.EOF) {
 				break
 			}
+			require.NoError(t, err)
 			if r := msg.GetResults(); r != nil {
 				successes += len(r.GetSuccesses())
 				errs = append(errs, r.GetErrors()...)
