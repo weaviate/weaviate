@@ -581,6 +581,18 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 				"in-flight reindex task %q has an unparseable payload; cannot verify conflict; "+
 					"retry after operator inspects the task: %w", task.ID, err)
 		}
+		// Successfully parsed but informationally empty: a `{}` payload, or
+		// one missing Collection / MigrationType. This is the same epistemic
+		// state as unparseable — we cannot prove non-conflict — so we
+		// refuse for the same reason. Most realistic cause: an older binary
+		// wrote a payload shape we no longer recognize and the missing fields
+		// dropped to their zero values during Unmarshal.
+		if payload.Collection == "" || payload.MigrationType == "" {
+			return "", fmt.Errorf(
+				"in-flight reindex task %q has an empty Collection or MigrationType "+
+					"(payload may have been written by an older binary); cannot verify conflict; "+
+					"retry after operator inspects the task", task.ID)
+		}
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}

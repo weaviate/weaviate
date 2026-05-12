@@ -290,6 +290,36 @@ func TestCheckReindexConflict_MalformedPayloadDifferentCollectionAlsoRejected(t 
 	require.Error(t, err)
 }
 
+// A payload that parses to JSON successfully but has an empty
+// Collection or MigrationType is informationally indistinguishable from
+// an unparseable one: we don't know what bucket it would touch. Treat
+// it the same way (refuse with an error rather than silently skip).
+// Most realistic cause: payload-schema rename across versions where the
+// JSON tag changed.
+func TestCheckReindexConflict_EmptyJsonPayloadIsRejected(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"empty object", `{}`},
+		{"missing collection", `{"migrationType":"enable-filterable","properties":["foo"]}`},
+		{"missing migrationType", `{"collection":"C","properties":["foo"]}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			existing := &distributedtask.Task{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "empty-info"},
+				Status:         distributedtask.TaskStatusStarted,
+				Payload:        []byte(c.payload),
+			}
+			_, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+				[]string{"foo"}, []*distributedtask.Task{existing})
+			require.Error(t, err, "payload %q parses but is informationally empty; must be rejected", c.payload)
+			require.Contains(t, err.Error(), "empty Collection or MigrationType")
+		})
+	}
+}
+
 // -----------------------------------------------------------------------------
 // validateRangeableProperties — invalid request bodies.
 // -----------------------------------------------------------------------------
