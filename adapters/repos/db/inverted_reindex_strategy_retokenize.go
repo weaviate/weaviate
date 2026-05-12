@@ -103,11 +103,6 @@ func (s *SearchableRetokenizeStrategy) ShouldProcessProperty(property *inverted.
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
-	calcPropLen := calcPropLenMap
-	if s.bucketStrategy == lsmkv.StrategyInverted {
-		calcPropLen = calcPropLenInverted
-	}
-
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
@@ -129,7 +124,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 			items = property.Items
 		}
 
-		propLen := calcPropLen(items)
+		propLen := s.calcPropLen(items)
 		for _, item := range items {
 			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
