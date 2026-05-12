@@ -33,18 +33,22 @@ import (
 )
 
 const (
-	Name             = "text2vec-google"
-	LegacyName       = "text2vec-palm"
-	defaultBatchSize = 50
+	Name                      = "text2vec-google"
+	LegacyName                = "text2vec-palm"
+	defaultBatchSize          = 50
+	defaultMaxObjectsPerBatch = 50
+	defaultRPM                = 10000
 )
 
-var batchSettings = batch.Settings{
-	TokenMultiplier:    1.3,
-	MaxObjectsPerBatch: 150,
-	MaxTimePerBatch:    float64(10),
-	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 20000 },
-	HasTokenLimit:      true,
-	ReturnsRateLimit:   false,
+func newBatchSettings(maxObjectsPerBatch int) batch.Settings {
+	return batch.Settings{
+		TokenMultiplier:    1.3,
+		MaxObjectsPerBatch: maxObjectsPerBatch,
+		MaxTimePerBatch:    float64(10),
+		MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 20000 },
+		HasTokenLimit:      true,
+		ReturnsRateLimit:   false,
+	}
 }
 
 func New() *GoogleModule {
@@ -120,21 +124,16 @@ func (m *GoogleModule) initVectorizer(ctx context.Context, timeout time.Duration
 	}
 
 	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
-	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
+	rpm := m.envPositiveInt("T2V_GOOGLE_RPM", defaultRPM, logger)
+	client := clients.New(apiKey, useGoogleAuth, rpm, timeout, logger)
 
 	m.useBatchSimpleVectorizer = entcfg.Enabled(os.Getenv("USE_T2V_GOOGLE_BATCH_SIMPLE_LOGIC"))
 	m.vectorizerBatchSimple = batchtext.NewWithAltNames(Name, m.AltNames(), vectorizer.LowerCaseInput, client)
-	m.batchSize = defaultBatchSize
-	if batchSizeStr := os.Getenv("T2V_GOOGLE_BATCH_SIMPLE_BATCH_SIZE"); batchSizeStr != "" {
-		if batchSize, err := strconv.Atoi(batchSizeStr); err == nil && batchSize > 0 {
-			m.batchSize = batchSize
-		} else {
-			logger.Warnf("invalid (must be a positive number > 0) T2V_GOOGLE_BATCH_SIMPLE_BATCH_SIZE value: %s, using default: %v", batchSizeStr, m.batchSize)
-		}
-	}
+	m.batchSize = m.envPositiveInt("T2V_GOOGLE_BATCH_SIMPLE_BATCH_SIZE", defaultBatchSize, logger)
 
 	m.vectorizerWithTitleProperty = vectorizer.New(client)
 
+	batchSettings := newBatchSettings(m.envPositiveInt("T2V_GOOGLE_MAX_OBJECTS_PER_BATCH", defaultMaxObjectsPerBatch, logger))
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
 		batch.ReturnBatchTokenizerWithAltNames(batchSettings.TokenMultiplier, m.Name(), m.AltNames(), vectorizer.LowerCaseInput),
@@ -197,6 +196,19 @@ func (m *GoogleModule) VectorizeInput(ctx context.Context,
 
 func (m *GoogleModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
+}
+
+func (m *GoogleModule) envPositiveInt(name string, defaultValue int, logger logrus.FieldLogger) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		logger.Warnf("invalid (must be a positive number > 0) %s value: %s, using default: %v", name, value, defaultValue)
+		return defaultValue
+	}
+	return parsed
 }
 
 // verify we implement the modules.Module interface
