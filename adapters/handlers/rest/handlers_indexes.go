@@ -314,7 +314,15 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	if h.appState.ClusterService != nil {
 		tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
 		if err == nil {
-			if reason := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace]); reason != "" {
+			reason, checkErr := checkReindexConflict(collection, migrationType, properties, tasks[db.ReindexNamespace])
+			if checkErr != nil {
+				// An in-flight task has an unparseable payload — we cannot
+				// prove the new submit doesn't conflict with it, so refuse
+				// rather than race. Return 503 so the caller knows to retry
+				// after an operator inspects the in-flight task.
+				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(checkErr.Error()))
+			}
+			if reason != "" {
 				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(reason))
 			}
 		}
@@ -535,8 +543,10 @@ func errorResponse(msg string) *models.ErrorResponse {
 }
 
 // checkReindexConflict checks if a new reindex task would conflict with any
-// running tasks. Returns an empty string if no conflict, or a human-readable
-// reason if a conflict is detected.
+// running tasks. Returns (reason, nil) when no conflict, ("reason", nil)
+// when a conflict is detected, or ("", err) when a running task has a
+// payload we cannot decode — in which case we cannot prove non-conflict
+// and the caller must reject the submit.
 //
 // Two tasks conflict if they touch the same index bucket type for the same
 // property. Every migration type is property-scoped: the property the task
@@ -551,9 +561,15 @@ func errorResponse(msg string) *models.ErrorResponse {
 //   - enable-filterable:    filterable bucket (from scratch)
 //   - change-tokenization:  searchable + filterable buckets
 //   - enable-rangeable:     rangeable bucket — no cross-type conflicts
+//
+// Unparseable payloads (e.g. payload schema change across versions, RAFT
+// replay of a task from an older binary) are treated as a hard error
+// rather than silently skipped: silent-skip would let a real bucket-level
+// conflict slip through and allow a second task to race against the
+// in-flight one.
 func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
-) string {
+) (string, error) {
 	for _, task := range tasks {
 		if task.Status != distributedtask.TaskStatusStarted {
 			continue
@@ -561,17 +577,19 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 
 		var payload db.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
+			return "", fmt.Errorf(
+				"in-flight reindex task %q has an unparseable payload; cannot verify conflict; "+
+					"retry after operator inspects the task: %w", task.ID, err)
 		}
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}
 
 		if conflict := typesConflict(newType, newProps, payload.MigrationType, payload.Properties); conflict != "" {
-			return fmt.Sprintf("reindex task %q conflicts: %s", task.ID, conflict)
+			return fmt.Sprintf("reindex task %q conflicts: %s", task.ID, conflict), nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // typesConflict returns a non-empty reason string if two migration types on

@@ -167,8 +167,9 @@ func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
 		}),
 	}
 
-	reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.NoError(t, err)
 	require.NotEmpty(t, reason)
 	require.Contains(t, reason, "conflicts")
 	require.Contains(t, reason, existing.ID)
@@ -185,8 +186,9 @@ func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
 		}),
 	}
 
-	reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
 		[]string{"bar"}, []*distributedtask.Task{existing})
+	require.NoError(t, err)
 	require.Empty(t, reason, "different property must not conflict")
 }
 
@@ -209,8 +211,9 @@ func TestCheckReindexConflict_IgnoresTerminalTasks(t *testing.T) {
 					Properties:    []string{"foo"},
 				}),
 			}
-			reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
 				[]string{"foo"}, []*distributedtask.Task{existing})
+			require.NoError(t, err)
 			require.Empty(t, reason,
 				"%s task must not block new submission", status)
 		})
@@ -229,8 +232,9 @@ func TestCheckReindexConflict_DifferentCollections(t *testing.T) {
 		}),
 	}
 
-	reason := checkReindexConflict("B", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("B", db.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.NoError(t, err)
 	require.Empty(t, reason)
 }
 
@@ -246,21 +250,44 @@ func TestCheckReindexConflict_CollectionMatchIsCaseInsensitive(t *testing.T) {
 		}),
 	}
 
-	reason := checkReindexConflict("myclass", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("myclass", db.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.NoError(t, err)
 	require.NotEmpty(t, reason, "case-insensitive collection match expected")
 }
 
-func TestCheckReindexConflict_MalformedPayloadIsSkipped(t *testing.T) {
-	// A task with corrupt JSON should be silently ignored (defensive).
+// A task with corrupt JSON cannot be proven non-conflicting, so the
+// conflict check returns an error rather than silently skipping it.
+// Silently skipping would let a real bucket-level conflict slip through
+// — e.g. an in-flight repair-searchable from an older binary whose
+// payload format we no longer understand — and allow a second task to
+// race against the unparseable one.
+func TestCheckReindexConflict_MalformedPayloadIsRejected(t *testing.T) {
 	existing := &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "corrupt"},
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte(`{not valid json`),
 	}
-	reason := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.Empty(t, reason)
+	require.Error(t, err, "unparseable payload must surface as an error so the handler can refuse the submit")
+	require.Contains(t, err.Error(), "unparseable")
+	require.Contains(t, err.Error(), "corrupt", "error message must name the offending task ID")
+}
+
+// Variant: an unparseable in-flight task on a DIFFERENT collection still
+// blocks. We don't compare collections until after we've parsed, so we
+// cannot rule out a same-collection conflict. Better to refuse loudly.
+func TestCheckReindexConflict_MalformedPayloadDifferentCollectionAlsoRejected(t *testing.T) {
+	existing := &distributedtask.Task{
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "corrupt2"},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        []byte(`{still not valid`),
+	}
+	_, err := checkReindexConflict("OtherCollection", db.ReindexTypeEnableFilterable,
+		[]string{"foo"}, []*distributedtask.Task{existing})
+	require.Error(t, err)
 }
 
 // -----------------------------------------------------------------------------
