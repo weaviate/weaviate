@@ -482,6 +482,227 @@ func TestNamespaces_GRPC(t *testing.T) {
 		assert.Equal(t, "customer1:"+class, got.Class)
 		assert.Equal(t, "admin-qualified", got.Properties.(map[string]any)["title"])
 	})
+
+	// runBatchStream opens a BatchStream with key, sends one Data message
+	// containing objs, then Stop+CloseSend. Returns (successes, errors)
+	// aggregated from all Results frames so callers can assert what they
+	// expect (no errors for happy paths, per-object errors for short-name
+	// admin sends, etc).
+	runBatchStream := func(t *testing.T, key string, objs []*pb.BatchObject) (int, []*pb.BatchStreamReply_Results_Error) {
+		t.Helper()
+		stream, err := grpcClient.BatchStream(authCtx(key))
+		require.NoError(t, err)
+
+		require.NoError(t, stream.Send(&pb.BatchStreamRequest{
+			Message: &pb.BatchStreamRequest_Start_{Start: &pb.BatchStreamRequest_Start{}},
+		}))
+		started, err := stream.Recv()
+		require.NoError(t, err)
+		require.NotNil(t, started.GetStarted())
+
+		require.NoError(t, stream.Send(&pb.BatchStreamRequest{
+			Message: &pb.BatchStreamRequest_Data_{Data: &pb.BatchStreamRequest_Data{
+				Objects: &pb.BatchStreamRequest_Data_Objects{Values: objs},
+			}},
+		}))
+		require.NoError(t, stream.Send(&pb.BatchStreamRequest{
+			Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}},
+		}))
+		require.NoError(t, stream.CloseSend())
+
+		var successes int
+		var errs []*pb.BatchStreamReply_Results_Error
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			if r := msg.GetResults(); r != nil {
+				successes += len(r.GetSuccesses())
+				errs = append(errs, r.GetErrors()...)
+			}
+		}
+		return successes, errs
+	}
+
+	t.Run("BatchStream is namespace-scoped", func(t *testing.T) {
+		// Cover the streaming path end-to-end for namespaced principals.
+		// The stream receiver does a pre-flight schema lookup per incoming
+		// data message to decide whether to fan out for vectoriser-backed
+		// classes; with namespaces enabled that lookup must use the
+		// qualified class name, otherwise the hint silently misses (and a
+		// future change could surface the miss as a fatal stream error).
+		// Driving real traffic through the stream also locks in that the
+		// principal captured at Handle() is the one used per data message.
+		const streamClass = "MoviesGRPCStream"
+		setupClassInBothNamespaces(t, streamClass, user1Key, user2Key)
+
+		streamID1 := strfmt.UUID("99999999-1111-1111-1111-111111111111")
+		streamID2 := strfmt.UUID("99999999-2222-2222-2222-222222222222")
+
+		// user1 inserts under the short class name; the stream receiver must
+		// qualify to customer1:MoviesGRPCStream for the schema pre-flight,
+		// and the worker must qualify again for the actual write.
+		successes, errs := runBatchStream(t, user1Key, []*pb.BatchObject{
+			{Uuid: streamID1.String(), Collection: streamClass, Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
+					"title": structpb.NewStringValue("ns1-stream"),
+				}},
+			}},
+		})
+		require.Empty(t, errs)
+		assert.Equal(t, 1, successes)
+
+		// user2 reuses the same UUID under the same short class name. Without
+		// namespace fan-out this would collide; with it, the two rows land
+		// on separate shards.
+		successes, errs = runBatchStream(t, user2Key, []*pb.BatchObject{
+			{Uuid: streamID1.String(), Collection: streamClass, Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
+					"title": structpb.NewStringValue("ns2-stream"),
+				}},
+			}},
+			{Uuid: streamID2.String(), Collection: streamClass, Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
+					"title": structpb.NewStringValue("ns2-stream-2"),
+				}},
+			}},
+		})
+		require.Empty(t, errs)
+		assert.Equal(t, 2, successes)
+
+		// Verify the rows landed under their respective qualified class names.
+		got1, err := helper.GetObjectAuth(t, streamClass, streamID1, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "customer1:"+streamClass, got1.Class)
+		assert.Equal(t, "ns1-stream", got1.Properties.(map[string]any)["title"])
+
+		got2, err := helper.GetObjectAuth(t, streamClass, streamID1, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "customer2:"+streamClass, got2.Class)
+		assert.Equal(t, "ns2-stream", got2.Properties.(map[string]any)["title"])
+
+		// user2's second UUID exists in ns2 only.
+		_, err = helper.GetObjectAuth(t, streamClass, streamID2, user1Key)
+		require.Error(t, err)
+		got3, err := helper.GetObjectAuth(t, streamClass, streamID2, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "ns2-stream-2", got3.Properties.(map[string]any)["title"])
+	})
+
+	t.Run("BatchStream via namespace-local alias resolves per namespace", func(t *testing.T) {
+		// Each namespace registers the same short alias name for its own
+		// copy of the class. namespacing.Resolve in the receiver qualifies
+		// the alias with the principal's namespace before alias→target
+		// lookup, so user1's stream must land on customer1's class and
+		// user2's stream on customer2's.
+		const (
+			streamClass = "MoviesGRPCStreamAlias"
+			aliasName   = "StreamAlias"
+		)
+		setupClassInBothNamespaces(t, streamClass, user1Key, user2Key)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: streamClass}, user1Key)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: aliasName, Class: streamClass}, user2Key)
+		t.Cleanup(func() {
+			helper.DeleteAliasWithAuthz(t, "customer1:"+aliasName, helper.CreateAuth(adminKey))
+			helper.DeleteAliasWithAuthz(t, "customer2:"+aliasName, helper.CreateAuth(adminKey))
+		})
+
+		id1 := strfmt.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+		id2 := strfmt.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+
+		objFor := func(id strfmt.UUID, title string) *pb.BatchObject {
+			return &pb.BatchObject{
+				Uuid:       id.String(),
+				Collection: aliasName,
+				Properties: &pb.BatchObject_Properties{NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{"title": structpb.NewStringValue(title)},
+				}},
+			}
+		}
+
+		// retryOnAliasLag absorbs the brief leader→follower replication gap
+		// after CreateAliasAuth; once the first stream succeeds the alias is
+		// locally visible and the second stream is safe to run directly.
+		var successes int
+		var errs []*pb.BatchStreamReply_Results_Error
+		retryOnAliasLag(t, func() error {
+			successes, errs = runBatchStream(t, user1Key, []*pb.BatchObject{objFor(id1, "ns1-alias-stream")})
+			if len(errs) > 0 {
+				return fmt.Errorf("per-object errors: %v", errs[0].GetError())
+			}
+			return nil
+		})
+		assert.Equal(t, 1, successes)
+
+		successes, errs = runBatchStream(t, user2Key, []*pb.BatchObject{objFor(id2, "ns2-alias-stream")})
+		require.Empty(t, errs)
+		assert.Equal(t, 1, successes)
+
+		// The alias resolved to each namespace's own copy of the class.
+		got1, err := helper.GetObjectAuth(t, streamClass, id1, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, "customer1:"+streamClass, got1.Class)
+		assert.Equal(t, "ns1-alias-stream", got1.Properties.(map[string]any)["title"])
+
+		got2, err := helper.GetObjectAuth(t, streamClass, id2, user2Key)
+		require.NoError(t, err)
+		assert.Equal(t, "customer2:"+streamClass, got2.Class)
+		assert.Equal(t, "ns2-alias-stream", got2.Properties.(map[string]any)["title"])
+
+		// And cross-namespace lookups miss — user2 cannot see user1's row.
+		_, err = helper.GetObjectAuth(t, streamClass, id1, user2Key)
+		require.Error(t, err)
+	})
+
+	t.Run("BatchStream as global admin needs qualified class name", func(t *testing.T) {
+		// Admin has no namespace, so namespacing.Resolve is a no-op on the
+		// class portion. Short names don't exist on disk; qualified names
+		// flow through to the namespaced shard.
+		const streamClass = "MoviesGRPCStreamAdmin"
+		setupClassInNs1(t, streamClass, user1Key)
+
+		adminShortID := strfmt.UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
+		adminQualifiedID := strfmt.UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
+
+		mkObj := func(id strfmt.UUID, collection, title string) *pb.BatchObject {
+			return &pb.BatchObject{
+				Uuid:       id.String(),
+				Collection: collection,
+				Properties: &pb.BatchObject_Properties{NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{"title": structpb.NewStringValue(title)},
+				}},
+			}
+		}
+
+		// Short name: stream itself accepts and acks the message (the
+		// receiver's schema pre-flight is best-effort and does not fail
+		// closed on miss), but the worker errors per-object because the
+		// unqualified class does not exist.
+		successes, errs := runBatchStream(t, adminKey, []*pb.BatchObject{
+			mkObj(adminShortID, streamClass, "admin-short"),
+		})
+		assert.Zero(t, successes)
+		require.Len(t, errs, 1)
+		assert.Equal(t, adminShortID.String(), errs[0].GetUuid())
+
+		// Qualified name: write lands on customer1's shard and is visible
+		// via REST to admin and to user1.
+		successes, errs = runBatchStream(t, adminKey, []*pb.BatchObject{
+			mkObj(adminQualifiedID, "customer1:"+streamClass, "admin-qualified"),
+		})
+		require.Empty(t, errs)
+		assert.Equal(t, 1, successes)
+
+		got, err := helper.GetObjectAuth(t, "customer1:"+streamClass, adminQualifiedID, adminKey)
+		require.NoError(t, err)
+		assert.Equal(t, "customer1:"+streamClass, got.Class)
+		assert.Equal(t, "admin-qualified", got.Properties.(map[string]any)["title"])
+
+		// The short-name row was never persisted under any class.
+		_, err = helper.GetObjectAuth(t, streamClass, adminShortID, user1Key)
+		require.Error(t, err)
+	})
 }
 
 // TestNamespaces_GRPC_MultiShardAggregate spreads a namespaced class across
