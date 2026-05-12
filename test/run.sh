@@ -587,6 +587,8 @@ function run_acceptance_reindex_singlenode() {
   echo_green "acceptance — reindex-singlenode"
   run_aof_group "reindex-singlenode" \
     test/acceptance/reindex_singlenode \
+    test/acceptance/reindex_concurrent \
+    test/acceptance/reindex_mt \
     test/acceptance/distributed_tasks
 }
 
