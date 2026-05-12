@@ -341,6 +341,26 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 	}
 }
 
+// loadPayload returns the cached payload for a task descriptor, or
+// unmarshals it from task.Payload if the cache is empty. The cache is
+// populated by StartTask; it can be empty for OnGroupCompleted / etc.
+// after a node restart that happened between reindex finishing and the
+// group callback firing.
+func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskPayload, error) {
+	p.mu.Lock()
+	cached := p.payloads[task.TaskDescriptor]
+	p.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
+
+	var pl ReindexTaskPayload
+	if err := json.Unmarshal(task.Payload, &pl); err != nil {
+		return nil, fmt.Errorf("unmarshal payload: %w", err)
+	}
+	return &pl, nil
+}
+
 // failUnit records that the given unit has failed. The recorder call
 // goes through RAFT (RecordDistributedTaskUnitFailure → applyDistributedTaskCommand),
 // so transient errors are possible: leadership loss, network blip, RAFT
@@ -471,23 +491,13 @@ func isPermanentRecorderRejection(err error) bool {
 // (which preserve double-write callbacks). If the cache is empty (e.g. after
 // node restart), a fresh task is created as fallback.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) {
-	p.mu.Lock()
-	payload := p.payloads[task.TaskDescriptor]
-	p.mu.Unlock()
-
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs)
 
-	if payload == nil {
-		// Payload not cached — this can happen if the node was restarted after
-		// reindex completed but before the group callback fired. Deserialize
-		// from the task.
-		var pl ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &pl); err != nil {
-			logger.WithError(err).Error("reindex provider: OnGroupCompleted: failed to unmarshal payload")
-			return
-		}
-		payload = &pl
+	payload, err := p.loadPayload(task)
+	if err != nil {
+		logger.WithError(err).Error("reindex provider: OnGroupCompleted: failed to load payload")
+		return
 	}
 
 	if !isSemanticMigration(payload.MigrationType) {
