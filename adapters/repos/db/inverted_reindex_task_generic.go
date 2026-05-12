@@ -482,10 +482,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 				err = fmt.Errorf("starting backup buckets:%w", err)
 				return err
 			}
-			if err = t.registerDoubleWriteCallbacks(shard, props, t.backupBucketName, false); err != nil {
-				err = fmt.Errorf("registering backup callbacks:%w", err)
-				return err
-			}
+			t.registerDoubleWriteCallbacks(shard, props, t.backupBucketName, false)
 		}
 	} else {
 		isMerged := rt.IsMerged()
@@ -526,10 +523,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 			err = fmt.Errorf("starting ingest buckets:%w", err)
 			return err
 		}
-		if err = t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true); err != nil {
-			err = fmt.Errorf("registering ingest callbacks:%w", err)
-			return err
-		}
+		t.registerDoubleWriteCallbacks(shard, props, t.ingestBucketName, true)
 	}
 
 	return nil
@@ -1292,10 +1286,7 @@ func (t *ShardReindexTaskGeneric) loadBuckets(ctx context.Context,
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-	return nil
+	return eg.Wait()
 }
 
 func (t *ShardReindexTaskGeneric) unloadIngestBuckets(ctx context.Context,
@@ -1331,10 +1322,7 @@ func (t *ShardReindexTaskGeneric) unloadBuckets(ctx context.Context,
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
-		return err
-	}
-	return nil
+	return eg.Wait()
 }
 
 func (t *ShardReindexTaskGeneric) recoverReindexBucket(ctx context.Context,
@@ -1396,7 +1384,7 @@ func dirExists(path string) bool {
 
 func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, props []string,
 	bucketNamer func(string) string, forTargetStrategy bool,
-) error {
+) {
 	propsByName := map[string]struct{}{}
 	for i := range props {
 		propsByName[props[i]] = struct{}{}
@@ -1410,8 +1398,6 @@ func (t *ShardReindexTaskGeneric) registerDoubleWriteCallbacks(shard *Shard, pro
 	t.callbackDisableFuncsMu.Lock()
 	t.callbackDisableFuncs = append(t.callbackDisableFuncs, disableAdd, disableDelete)
 	t.callbackDisableFuncsMu.Unlock()
-
-	return nil
 }
 
 // disableCallbacks calls all stored callback disable functions collected
