@@ -103,6 +103,15 @@ func (s *SearchableRetokenizeStrategy) ShouldProcessProperty(property *inverted.
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
+	// The analyzer is stateless once constructed (it carries only className
+	// and a function pointer); hoist it out of the per-callback hot path so
+	// we don't allocate a fresh struct on every Add to a reindexed prop.
+	// Skip the allocation entirely when forTargetStrategy is false — the
+	// closure won't touch the analyzer in that branch.
+	var analyzer *inverted.Analyzer
+	if forTargetStrategy {
+		analyzer = inverted.NewAnalyzer(nil, s.className)
+	}
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
@@ -117,7 +126,6 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
 			// Re-tokenize with the target tokenization for the new index.
-			analyzer := inverted.NewAnalyzer(nil, s.className)
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
 		} else {
 			// Use existing items (old tokenization) for the old index.
@@ -140,6 +148,12 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {
+	// See the MakeAddCallback comment — same rationale: hoist the analyzer
+	// out of the per-callback hot path.
+	var analyzer *inverted.Analyzer
+	if forTargetStrategy {
+		analyzer = inverted.NewAnalyzer(nil, s.className)
+	}
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil
@@ -153,7 +167,6 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			analyzer := inverted.NewAnalyzer(nil, s.className)
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
 		} else {
 			items = property.Items

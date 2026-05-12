@@ -101,6 +101,12 @@ func (s *FilterableRetokenizeStrategy) ShouldProcessProperty(property *inverted.
 func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
+	// Hoist the analyzer out of the per-callback hot path; see the
+	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
+	var analyzer *inverted.Analyzer
+	if forTargetStrategy {
+		analyzer = inverted.NewAnalyzer(nil, s.className)
+	}
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
@@ -114,7 +120,6 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			analyzer := inverted.NewAnalyzer(nil, s.className)
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
 		} else {
 			items = property.Items
@@ -134,6 +139,12 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {
+	// Hoist the analyzer out of the per-callback hot path; see the
+	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
+	var analyzer *inverted.Analyzer
+	if forTargetStrategy {
+		analyzer = inverted.NewAnalyzer(nil, s.className)
+	}
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
@@ -147,7 +158,6 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			analyzer := inverted.NewAnalyzer(nil, s.className)
 			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
 		} else {
 			items = property.Items
