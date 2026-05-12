@@ -42,7 +42,7 @@ func TestDynUserConcurrency(t *testing.T) {
 	for i := 0; i < numUsers; i++ {
 		userName := fmt.Sprintf("user%v", i)
 		go func() {
-			err := dynUsers.CreateUser(t.Context(), userName, "something", userName, "", "", time.Now())
+			err := dynUsers.CreateUser(userName, "something", userName, "", "", time.Now())
 			require.NoError(t, err)
 			wg.Done()
 		}()
@@ -64,12 +64,12 @@ func TestConcurrentValidate(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId1, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now()))
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId2, hash2, identifier2, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now()))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestUpdateUser(t *testing.T) {
 	apiKey, hash, oldIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId, hash, oldIdentifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, oldIdentifier, "", "", time.Now()))
 
 	// login works
 	randomKeyOld, _, err := keys.DecodeApiKey(apiKey)
@@ -151,7 +151,7 @@ func TestUpdateUser(t *testing.T) {
 	// update key and check that original key does not work, but new one does
 	apiKeyNew, hashNew, newIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.RotateKey(t.Context(), userId, apiKeyNew[:3], hashNew, oldIdentifier, newIdentifier))
+	require.NoError(t, dynUsers.RotateKey(userId, apiKeyNew[:3], hashNew, oldIdentifier, newIdentifier))
 
 	randomKeyNew, _, err := keys.DecodeApiKey(apiKeyNew)
 	require.NoError(t, err)
@@ -184,13 +184,13 @@ func TestSnapShotAndRestore(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId1, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId1, hash, identifier, "", "", time.Now()))
 	login1, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
 	apiKey2, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId2, hash2, identifier2, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId2, hash2, identifier2, "", "", time.Now()))
 	login2, _, err := keys.DecodeApiKey(apiKey2)
 	require.NoError(t, err)
 
@@ -211,7 +211,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, principal2)
 
-	require.NoError(t, dynUsers.DeactivateUser(t.Context(), userId2, true))
+	require.NoError(t, dynUsers.DeactivateUser(userId2, true))
 
 	// create snapshot and restore to an empty new DBUser struct
 	snapShot, err := dynUsers.Snapshot()
@@ -240,7 +240,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	apiKey3, hash3, identifier3, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.RotateKey(t.Context(), userId2, apiKey3[:3], hash3, identifier2, identifier3))
+	require.NoError(t, dynUsers2.RotateKey(userId2, apiKey3[:3], hash3, identifier2, identifier3))
 
 	login3, _, err := keys.DecodeApiKey(apiKey3)
 	require.NoError(t, err)
@@ -256,19 +256,19 @@ func TestSuspendAfterDelete(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 	users, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
 	require.Contains(t, users, userId)
 	require.Len(t, users, 1)
 
-	require.NoError(t, dynUsers.DeleteUser(t.Context(), userId))
+	require.NoError(t, dynUsers.DeleteUser(userId))
 
-	require.Error(t, dynUsers.DeactivateUser(t.Context(), userId, false))
-	require.Error(t, dynUsers.ActivateUser(t.Context(), userId))
-	require.Error(t, dynUsers.RotateKey(t.Context(), userId, "", "", "", ""))
-	require.Error(t, dynUsers.ActivateUser(t.Context(), userId))
+	require.Error(t, dynUsers.DeactivateUser(userId, false))
+	require.Error(t, dynUsers.ActivateUser(userId))
+	require.Error(t, dynUsers.RotateKey(userId, "", "", "", ""))
+	require.Error(t, dynUsers.ActivateUser(userId))
 }
 
 func TestLastUsedTime(t *testing.T) {
@@ -281,7 +281,7 @@ func TestLastUsedTime(t *testing.T) {
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 	user, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
@@ -333,27 +333,27 @@ func TestImportingAndSuspendingStaticKeys(t *testing.T) {
 	createdAt := time.Now()
 	userId := "user"
 	importedApiKey := "importedApiKey"
-	require.NoError(t, dynUsers.CreateUserWithKey(t.Context(), userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
 
 	principal, err := dynUsers.ValidateImportedKey(importedApiKey)
 	require.NoError(t, err)
 	require.NotNil(t, principal)
 	require.Equal(t, userId, principal.Username)
 
-	require.NoError(t, dynUsers.DeactivateUser(t.Context(), userId, true))
+	require.NoError(t, dynUsers.DeactivateUser(userId, true))
 
 	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
 	require.Error(t, err)
 	require.Nil(t, principal)
 
-	require.NoError(t, dynUsers.ActivateUser(t.Context(), userId))
+	require.NoError(t, dynUsers.ActivateUser(userId))
 	principal, err = dynUsers.ValidateImportedKey(importedApiKey)
 	require.Error(t, err)
 	require.Nil(t, principal)
 
 	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.RotateKey(t.Context(), userId, apiKey[:3], hash, "imported_"+userId, identifier))
+	require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported_"+userId, identifier))
 
 	login, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestImportingStaticKeys(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		userId := "user" + strconv.Itoa(i)
 		importedApiKey := "importedApiKey" + strconv.Itoa(i)
-		require.NoError(t, dynUsers.CreateUserWithKey(t.Context(), userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+		require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
 
 		principal, err := dynUsers.ValidateImportedKey(importedApiKey)
 		require.NoError(t, err)
@@ -399,7 +399,7 @@ func TestImportingStaticKeys(t *testing.T) {
 
 		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.RotateKey(t.Context(), userId, apiKey[:3], hash, "imported_"+userId, identifier))
+		require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported_"+userId, identifier))
 
 		login, _, err := keys.DecodeApiKey(apiKey)
 		require.NoError(t, err)
@@ -428,7 +428,7 @@ func TestImportingStaticKeysWithTime(t *testing.T) {
 
 	importedApiKey := "importedApiKey"
 	userId := "user"
-	require.NoError(t, dynUsers.CreateUserWithKey(t.Context(), userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
 
 	users, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
@@ -446,7 +446,7 @@ func TestSnapshotRestoreEmpty(t *testing.T) {
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
 
-	require.NoError(t, dynUsers.CreateUser(t.Context(), userId, hash, identifier, "", "", time.Now()))
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
 	user, err := dynUsers.GetUsers(userId)
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)
@@ -484,7 +484,7 @@ func TestCreateUserStoresNamespace(t *testing.T) {
 			_, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
 
-			require.NoError(t, dynUsers.CreateUser(t.Context(), "u1", hash, identifier, "", tc.namespace, time.Now()))
+			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now()))
 
 			users, err := dynUsers.GetUsers("u1")
 			require.NoError(t, err)
@@ -510,7 +510,7 @@ func TestSnapshotRestoreMultipleNamespaces(t *testing.T) {
 	for _, s := range seeds {
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(t.Context(), s.userId, hash, identifier, "", s.namespace, time.Now()))
+		require.NoError(t, dynUsers.CreateUser(s.userId, hash, identifier, "", s.namespace, time.Now()))
 	}
 
 	snap, err := dynUsers.Snapshot()
@@ -544,7 +544,7 @@ func TestValidateAndExtractReturnsNamespace(t *testing.T) {
 
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
-			require.NoError(t, dynUsers.CreateUser(t.Context(), "u1", hash, identifier, "", tc.namespace, time.Now()))
+			require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", tc.namespace, time.Now()))
 
 			randomKey, _, err := keys.DecodeApiKey(apiKey)
 			require.NoError(t, err)
@@ -572,7 +572,7 @@ func TestUsersInNamespace(t *testing.T) {
 	for _, s := range seeds {
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(t.Context(), s.id, hash, identifier, "", s.namespace, time.Now()))
+		require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
 	}
 
 	require.ElementsMatch(t, []string{"u-alpha-1", "u-alpha-2"}, dynUsers.UsersInNamespace("alpha"))
@@ -597,7 +597,7 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 		for _, s := range seeds {
 			_, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
-			require.NoError(t, dynUsers.CreateUser(t.Context(), s.id, hash, identifier, "", s.namespace, time.Now()))
+			require.NoError(t, dynUsers.CreateUser(s.id, hash, identifier, "", s.namespace, time.Now()))
 		}
 
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
@@ -617,7 +617,7 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(t.Context(), "u1", hash, identifier, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
 
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
@@ -630,12 +630,12 @@ func TestDeleteUsersInNamespace(t *testing.T) {
 
 		_, hash, identifier, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(t.Context(), "u1", hash, identifier, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("u1", hash, identifier, "", "alpha", time.Now()))
 		require.NoError(t, dynUsers.DeleteUsersInNamespace("alpha"))
 
 		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
 		require.NoError(t, err)
-		require.NoError(t, dynUsers.CreateUser(t.Context(), "u1", hash2, identifier2, "", "alpha", time.Now()))
+		require.NoError(t, dynUsers.CreateUser("u1", hash2, identifier2, "", "alpha", time.Now()))
 
 		users, err := dynUsers.GetUsers("u1")
 		require.NoError(t, err)
@@ -673,7 +673,7 @@ func TestRestoreIncompleteData(t *testing.T) {
 	importedApiKey := "importedApiKey"
 	userId := "user"
 	createdAt := time.Now().Add(-time.Hour)
-	require.NoError(t, dynUsers2.CreateUserWithKey(t.Context(), userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+	require.NoError(t, dynUsers2.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
 	user, err := dynUsers2.GetUsers(userId)
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)

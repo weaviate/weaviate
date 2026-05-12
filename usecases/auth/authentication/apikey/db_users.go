@@ -51,10 +51,9 @@ func MakeUserKey(userId, namespace string) string {
 	return namespacing.QualifiedName(namespace, userId)
 }
 
-// DBUsers is implemented by both the in-process storage (*DBUser) and the
-// cluster apply path (*cluster.Raft). Write methods accept a context so
-// the cluster implementation can propagate request cancellation through
-// RAFT; the storage implementation accepts but does not consult it.
+// DBUsers is the cluster-side interface implemented by *cluster.Raft.
+// Write methods accept a context so the implementation can propagate
+// request cancellation through RAFT.
 type DBUsers interface {
 	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
 	CreateUserWithKey(ctx context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
@@ -195,7 +194,7 @@ func restoreAllFields(data dbUserdata) dbUserdata {
 	return data
 }
 
-func (c *DBUser) CreateUser(_ context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
+func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -217,7 +216,7 @@ func (c *DBUser) CreateUser(_ context.Context, userId, secureHash, userIdentifie
 	return c.storeToFile()
 }
 
-func (c *DBUser) CreateUserWithKey(_ context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
+func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -238,7 +237,7 @@ func (c *DBUser) CreateUserWithKey(_ context.Context, userId, apiKeyFirstLetters
 	return c.storeToFile()
 }
 
-func (c *DBUser) RotateKey(_ context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
+func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
 	if len(apiKeyFirstLetters) > 3 {
 		return errors.New("api key first letters too long")
 	}
@@ -270,7 +269,7 @@ func (c *DBUser) RotateKey(_ context.Context, userId, apiKeyFirstLetters, secure
 	return c.storeToFile()
 }
 
-func (c *DBUser) DeleteUser(_ context.Context, userId string) error {
+func (c *DBUser) DeleteUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -336,7 +335,7 @@ func (c *DBUser) DeleteUsersInNamespace(namespace string) error {
 	return c.storeToFile()
 }
 
-func (c *DBUser) ActivateUser(_ context.Context, userId string) error {
+func (c *DBUser) ActivateUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -348,7 +347,7 @@ func (c *DBUser) ActivateUser(_ context.Context, userId string) error {
 	return c.storeToFile()
 }
 
-func (c *DBUser) DeactivateUser(_ context.Context, userId string, revokeKey bool) error {
+func (c *DBUser) DeactivateUser(userId string, revokeKey bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if _, ok := c.data.Users[userId]; !ok {
