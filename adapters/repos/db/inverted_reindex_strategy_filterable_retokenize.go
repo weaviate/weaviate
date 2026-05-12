@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -182,27 +183,12 @@ func (s *FilterableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 // so only named fields are merged.
 func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
-
-	// Re-read the class right before the property update to minimize the
-	// staleness window where a concurrent strategy could clobber our change.
-	class := s.schemaManager.ReadOnlyClass(className)
-	if class == nil {
-		return fmt.Errorf("class %q not found", className)
-	}
-
-	for _, prop := range class.Properties {
-		if prop.Name != s.propName {
-			continue
-		}
-		if prop.Tokenization == s.targetTokenization {
-			return nil // already correct
-		}
-		updated := *prop
-		updated.Tokenization = s.targetTokenization
-		if err := schema.UpdatePropertyInternal(&s.schemaManager.Handler, ctx, className, &updated); err != nil {
-			return fmt.Errorf("updating property %q Tokenization: %w", prop.Name, err)
-		}
-		return nil
-	}
-	return fmt.Errorf("property %q not found in class %q", s.propName, className)
+	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, []string{s.propName},
+		func(prop *models.Property) bool {
+			if prop.Tokenization == s.targetTokenization {
+				return false // already correct
+			}
+			prop.Tokenization = s.targetTokenization
+			return true
+		})
 }

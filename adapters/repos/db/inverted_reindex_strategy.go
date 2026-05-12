@@ -13,10 +13,13 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // MigrationStrategy encapsulates the parts that differ per migration type
@@ -114,6 +117,62 @@ type MigrationStrategy interface {
 type noAnalyzerOverlay struct{}
 
 func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
+	return nil
+}
+
+// applyPerPropertySchemaUpdate is the shared body of every strategy's
+// OnMigrationComplete that flips one or more property fields via
+// per-property RAFT UpdateProperty commands.
+//
+// Concurrency note: UpdateProperty merges the whole *models.Property as
+// a unit, not a fieldmask. Two strategies running in parallel on the
+// same property could each read a stale view of the schema and clobber
+// the other's flag on RAFT apply. We cannot nil out the other flags
+// because setPropertyDefaults would re-fill them with type-based
+// defaults. So we re-read the class right before each per-property
+// update to minimize the staleness window.
+//
+// TODO(fieldmask): the proper long-term fix is a fieldmask on
+// UpdateProperty so only named fields are merged.
+//
+// The mutate callback is called with a *fresh* shallow copy of the
+// property; the strategy mutates only the fields it owns. Return
+// apply=false to skip the RAFT update for this property (e.g. the
+// target state is already satisfied).
+func applyPerPropertySchemaUpdate(
+	ctx context.Context,
+	mgr *schema.Manager,
+	className string,
+	propNames []string,
+	mutate func(prop *models.Property) (apply bool),
+) error {
+	for _, propName := range propNames {
+		// Re-read the class right before each property update to minimize the
+		// staleness window where a concurrent strategy could clobber our flag.
+		class := mgr.ReadOnlyClass(className)
+		if class == nil {
+			return fmt.Errorf("class %q not found", className)
+		}
+
+		var prop *models.Property
+		for _, p := range class.Properties {
+			if p.Name == propName {
+				prop = p
+				break
+			}
+		}
+		if prop == nil {
+			continue
+		}
+
+		updated := *prop
+		if !mutate(&updated) {
+			continue
+		}
+		if err := schema.UpdatePropertyInternal(&mgr.Handler, ctx, className, &updated); err != nil {
+			return fmt.Errorf("updating property %q: %w", propName, err)
+		}
+	}
 	return nil
 }
 

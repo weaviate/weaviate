@@ -176,43 +176,13 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 // cluster/schema/manager.go and meta_class.go.
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
-
-	propSet := make(map[string]struct{}, len(s.propNames))
-	for _, p := range s.propNames {
-		propSet[p] = struct{}{}
-	}
-
 	trueVal := true
-	for propName := range propSet {
-		// Re-read the class right before each property update to minimize the
-		// staleness window where a concurrent strategy could clobber our flag.
-		class := s.schemaManager.ReadOnlyClass(className)
-		if class == nil {
-			return fmt.Errorf("class %q not found", className)
-		}
-
-		var prop *models.Property
-		for _, p := range class.Properties {
-			if p.Name == propName {
-				prop = p
-				break
+	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+		func(prop *models.Property) bool {
+			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+				return false // already enabled
 			}
-		}
-		if prop == nil {
-			continue
-		}
-		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
-			continue // already enabled
-		}
-		// Shallow-copy to avoid mutating the in-memory schema before the RAFT
-		// entry is committed. We carry through the freshly read values of
-		// IndexFilterable / IndexSearchable / Tokenization, only changing
-		// IndexRangeFilters here.
-		updated := *prop
-		updated.IndexRangeFilters = &trueVal
-		if err := schema.UpdatePropertyInternal(&s.schemaManager.Handler, ctx, className, &updated); err != nil {
-			return fmt.Errorf("updating property %q IndexRangeFilters: %w", propName, err)
-		}
-	}
-	return nil
+			prop.IndexRangeFilters = &trueVal
+			return true
+		})
 }

@@ -189,40 +189,14 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 // so only named fields are merged.
 func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
-
-	propSet := make(map[string]struct{}, len(s.propNames))
-	for _, p := range s.propNames {
-		propSet[p] = struct{}{}
-	}
-
 	trueVal := true
-	for propName := range propSet {
-		// Re-read the class right before each property update to minimize the
-		// staleness window where a concurrent strategy could clobber our flag.
-		class := s.schemaManager.ReadOnlyClass(className)
-		if class == nil {
-			return fmt.Errorf("class %q not found", className)
-		}
-
-		var prop *models.Property
-		for _, p := range class.Properties {
-			if p.Name == propName {
-				prop = p
-				break
+	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+		func(prop *models.Property) bool {
+			if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == s.tokenization {
+				return false // already enabled with the target tokenization
 			}
-		}
-		if prop == nil {
-			continue
-		}
-		if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == s.tokenization {
-			continue // already enabled with the target tokenization
-		}
-		updated := *prop
-		updated.IndexSearchable = &trueVal
-		updated.Tokenization = s.tokenization
-		if err := schema.UpdatePropertyInternal(&s.schemaManager.Handler, ctx, className, &updated); err != nil {
-			return fmt.Errorf("updating property %q IndexSearchable: %w", propName, err)
-		}
-	}
-	return nil
+			prop.IndexSearchable = &trueVal
+			prop.Tokenization = s.tokenization
+			return true
+		})
 }
