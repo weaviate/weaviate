@@ -545,7 +545,6 @@ func isSyntheticStatus(s string) bool {
 	return false
 }
 
-
 func errorResponse(msg string) *models.ErrorResponse {
 	return &models.ErrorResponse{
 		Error: []*models.ErrorResponseErrorItems0{
