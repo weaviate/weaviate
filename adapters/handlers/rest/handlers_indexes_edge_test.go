@@ -222,13 +222,20 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_DisappearsFromResponse(t *t
 // One is enable-filterable (progress 0.2), the other is change-tokenization
 // (progress 0.9). For indexType="filterable", both match. The current
 // implementation iterates `tasks` in map-list order and `return`s on the
-// first match — so which task "wins" is non-deterministic depending on
-// list ordering. This test demonstrates the picking behavior in a
-// controlled order: whichever task is first in the slice wins, regardless
-// of which would be more informative. (In practice this should be
-// impossible because checkReindexConflict rejects overlapping tasks, but
-// mergeReindexStatus does not enforce that invariant.)
-func TestMergeReindexStatus_OverlappingTasks_FirstInListWins(t *testing.T) {
+// When two STARTED tasks for the same (collection, prop, indexType)
+// coexist, the most recently started one wins regardless of slice
+// order. The runtime delivers tasks in map iteration order which is
+// non-deterministic per call, so first-in-list ordering would mean
+// polling could see the answer change request-to-request. The
+// StartedAt tiebreak keeps the response stable.
+//
+// In practice checkReindexConflict rejects overlapping STARTED tasks
+// on the same bucket, but a runtime fault (e.g. cluster forwarding
+// edge cases) could in theory produce this state and the response must
+// still be stable.
+func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
+	now := time.Now()
+
 	enableTask := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -240,6 +247,8 @@ func TestMergeReindexStatus_OverlappingTasks_FirstInListWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.2},
 		},
 	)
+	enableTask.StartedAt = now.Add(-1 * time.Hour) // older
+
 	changeTokTask := buildTask(t, "C:change-tokenization:foo:0002",
 		distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
@@ -252,27 +261,79 @@ func TestMergeReindexStatus_OverlappingTasks_FirstInListWins(t *testing.T) {
 			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.9},
 		},
 	)
+	changeTokTask.StartedAt = now // newer
 
-	// Order A: enable first.
-	idxA := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idxA, "C", "foo", "filterable", tasksMap(enableTask, changeTokTask), nil)
+	for _, order := range []struct {
+		name  string
+		tasks []*distributedtask.Task
+	}{
+		{"older-first", []*distributedtask.Task{enableTask, changeTokTask}},
+		{"newer-first", []*distributedtask.Task{changeTokTask, enableTask}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "filterable",
+				map[string][]*distributedtask.Task{db.ReindexNamespace: order.tasks}, nil)
 
-	// Order B: change-tokenization first.
-	idxB := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idxB, "C", "foo", "filterable", tasksMap(changeTokTask, enableTask), nil)
+			require.InDelta(t, 0.9, idx.Progress, 0.0001,
+				"newest STARTED task (change-tokenization) must win regardless of slice order")
+			require.Equal(t, "lowercase", idx.TargetTokenization,
+				"the winning task's TargetTokenization must be reflected")
+		})
+	}
+}
 
-	// The same input set produces different observable results purely
-	// based on slice order — neither is "wrong" per se, but the answer is
-	// not deterministic across requests.
-	require.InDelta(t, 0.2, idxA.Progress, 0.0001, "first-task-in-list wins (enable)")
-	require.Empty(t, idxA.TargetTokenization, "enable-filterable doesn't set TargetTokenization")
+// A retried migration produces two tasks for the same (collection,
+// prop, indexType): the old FAILED attempt and the new STARTED one
+// (terminal tasks deliberately do not block fresh submits). The
+// in-flight STARTED task wins regardless of slice order — otherwise
+// the user who just retried would see "failed" on alternate polls.
+func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
+	now := time.Now()
 
-	require.InDelta(t, 0.9, idxB.Progress, 0.0001, "first-task-in-list wins (change-tok)")
-	require.Equal(t, "lowercase", idxB.TargetTokenization,
-		"change-tokenization sets TargetTokenization")
+	failedAttempt := buildTask(t, "C:enable-filterable:foo:0001",
+		distributedtask.TaskStatusFailed,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.4, Error: "disk full"},
+		},
+	)
+	failedAttempt.StartedAt = now.Add(-2 * time.Hour)
 
-	require.NotEqual(t, idxA.Progress, idxB.Progress,
-		"same task set, different order → different progress reported")
+	startedRetry := buildTask(t, "C:enable-filterable:foo:0002",
+		distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.1},
+		},
+	)
+	startedRetry.StartedAt = now
+
+	for _, order := range []struct {
+		name  string
+		tasks []*distributedtask.Task
+	}{
+		{"failed-first", []*distributedtask.Task{failedAttempt, startedRetry}},
+		{"started-first", []*distributedtask.Task{startedRetry, failedAttempt}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "filterable",
+				map[string][]*distributedtask.Task{db.ReindexNamespace: order.tasks}, nil)
+
+			require.Equal(t, "indexing", idx.Status,
+				"STARTED retry must beat older FAILED attempt regardless of slice order")
+			require.InDelta(t, 0.1, idx.Progress, 0.0001)
+		})
+	}
 }
 
 // Edge case 7: A task whose payload.Properties is empty.

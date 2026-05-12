@@ -389,9 +389,19 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		return
 	}
 	tasks := allTasks[db.ReindexNamespace]
+
+	// Two tasks for the same (collection, prop, indexType) may coexist —
+	// e.g. a freshly retried STARTED enable-filterable plus the original
+	// FAILED attempt that the operator just retried (terminal tasks
+	// deliberately do NOT block fresh submits; see checkReindexConflict).
+	// Pick the most useful one to surface rather than first-in-map-order:
+	//   STARTED  > FAILED ≈ CANCELLED       (in-flight beats terminal)
+	//   newer StartedAt > older StartedAt   (within the same priority)
+	// FINISHED is skipped entirely (the schema flag flips and the
+	// regular "ready" entry takes over).
+	var best *distributedtask.Task
+	var bestPayload db.ReindexTaskPayload
 	for _, task := range tasks {
-		// Skip FINISHED tasks — handled by the schema-flag-on path.
-		// STARTED / FAILED / CANCELLED each carry user-visible signal.
 		if task.Status == distributedtask.TaskStatusFinished {
 			continue
 		}
@@ -423,16 +433,10 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			targets = indexType == "filterable"
 		case db.ReindexTypeEnableSearchable:
 			targets = indexType == "searchable"
-			if targets && payload.TargetTokenization != "" {
-				idx.Tokenization = payload.TargetTokenization
-			}
 		case db.ReindexTypeEnableRangeable:
 			targets = indexType == "rangeable"
 		case db.ReindexTypeChangeTokenization:
 			targets = indexType == "searchable" || indexType == "filterable"
-			if targets && payload.TargetTokenization != "" {
-				idx.TargetTokenization = payload.TargetTokenization
-			}
 		default:
 			// Unknown migration type. A new ReindexType was added without
 			// being mapped to a bucket here, which would silently report
@@ -452,32 +456,61 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			continue
 		}
 
-		// Terminal failure modes carry user-visible signal even though
-		// no progress is being made. STARTED falls through to the
-		// indexing/pending logic below; FINISHED was already skipped at
-		// the top of the loop.
-		switch task.Status {
-		case distributedtask.TaskStatusFailed:
-			idx.Status = "failed"
-			idx.Progress = aggregateProgress(task)
-			return
-		case distributedtask.TaskStatusCancelled:
-			idx.Status = "cancelled"
-			idx.Progress = aggregateProgress(task)
-			return
-		case distributedtask.TaskStatusStarted, distributedtask.TaskStatusFinished:
-			// handled outside this switch
+		if best == nil || taskStatusPriority(task) > taskStatusPriority(best) ||
+			(taskStatusPriority(task) == taskStatusPriority(best) && task.StartedAt.After(best.StartedAt)) {
+			best = task
+			bestPayload = payload
 		}
+	}
 
-		// STARTED: report indexing / pending.
-		progress := aggregateProgress(task)
+	if best == nil {
+		return
+	}
+
+	// Apply per-migration-type side effects (tokenization fields) and the
+	// status string for the winning task.
+	switch bestPayload.MigrationType {
+	case db.ReindexTypeEnableSearchable:
+		if bestPayload.TargetTokenization != "" {
+			idx.Tokenization = bestPayload.TargetTokenization
+		}
+	case db.ReindexTypeChangeTokenization:
+		if bestPayload.TargetTokenization != "" {
+			idx.TargetTokenization = bestPayload.TargetTokenization
+		}
+	}
+
+	switch best.Status {
+	case distributedtask.TaskStatusFailed:
+		idx.Status = "failed"
+		idx.Progress = aggregateProgress(best)
+	case distributedtask.TaskStatusCancelled:
+		idx.Status = "cancelled"
+		idx.Progress = aggregateProgress(best)
+	case distributedtask.TaskStatusStarted:
+		progress := aggregateProgress(best)
 		idx.Progress = progress
 		if progress > 0 {
 			idx.Status = "indexing"
 		} else {
 			idx.Status = "pending"
 		}
-		return
+	}
+}
+
+// taskStatusPriority returns a priority for picking the most user-relevant
+// task when more than one task matches a (collection, prop, indexType).
+// In-flight beats terminal: a user who has just retried a previously
+// failed migration wants to see the new attempt's progress, not the old
+// failure. FINISHED is skipped by the caller so it does not appear here.
+func taskStatusPriority(task *distributedtask.Task) int {
+	switch task.Status {
+	case distributedtask.TaskStatusStarted:
+		return 2
+	case distributedtask.TaskStatusFailed, distributedtask.TaskStatusCancelled:
+		return 1
+	default:
+		return 0
 	}
 }
 
