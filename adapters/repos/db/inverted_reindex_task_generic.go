@@ -789,6 +789,34 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
+	// Always disable the double-write callbacks registered by this task
+	// instance, regardless of whether the swap completes successfully.
+	//
+	// On the happy path this runs after markTidied + OnMigrationComplete:
+	// the main bucket pointer has already been swapped, so any callback
+	// invocations between markSwapped and this defer would have been
+	// harmless redundant writes (the ingest bucket is reachable under both
+	// the main and ingest names).
+	//
+	// On an error path this is the load-bearing case: without it, callbacks
+	// would keep firing against buckets that may be mid-rename, shut down,
+	// or otherwise in an inconsistent state. We want subsequent writes to
+	// stop touching the ingest/backup buckets entirely; they should land
+	// only in whatever the main pointer resolves to.
+	//
+	// Recovery after a mid-swap failure happens on the next node restart:
+	// OnBeforeLsmInit reads the sentinel files and rebuilds disk layout,
+	// then OnAfterLsmInit re-registers fresh callbacks based on the new
+	// on-disk state. Same-process retry of runtimeSwap is not supported
+	// (the in-memory bucket state is partially mutated), so the cleared
+	// callback slice is correct.
+	//
+	// disableCallbacks is idempotent (nils the slice after firing), so the
+	// defer is safe even on the success path where the slice is already
+	// empty by the time the defer runs (currently the explicit call at the
+	// end has been folded into this defer).
+	defer t.disableCallbacks()
+
 	store := shard.Store()
 	lsmPath := shard.pathLSM()
 
@@ -877,8 +905,9 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Debug("runtime swap: all props swapped")
 
 	// Step 5: Disable double-write callbacks — writes now go directly to the
-	// (formerly ingest) main bucket.
-	t.disableCallbacks()
+	// (formerly ingest) main bucket. Handled by the deferred call at the top
+	// of this function so it also fires on every error path; see the comment
+	// there for the full rationale.
 
 	// Step 6: Mark tidied. The in-memory swap is complete — the ingest bucket
 	// is now serving queries under the main bucket name. The directory on disk
