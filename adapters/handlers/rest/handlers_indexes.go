@@ -69,57 +69,38 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		}
 		pis.Description = prop.Description
 
-		var indexes []*models.IndexStatus
-
-		// Filterable index. If the schema flag is on we always emit the
-		// entry; if it's off we emit a synthetic entry when a reindex
-		// task carries actionable signal for the user (in-progress,
-		// pending, failed, or cancelled).
-		if prop.IndexFilterable == nil || *prop.IndexFilterable {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			idx.Tokenization = prop.Tokenization
-			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks, h.appState.Logger)
-			indexes = append(indexes, idx)
-		} else {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, collection, prop.Name, "filterable", activeTasks, h.appState.Logger)
-			if isSyntheticStatus(idx.Status) {
-				indexes = append(indexes, idx)
-			}
-		}
-
-		// Searchable index. Same pattern as filterable: show a synthetic
-		// entry while enable-searchable is in flight or has failed/cancelled.
-		if prop.IndexSearchable == nil || *prop.IndexSearchable {
-			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-			idx.Tokenization = prop.Tokenization
-			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks, h.appState.Logger)
-			indexes = append(indexes, idx)
-		} else {
-			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-			mergeReindexStatus(idx, collection, prop.Name, "searchable", activeTasks, h.appState.Logger)
-			if isSyntheticStatus(idx.Status) {
-				indexes = append(indexes, idx)
-			}
-		}
-
-		// Rangeable index.
+		// One entry per applicable index type. carryTokenization mirrors
+		// the historical behavior: filterable and searchable expose the
+		// property's tokenization on the flag-on entry; rangeable does not.
+		// Rangeable only applies to numeric/date properties.
 		dt, ok := entschema.AsPrimitive(prop.DataType)
 		isNumeric := ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
-		if isNumeric {
-			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
-				idx := &models.IndexStatus{Type: "rangeable", Status: "ready"}
-				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks, h.appState.Logger)
+		entries := []struct {
+			indexType         string
+			flagOn            bool
+			applicable        bool
+			carryTokenization bool
+		}{
+			{"filterable", prop.IndexFilterable == nil || *prop.IndexFilterable, true, true},
+			{"searchable", prop.IndexSearchable == nil || *prop.IndexSearchable, true, true},
+			{"rangeable", prop.IndexRangeFilters != nil && *prop.IndexRangeFilters, isNumeric, false},
+		}
+
+		var indexes []*models.IndexStatus
+		for _, e := range entries {
+			if !e.applicable {
+				continue
+			}
+			idx := &models.IndexStatus{Type: e.indexType, Status: "ready"}
+			if e.flagOn && e.carryTokenization {
+				idx.Tokenization = prop.Tokenization
+			}
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, activeTasks, h.appState.Logger)
+			// Flag on → always emit. Flag off → emit only when a reindex
+			// task carries actionable signal (in-flight or terminal
+			// failure/cancellation).
+			if e.flagOn || isSyntheticStatus(idx.Status) {
 				indexes = append(indexes, idx)
-			} else {
-				// Check if there's an active or recently-terminated
-				// enable-rangeable task for this property.
-				idx := &models.IndexStatus{Type: "rangeable", Status: "ready"}
-				mergeReindexStatus(idx, collection, prop.Name, "rangeable", activeTasks, h.appState.Logger)
-				if isSyntheticStatus(idx.Status) {
-					indexes = append(indexes, idx)
-				}
-				// If not active and not enabled, don't show it.
 			}
 		}
 
