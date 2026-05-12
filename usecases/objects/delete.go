@@ -37,7 +37,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 ) error {
 	className, _, err := m.resolveNS(principal, className)
 	if err != nil {
-		return err
+		return NewErrInvalidUserInput("%v", err)
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id)); err != nil {

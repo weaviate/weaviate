@@ -42,7 +42,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	for _, obj := range objects {
 		cls, _, err := b.resolveNS(principal, obj.Class)
 		if err != nil {
-			return nil, err
+			return nil, NewErrInvalidUserInput("%v", err)
 		}
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)

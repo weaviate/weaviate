@@ -35,7 +35,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	class, _, err := m.resolveNS(principal, class)
 	if err != nil {
-		return nil, err
+		return nil, NewErrInvalidUserInput("%v", err)
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
