@@ -498,7 +498,10 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 				if _, ok := resolvedByRaw[obj.Collection]; ok {
 					continue
 				}
-				resolved, _ := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+				resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+				if err != nil {
+					return err
+				}
 				resolvedNames = append(resolvedNames, resolved)
 				resolvedByRaw[obj.Collection] = resolved
 			}

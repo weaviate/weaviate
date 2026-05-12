@@ -22,23 +22,30 @@ var (
 	validateTenantNameRegex         = regexp.MustCompile(`^` + ShardNameRegexCore + `$`)
 	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
 	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
+	validateNamespaceNameRegex      = regexp.MustCompile(`^` + NamespaceNameRegexCore + `$`)
 	reservedPropertyNames           = []string{"_additional", "_id", "id"}
+
+	// NamespaceNameRegexCore is the single source of truth for the namespace
+	// name character set + length contract: lowercase letter/digit edges,
+	// hyphens only internally, total length in [NamespaceMinLength,
+	// NamespaceMaxLength]. The {N,M} middle bound subtracts 2 to account for
+	// the required leading and trailing [a-z0-9] characters.
+	//
+	// Used both by the anchored validateNamespaceNameRegex (callers that
+	// receive a bare namespace name) and by IndexNameRegexCore (the
+	// cluster-API URL router, which needs the same syntax embedded in a
+	// larger pattern). Do not duplicate this regex elsewhere — extend or
+	// reuse this constant so the contract stays in one place.
+	NamespaceNameRegexCore = fmt.Sprintf(`[a-z0-9][a-z0-9-]{%d,%d}[a-z0-9]`,
+		NamespaceMinLength-2, NamespaceMaxLength-2)
 
 	// IndexNameRegexCore matches an internal index name: an optional
 	// "<namespace>:" prefix followed by a ClassNameRegexCore class name.
-	// The namespace portion mirrors the namespace-name contract — lowercase
-	// letter/digit edges, hyphens only internally, length
-	// NamespaceMinLength..NamespaceMaxLength.
-	//
-	// The {N,M} middle bound subtracts 2 to account for the required
-	// leading and trailing [a-z0-9] characters; total namespace length
-	// stays in [NamespaceMinLength, NamespaceMaxLength].
 	//
 	// Used by cluster-API URL routing and by ValidateQualifiedClassName
 	// at post-resolver boundaries (filter parser). User-facing class-name
 	// validation continues to use ClassNameRegexCore (which rejects ":").
-	IndexNameRegexCore = fmt.Sprintf(`(?:[a-z0-9][a-z0-9-]{%d,%d}[a-z0-9]%s)?`,
-		NamespaceMinLength-2, NamespaceMaxLength-2, NamespaceSeparator) + ClassNameRegexCore
+	IndexNameRegexCore = `(?:` + NamespaceNameRegexCore + NamespaceSeparator + `)?` + ClassNameRegexCore
 )
 
 const (
@@ -100,6 +107,23 @@ const (
 	NamespaceMinLength = 3
 	NamespaceMaxLength = 36
 )
+
+// ValidateNamespaceNameSyntax checks the syntax of a namespace name: length
+// bounds, lowercase ASCII letters/digits/hyphens, no leading/trailing hyphen.
+// It does NOT check reserved names — that policy lives in usecases/namespaces
+// alongside ValidateName and is enforced at Create time. This split lets the
+// name-resolver (usecases/schema/namespacing) reuse the syntactic part without
+// importing the namespace controller (which would form a cycle via the apikey
+// dependency chain).
+func ValidateNamespaceNameSyntax(name string) error {
+	if l := len(name); l < NamespaceMinLength || l > NamespaceMaxLength {
+		return fmt.Errorf("namespace name %q must be %d-%d characters", name, NamespaceMinLength, NamespaceMaxLength)
+	}
+	if !validateNamespaceNameRegex.MatchString(name) {
+		return fmt.Errorf("namespace name %q must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, and must not contain ':'", name)
+	}
+	return nil
+}
 
 // ValidateClassName validates that this string is a valid class name (format wise)
 func ValidateClassName(name string) (ClassName, error) {

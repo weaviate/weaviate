@@ -934,7 +934,8 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			require.NoError(t, err)
 			if lookup == tt.stored {
 				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
 					Class:             tt.stored,
@@ -949,7 +950,7 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 			}
 
 			prop := &models.Property{Name: "genre", DataType: schema.DataTypeText.PropString()}
-			_, _, err := handler.AddClassProperty(context.Background(), tt.principal,
+			_, _, err = handler.AddClassProperty(context.Background(), tt.principal,
 				tt.inputName, false, prop)
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -1012,7 +1013,8 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			require.NoError(t, err)
 			prop := &models.Property{
 				Name:            "title",
 				DataType:        schema.DataTypeText.PropString(),
@@ -1031,7 +1033,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything).Return(nil)
 			}
 
-			err := handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
+			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
 				tt.inputName, "title", "filterable")
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
@@ -1092,7 +1094,8 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			require.NoError(t, err)
 			storedClass := &models.Class{
 				Class: tt.stored,
 				VectorConfig: map[string]models.VectorConfig{
@@ -1112,7 +1115,7 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 				}), mock.Anything).Return(nil)
 			}
 
-			err := handler.DeleteClassVectorIndex(context.Background(), tt.principal,
+			err = handler.DeleteClassVectorIndex(context.Background(), tt.principal,
 				tt.inputName, "vec1")
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)

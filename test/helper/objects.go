@@ -427,6 +427,16 @@ func DeleteClassWithoutAssert(t *testing.T, class, key string) {
 	_, _ = Client(t).Schema.SchemaObjectsDelete(params, auth)
 }
 
+// DeleteClassAuthWithReturn issues an authenticated class-delete and
+// returns the raw error so callers can assert on rejection (e.g. malformed
+// namespace prefix in the URL).
+func DeleteClassAuthWithReturn(t *testing.T, class string, key string) error {
+	t.Helper()
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	_, err := Client(t).Schema.SchemaObjectsDelete(delParams, CreateAuth(key))
+	return err
+}
+
 func DeleteObject(t *testing.T, object *models.Object) {
 	t.Helper()
 	params := objects.NewObjectsClassDeleteParams().

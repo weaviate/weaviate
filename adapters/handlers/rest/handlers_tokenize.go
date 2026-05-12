@@ -174,10 +174,14 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 ) middleware.Responder {
 	// Resolve before authorization so authz uses the real collection name
 	// for permissions and error UX.
-	className, _ := namespacing.Resolve(principal, schemaManager, namespacesEnabled, params.ClassName)
+	className, _, err := namespacing.Resolve(principal, schemaManager, namespacesEnabled, params.ClassName)
+	if err != nil {
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
 	// Authorize: reading collection metadata (same as other schema read operations)
-	err := schemaManager.Authorizer.Authorize(
+	err = schemaManager.Authorizer.Authorize(
 		params.HTTPRequest.Context(), principal, authorization.READ,
 		authorization.CollectionsMetadata(className)...,
 	)
