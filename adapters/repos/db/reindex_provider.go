@@ -110,6 +110,39 @@ func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCom
 	p.recorder = recorder
 }
 
+// SeedReindexTaskCache pre-populates the per-descriptor task cache with
+// instances reconstructed during startup recovery (see
+// [DiscoverInFlightReindexTasks] and [RegisterRecoveredReindexes]). The
+// purpose is to make OnGroupCompleted reuse the recovered instances —
+// whose double-write callbacks were re-registered during shard init —
+// rather than fall through to the rehydrate branch and call
+// OnAfterLsmInit a second time (which would attempt to load already
+// loaded ingest buckets).
+//
+// Safe to call concurrently with StartTask: StartTask only writes
+// entries for tasks it is starting, while seeding fills entries that
+// would otherwise be missing because the scheduler isn't (re)starting
+// the task post-restart.
+func (p *ReindexProvider) SeedReindexTaskCache(
+	cache map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric,
+) {
+	if len(cache) == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for desc, byUnit := range cache {
+		if p.reindexTasks[desc] == nil {
+			p.reindexTasks[desc] = map[string][]*ShardReindexTaskGeneric{}
+		}
+		for unitID, tasks := range byUnit {
+			if len(p.reindexTasks[desc][unitID]) == 0 {
+				p.reindexTasks[desc][unitID] = tasks
+			}
+		}
+	}
+}
+
 func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
 	return nil
 }
@@ -258,6 +291,27 @@ func (p *ReindexProvider) processOneUnit(
 		}
 		p.reindexTasks[task.TaskDescriptor][unitID] = tasks
 		p.mu.Unlock()
+	}
+
+	// Persist a recovery record so that a restart mid-flight can rebuild
+	// these same task instances during shard init. Without this, writes
+	// arriving between shard init and OnGroupCompleted's swap go only to
+	// the old main bucket (no ingest double-write) and are lost on swap.
+	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
+	concreteShard, unwrapErr := unwrapShard(ctx, shard)
+	if unwrapErr != nil {
+		p.failUnit(ctx, task, unitID, recorder,
+			fmt.Sprintf("unwrap shard for recovery: %v", unwrapErr))
+		return
+	}
+	if err := p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks); err != nil {
+		// A failure to persist the recovery record means a restart in the
+		// next few seconds would lose the in-flight reindex's double-write
+		// callbacks. That is bad enough to fail the unit explicitly rather
+		// than silently degrade.
+		p.failUnit(ctx, task, unitID, recorder,
+			fmt.Sprintf("persist reindex recovery record: %v", err))
+		return
 	}
 
 	for _, reindexTask := range tasks {
@@ -516,6 +570,65 @@ func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 		}
 	}
 	return false
+}
+
+// reindexRecoveryRecord is the on-disk payload describing an in-flight
+// reindex task. It lives in <shard>/lsm/.migrations/<dir>/payload.mig and
+// is written by [ReindexProvider.persistRecoveryRecord] before the
+// reindex iteration starts. At startup, [DiscoverInFlightReindexTasks]
+// scans every shard's .migrations/ directory and decodes these records
+// to reconstruct ShardReindexTaskGeneric instances that have the right
+// strategy + tokenization + bucket-strategy, so [OnAfterLsmInit] can
+// fire during shard load and re-register the double-write callbacks
+// BEFORE any post-restart write reaches the shard.
+//
+// TaskID + TaskVersion are kept so OnGroupCompleted's cache
+// (keyed by [distributedtask.TaskDescriptor]) can be pre-populated with
+// the recovered instances, avoiding a second OnAfterLsmInit pass via the
+// rehydrate path.
+type reindexRecoveryRecord struct {
+	TaskID      string             `json:"taskID"`
+	TaskVersion uint64             `json:"taskVersion"`
+	UnitID      string             `json:"unitID"`
+	Payload     ReindexTaskPayload `json:"payload"`
+}
+
+// persistRecoveryRecord writes one recovery record per generated task
+// into each task's migration directory. For semantic migrations
+// (change-tokenization) there are two tasks per unit (searchable +
+// filterable) and therefore two migration directories per shard; the
+// same record is written into each.
+//
+// lsmPath must be the concrete shard's LSM directory
+// (<data>/<index>/<shard>/lsm) — the migration sub-directory under
+// <lsmPath>/.migrations/<dir>/ is what holds the per-strategy sentinels
+// and the new payload.mig file.
+func (p *ReindexProvider) persistRecoveryRecord(
+	task *distributedtask.Task,
+	payload *ReindexTaskPayload,
+	unitID string,
+	lsmPath string,
+	tasks []*ShardReindexTaskGeneric,
+) error {
+	if lsmPath == "" {
+		return fmt.Errorf("empty lsm path")
+	}
+	rec := reindexRecoveryRecord{
+		TaskID:      task.ID,
+		TaskVersion: task.Version,
+		UnitID:      unitID,
+		Payload:     *payload,
+	}
+	encoded, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshal recovery record: %w", err)
+	}
+	for _, t := range tasks {
+		if err := t.SaveRecoveryPayload(lsmPath, encoded); err != nil {
+			return fmt.Errorf("save recovery payload for task %q: %w", t.Name(), err)
+		}
+	}
+	return nil
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.

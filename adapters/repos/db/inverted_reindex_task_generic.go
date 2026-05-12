@@ -98,6 +98,48 @@ func (t *ShardReindexTaskGeneric) Name() string {
 	return t.name
 }
 
+// MigrationDirName returns the strategy-specific sub-directory under each
+// shard's <lsm>/.migrations/ that this task owns. Exposed so callers can
+// drop or read recovery sentinels (e.g. payload.mig) without depending on
+// the unexported reindexTracker.
+func (t *ShardReindexTaskGeneric) MigrationDirName() string {
+	return t.strategy.MigrationDirName()
+}
+
+// migrationPath returns the absolute path to the migration directory for
+// this task on the given shard LSM path.
+func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
+	return filepath.Join(lsmPath, ".migrations", t.strategy.MigrationDirName())
+}
+
+// reindexRecoveryPayloadFile is the filename of the on-disk JSON record
+// describing the in-flight reindex task. Written by [ReindexProvider]
+// before the reindex iteration starts; read at startup by
+// [DiscoverInFlightReindexTasks] to rebuild task instances for shards that
+// had a reindex in progress when the node went down. The sentinel lives
+// in the same migration sub-directory as the other *.mig sentinels so it
+// is removed alongside them on reset/cleanup.
+const reindexRecoveryPayloadFile = "payload.mig"
+
+// SaveRecoveryPayload writes the given JSON-encoded recovery record to
+// payload.mig inside the migration directory of this task on the given
+// shard LSM path. It is idempotent: if the file already exists with the
+// same content, the call is a no-op; otherwise it is overwritten.
+// Callers are expected to ensure the migration directory exists; this
+// function will [os.MkdirAll] it just in case to keep startup recovery
+// robust against partial state.
+func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []byte) error {
+	migDir := t.migrationPath(lsmPath)
+	if err := os.MkdirAll(migDir, 0o777); err != nil {
+		return fmt.Errorf("mkdir migration dir %q: %w", migDir, err)
+	}
+	target := filepath.Join(migDir, reindexRecoveryPayloadFile)
+	if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
+		return nil
+	}
+	return os.WriteFile(target, payload, 0o600)
+}
+
 // RunOnShard runs the full reindex lifecycle on a live shard: OnAfterLsmInit
 // followed by repeated OnAfterLsmInitAsync calls until the task is complete.
 // This is intended for debug/runtime-triggered migrations on an already-running shard.

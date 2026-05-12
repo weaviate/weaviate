@@ -706,7 +706,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
-	reindexer := configureReindexer()
+	// Discover in-flight runtime reindex tasks from disk so the static
+	// ShardReindexerV3 can re-register their double-write callbacks via
+	// OnAfterLsmInit during shard load — BEFORE any post-restart write
+	// reaches the shard. Without this, writes between shard init and the
+	// deferred swap go only to the old main bucket and are silently lost.
+	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
+	// (written by ReindexProvider.persistRecoveryRecord before reindex
+	// starts), plus the existing started.mig / tidied.mig sentinels to
+	// decide which migrations are still in flight.
+	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.Logger,
+		appState.SchemaManager,
+	)
+	if recoveryErr != nil {
+		appState.Logger.WithError(recoveryErr).
+			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
+	}
+	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
@@ -813,6 +831,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 			serverShutdownCtx,
 		)
+		// Seed the provider's per-(descriptor, unit) cache with the
+		// SAME task instances we just registered with the static
+		// ShardReindexerV3. This ensures OnGroupCompleted's swap phase
+		// reuses these instances (whose double-write callbacks were
+		// re-registered during shard init) instead of taking the
+		// rehydrate path, which would attempt to load already-loaded
+		// ingest buckets and fail.
+		db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 		providers[db.ReindexNamespace] = reindexProvider
 
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
@@ -852,10 +878,20 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-func configureReindexer() db.ShardReindexerV3 {
-	// All reindex operations are now triggered via the REST API (DTM-based).
-	// The V3 startup reindexer is no longer used.
-	return db.NewShardReindexerV3Noop()
+func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
+	// All reindex operations are now triggered via the REST API
+	// (DTM-based). The V3 startup reindexer is no longer used for
+	// kicking off new reindexes — but we still need it for restart
+	// recovery: in-flight runtime reindex tasks discovered on disk
+	// register here so that OnAfterLsmInit fires during shard load and
+	// re-installs the double-write callbacks before any post-restart
+	// write reaches the shard.
+	if len(recovered) == 0 {
+		return db.NewShardReindexerV3Noop()
+	}
+	logger.WithField("count", len(recovered)).
+		Info("reindex recovery: registering in-flight tasks discovered on disk")
+	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 type metaStoreReady struct {

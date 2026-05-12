@@ -267,11 +267,6 @@ func TestRestartDuringSwap(t *testing.T) {
 	// fix in OnGroupCompleted DOES make pass — that piece is the bulk of
 	// what was broken before; this remaining write-loss gap is narrower.
 	t.Run("WritesDuringRehydrateWindowAreLost_KnownGap", func(t *testing.T) {
-		t.Skip("Known gap: writes during the rehydrate window are lost because " +
-			"runtime tasks aren't registered with the static ShardReindexerV3 at " +
-			"shard init. Tracked on issue #10675. Once fixed, un-skip this " +
-			"subtest and assert NotEmpty on both queries.")
-
 		bm25IDs := restartSwapBM25Query(t, className, "description", marker)
 		assert.NotEmpty(t, bm25IDs,
 			"post-restart BM25(%q) returned no results — write during swap-recovery window was lost",
