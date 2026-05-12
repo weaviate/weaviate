@@ -202,6 +202,9 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassGetNotFound()
+		case errors.As(err, &uco.ErrInvalidUserInput{}):
+			return objects.NewObjectsClassGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
