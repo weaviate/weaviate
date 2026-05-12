@@ -333,6 +333,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
+// extractPropValuePair is the entry point. It delegates type-dispatched
+// construction of the propValuePair tree to buildPropValuePair, then
+// runs a single post-order pass over the tree to group same-root
+// subtrees at every AND node. Recursive calls from
+// extractPropValuePairs go directly to buildPropValuePair to avoid
+// re-grouping during construction.
 func (s *Searcher) extractPropValuePair(
 	ctx context.Context, filter *filters.Clause, className schema.ClassName,
 ) (*propValuePair, error) {
@@ -340,6 +346,58 @@ func (s *Searcher) extractPropValuePair(
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
+	out, err := s.buildPropValuePair(ctx, filter, className, class)
+	if err != nil {
+		return nil, err
+	}
+	return groupNestedSubtrees(out, class), nil
+}
+
+// groupNestedSubtrees walks pv's tree post-order and applies the
+// same-root grouping rule of groupNestedByProp at every AND node it
+// finds. OR / NOT / leaf nodes pass through; their children are still
+// walked so AND nodes deeper in the tree get grouped. Pre-marked
+// wrappers (isWithinRootSubtree=true, e.g. tokenization wrappers from
+// buildNestedTextFilterPair) are skipped — their children are already
+// the leaves of one same-root subtree and need no further grouping.
+//
+// When grouping collapses every child of an AND into a single same-root
+// wrapper, the AND is promoted in place: its own isWithinRootSubtree
+// flag and prop are set, and the redundant single-child wrapping level
+// is elided. Mixed-root ANDs keep the per-group wrappers as separate
+// children.
+func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
+	if pv == nil || len(pv.children) == 0 {
+		return pv
+	}
+	for i := range pv.children {
+		pv.children[i] = groupNestedSubtrees(pv.children[i], class)
+	}
+	if pv.operator != filters.OperatorAnd || pv.nested.isWithinRootSubtree {
+		return pv
+	}
+	grouped := groupNestedByProp(pv.children, class)
+	if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
+		// Collapse: every child landed in one same-root wrapper.
+		// Promote pv to be that wrapper instead of holding it as a
+		// useless single-child outer AND.
+		w := grouped[0]
+		pv.nested.isWithinRootSubtree = true
+		pv.prop = w.prop
+		pv.children = w.children
+		return pv
+	}
+	pv.children = grouped
+	return pv
+}
+
+// buildPropValuePair constructs the propValuePair from filter without
+// applying the same-root grouping pass. Used recursively by
+// extractPropValuePairs; the top-level extractPropValuePair wrapper
+// invokes groupNestedSubtrees once on the final tree.
+func (s *Searcher) buildPropValuePair(
+	ctx context.Context, filter *filters.Clause, className schema.ClassName, class *models.Class,
+) (*propValuePair, error) {
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
@@ -349,9 +407,6 @@ func (s *Searcher) extractPropValuePair(
 		children, err := s.extractPropValuePairs(ctx, filter.Operands, filter.Operator, className)
 		if err != nil {
 			return nil, err
-		}
-		if filter.Operator == filters.OperatorAnd {
-			children = groupNestedByProp(children, class)
 		}
 		out.children = children
 		out.operator = filter.Operator
@@ -428,9 +483,19 @@ func (s *Searcher) extractPropValuePair(
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 }
 
+// extractPropValuePairs extracts each operand recursively via
+// buildPropValuePair (not the public extractPropValuePair wrapper) so
+// the same-root grouping pass runs only once at the outermost call.
+// The top-level groupNestedSubtrees pass walks the full tree post-order
+// and groups every AND node — including those nested inside OR/NOT —
+// so this recursion model doesn't miss any AND nodes.
 func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	operands []filters.Clause, operator filters.Operator, className schema.ClassName,
 ) ([]*propValuePair, error) {
+	class := s.getClass(className.String())
+	if class == nil {
+		return nil, fmt.Errorf("class %q not found", className)
+	}
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
@@ -442,7 +507,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 		i, clause := i, clause
 		eg.Go(func() error {
 			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
-			child, err := s.extractPropValuePair(ctx, &clause, className)
+			child, err := s.buildPropValuePair(ctx, &clause, className, class)
 			// check for stopword errors on ContainsAny operator only at the end
 			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
 				return nil
@@ -884,6 +949,10 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	// No same-root grouping here. ContainsAll desugars to an AND that
+	// the outermost extractPropValuePair wrapper normalizes via
+	// groupNestedByProp; ContainsAny / ContainsNone desugar to OR /
+	// NOT(OR) which the wrapper deliberately leaves ungrouped.
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)

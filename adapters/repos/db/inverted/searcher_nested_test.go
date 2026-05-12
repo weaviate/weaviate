@@ -349,27 +349,28 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	t.Run("multi-token nested text alongside scalar nested condition", func(t *testing.T) {
 		// input:  AND(nested.title = "hello world", nested.city = "berlin")
 		// output:
-		// └── correlated(nested)        ← nested.isWithinRootSubtree=true, nested.childrenFromTokenization=false
-		//     ├── correlated(nested)    ← nested.isWithinRootSubtree=true, nested.childrenFromTokenization=true (title tokens)
+		// └── AND {isWithinRootSubtree=true, prop=nested}  ← outer AND collapsed
+		//     ├── AND {isWithinRootSubtree=true, fromTok}   (title tokens)
 		//     │   ├── title:"hello"
 		//     │   └── title:"world"
 		//     └── city:"berlin"
+		//
+		// The outer AND has both same-root children landing in one group, so
+		// groupNestedSubtrees promotes the outer AND in place rather than producing
+		// a redundant AND-with-single-wrapper-child layer.
 		pv, err := s.extractPropValuePair(t.Context(),
 			andClause(leaf("nested.title", "hello world"), leaf("nested.city", "berlin")),
 			"Article")
 		require.NoError(t, err)
 
 		assert.Equal(t, filters.OperatorAnd, pv.operator)
-		require.Len(t, pv.children, 1, "both conditions grouped under one correlated(nested) node")
-
-		group := pv.children[0]
-		assert.True(t, group.nested.isWithinRootSubtree)
-		assert.False(t, group.nested.childrenFromTokenization)
-		assert.Equal(t, "nested", group.prop)
-		require.Len(t, group.children, 2)
+		assert.True(t, pv.nested.isWithinRootSubtree, "outer AND collapsed into the same-root wrapper")
+		assert.False(t, pv.nested.childrenFromTokenization)
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
 
 		// first child: the tokenization compound AND for "hello world"
-		tokenAnd := group.children[0]
+		tokenAnd := pv.children[0]
 		assert.True(t, tokenAnd.nested.isWithinRootSubtree)
 		assert.True(t, tokenAnd.nested.childrenFromTokenization)
 		assert.Equal(t, filters.OperatorAnd, tokenAnd.operator)
@@ -378,11 +379,306 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		assert.Equal(t, []byte("world"), tokenAnd.children[1].value)
 
 		// second child: the scalar city leaf
-		cityLeaf := group.children[1]
+		cityLeaf := pv.children[1]
 		assert.True(t, cityLeaf.nested.isNested)
 		assert.False(t, cityLeaf.nested.isWithinRootSubtree)
 		assert.Equal(t, []byte("berlin"), cityLeaf.value)
 		assert.Equal(t, "city", cityLeaf.nested.relPath)
+	})
+
+	orClause := func(operands ...filters.Clause) *filters.Clause {
+		return &filters.Clause{Operator: filters.OperatorOr, Operands: operands}
+	}
+	notClause := func(operand filters.Clause) *filters.Clause {
+		return &filters.Clause{Operator: filters.OperatorNot, Operands: []filters.Clause{operand}}
+	}
+	intLeaf := func(path string, value int) filters.Clause {
+		return *makeNestedFilterClause(path, filters.OperatorEqual, schema.DataTypeInt, value)
+	}
+
+	// assertNestedLeaf asserts the pvp is a nested leaf at relPath with value.
+	assertNestedLeaf := func(t *testing.T, pv *propValuePair, relPath string, value []byte) {
+		t.Helper()
+		assert.True(t, pv.nested.isNested, "expected nested leaf")
+		assert.False(t, pv.nested.isWithinRootSubtree, "leaf should not be marked as wrapper")
+		assert.Equal(t, relPath, pv.nested.relPath)
+		assert.Equal(t, value, pv.value)
+	}
+
+	t.Run("AND of two same-root scalars collapses outer AND", func(t *testing.T) {
+		// input:  AND(nested.city=berlin, nested.title=hello)
+		// output (collapsed — no redundant outer AND level):
+		// └── AND {isWRS:nested}
+		//     ├── city:berlin
+		//     └── title:hello  (single token — no tokenization wrapper)
+		pv, err := s.extractPropValuePair(t.Context(),
+			andClause(leaf("nested.city", "berlin"), leaf("nested.title", "hello")),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorAnd, pv.operator)
+		assert.True(t, pv.nested.isWithinRootSubtree)
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+		assertNestedLeaf(t, pv.children[1], "title", []byte("hello"))
+	})
+
+	t.Run("AND with OR(same-root) inside wraps outer AND", func(t *testing.T) {
+		// input:  AND(nested.city=berlin, OR(nested.title=alpha, nested.title=beta))
+		// output (outer AND collapses; inner OR passes through unwrapped):
+		// └── AND {isWRS:nested}
+		//     ├── city:berlin
+		//     └── OR
+		//         ├── title:alpha
+		//         └── title:beta
+		pv, err := s.extractPropValuePair(t.Context(),
+			andClause(
+				leaf("nested.city", "berlin"),
+				*orClause(leaf("nested.title", "alpha"), leaf("nested.title", "beta")),
+			),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorAnd, pv.operator)
+		assert.True(t, pv.nested.isWithinRootSubtree)
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
+
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+
+		orChild := pv.children[1]
+		assert.Equal(t, filters.OperatorOr, orChild.operator)
+		assert.False(t, orChild.nested.isWithinRootSubtree, "OR is not wrapped")
+		require.Len(t, orChild.children, 2)
+		assertNestedLeaf(t, orChild.children[0], "title", []byte("alpha"))
+		assertNestedLeaf(t, orChild.children[1], "title", []byte("beta"))
+	})
+
+	t.Run("parenthesized AND nested in same-root AND wraps both levels", func(t *testing.T) {
+		// input:  AND(nested.city=berlin, AND(nested.title=alpha, nested.count=1))
+		// output (outer AND collapses; inner AND also collapses):
+		// └── AND {isWRS:nested}
+		//     ├── city:berlin
+		//     └── AND {isWRS:nested}     ← inner AND collapsed; flattenAndOperators
+		//         ├── title:alpha       removes this layer at plan time
+		//         └── count:1
+		pv, err := s.extractPropValuePair(t.Context(),
+			andClause(
+				leaf("nested.city", "berlin"),
+				*andClause(leaf("nested.title", "alpha"), intLeaf("nested.count", 1)),
+			),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorAnd, pv.operator)
+		assert.True(t, pv.nested.isWithinRootSubtree)
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
+
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+
+		innerAnd := pv.children[1]
+		assert.Equal(t, filters.OperatorAnd, innerAnd.operator)
+		assert.True(t, innerAnd.nested.isWithinRootSubtree, "inner AND also collapsed")
+		assert.Equal(t, "nested", innerAnd.prop)
+		require.Len(t, innerAnd.children, 2)
+		assertNestedLeaf(t, innerAnd.children[0], "title", []byte("alpha"))
+		assert.True(t, innerAnd.children[1].nested.isNested)
+		assert.Equal(t, "count", innerAnd.children[1].nested.relPath)
+	})
+
+	t.Run("OR(AND(A,B), leaf) — outer OR pass-through, inner AND collapses", func(t *testing.T) {
+		// input:  OR(AND(nested.city=berlin, nested.title=alpha), nested.title=beta)
+		// output:
+		// └── OR
+		//     ├── AND {isWRS:nested}  ← inner AND collapsed
+		//     │   ├── city:berlin
+		//     │   └── title:alpha
+		//     └── title:beta
+		pv, err := s.extractPropValuePair(t.Context(),
+			orClause(
+				*andClause(leaf("nested.city", "berlin"), leaf("nested.title", "alpha")),
+				leaf("nested.title", "beta"),
+			),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorOr, pv.operator)
+		assert.False(t, pv.nested.isWithinRootSubtree, "outer OR is not wrapped")
+		require.Len(t, pv.children, 2)
+
+		innerAnd := pv.children[0]
+		assert.Equal(t, filters.OperatorAnd, innerAnd.operator)
+		assert.True(t, innerAnd.nested.isWithinRootSubtree, "inner AND collapsed into a wrapper")
+		assert.Equal(t, "nested", innerAnd.prop)
+		require.Len(t, innerAnd.children, 2)
+		assertNestedLeaf(t, innerAnd.children[0], "city", []byte("berlin"))
+		assertNestedLeaf(t, innerAnd.children[1], "title", []byte("alpha"))
+
+		assertNestedLeaf(t, pv.children[1], "title", []byte("beta"))
+	})
+
+	t.Run("top-level ContainsAll on int[] collapses to same-root wrapper", func(t *testing.T) {
+		// input:  ContainsAll(nested.numbers, [1, 2])
+		// output:
+		// └── AND {isWRS:nested}    ← desugared AND collapsed
+		//     ├── numbers=1
+		//     └── numbers=2
+		clause := &filters.Clause{
+			Operator: filters.ContainsAll,
+			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1, 2}},
+			On:       &filters.Path{Class: "Article", Property: "nested.numbers"},
+		}
+		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorAnd, pv.operator)
+		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAll's AND collapses into a wrapper")
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
+		assert.True(t, pv.children[0].nested.isNested)
+		assert.Equal(t, "numbers", pv.children[0].nested.relPath)
+	})
+
+	t.Run("top-level ContainsAny passes through unwrapped", func(t *testing.T) {
+		// input:  ContainsAny(nested.numbers, [1, 2])
+		// output (OR — no wrap; OR-of-same-root has identical docID
+		// semantics at docID and position levels):
+		// └── OR
+		//     ├── numbers=1
+		//     └── numbers=2
+		clause := &filters.Clause{
+			Operator: filters.ContainsAny,
+			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1, 2}},
+			On:       &filters.Path{Class: "Article", Property: "nested.numbers"},
+		}
+		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorOr, pv.operator)
+		assert.False(t, pv.nested.isWithinRootSubtree, "OR is not wrapped")
+		require.Len(t, pv.children, 2)
+		assert.True(t, pv.children[0].nested.isNested)
+	})
+
+	t.Run("top-level ContainsNone passes through unwrapped", func(t *testing.T) {
+		// input:  ContainsNone(nested.numbers, [1, 2])
+		// output (NOT(OR) — neither layer is wrapped):
+		// └── NOT
+		//     └── OR
+		//         ├── numbers=1
+		//         └── numbers=2
+		clause := &filters.Clause{
+			Operator: filters.ContainsNone,
+			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1, 2}},
+			On:       &filters.Path{Class: "Article", Property: "nested.numbers"},
+		}
+		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorNot, pv.operator)
+		assert.False(t, pv.nested.isWithinRootSubtree)
+		require.Len(t, pv.children, 1)
+
+		inner := pv.children[0]
+		assert.Equal(t, filters.OperatorOr, inner.operator)
+		assert.False(t, inner.nested.isWithinRootSubtree)
+		require.Len(t, inner.children, 2)
+	})
+
+	t.Run("ContainsAny inside AND wraps outer AND via recursive nestedRootProp", func(t *testing.T) {
+		// input:  AND(nested.city=berlin, ContainsAny(nested.numbers, [1, 2]))
+		// output (outer AND collapses; inner OR passes through. Phase B's
+		// recursive nestedRootProp recognises the OR's leaves as same-root
+		// and includes the OR in the outer wrap):
+		// └── AND {isWRS:nested}
+		//     ├── city:berlin
+		//     └── OR
+		//         ├── numbers=1
+		//         └── numbers=2
+		containsAny := filters.Clause{
+			Operator: filters.ContainsAny,
+			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1, 2}},
+			On:       &filters.Path{Class: "Article", Property: "nested.numbers"},
+		}
+		pv, err := s.extractPropValuePair(t.Context(),
+			andClause(leaf("nested.city", "berlin"), containsAny),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorAnd, pv.operator)
+		assert.True(t, pv.nested.isWithinRootSubtree)
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
+
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+
+		orChild := pv.children[1]
+		assert.Equal(t, filters.OperatorOr, orChild.operator)
+		assert.False(t, orChild.nested.isWithinRootSubtree)
+		require.Len(t, orChild.children, 2)
+	})
+
+	t.Run("standalone OR of same-root leaves is not wrapped", func(t *testing.T) {
+		// input:  OR(nested.city=berlin, nested.title=alpha)
+		// output (OR-of-same-root has identical docID semantics at docID
+		// and position levels, so no wrapping):
+		// └── OR
+		//     ├── city:berlin
+		//     └── title:alpha
+		pv, err := s.extractPropValuePair(t.Context(),
+			orClause(leaf("nested.city", "berlin"), leaf("nested.title", "alpha")),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorOr, pv.operator)
+		assert.False(t, pv.nested.isWithinRootSubtree)
+		require.Len(t, pv.children, 2)
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+		assertNestedLeaf(t, pv.children[1], "title", []byte("alpha"))
+	})
+
+	t.Run("standalone NOT of nested leaf is not wrapped", func(t *testing.T) {
+		// input:  NOT(nested.city=berlin)
+		// output:
+		// └── NOT
+		//     └── city:berlin
+		pv, err := s.extractPropValuePair(t.Context(),
+			notClause(leaf("nested.city", "berlin")),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorNot, pv.operator)
+		assert.False(t, pv.nested.isWithinRootSubtree)
+		require.Len(t, pv.children, 1)
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+	})
+
+	t.Run("AND with NOT(leaf) inside wraps outer AND via recursive nestedRootProp", func(t *testing.T) {
+		// input:  AND(nested.city=berlin, NOT(nested.title=alpha))
+		// output (outer AND collapses; inner NOT passes through):
+		// └── AND {isWRS:nested}
+		//     ├── city:berlin
+		//     └── NOT
+		//         └── title:alpha
+		pv, err := s.extractPropValuePair(t.Context(),
+			andClause(leaf("nested.city", "berlin"), *notClause(leaf("nested.title", "alpha"))),
+			"Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorAnd, pv.operator)
+		assert.True(t, pv.nested.isWithinRootSubtree)
+		assert.Equal(t, "nested", pv.prop)
+		require.Len(t, pv.children, 2)
+
+		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
+
+		notChild := pv.children[1]
+		assert.Equal(t, filters.OperatorNot, notChild.operator)
+		assert.False(t, notChild.nested.isWithinRootSubtree)
+		require.Len(t, notChild.children, 1)
+		assertNestedLeaf(t, notChild.children[0], "title", []byte("alpha"))
 	})
 }
 
