@@ -32,12 +32,14 @@ var ErrCreateRequiresNamespace = errors.New("create requires a namespaced princi
 
 // ValidateNamespacePrefix rejects user-supplied class/alias names whose
 // "<namespace>:" prefix is malformed. Returns nil when name has no separator.
+// kind is the noun ("class" or "alias") used in the generic error message so
+// the wording matches the field the caller is validating.
 //
 // The error wording depends on the caller's context so namespaces stay
 // invisible to principals who shouldn't know about them:
 //
 //   - Namespaced principal, or NS-disabled cluster: returns a generic
-//     "is not a valid class name" error — namespaced users should never
+//     "is not a valid <kind> name" error — namespaced users should never
 //     send qualified names (the resolver adds their prefix automatically),
 //     and on NS-disabled clusters namespaces simply don't exist as a
 //     concept.
@@ -50,12 +52,12 @@ var ErrCreateRequiresNamespace = errors.New("create requires a namespaced princi
 // registered "customer1" namespace) sent by an operator propagates through
 // QualifyClass/Resolve unchanged and the lookup hits a different key than
 // the one the schema and data directory are stored under.
-func ValidateNamespacePrefix(principal *models.Principal, namespacesEnabled bool, name string) error {
+func ValidateNamespacePrefix(principal *models.Principal, namespacesEnabled bool, name, kind string) error {
 	if !strings.Contains(name, schema.NamespaceSeparator) {
 		return nil
 	}
 	if !namespacesEnabled || (principal != nil && principal.Namespace != "") {
-		return fmt.Errorf("'%s' is not a valid class name", name)
+		return fmt.Errorf("'%s' is not a valid %s name", name, kind)
 	}
 	ns, _, _ := strings.Cut(name, schema.NamespaceSeparator)
 	if err := schema.ValidateNamespaceNameSyntax(ns); err != nil {
@@ -75,9 +77,11 @@ const ShortNameMaxLength = schema.ClassNameMaxLength - schema.NamespaceMaxLength
 // policy, length-checks the raw short name, and returns the qualified form.
 // On NS-enabled clusters, callers without a namespace are rejected with
 // ErrCreateRequiresNamespace; the call site is responsible for translating
-// that into a 403 with the appropriate verb and resources.
-func QualifyForCreate(principal *models.Principal, namespacesEnabled bool, raw string) (string, error) {
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, raw); err != nil {
+// that into a 403 with the appropriate verb and resources. kind is the noun
+// ("class" or "alias") used in the prefix-rejection error so the wording
+// matches the field the caller is validating.
+func QualifyForCreate(principal *models.Principal, namespacesEnabled bool, raw, kind string) (string, error) {
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, raw, kind); err != nil {
 		return "", err
 	}
 	if !namespacesEnabled {

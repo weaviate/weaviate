@@ -193,7 +193,7 @@ func TestAddAlias(t *testing.T) {
 			principal:  namespacedPrincipal("customer1"),
 			alias:      "Customer2:Films",
 			class:      "Movies",
-			wantErrMsg: "is not a valid class name",
+			wantErrMsg: "is not a valid alias name",
 		},
 	}
 

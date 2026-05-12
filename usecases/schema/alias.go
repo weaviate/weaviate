@@ -84,14 +84,14 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	// Captured for the entity-name validators, which forbid ":".
 	originalAliasName := alias.Alias
 	originalTargetName := alias.Class
-	qAlias, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Alias)
+	qAlias, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Alias, "alias")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
 	if err != nil {
 		return nil, 0, err
 	}
-	qTarget, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Class)
+	qTarget, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Class, "class")
 	if err != nil {
 		return nil, 0, err
 	}

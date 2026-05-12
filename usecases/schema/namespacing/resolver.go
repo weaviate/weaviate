@@ -73,7 +73,7 @@ func qualify(principal *models.Principal, name string) string {
 // namespaced principals, raw for global principals), "" otherwise — used by
 // the objects layer to preserve existing alias-aware flows.
 func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, originalAlias string, err error) {
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name); err != nil {
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
 		return "", "", err
 	}
 	qualified := schema.UppercaseClassName(name)
@@ -95,7 +95,7 @@ func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bo
 // resolved. Rejects user-supplied names whose "<namespace>:" prefix is not
 // syntactically valid.
 func QualifyClass(principal *models.Principal, namespacesEnabled bool, name string) (string, error) {
-	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name); err != nil {
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
 		return "", err
 	}
 	qualified := schema.UppercaseClassName(name)

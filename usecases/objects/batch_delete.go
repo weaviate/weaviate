@@ -37,7 +37,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if match != nil {
 		resolved, _, err := b.resolveNS(principal, match.Class)
 		if err != nil {
-			return nil, err
+			return nil, NewErrInvalidUserInput("%v", err)
 		}
 		match.Class = resolved
 		class = match.Class
