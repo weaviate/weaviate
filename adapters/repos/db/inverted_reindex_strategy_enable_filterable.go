@@ -187,7 +187,9 @@ func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]in
 func (s *EnableFilterableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
 	trueVal := true
-	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+	// Missing properties are tolerated: a property dropped between
+	// scheduling and completion is the same outcome we'd want anyway.
+	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
 		func(prop *models.Property) bool {
 			if prop.IndexFilterable != nil && *prop.IndexFilterable {
 				return false // already enabled (possibly by a racing shard)
@@ -195,4 +197,5 @@ func (s *EnableFilterableStrategy) OnMigrationComplete(ctx context.Context, shar
 			prop.IndexFilterable = &trueVal
 			return true
 		})
+	return err
 }

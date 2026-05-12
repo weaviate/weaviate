@@ -190,7 +190,9 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
 	trueVal := true
-	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+	// Missing properties are tolerated: a property dropped between
+	// scheduling and completion is the same outcome we'd want anyway.
+	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
 		func(prop *models.Property) bool {
 			if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == s.tokenization {
 				return false // already enabled with the target tokenization
@@ -199,4 +201,5 @@ func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shar
 			prop.Tokenization = s.tokenization
 			return true
 		})
+	return err
 }

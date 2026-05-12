@@ -139,19 +139,26 @@ func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.Propert
 // property; the strategy mutates only the fields it owns. Return
 // apply=false to skip the RAFT update for this property (e.g. the
 // target state is already satisfied).
+//
+// Returns the names of properties that were not found in the class
+// (e.g. dropped between task scheduling and completion). Multi-property
+// strategies typically ignore this list — a missing property is the
+// same as "already migrated" for them — while single-property strategies
+// (FilterableRetokenize) treat it as a hard error to match the pre-helper
+// behavior.
 func applyPerPropertySchemaUpdate(
 	ctx context.Context,
 	mgr *schema.Manager,
 	className string,
 	propNames []string,
 	mutate func(prop *models.Property) (apply bool),
-) error {
+) (missing []string, err error) {
 	for _, propName := range propNames {
 		// Re-read the class right before each property update to minimize the
 		// staleness window where a concurrent strategy could clobber our flag.
 		class := mgr.ReadOnlyClass(className)
 		if class == nil {
-			return fmt.Errorf("class %q not found", className)
+			return nil, fmt.Errorf("class %q not found", className)
 		}
 
 		var prop *models.Property
@@ -162,6 +169,7 @@ func applyPerPropertySchemaUpdate(
 			}
 		}
 		if prop == nil {
+			missing = append(missing, propName)
 			continue
 		}
 
@@ -170,10 +178,10 @@ func applyPerPropertySchemaUpdate(
 			continue
 		}
 		if err := schema.UpdatePropertyInternal(&mgr.Handler, ctx, className, &updated); err != nil {
-			return fmt.Errorf("updating property %q: %w", propName, err)
+			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}
 	}
-	return nil
+	return missing, nil
 }
 
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.

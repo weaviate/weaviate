@@ -183,7 +183,7 @@ func (s *FilterableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 // so only named fields are merged.
 func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
-	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, []string{s.propName},
+	missing, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, []string{s.propName},
 		func(prop *models.Property) bool {
 			if prop.Tokenization == s.targetTokenization {
 				return false // already correct
@@ -191,4 +191,15 @@ func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, 
 			prop.Tokenization = s.targetTokenization
 			return true
 		})
+	if err != nil {
+		return err
+	}
+	// Single-property strategy: a missing target property is a hard error
+	// (matches the pre-helper behavior). The retokenize migration was
+	// specifically about this one property, so if it's gone we cannot
+	// claim the migration completed.
+	if len(missing) > 0 {
+		return fmt.Errorf("property %q not found in class %q", s.propName, className)
+	}
+	return nil
 }

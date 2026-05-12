@@ -177,7 +177,9 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
 	className := shard.Index().Config.ClassName.String()
 	trueVal := true
-	return applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+	// Missing properties are tolerated: a property dropped between
+	// scheduling and completion is the same outcome we'd want anyway.
+	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
 		func(prop *models.Property) bool {
 			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
 				return false // already enabled
@@ -185,4 +187,5 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 			prop.IndexRangeFilters = &trueVal
 			return true
 		})
+	return err
 }
