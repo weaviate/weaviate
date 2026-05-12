@@ -26,40 +26,54 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		enabled    bool
-		classNames []string
-		nsCount    int
-		wantErr    bool
-		errSubstr  string
+		name                         string
+		enabled                      bool
+		lsmSkipWriteClassNameEnabled bool
+		classNames                   []string
+		nsCount                      int
+		wantErr                      bool
+		errSubstr                    string
 	}{
 		{
-			name:       "enabled, fresh cluster",
-			enabled:    true,
-			classNames: nil,
-			nsCount:    0,
+			name:                         "enabled, fresh cluster",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			classNames:                   nil,
+			nsCount:                      0,
 		},
 		{
-			name:       "enabled, only namespaced classes",
-			enabled:    true,
-			classNames: []string{qualified("tenant1", "Movie")},
-			nsCount:    1,
+			name:                         "enabled, only namespaced classes",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			classNames:                   []string{qualified("tenant1", "Movie")},
+			nsCount:                      1,
 		},
 		{
-			name:       "enabled, non-namespaced class present",
-			enabled:    true,
-			classNames: []string{"Movie"},
-			nsCount:    0,
-			wantErr:    true,
-			errSubstr:  "non-namespaced collection",
+			name:                         "enabled, non-namespaced class present",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			classNames:                   []string{"Movie"},
+			nsCount:                      0,
+			wantErr:                      true,
+			errSubstr:                    "non-namespaced collection",
 		},
 		{
-			name:       "enabled, mixed but contains legacy class",
-			enabled:    true,
-			classNames: []string{qualified("tenant1", "Movie"), "Legacy"},
-			nsCount:    1,
-			wantErr:    true,
-			errSubstr:  "Legacy",
+			name:                         "enabled, mixed but contains legacy class",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			classNames:                   []string{qualified("tenant1", "Movie"), "Legacy"},
+			nsCount:                      1,
+			wantErr:                      true,
+			errSubstr:                    "Legacy",
+		},
+		{
+			name:                         "enabled but lsm skip write classname disabled",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: false,
+			classNames:                   nil,
+			nsCount:                      0,
+			wantErr:                      true,
+			errSubstr:                    "PERSISTENCE_LSM_SKIP_WRITE_CLASSNAME_ENABLED=true",
 		},
 		{
 			name:       "disabled, fresh cluster",
@@ -101,7 +115,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.classNames, tt.nsCount)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.classNames, tt.nsCount)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)
