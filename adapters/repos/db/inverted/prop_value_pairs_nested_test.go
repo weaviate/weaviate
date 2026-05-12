@@ -232,10 +232,12 @@ func TestGroupNestedByProp(t *testing.T) {
 		},
 
 		// output:
-		// ├── addresses.city         ← single-child group, no wrapper
-		// └── OR(addresses.postcode) ← flat: not an AND node
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── OR(postcode)  ← OR-of-same-root folds into the subtree
+		// Recursive nestedRootProp recognises the OR as addresses-rooted.
 		{
-			name: "non-AND compound child goes to flat",
+			name: "OR with same-root child folds into subtree",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				{
@@ -243,10 +245,144 @@ func TestGroupNestedByProp(t *testing.T) {
 					children: []*propValuePair{nestedPvp("addresses", "postcode")},
 				},
 			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── OR(postcode, country)  ← all same-root, folds in
+		{
+			name: "OR with multiple same-root children folds into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("addresses", "postcode"),
+						nestedPvp("addresses", "country"),
+					},
+				},
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// ├── addresses.city                  ← single-child group, no wrapper
+		// └── OR(addresses.postcode, cars.x)  ← mixed-root OR stays opaque
+		{
+			name: "OR with mixed-root children stays opaque",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("addresses", "postcode"),
+						nestedPvp("cars", "make"),
+					},
+				},
+			},
 			want: []wantChild{
 				{isPlain: true},
 				{isPlain: true},
 			},
+		},
+
+		// output:
+		// ├── addresses.city               ← single-child group, no wrapper
+		// └── OR(addresses.postcode, flat) ← OR with flat stays opaque
+		{
+			name: "OR with flat child stays opaque",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("addresses", "postcode"),
+						flatPvp(),
+					},
+				},
+			},
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── NOT(postcode)  ← NOT-of-same-root folds in
+		{
+			name: "NOT with same-root child folds into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorNot,
+					children: []*propValuePair{nestedPvp("addresses", "postcode")},
+				},
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// ├── addresses.city            ← single-child group, no wrapper
+		// └── NOT(cars.make)            ← different root, stays opaque
+		{
+			name: "NOT with different-root child stays opaque",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorNot,
+					children: []*propValuePair{nestedPvp("cars", "make")},
+				},
+			},
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── AND(postcode, country)  ← AND-of-same-root folds in
+		// Recognises a user-written AND of same-root leaves as a same-root
+		// subtree (in contrast to the existing test for AND with mixed roots
+		// or AND with flat children which stay opaque).
+		{
+			name: "AND with multiple same-root nested leaves folds into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				userNestedAndPvp(
+					nestedPvp("addresses", "postcode"),
+					nestedPvp("addresses", "country"),
+				),
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── AND(postcode, OR(country, region))  ← deep nesting all same-root
+		// Recursive analysis crosses multiple levels of operator nesting.
+		{
+			name: "deeply nested same-root operators fold into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				userNestedAndPvp(
+					nestedPvp("addresses", "postcode"),
+					&propValuePair{
+						operator: filters.OperatorOr,
+						children: []*propValuePair{
+							nestedPvp("addresses", "country"),
+							nestedPvp("addresses", "region"),
+						},
+					},
+				),
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
 		},
 
 		// output:

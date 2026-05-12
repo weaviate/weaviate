@@ -141,12 +141,15 @@ func tokenWrapperOuter(tokens ...*propValuePair) *propValuePair {
 }
 
 // tokenWrapperInner builds a non-nested wrapper child whose grandchildren are
-// tokens of a single value at the same path. Models Pattern 2.
+// tokens of a single value at the same path. Models Pattern 2: production
+// buildNestedTextFilterPair sets childrenFromTokenization=true, which is
+// how normalizeRecGroup distinguishes tokenization wrappers from same-root
+// operator subtrees.
 func tokenWrapperInner(tokens ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		prop:     "addresses",
 		operator: filters.OperatorAnd,
-		// isNested defaults to false → routed through the wrapper branch.
+		nested:   nestedInfo{childrenFromTokenization: true},
 		children: tokens,
 	}
 }

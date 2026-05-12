@@ -204,16 +204,44 @@ func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPa
 	}, nil
 }
 
-// nestedRootProp returns the root property name for a child eligible for
-// correlated grouping, or "" if the child is flat and should pass through.
-// Eligible children are direct nested leaves (nested.isNested) or
-// tokenization compound ANDs (nested.isWithinRootSubtree).
-// For "garages.cars.tags", the root property name is "garages".
+// nestedRootProp returns the root property name if child's entire subtree
+// consists of nested conditions on a single root nested prop, or "" if it
+// contains any flat property, mixed-root nested leaves, or has no nested
+// content. Used by groupNestedByProp to decide which children fold into a
+// same-root subtree wrapper.
+//
+// Terminating cases:
+//   - direct nested leaf (nested.isNested): returns child.prop.
+//   - already-marked subtree (nested.isWithinRootSubtree): returns child.prop.
+//
+// Recursive cases — for AND/OR/NOT operator children, all descendants must
+// agree on a single root for the subtree to be eligible:
+//   - AND/OR with N≥1 children: all children must return the same non-empty root.
+//   - NOT with 1 child: returns whatever the operand returns.
+//
+// A flat leaf, mixed-root subtree, or empty operator returns "".
 func nestedRootProp(child *propValuePair) string {
 	if child.nested.isNested || child.nested.isWithinRootSubtree {
 		return child.prop
 	}
-	return ""
+	switch child.operator {
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+		if len(child.children) == 0 {
+			return ""
+		}
+		first := nestedRootProp(child.children[0])
+		if first == "" {
+			return ""
+		}
+		for _, gc := range child.children[1:] {
+			if nestedRootProp(gc) != first {
+				return ""
+			}
+		}
+		return first
+	default:
+		return ""
+	}
 }
 
 // groupNestedByProp rewrites a flat slice of AND children so that conditions

@@ -121,8 +121,15 @@ func normalizeRecGroup(
 		return input, nil
 	}
 
-	// Pattern 2 (and the mainstream non-tokenized case): each child is either a
-	// direct leaf (isNested) or a tokenization wrapper containing token leaves.
+	// Pattern 2 (and the mainstream non-tokenized case): each child is one of
+	//   - direct nested leaf (isNested): routeDirectLeaf.
+	//   - tokenization wrapper (childrenFromTokenization=true): AndAll the
+	//     token grandchildren into one virtual leaf bitmap.
+	//   - operator subtree (AND/OR/NOT containing nested leaves) introduced
+	//     by recursive same-root grouping: recursively pre-fetch a value
+	//     bitmap for every nested leaf inside the subtree. The operator pvp
+	//     itself is added to positives so the planner sees it and builds
+	//     recOrNode / recNotNode / nested recGroupNode as needed.
 	for _, child := range children {
 		if child.nested.isNested {
 			if err := routeDirectLeaf(ctx, child, fetcher, input); err != nil {
@@ -133,13 +140,25 @@ func normalizeRecGroup(
 		if len(child.children) == 0 {
 			return nil, fmt.Errorf("normalizeRecGroup: non-nested child %p has no grandchildren", child)
 		}
-		combined, releases, err := fetchAndAndAllTokens(ctx, child.children, fetcher, bitmapOps, maxConcurrency)
-		if err != nil {
-			return nil, err
+		if child.nested.childrenFromTokenization {
+			combined, releases, err := fetchAndAndAllTokens(ctx, child.children, fetcher, bitmapOps, maxConcurrency)
+			if err != nil {
+				return nil, err
+			}
+			input.releases = append(input.releases, releases...)
+			input.positives = append(input.positives, child)
+			input.rawsByCond[child] = combined
+			continue
 		}
-		input.releases = append(input.releases, releases...)
-		input.positives = append(input.positives, child)
-		input.rawsByCond[child] = combined
+		switch child.operator {
+		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, input); err != nil {
+				return nil, err
+			}
+			input.positives = append(input.positives, child)
+		default:
+			return nil, fmt.Errorf("normalizeRecGroup: unsupported non-nested child operator %q", child.operator.Name())
+		}
 	}
 
 	if len(input.positives) == 0 && len(input.excludePositions) > 0 {
@@ -184,6 +203,47 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 	input.positives = append(input.positives, leaf)
 	input.rawsByCond[leaf] = bm
 	return nil
+}
+
+// fetchOperatorSubtreeBitmaps walks an AND/OR/NOT subtree rooted at node and
+// pre-fetches a raw position bitmap for every nested leaf it reaches. Bitmaps
+// land in input.rawsByCond keyed by the leaf pvp; the operator nodes
+// themselves don't go to rawsByCond — the planner walks them via
+// buildOr/buildNot/buildGroup and reads bitmaps for the leaves at evaluation.
+//
+// IsNull leaves inside operator subtrees are not yet supported; if encountered
+// the function returns an error so callers can detect the gap rather than
+// produce silent wrong results. Mixing IsNull with same-element OR/NOT
+// semantics will be addressed alongside the IsNull validation step.
+func fetchOperatorSubtreeBitmaps(
+	ctx context.Context,
+	node *propValuePair,
+	fetcher recBitmapFetcher,
+	input *recGroupInput,
+) error {
+	if node.nested.isNested {
+		if node.operator == filters.OperatorIsNull {
+			return fmt.Errorf("normalizeRecGroup: IsNull leaf inside operator subtree not yet supported (%q)", node.nested.relPath)
+		}
+		bm, rel, err := fetcher.fetchValue(ctx, node)
+		if err != nil {
+			return fmt.Errorf("normalizeRecGroup: fetch value for %q: %w", node.nested.relPath, err)
+		}
+		input.releases = append(input.releases, rel)
+		input.rawsByCond[node] = bm
+		return nil
+	}
+	switch node.operator {
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+		for _, child := range node.children {
+			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, input); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("normalizeRecGroup: unsupported node in operator subtree (operator=%q, isNested=%v)", node.operator.Name(), node.nested.isNested)
+	}
 }
 
 // fetchAndAndAllTokens fetches every token's raw position bitmap and ANDs them
