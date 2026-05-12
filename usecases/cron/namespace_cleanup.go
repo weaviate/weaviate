@@ -74,11 +74,9 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 	}
 	errors.GoWrapper(func() {
 		jobLogger := c.logger.WithField("job", namespaceCleanupJobName)
-		// runMu is held by the cron callback for the duration of one tick.
-		// The registration loop acquires/releases it as a barrier to wait
-		// for an in-flight tick before re-registering. Mutex is used over
-		// WaitGroup because Add called concurrently with Wait is documented
-		// WaitGroup misuse.
+		// runMu serialises the cron callback with the re-registration
+		// loop: the callback holds it for one tick, the loop Lock/Unlocks
+		// as a barrier before swapping the job.
 		runMu := new(sync.Mutex)
 
 		for {
@@ -125,8 +123,7 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 
 // createJob returns the per-tick callback. SkipIfStillRunning prevents
 // overlap at the cron layer; the coordinator additionally guards against
-// concurrent ticks. runMu is held for the tick duration so the
-// registration loop can barrier-wait via Lock/Unlock before re-registering.
+// concurrent ticks.
 func (c *cronsNamespaceCleanup) createJob(jobLogger logrus.FieldLogger,
 	clusterService *cluster.Service, coordinator *namespacecleanup.Coordinator,
 	runMu *sync.Mutex,

@@ -114,12 +114,10 @@ func NewController(logger logrus.FieldLogger) *Controller {
 	}
 }
 
-// Create inserts a namespace as [cmd.NamespaceStateActive]; the input's
-// State field is ignored so RAFT callers cannot inject a deleting entry.
-//
-// Returns [ErrBadRequest] for invalid names, [ErrAlreadyExists] when the
-// name maps to an active namespace, and [ErrNamespaceDeleting] when the
-// name is currently being torn down.
+// Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
+// input's State is ignored. Returns [ErrBadRequest] for invalid names,
+// [ErrAlreadyExists] when the name maps to an active namespace, and
+// [ErrNamespaceDeleting] when the name is currently being torn down.
 func (c *Controller) Create(ns cmd.Namespace) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -273,16 +271,9 @@ func (c *Controller) Snapshot() ([]byte, error) {
 
 // Restore replaces the current state with the snapshot contents. A nil or
 // empty snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
-// are tolerated to preserve forward-compatibility. Entries with empty
-// State are normalized to [cmd.NamespaceStateActive].
-//
-// Returns an error if any entry's State is not one of the known values.
-// The only realistic source of an unknown State is a snapshot produced
-// by a future binary; coercing silently would mis-classify the namespace
-// (e.g. accept writes against what should be suspended), so we fail-loud
-// and let the operator investigate. Forward-compatible state additions
-// must bump [cmd.NamespaceLatestCommandPolicyVersion] and gate at the
-// apply layer, not rely on string-matching here.
+// are tolerated. Entries with empty State are normalized to
+// [cmd.NamespaceStateActive]; entries with an unknown State return an
+// error so a future binary's snapshot is not silently mis-classified.
 func (c *Controller) Restore(snapshot []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

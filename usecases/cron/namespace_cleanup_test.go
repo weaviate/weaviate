@@ -75,7 +75,10 @@ func (stubLister) DeleteAlias(context.Context, string) (uint64, error) {
 func (stubLister) DeleteClass(context.Context, string) (uint64, error) {
 	return 0, nil
 }
-func (stubLister) RemoveNamespaceEntity(context.Context, string) error { return nil }
+
+func (stubLister) RemoveNamespaceEntity(context.Context, string) (uint64, error) {
+	return 0, nil
+}
 
 func TestCronsNamespaceCleanup_Init_NilCoordinator(t *testing.T) {
 	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)

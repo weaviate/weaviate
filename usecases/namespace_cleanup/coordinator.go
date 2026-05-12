@@ -65,7 +65,7 @@ type raftExecutor interface {
 	DeleteUsersInNamespace(ctx context.Context, name string) error
 	DeleteAlias(ctx context.Context, alias string) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
-	RemoveNamespaceEntity(ctx context.Context, name string) error
+	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
 }
 
 // Coordinator runs one cleanup pass per Tick on the leader. isLeader is
@@ -167,14 +167,9 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	if !c.isLeader() {
 		return types.ErrNotLeader
 	}
-	if err := c.raft.RemoveNamespaceEntity(ctx, ns); err != nil {
-		// Residuals can survive into RemoveNamespaceEntity when the
-		// coordinator's local view lagged the leader (a class or alias
-		// from before MarkDeleting wasn't visible when we enumerated)
-		// or when a leader-flip mid-tick split the cleanup across two
-		// nodes. The apply handler re-checks against authoritative
-		// state and rejects with ErrNamespaceNotEmpty; the next tick
-		// re-enumerates and retries.
+	if _, err := c.raft.RemoveNamespaceEntity(ctx, ns); err != nil {
+		// Apply re-checks emptiness against authoritative state; the
+		// next tick retries if anything still owns the namespace.
 		if errors.Is(err, namespaces.ErrNamespaceNotEmpty) {
 			return nil
 		}

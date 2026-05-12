@@ -124,14 +124,13 @@ func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
 	return m.controller.RemoveEntity(req.Name)
 }
 
-// Exists proxies to the controller so the apply switch can satisfy
-// [usecasesNamespaces.Exister] with a single namespaceManager reference
-// instead of threading the controller through every call site.
+// Exists proxies to the controller. Lets the apply switch satisfy
+// [usecasesNamespaces.Exister] from a single namespaceManager reference.
 func (m *Manager) Exists(name string) bool {
 	return m.controller.Exists(name)
 }
 
-// IsActive proxies to the controller. Same rationale as Exists.
+// IsActive proxies to the controller.
 func (m *Manager) IsActive(name string) bool {
 	return m.controller.IsActive(name)
 }

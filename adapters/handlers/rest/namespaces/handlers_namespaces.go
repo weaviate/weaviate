@@ -34,8 +34,8 @@ import (
 // NamespaceRaftGetter is the subset of cluster.Raft the handlers use. Keeping
 // it narrow makes the unit tests easy to mock.
 type NamespaceRaftGetter interface {
-	AddNamespace(ctx context.Context, ns cmd.Namespace) error
-	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) error
+	AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
+	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
 	DeleteUsersInNamespace(ctx context.Context, name string) error
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
 }
@@ -108,7 +108,7 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	// of truth for uniqueness, so we translate its error sentinels directly.
 	// This avoids a TOCTOU where two concurrent creates both pass a pre-check
 	// and the loser would surface a misleading 500.
-	if err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name}); err != nil {
+	if _, err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name}); err != nil {
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
@@ -183,7 +183,7 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 	// namespace-scoped user delete. Order matters: marking first ensures
 	// the dynusers active-namespace gate rejects any concurrent CreateUser
 	// before we drain the user list.
-	if err := h.raft.ChangeNamespaceState(ctx, name, cmd.NamespaceStateDeleting); err != nil {
+	if _, err := h.raft.ChangeNamespaceState(ctx, name, cmd.NamespaceStateDeleting); err != nil {
 		if errors.Is(err, usecasesNamespaces.ErrNotFound) {
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
