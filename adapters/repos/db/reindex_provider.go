@@ -54,6 +54,13 @@ type ReindexProvider struct {
 	localNode     string
 	concurrency   func() int
 
+	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
+	// fires after StartTask's per-task goroutine has already returned (its ctx
+	// is gone by then), so we cannot use the per-task ctx for the swap phase —
+	// we derive from the server ctx instead so a graceful shutdown can abort
+	// long-running swaps.
+	serverCtx context.Context
+
 	runningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
 
 	// payloads caches deserialized task payloads for use in OnGroupCompleted,
@@ -71,20 +78,27 @@ type ReindexProvider struct {
 
 // NewReindexProvider creates a new ReindexProvider. The concurrency function
 // is called at task start time to determine how many shards to reindex in
-// parallel (typically backed by a runtime.DynamicValue).
+// parallel (typically backed by a runtime.DynamicValue). serverCtx should
+// be a process-shutdown context so the OnGroupCompleted swap phase can
+// abort cleanly on graceful shutdown.
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
 	logger logrus.FieldLogger,
 	localNode string,
 	concurrency func() int,
+	serverCtx context.Context,
 ) *ReindexProvider {
+	if serverCtx == nil {
+		serverCtx = context.Background()
+	}
 	return &ReindexProvider{
 		db:             db,
 		schemaManager:  schemaManager,
 		logger:         logger,
 		localNode:      localNode,
 		concurrency:    concurrency,
+		serverCtx:      serverCtx,
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
@@ -268,6 +282,12 @@ func (p *ReindexProvider) processOneUnit(
 	}
 }
 
+// maxReindexPropertiesPerTask caps the number of properties in a single
+// reindex task's payload. The REST handler today always submits one
+// property per task, so this is defense-in-depth against future internal
+// callers or a corrupt RAFT replay carrying a pathological array length.
+const maxReindexPropertiesPerTask = 1024
+
 func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
@@ -275,6 +295,10 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 	// its unique constraints.
 	if len(payload.Properties) == 0 {
 		return nil, fmt.Errorf("%s requires at least one property", payload.MigrationType)
+	}
+	if len(payload.Properties) > maxReindexPropertiesPerTask {
+		return nil, fmt.Errorf("%s payload has %d properties; max is %d",
+			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
 	switch payload.MigrationType {
@@ -507,8 +531,10 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return
 	}
 
-	// Run the swap phase on each local shard.
-	ctx := context.Background()
+	// Run the swap phase on each local shard. Use the provider's server ctx
+	// so a graceful shutdown aborts in-flight swaps rather than blocking
+	// forever in the FlushAndSwitch / rename loop.
+	ctx := p.serverCtx
 	for _, unitID := range localGroupUnitIDs {
 		// Skip units that failed during reindex.
 		unit := task.Units[unitID]

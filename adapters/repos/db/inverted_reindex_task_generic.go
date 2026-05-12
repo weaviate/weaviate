@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,7 +53,12 @@ type ShardReindexTaskGeneric struct {
 	// markReindexed() without proceeding to runtimeSwap(). This is used by
 	// RunReindexOnlyOnShard for barrier semantics: all shards must finish
 	// reindexing before any shard swaps.
-	skipSwapOnFinish bool
+	//
+	// Atomic because the field is written by runShardLifecycle (from the
+	// StartTask worker goroutine) and read by OnAfterLsmInitAsync's loop
+	// body (which can run on a separate goroutine when the cached task
+	// instance is later invoked from OnGroupCompleted's swap phase).
+	skipSwapOnFinish atomic.Bool
 
 	// callbackDisableFuncs collects the disable functions returned by
 	// registerAddToPropertyValueIndex / registerDeleteFromPropertyValueIndex.
@@ -123,8 +129,8 @@ func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, sha
 // of semantic migrations. skipSwap=false runs all the way through swap+tidy.
 func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard ShardLike, skipSwap bool) error {
 	if skipSwap {
-		t.skipSwapOnFinish = true
-		defer func() { t.skipSwapOnFinish = false }()
+		t.skipSwapOnFinish.Store(true)
+		defer t.skipSwapOnFinish.Store(false)
 	}
 
 	concreteShard, err := unwrapShard(ctx, shard)
@@ -751,7 +757,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			err = fmt.Errorf("marking reindexed: %w", err)
 			return zerotime, false, err
 		}
-		if t.skipSwapOnFinish {
+		if t.skipSwapOnFinish.Load() {
 			logger.Info("reindex complete (swap deferred for barrier)")
 			return zerotime, false, nil
 		}

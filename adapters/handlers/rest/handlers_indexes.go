@@ -16,6 +16,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -29,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
@@ -42,8 +45,18 @@ type indexesHandlers struct {
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
-func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, _ *models.Principal) middleware.Responder {
+func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	collection := params.ClassName
+
+	// Require READ on the collection's metadata: this endpoint exposes
+	// per-property index state, which is collection-internal information.
+	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
+		authorization.READ, authorization.CollectionsMetadata(collection)...); err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(err))
+		}
+		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
 
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
 	if class == nil {
@@ -125,9 +138,21 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 // rejects same-type same-property tasks, plus cross-type conflicts (e.g.
 // repair-searchable blocks change-tokenization on any property since
 // repair-searchable touches all searchable buckets).
-func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, _ *models.Principal) middleware.Responder {
+func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
 	collection := params.ClassName
 	propertyName := params.PropertyName
+
+	// Require UPDATE on the collection itself: submitting a reindex task is a
+	// privileged, cluster-wide, destructive operation (rebuilds buckets on
+	// every replica, flips schema flags). The read-only authzed sibling above
+	// uses CollectionsMetadata; here we need the stronger Collections verb.
+	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
+		authorization.UPDATE, authorization.Collections(collection)...); err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsIndexesUpdateForbidden().WithPayload(errPayloadFromSingleErr(err))
+		}
+		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
 
 	if !h.appState.ServerConfig.Config.DistributedTasks.Enabled {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(
@@ -311,6 +336,17 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			if reason != "" {
 				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(reason))
 			}
+			// Per-collection cap on concurrent STARTED reindex tasks. Without
+			// this a caller scripting `for p in $(properties); do PUT
+			// .../indexes/$p; done` against an N-property collection submits N
+			// independent RAFT tasks, each fanning out ingest+backup buckets
+			// on every replica. The LSM compaction layer and disk would not
+			// survive that. Reject with 429 once the cap is reached.
+			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
+				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(fmt.Sprintf(
+					"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
+					collection, inflight, maxConcurrentReindexPerCollection)))
+			}
 		}
 	}
 
@@ -333,10 +369,33 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
+	// Operational audit line: reindex is a privileged cluster-wide operation
+	// (rebuilds buckets on every replica, flips schema flags). Log the who,
+	// what, and which task ID at submit time so ops can grep for it later.
+	// RBAC audit logging upstream covers the authorize/deny decision; this
+	// log covers the successful submission.
+	h.appState.Logger.WithFields(logrus.Fields{
+		"audit_event":    "reindex_task_submitted",
+		"taskID":         taskID,
+		"collection":     collection,
+		"property":       propertyName,
+		"migration_type": migrationType,
+		"principal":      principalUsername(principal),
+	}).Info("reindex provider: submitted task")
+
 	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
 		TaskID: taskID,
 		Status: "STARTED",
 	})
+}
+
+// principalUsername extracts the user-facing identifier from a principal
+// for audit logging. Falls back to "anonymous" if the principal is nil.
+func principalUsername(principal *models.Principal) string {
+	if principal == nil {
+		return "anonymous"
+	}
+	return principal.Username
 }
 
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
@@ -574,6 +633,34 @@ func errorResponse(msg string) *models.ErrorResponse {
 			{Message: msg},
 		},
 	}
+}
+
+// maxConcurrentReindexPerCollection caps how many STARTED reindex tasks
+// can target the same collection at once. Each task creates ingest +
+// backup buckets on every replica; without a cap, a script that runs
+// PUT /indexes/<prop> per property would fan out N tasks for an
+// N-property collection and overwhelm both LSM compaction and disk.
+const maxConcurrentReindexPerCollection = 4
+
+// countStartedTasksForCollection counts STARTED reindex tasks whose
+// payload targets the given collection. Unparseable payloads are
+// skipped (checkReindexConflict refuses the new submit when those
+// exist, so we don't need to double-count them here).
+func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
+	n := 0
+	for _, task := range tasks {
+		if task.Status != distributedtask.TaskStatusStarted {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		if strings.EqualFold(payload.Collection, collection) {
+			n++
+		}
+	}
+	return n
 }
 
 // checkReindexConflict checks if a new reindex task would conflict with any
