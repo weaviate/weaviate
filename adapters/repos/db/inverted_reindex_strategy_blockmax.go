@@ -24,6 +24,7 @@ import (
 // MapToBlockmaxStrategy implements MigrationStrategy for the
 // MapCollection → Inverted (blockmax WAND) migration of searchable properties.
 type MapToBlockmaxStrategy struct {
+	noAnalyzerOverlay
 	schemaManager *schema.Manager
 }
 
@@ -136,13 +137,6 @@ func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) stri
 
 func (s *MapToBlockmaxStrategy) PreReindexHook(shard *Shard, props []string) {
 	shard.markSearchableBlockmaxProperties(props...)
-}
-
-// AnalyzerOverlay returns nil: map→blockmax operates on properties that
-// already have IndexSearchable=true, so the analyzer's live-schema view is
-// already correct.
-func (s *MapToBlockmaxStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
-	return nil
 }
 
 // OnMigrationComplete flips the UsingBlockMaxWAND class flag, but only once

@@ -26,6 +26,7 @@ import (
 // strategy (e.g. WORD → FIELD). This runs after the searchable strategy and
 // performs the schema update in OnMigrationComplete.
 type FilterableRetokenizeStrategy struct {
+	noAnalyzerOverlay
 	schemaManager      *schema.Manager
 	propName           string
 	targetTokenization string
@@ -162,13 +163,6 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 func (s *FilterableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 	// No-op: the filterable bucket already exists.
-}
-
-// AnalyzerOverlay returns nil: retokenize relies on raw values captured by
-// NewAnalyzerWithRawValues, not on the analyzer's tokenization output. The
-// live schema flag is already on.
-func (s *FilterableRetokenizeStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
-	return nil
 }
 
 // OnMigrationComplete updates the schema to set Tokenization to the target

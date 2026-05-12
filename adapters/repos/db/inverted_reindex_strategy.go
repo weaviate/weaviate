@@ -105,6 +105,18 @@ type MigrationStrategy interface {
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 
+// noAnalyzerOverlay supplies the default "no overlay" implementation of
+// AnalyzerOverlay for strategies whose target properties already have the
+// relevant schema flag set (retokenize, map→blockmax, roaring-set refresh,
+// rangeable). Embed this struct to get the nil-return default; strategies
+// that need a real overlay (enable-filterable, enable-searchable) define
+// their own method which shadows the embed.
+type noAnalyzerOverlay struct{}
+
+func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
+	return nil
+}
+
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type reindexTaskConfig struct {

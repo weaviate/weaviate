@@ -28,6 +28,7 @@ import (
 // RoaringSetRange (rangeable) indexes from existing RoaringSet (filterable)
 // data. This creates new rangeable buckets alongside existing filterable ones.
 type FilterableToRangeableStrategy struct {
+	noAnalyzerOverlay
 	schemaManager *schema.Manager
 	propNames     []string
 }
@@ -151,13 +152,6 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 				WithError(err).Error("PreReindexHook: failed to create rangeable bucket")
 		}
 	}
-}
-
-// AnalyzerOverlay returns nil: the source data here is the *existing*
-// filterable bucket whose IndexFilterable flag is already true in the live
-// schema, so the analyzer sees the property without help.
-func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
-	return nil
 }
 
 // OnMigrationComplete updates the schema to set IndexRangeFilters=true on

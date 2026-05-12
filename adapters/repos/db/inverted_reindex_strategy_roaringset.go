@@ -24,7 +24,9 @@ import (
 // reindex of filterable (RoaringSet) properties. This rebuilds the filterable
 // index from the objects bucket without changing the storage format, useful for
 // corruption recovery.
-type RoaringSetRefreshStrategy struct{}
+type RoaringSetRefreshStrategy struct {
+	noAnalyzerOverlay
+}
 
 func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
 	return MigrationDirFilterableRoaringsetRefresh
@@ -123,12 +125,6 @@ func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) 
 
 func (s *RoaringSetRefreshStrategy) PreReindexHook(shard *Shard, props []string) {
 	// No-op: no property marking needed for same-strategy refresh.
-}
-
-// AnalyzerOverlay returns nil: refresh re-reads an already-enabled
-// filterable index, the live schema is already consistent.
-func (s *RoaringSetRefreshStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
-	return nil
 }
 
 func (s *RoaringSetRefreshStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
