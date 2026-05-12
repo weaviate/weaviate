@@ -246,7 +246,7 @@ func (p *ReindexProvider) processOneUnit(
 	// For semantic migrations (change-tokenization, enable-rangeable), use
 	// two-phase execution: reindex only, then swap after all units complete.
 	// For format-only migrations, run the full lifecycle per shard.
-	semantic := isSemanticMigration(payload.MigrationType)
+	semantic := IsSemanticMigration(payload.MigrationType)
 
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
@@ -521,7 +521,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return
 	}
 
-	if !isSemanticMigration(payload.MigrationType) {
+	if !IsSemanticMigration(payload.MigrationType) {
 		logger.Info("reindex provider: OnGroupCompleted (format-only, no-op)")
 		return
 	}
@@ -637,7 +637,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		Info("reindex provider: OnTaskCompleted")
 }
 
-// isSemanticMigration returns true for migration types that change query
+// IsSemanticMigration returns true for migration types that change query
 // behavior. These require barrier semantics: all shards must finish
 // reindexing before any shard swaps.
 //
@@ -665,10 +665,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 // node. So a poller waiting for FINISHED may see "done" before the
 // schema flag has flipped on this node; callers must Eventually-poll
 // the schema for the actual post-swap state.
-//
-// Must stay in sync with the handler-side isSemanticMigration in
-// adapters/handlers/rest/handlers_reindex.go.
-func isSemanticMigration(mt ReindexMigrationType) bool {
+func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable

@@ -273,7 +273,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// --- Multi-tenancy handling ---
 	isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	tenants := params.Tenants
-	semantic := isSemanticMigration(migrationType)
+	semantic := db.IsSemanticMigration(migrationType)
 
 	// Validate MT + tenants combination.
 	if !isMT && len(tenants) > 0 {

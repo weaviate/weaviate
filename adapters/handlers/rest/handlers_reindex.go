@@ -232,15 +232,6 @@ func buildUnitSpecs(shardOwnership map[string][]string) []distributedtask.UnitSp
 	return specs
 }
 
-// isSemanticMigration returns true for migration types that change query
-// behavior and require barrier semantics. Must stay in sync with the
-// provider-side isSemanticMigration in adapters/repos/db/reindex_provider.go.
-func isSemanticMigration(mt db.ReindexMigrationType) bool {
-	return mt == db.ReindexTypeChangeTokenization ||
-		mt == db.ReindexTypeEnableFilterable ||
-		mt == db.ReindexTypeEnableSearchable
-}
-
 // validateBodyExclusivity guards against ambiguous PUT
 // /v1/schema/{class}/indexes/{prop} request bodies that the switch-based
 // dispatch in updateIndex would otherwise silently misroute.
