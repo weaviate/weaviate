@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -38,6 +39,83 @@ var defaultConfig = config.Config{
 		Limit: 100,
 	},
 	QueryMaximumResults: 100,
+}
+
+func newQueryVectorTestExplorer(searcher objectsSearcher, metrics explorerMetrics) *Explorer {
+	log, _ := test.NewNullLogger()
+	explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, defaultConfig)
+	explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+			{Class: "BestClass"},
+		}}},
+	})
+	return explorer
+}
+
+func assertSingleQueryVectorResult(t *testing.T, res []interface{}) {
+	require.Len(t, res, 1)
+	assert.Equal(t,
+		map[string]interface{}{
+			"name": "Foo",
+			"_additional": map[string]interface{}{
+				"query_vector": []float32{0.8, 0.2, 0.7},
+			},
+		}, res[0])
+}
+
+func Test_Explorer_QueryVectorAdditional(t *testing.T) {
+	t.Run("adds query vector during response shaping", func(t *testing.T) {
+		explorer := newQueryVectorTestExplorer(&fakeVectorSearcher{}, &fakeMetrics{})
+		res, err := explorer.searchResultsToGetResponse(context.Background(),
+			[]search.Result{{Schema: map[string]interface{}{"name": "Foo"}}},
+			[]float32{0.8, 0.2, 0.7},
+			dto.GetParams{ClassName: "BestClass", AdditionalProperties: additional.Properties{QueryVector: true}},
+			time.Time{})
+
+		require.NoError(t, err)
+		assertSingleQueryVectorResult(t, res)
+	})
+
+	t.Run("adds query vector after hybrid fusion", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "BestClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Type:            "hybrid",
+				Alpha:           1,
+				FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: []models.Vector{[]float32{0.8, 0.2, 0.7}},
+				},
+			},
+			Pagination:           &filters.Pagination{Limit: 100},
+			AdditionalProperties: additional.Properties{QueryVector: true},
+		}
+		expectedParams := params
+		expectedParams.Pagination = &filters.Pagination{Limit: 100, Offset: 0, Autocut: -1}
+
+		searcher := &fakeHybridSearcher{}
+		searcher.On("VectorSearch", expectedParams, []models.Vector{[]float32{0.8, 0.2, 0.7}}).
+			Return([]search.Result{{ID: "id1", Schema: map[string]interface{}{"name": "Foo"}, Dist: 0.1, Dims: 128}}, nil)
+		metrics := &fakeMetrics{}
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "n/a", 128)
+
+		res, err := newQueryVectorTestExplorer(searcher, metrics).GetClass(context.Background(), params)
+
+		require.NoError(t, err)
+		searcher.AssertExpectations(t)
+		metrics.AssertExpectations(t)
+		assertSingleQueryVectorResult(t, res)
+	})
+
+	t.Run("rejects multiple target vectors", func(t *testing.T) {
+		_, _, err := newQueryVectorTestExplorer(&fakeVectorSearcher{}, &fakeMetrics{}).
+			searchForTargets(context.Background(),
+				dto.GetParams{AdditionalProperties: additional.Properties{QueryVector: true}},
+				[]string{"title", "body"}, nil)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "query_vector is only supported for single target vector searches")
+	})
 }
 
 func Test_Explorer_GetClass(t *testing.T) {
@@ -72,13 +150,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		metrics := &fakeMetrics{}
-		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
-			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
-				{Class: "BestClass"},
-			}}},
-		})
+		explorer := newQueryVectorTestExplorer(search, metrics)
 		expectedParamsToSearch := params
 		search.
 			On("VectorSearch", expectedParamsToSearch, []models.Vector{[]float32{0.8, 0.2, 0.7}}).

@@ -83,7 +83,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 }
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
-func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
+func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, models.Vector, error) {
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
 		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
@@ -93,17 +93,16 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 
 	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	var vector models.Vector
 	if len(searchVectors) > 0 {
 		vector = searchVectors[0]
 	}
 
-	// Pass zero time to disable time-based filtering during hybrid search
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
+	results, err := e.hybridSearchResultsToGetResponse(ctx, partialResults, vector, params)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	out := make([]*search.Result, 0, len(results))
@@ -113,7 +112,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 		out = append(out, &out_sr)
 	}
 
-	return out, "vector," + searchname, nil
+	return out, "vector," + searchname, vector, nil
 }
 
 /*
@@ -131,7 +130,7 @@ type NearTextParams struct {
 }
 */
 // Do a nearText search.  The results will be used in the hybrid algorithm
-func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, targetVectors []string) ([]*search.Result, string, error) {
+func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, targetVectors []string) ([]*search.Result, string, models.Vector, error) {
 	var subSearchParams nearText2.NearTextParams
 
 	subSearchParams.Values = params.HybridSearch.NearTextParams.Values
@@ -167,7 +166,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.GroupBy = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	var vector models.Vector
@@ -175,10 +174,9 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		vector = vectors[0]
 	}
 
-	// Pass zero time to disable time-based filtering during hybrid search
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
+	results, err := e.hybridSearchResultsToGetResponse(ctx, partialResults, vector, params)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	var out []*search.Result
@@ -188,7 +186,15 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		out = append(out, &sr)
 	}
 
-	return out, "vector,nearText", nil
+	return out, "vector,nearText", vector, nil
+}
+
+func (e *Explorer) hybridSearchResultsToGetResponse(ctx context.Context, partialResults []search.Result,
+	vector models.Vector, params dto.GetParams,
+) ([]search.Result, error) {
+	responseParams := params
+	responseParams.AdditionalProperties.QueryVector = false
+	return e.searchResultsToGetResponseWithType(ctx, partialResults, vector, responseParams, time.Time{})
 }
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
@@ -202,6 +208,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var weights []float64
 	var names []string
 	var targetVectors []string
+	var queryVector models.Vector
 
 	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.NearVectorParams != nil {
 		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
@@ -259,9 +266,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			var err error
 			var name string
 			var res []*search.Result
+			var vector models.Vector
 			var errorText string
 			if params.HybridSearch.NearTextParams != nil {
-				res, name, err = nearTextSubSearch(ctx, e, params, targetVectors)
+				res, name, vector, err = nearTextSubSearch(ctx, e, params, targetVectors)
 				errorText = "nearTextSubSearch"
 			} else if params.HybridSearch.NearVectorParams != nil {
 				searchVectors := make([]*searchparams.NearVector, len(targetVectors))
@@ -269,7 +277,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					searchVectors[i] = params.HybridSearch.NearVectorParams
 					searchVectors[i].TargetVectors = []string{targetVector}
 				}
-				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
+				res, name, vector, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
 				sch := e.schemaGetter.GetSchemaSkipAuth()
@@ -318,7 +326,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					}
 				}
 
-				res, name, err = denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
+				res, name, vector, err = denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
 				errorText = "hybrid"
 			}
 
@@ -344,6 +352,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				weights[0] = params.HybridSearch.Alpha
 				results[0] = res
 				names[0] = name
+				queryVector = vector
 			}
 
 			return nil
@@ -440,6 +449,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	if origParams.AdditionalProperties.QueryProfile {
 		out = helpers.AttachQueryProfileToResults(ctx, out)
 	}
+	if origParams.AdditionalProperties.QueryVector && queryVector != nil {
+		attachQueryVectorToResults(out, queryVector)
+	}
 
 	if origParams.GroupBy != nil {
 		groupedResults, err := e.groupSearchResults(ctx, out, origParams.GroupBy)
@@ -449,4 +461,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return groupedResults, nil
 	}
 	return out, nil
+}
+
+func attachQueryVectorToResults(results []search.Result, queryVector models.Vector) {
+	for i := range results {
+		if results[i].AdditionalProperties == nil {
+			results[i].AdditionalProperties = models.AdditionalProperties{}
+		}
+		results[i].AdditionalProperties["query_vector"] = queryVector
+	}
 }

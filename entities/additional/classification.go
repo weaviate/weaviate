@@ -25,6 +25,7 @@ type Properties struct {
 	Classification bool     `json:"classification"`
 	RefMeta        bool     `json:"refMeta"`
 	Vector         bool     `json:"vector"`
+	QueryVector    bool     `json:"query_vector"`
 	Vectors        []string `json:"vectors"`
 	// IncludeAllTargetVectors indicates that ALL target vectors should be included,
 	// regardless of the Vectors field. This is used internally by MarshalBinary

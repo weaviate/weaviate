@@ -14,6 +14,7 @@
 package get
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -434,6 +435,28 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		{
+			name:  "with _additional query_vector",
+			query: "{ Get { SomeAction { _additional { query_vector } } } }",
+			expectedParams: dto.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					QueryVector: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"query_vector": []float32{0.8, 0.2, 0.7},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"query_vector": []float32{0.8, 0.2, 0.7},
+				},
+			},
+		},
+		{
 			name:  "with _additional creationTimeUnix",
 			query: "{ Get { SomeAction { _additional { creationTimeUnix } } } }",
 			expectedParams: dto.GetParams{
@@ -741,6 +764,31 @@ func TestExtractAdditionalFields(t *testing.T) {
 			assert.Equal(t, test.expectedResult, result.Get("Get", "SomeAction").Result.([]interface{})[0])
 		})
 	}
+}
+
+func TestAdditionalQueryVectorJSONResponse(t *testing.T) {
+	resolver := newMockResolver()
+
+	query := "{ Get { SomeAction { _additional { query_vector } } } }"
+	expectedParams := dto.GetParams{
+		ClassName: "SomeAction",
+		AdditionalProperties: additional.Properties{
+			QueryVector: true,
+		},
+	}
+	resolverReturn := []interface{}{
+		map[string]interface{}{
+			"_additional": map[string]interface{}{
+				"query_vector": []float32{0.8, 0.2, 0.7},
+			},
+		},
+	}
+	resolver.On("GetClass", expectedParams).Return(resolverReturn, nil).Once()
+
+	result := resolver.AssertResolve(t, query)
+	actualJSON, err := json.Marshal(result.Result)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"Get":{"SomeAction":[{"_additional":{"query_vector":[0.8,0.2,0.7]}}]}}`, string(actualJSON))
 }
 
 func TestNearCustomTextRanker(t *testing.T) {

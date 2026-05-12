@@ -240,6 +240,9 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
 	var err error
+	if params.AdditionalProperties.QueryVector && len(targetVectors) > 1 {
+		return nil, nil, errors.New("additional property query_vector is only supported for single target vector searches")
+	}
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(2 * _NUMCPU)
@@ -506,6 +509,10 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		if params.AdditionalProperties.Vector {
 			additionalProperties["vector"] = res.Vector
+		}
+
+		if params.AdditionalProperties.QueryVector && searchVector != nil {
+			additionalProperties["query_vector"] = searchVector
 		}
 
 		if len(params.AdditionalProperties.Vectors) > 0 {
