@@ -65,24 +65,24 @@ var enableSearchableBM25Queries = []enableSearchableBM25{
 // policy — see issue #10675 follow-up.
 func testEnableSearchable(t *testing.T, restURI string) {
 	falseVal := false
-	trueVal := true
 	class := &models.Class{
 		Class: enableSearchableClassName,
 		Properties: []*models.Property{
 			// "name" keeps the default text indexes so the background safety
 			// query has something to filter against during the migration.
 			{Name: "name", DataType: []string{"text"}, Tokenization: "field"},
-			// "description" starts WITHOUT a searchable index. The migration
-			// builds it from scratch with the requested tokenization.
-			// IndexFilterable is left true so filter queries on the property
-			// continue to work pre-migration (proving the migration doesn't
-			// disturb the existing inverted index).
+			// "description" starts WITHOUT a searchable index AND without a
+			// filterable index. The migration builds searchable from scratch
+			// with the requested tokenization. Filterable is intentionally
+			// false: enable-searchable now refuses to run when a filterable
+			// index exists with a different tokenization (would silently
+			// desync the two). The "name" property above retains its default
+			// indexes so the background safety query has something to filter.
 			{
 				Name:            "description",
 				DataType:        []string{"text"},
-				Tokenization:    "field",
 				IndexSearchable: &falseVal,
-				IndexFilterable: &trueVal,
+				IndexFilterable: &falseVal,
 			},
 		},
 		Vectorizer: "none",

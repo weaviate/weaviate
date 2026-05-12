@@ -114,12 +114,15 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 	}
 
 	// Enable-searchable fixture: multiple non-searchable text props, only one
-	// gets searchable enabled. The other text props remain filterable so the
-	// scope poller can observe filterable status without it being "missing".
+	// gets searchable enabled. The migration uses tokenization "word"; the
+	// filterable indexes on the OTHER props (body, tag) intentionally have a
+	// matching tokenization so the divergent-tokenization guard doesn't reject
+	// the request. title has no filterable (truly from-scratch) so the scope
+	// poller can observe the enable-searchable transition cleanly.
 	enableSearchableProps := []*models.Property{
-		{Name: "title", DataType: []string{"text"}, Tokenization: "field", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
-		{Name: "body", DataType: []string{"text"}, Tokenization: "field", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
-		{Name: "tag", DataType: []string{"text"}, Tokenization: "field", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
+		{Name: "title", DataType: []string{"text"}, IndexSearchable: &falseVal, IndexFilterable: &falseVal},
+		{Name: "body", DataType: []string{"text"}, Tokenization: "word", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
+		{Name: "tag", DataType: []string{"text"}, Tokenization: "word", IndexSearchable: &falseVal, IndexFilterable: &trueVal},
 	}
 
 	// The scope-assertion fixture uses textScopeObjects, which carries keys

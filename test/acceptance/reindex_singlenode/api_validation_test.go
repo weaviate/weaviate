@@ -87,9 +87,13 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 
 	cases := []apiCase{
 		{
+			// go-swagger's body-required validation fires before the handler
+			// runs, producing 422 with "body in body is required". Handler-
+			// level "request body required" 400 is only reachable when the
+			// body parses to nil (e.g. literal `null`), not for missing-body.
 			name:       "empty body",
 			collection: stClass, property: "text_word",
-			body: "", wantStatus: http.StatusBadRequest,
+			body: "", wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
 			name:       "malformed JSON",
