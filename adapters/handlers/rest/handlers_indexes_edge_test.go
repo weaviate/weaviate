@@ -336,6 +336,59 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	}
 }
 
+// Two FAILED attempts for the same (collection, prop, indexType) can
+// coexist if a user retried after the first failure and the second
+// retry also failed. The newer attempt is the more useful one to
+// surface (its error is the latest the user saw) so it must win the
+// tiebreak regardless of slice order.
+func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
+	now := time.Now()
+
+	oldFail := buildTask(t, "C:enable-filterable:foo:0001",
+		distributedtask.TaskStatusFailed,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.3, Error: "old: disk full"},
+		},
+	)
+	oldFail.StartedAt = now.Add(-2 * time.Hour)
+
+	newFail := buildTask(t, "C:enable-filterable:foo:0002",
+		distributedtask.TaskStatusFailed,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.7, Error: "new: permission denied"},
+		},
+	)
+	newFail.StartedAt = now
+
+	for _, order := range []struct {
+		name  string
+		tasks []*distributedtask.Task
+	}{
+		{"old-first", []*distributedtask.Task{oldFail, newFail}},
+		{"new-first", []*distributedtask.Task{newFail, oldFail}},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "filterable",
+				map[string][]*distributedtask.Task{db.ReindexNamespace: order.tasks}, nil)
+
+			require.Equal(t, "failed", idx.Status)
+			require.InDelta(t, 0.7, idx.Progress, 0.0001,
+				"newer FAILED attempt must win the tiebreak regardless of slice order")
+		})
+	}
+}
+
 // Edge case 7: A task whose payload.Properties is empty.
 // Previously this branch was asymmetric: repair-* matched every property
 // in the collection (fan-out: a single payload could mark dozens of
