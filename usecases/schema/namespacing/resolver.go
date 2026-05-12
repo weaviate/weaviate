@@ -36,6 +36,16 @@ func QualifiedName(namespace, name string) string {
 	return namespace + schema.NamespaceSeparator + name
 }
 
+// NamespaceFromQualified returns the namespace portion of a qualified name
+// ("<ns>:<entity>"). Names without the separator are unnamespaced and
+// return "".
+func NamespaceFromQualified(name string) string {
+	if ns, _, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+		return ns
+	}
+	return ""
+}
+
 // qualify prepends principal.Namespace to name.
 func qualify(principal *models.Principal, name string) string {
 	if principal == nil {

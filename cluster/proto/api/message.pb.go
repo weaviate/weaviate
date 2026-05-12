@@ -55,7 +55,9 @@ const (
 	ApplyRequest_TYPE_ACTIVATE_USER                                              ApplyRequest_Type = 84
 	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                                       ApplyRequest_Type = 85
 	ApplyRequest_TYPE_ADD_NAMESPACE                                              ApplyRequest_Type = 90
-	ApplyRequest_TYPE_DELETE_NAMESPACE                                           ApplyRequest_Type = 91
+	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                                  ApplyRequest_Type = 91
+	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                                     ApplyRequest_Type = 92
+	ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY                                    ApplyRequest_Type = 93
 	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
@@ -115,7 +117,9 @@ var (
 		84:  "TYPE_ACTIVATE_USER",
 		85:  "TYPE_CREATE_USER_WITH_KEY",
 		90:  "TYPE_ADD_NAMESPACE",
-		91:  "TYPE_DELETE_NAMESPACE",
+		91:  "TYPE_DELETE_USERS_IN_NAMESPACE",
+		92:  "TYPE_CHANGE_NAMESPACE_STATE",
+		93:  "TYPE_REMOVE_NAMESPACE_ENTITY",
 		200: "TYPE_REPLICATION_REPLICATE",
 		201: "TYPE_REPLICATION_REPLICATE_UPDATE_STATE",
 		202: "TYPE_REPLICATION_REPLICATE_REGISTER_ERROR",
@@ -171,7 +175,9 @@ var (
 		"TYPE_ACTIVATE_USER":                                              84,
 		"TYPE_CREATE_USER_WITH_KEY":                                       85,
 		"TYPE_ADD_NAMESPACE":                                              90,
-		"TYPE_DELETE_NAMESPACE":                                           91,
+		"TYPE_DELETE_USERS_IN_NAMESPACE":                                  91,
+		"TYPE_CHANGE_NAMESPACE_STATE":                                     92,
+		"TYPE_REMOVE_NAMESPACE_ENTITY":                                    93,
 		"TYPE_REPLICATION_REPLICATE":                                      200,
 		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":                         201,
 		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":                       202,
@@ -2029,13 +2035,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xad\x10\n" +
+	"\x12NotifyPeerResponse\"\xf9\x10\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\x89\x0f\n" +
+	"subCommand\"\xd5\x0f\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2066,8 +2072,10 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11TYPE_SUSPEND_USER\x10S\x12\x16\n" +
 	"\x12TYPE_ACTIVATE_USER\x10T\x12\x1d\n" +
 	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x16\n" +
-	"\x12TYPE_ADD_NAMESPACE\x10Z\x12\x19\n" +
-	"\x15TYPE_DELETE_NAMESPACE\x10[\x12\x1f\n" +
+	"\x12TYPE_ADD_NAMESPACE\x10Z\x12\"\n" +
+	"\x1eTYPE_DELETE_USERS_IN_NAMESPACE\x10[\x12\x1f\n" +
+	"\x1bTYPE_CHANGE_NAMESPACE_STATE\x10\\\x12 \n" +
+	"\x1cTYPE_REMOVE_NAMESPACE_ENTITY\x10]\x12\x1f\n" +
 	"\x1aTYPE_REPLICATION_REPLICATE\x10\xc8\x01\x12,\n" +
 	"'TYPE_REPLICATION_REPLICATE_UPDATE_STATE\x10\xc9\x01\x12.\n" +
 	")TYPE_REPLICATION_REPLICATE_REGISTER_ERROR\x10\xca\x01\x12&\n" +

@@ -105,6 +105,24 @@ func TestQualifiedName(t *testing.T) {
 	}
 }
 
+func TestNamespaceFromQualified(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "no separator returns empty", in: "MyClass", want: ""},
+		{name: "qualified name returns namespace", in: "alpha:MyClass", want: "alpha"},
+		{name: "empty input returns empty", in: "", want: ""},
+		{name: "leading separator returns empty namespace prefix", in: ":MyClass", want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, NamespaceFromQualified(tc.in))
+		})
+	}
+}
+
 func TestQualifyClass(t *testing.T) {
 	cases := []struct {
 		testName          string

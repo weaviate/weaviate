@@ -61,6 +61,8 @@ const (
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
+
+	DefaultNamespaceCleanupInterval = 30 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -986,6 +988,13 @@ func FromEnv(config *Config) error {
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
+
+	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
+		DefaultNamespaceCleanupInterval,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)

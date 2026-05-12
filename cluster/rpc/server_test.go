@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const raftGrpcMessageMaxSize = 1024 * 1024 * 1024
@@ -405,6 +406,21 @@ func TestToRPCError(t *testing.T) {
 			name:     "ErrNotFound maps to NotFound",
 			err:      types.ErrNotFound,
 			expected: codes.NotFound,
+		},
+		{
+			name:     "ErrNamespaceDeleting maps to FailedPrecondition",
+			err:      namespaces.ErrNamespaceDeleting,
+			expected: codes.FailedPrecondition,
+		},
+		{
+			name:     "ErrNamespaceGone maps to NotFound",
+			err:      namespaces.ErrNamespaceGone,
+			expected: codes.NotFound,
+		},
+		{
+			name:     "ErrNamespaceNotEmpty maps to FailedPrecondition",
+			err:      namespaces.ErrNamespaceNotEmpty,
+			expected: codes.FailedPrecondition,
 		},
 		{
 			name:     "Unknown error maps to Internal",

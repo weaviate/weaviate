@@ -1084,6 +1084,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateNamespaces {
 		settings["NAMESPACES_ENABLED"] = "true"
 		settings["DISABLE_GRAPHQL"] = "true"
+		// Tight cleanup tick for acceptance: deletion tests poll for the
+		// 404 that arrives once the leader has finished tearing down the
+		// namespace's classes, aliases, and users.
+		settings["NAMESPACE_CLEANUP_INTERVAL"] = "1s"
 	}
 
 	if d.withAutoschema {

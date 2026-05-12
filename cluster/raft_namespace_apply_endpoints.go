@@ -15,92 +15,68 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// AddNamespace proposes an AddNamespace RAFT command. The apply side rejects
-// duplicates with [namespaces.ErrAlreadyExists] and invalid names with
-// [namespaces.ErrBadRequest]; callers that need to distinguish those should
-// use errors.Is.
-//
-// On success the call blocks until the local node has applied the new entry
-// so a follow-up local read (e.g. controller.Exists) on the same node sees
-// the change. On a follower this absorbs the leader→follower replication
-// delay; on the leader it returns immediately.
-func (s *Raft) AddNamespace(ns cmd.Namespace) error {
+// AddNamespace proposes an AddNamespace RAFT command and returns the apply
+// version. The apply side rejects duplicates with
+// [namespaces.ErrAlreadyExists] and invalid names with
+// [namespaces.ErrBadRequest]. Callers that need a follow-up local read on
+// a non-leader node should pass the returned version to WaitForUpdate.
+func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
 	req := cmd.AddNamespaceRequest{
 		Namespace: ns,
 		Version:   cmd.NamespaceLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
 		SubCommand: subCommand,
 	}
-	version, err := s.Execute(context.Background(), command)
-	if err != nil {
-		return rewrapNamespaceApplyError(err)
-	}
-	if err := s.WaitForUpdate(context.Background(), version); err != nil {
-		return fmt.Errorf("wait for local apply: %w", err)
-	}
-	return nil
+	return s.Execute(ctx, command)
 }
 
-// DeleteNamespace proposes a DeleteNamespace RAFT command. The apply side
-// returns [namespaces.ErrNotFound] when the target namespace does not exist;
-// callers that want idempotent semantics should swallow that error.
-//
-// On success the call blocks until the local node has applied the entry so
-// subsequent local reads observe the namespace as gone.
-func (s *Raft) DeleteNamespace(name string) error {
-	req := cmd.DeleteNamespaceRequest{
+// ChangeNamespaceState proposes a ChangeNamespaceState RAFT command and
+// returns the apply version. The apply side returns [namespaces.ErrNotFound]
+// for unknown namespaces and [namespaces.ErrInvalidStateTransition] for
+// forbidden transitions; same-state transitions are idempotent.
+func (s *Raft) ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	req := cmd.ChangeNamespaceStateRequest{
+		Name:        name,
+		TargetState: target,
+		Version:     cmd.NamespaceLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+// RemoveNamespaceEntity proposes a RemoveNamespaceEntity RAFT command and
+// returns the apply version. The apply side returns [namespaces.ErrNotFound]
+// for unknown namespaces and [namespaces.ErrInvalidState] when called on an
+// active namespace.
+func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error) {
+	req := cmd.RemoveNamespaceEntityRequest{
 		Name:    name,
 		Version: cmd.NamespaceLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_DELETE_NAMESPACE,
+		Type:       cmd.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY,
 		SubCommand: subCommand,
 	}
-	version, err := s.Execute(context.Background(), command)
-	if err != nil {
-		return rewrapNamespaceApplyError(err)
-	}
-	if err := s.WaitForUpdate(context.Background(), version); err != nil {
-		return fmt.Errorf("wait for local apply: %w", err)
-	}
-	return nil
-}
-
-// rewrapNamespaceApplyError restores typed sentinels on FSM errors that
-// flowed back through the follower→leader gRPC hop. The RPC layer serializes
-// the error to a plain status string and so erases errors.Is chains. The
-// handler matches usecasesNamespaces.Err* via errors.Is, so we string-match
-// known sentinels and rewrap. Mirrors the pattern in
-// cluster/raft_replication_apply_endpoints.go.
-func rewrapNamespaceApplyError(err error) error {
-	if err == nil {
-		return nil
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, usecasesNamespaces.ErrAlreadyExists.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrAlreadyExists, msg)
-	case strings.Contains(msg, usecasesNamespaces.ErrNotFound.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrNotFound, msg)
-	case strings.Contains(msg, usecasesNamespaces.ErrBadRequest.Error()):
-		return fmt.Errorf("%w: %s", usecasesNamespaces.ErrBadRequest, msg)
-	default:
-		return err
-	}
+	return s.Execute(ctx, command)
 }

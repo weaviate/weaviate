@@ -94,6 +94,28 @@ func TestNamespacesOIDC(t *testing.T) {
 		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
 	})
 
+	t.Run("deleting namespace claim → 401", func(t *testing.T) {
+		// Create customer2 so the OIDC token authenticates first, then
+		// mark it for deletion. Whether the cleanup tick has finished or
+		// not, the principal builder rejects with 401: deleting → 401
+		// via IsActive; gone → 401 via the same error message.
+		const ns = "customer2"
+		helper.CreateNamespace(t, ns, adminKey)
+		defer helper.WaitForNamespaceGone(t, ns, adminKey, 30*time.Second)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-namespaced-"+ns)
+		// Sanity: pre-delete, the OIDC token authenticates.
+		info := helper.GetInfoForOwnUser(t, token)
+		require.NotNil(t, info.Username)
+
+		helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
+
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(token))
+		require.Error(t, err)
+		var unauth *users.GetOwnInfoUnauthorized
+		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
+	})
+
 	t.Run("bare-form OIDC user ID: assignment rejected at the API", func(t *testing.T) {
 		// validateUserIDForNamespaces rejects bare-form IDs on NS-enabled.
 		_, err := helper.Client(t).Authz.AssignRoleToUser(

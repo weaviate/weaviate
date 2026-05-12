@@ -660,3 +660,20 @@ func TestGetAlias(t *testing.T) {
 		assert.EqualValues(t, expected, aliases)
 	})
 }
+
+// TestAliasNamespacePrefixPreserved checks that creating an alias with a
+// namespace-qualified name stores it under a key whose namespace prefix is
+// kept lowercase, and that ResolveAlias still finds it under that key. Only
+// the class portion of the name is normalized.
+func TestAliasNamespacePrefixPreserved(t *testing.T) {
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+	require.NoError(t, sc.addClass(&models.Class{Class: "delhappy:Movies"}, ss, 1))
+	require.NoError(t, sc.createAlias("delhappy:Movies", "delhappy:Films"))
+
+	stored := sc.getAliases("", "")
+	require.Contains(t, stored, "delhappy:Films",
+		"alias stored under lowercase-namespace key; got %v", stored)
+
+	require.Equal(t, "delhappy:Movies", sc.ResolveAlias("delhappy:Films"))
+}

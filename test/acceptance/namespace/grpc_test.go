@@ -625,22 +625,22 @@ func TestNamespaces_GRPC(t *testing.T) {
 		}
 
 		// retryOnAliasLag absorbs the brief leader→follower replication gap
-		// after CreateAliasAuth; once the first stream succeeds the alias is
-		// locally visible and the second stream is safe to run directly.
-		var successes int
-		var errs []*pb.BatchStreamReply_Results_Error
-		retryOnAliasLag(t, func() error {
-			successes, errs = runBatchStream(t, user1Key, []*pb.BatchObject{objFor(id1, "ns1-alias-stream")})
-			if len(errs) > 0 {
-				return fmt.Errorf("per-object errors: %v", errs[0].GetError())
-			}
-			return nil
-		})
-		assert.Equal(t, 1, successes)
-
-		successes, errs = runBatchStream(t, user2Key, []*pb.BatchObject{objFor(id2, "ns2-alias-stream")})
-		require.Empty(t, errs)
-		assert.Equal(t, 1, successes)
+		// after CreateAliasAuth. Each per-namespace alias replicates
+		// independently, so both streams need their own retry.
+		runStream := func(key string, obj *pb.BatchObject) {
+			var successes int
+			var errs []*pb.BatchStreamReply_Results_Error
+			retryOnAliasLag(t, func() error {
+				successes, errs = runBatchStream(t, key, []*pb.BatchObject{obj})
+				if len(errs) > 0 {
+					return fmt.Errorf("per-object errors: %v", errs[0].GetError())
+				}
+				return nil
+			})
+			assert.Equal(t, 1, successes)
+		}
+		runStream(user1Key, objFor(id1, "ns1-alias-stream"))
+		runStream(user2Key, objFor(id2, "ns2-alias-stream"))
 
 		// The alias resolved to each namespace's own copy of the class.
 		got1, err := helper.GetObjectAuth(t, streamClass, id1, user1Key)

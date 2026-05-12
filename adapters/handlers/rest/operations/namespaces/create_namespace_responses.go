@@ -188,7 +188,7 @@ func (o *CreateNamespaceNotFound) WriteResponse(rw http.ResponseWriter, producer
 const CreateNamespaceConflictCode int = 409
 
 /*
-CreateNamespaceConflict A namespace with the specified name already exists.
+CreateNamespaceConflict A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.
 
 swagger:response createNamespaceConflict
 */
