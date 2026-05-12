@@ -330,8 +330,15 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
 
-		got, err := tokenizePropertyAuth(t, "Gigs", "title", "Hello World", user1Key)
-		require.NoError(t, err, "propertyTokenize should resolve alias to underlying class")
+		// retryOnAliasLag absorbs the brief window where the alias entry has
+		// been applied on the leader but the follower has not yet replicated
+		// it, which would surface here as a 404 from local alias resolution.
+		var got *models.TokenizeResponse
+		retryOnAliasLag(t, func() error {
+			var err error
+			got, err = tokenizePropertyAuth(t, "Gigs", "title", "Hello World", user1Key)
+			return err
+		})
 		assert.Equal(t, []string{"hello", "world"}, got.Indexed)
 	})
 
@@ -409,8 +416,15 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
 
-		shards, err := getShards(t, "Gigs", user1Key)
-		require.NoError(t, err)
+		// retryOnAliasLag absorbs the brief window where the alias entry has
+		// been applied on the leader but the follower has not yet replicated
+		// it, which would surface here as a 404 from local alias resolution.
+		var shards models.ShardStatusList
+		retryOnAliasLag(t, func() error {
+			var err error
+			shards, err = getShards(t, "Gigs", user1Key)
+			return err
+		})
 		require.Len(t, shards, 3)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
@@ -470,9 +484,16 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
 
-		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
-		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
-		require.NoError(t, err)
+		// retryOnAliasLag absorbs the brief window where the alias entry has
+		// been applied on the leader but the follower has not yet replicated
+		// it, which would surface here as a 404 from local alias resolution.
+		var resp *nodes.NodesGetClassOK
+		retryOnAliasLag(t, func() error {
+			params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
+			var err error
+			resp, err = helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+			return err
+		})
 		require.NotNil(t, resp.Payload)
 		assert.NotEmpty(t, resp.Payload.Nodes)
 	})

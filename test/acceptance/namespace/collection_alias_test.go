@@ -14,6 +14,7 @@ package namespace
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,21 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	)
 	require.NoError(t, err)
 	require.NotNil(t, resp.Payload.Apikey)
-	return *resp.Payload.Apikey
+	apikey := *resp.Payload.Apikey
+
+	// On a multi-node cluster CreateUser is RAFT-forwarded to the leader and
+	// returns once the leader applies the FSM entry; the follower the test
+	// client talks to may still be replicating, so the very next request
+	// authenticated with apikey can transiently 401. Poll a cheap auth-bearing
+	// endpoint until the new key is recognized locally. Same pattern as
+	// helper.CreateNamespace and retryOnAliasLag, just for dynamic users.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := helper.Client(t).Users.GetOwnInfo(
+			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
+		assert.NoError(c, err)
+	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+
+	return apikey
 }
 
 // TestNamespaces_CollectionAndAliasCreate exercises the inline qualification

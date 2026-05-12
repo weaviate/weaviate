@@ -218,6 +218,7 @@ func (db *DB) init(ctx context.Context) error {
 				return errors.Wrap(err, "create index")
 			}
 
+			idx.usageLimits = db.usageLimits
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()
