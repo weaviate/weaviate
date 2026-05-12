@@ -25,9 +25,17 @@ const (
 	MaxPostingSizeKBFloor       = 8
 	DefaultReplicas             = 4
 	DefaultSearchProbe          = 64
-	DefaultHFreshRescoreLimit   = 350
 	MaximumAllowedReplicas      = 10
 	MaximumAllowedPostingSizeKB = 1024
+
+	// DefaultHFreshRescoreLimit is the default final vector rescore limit.
+	// This controls how many actual vectors are rescored with full precision
+	// at the final stage after posting search. This is configurable via rq.rescoreLimit.
+	//
+	// Note: This is separate from the posting/HNSW representative rescore limit
+	// (DefaultPostingRescoreLimit = 10) which controls how many HNSW posting
+	// representatives are rescored during the centroid search phase.
+	DefaultHFreshRescoreLimit = 350
 )
 
 // UserConfig defines the configuration options for the HFresh index.

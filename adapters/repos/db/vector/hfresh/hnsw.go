@@ -67,9 +67,19 @@ type HNSWIndex struct {
 	version        uint8 // Index version for version-aware behavior
 }
 
-// defaultCentroidRescoreLimit is the fixed rescore limit for centroid HNSW.
-// This matches the rescore limit used in the final search (350).
-const defaultCentroidRescoreLimit = 350
+// DefaultPostingRescoreLimit is the HNSW posting-level representative rescore limit for V2+ indexes.
+// This is distinct from the final vector rescore limit (DefaultHFreshRescoreLimit = 350).
+//
+// The posting rescore limit controls how many HNSW posting representatives (medoids) are rescored
+// with full-precision vectors during the centroid search phase. Since each posting can contain
+// ~100 vectors (for 1536-dimensional data), rescoring too many postings is expensive.
+//
+// The final vector rescore limit (rq.rescoreLimit in user config) controls how many actual
+// vectors are rescored at the final stage after all posting candidates have been collected.
+//
+// V1 indexes use 0 (no posting rescoring) because they don't have medoid mappings.
+// V2+ indexes use 10 by default to balance recall and performance.
+const DefaultPostingRescoreLimit = 100
 
 // rqBitsForVersion returns the RQ bit depth based on index version.
 // V1: RQ8 (8-bit) - traditional compression, no medoid rescoring
@@ -81,14 +91,17 @@ func rqBitsForVersion(version uint8) int16 {
 	return 8 // RQ8 for V1
 }
 
-// rqRescoreLimitForVersion returns the HNSW RQ rescore limit based on index version.
-// V1: 0 (no HNSW RQ rescoring - V1 has no medoid mappings)
-// V2+: defaultCentroidRescoreLimit (rescoring enabled with medoid vectors)
+// rqRescoreLimitForVersion returns the HNSW posting-level RQ rescore limit based on index version.
+// V1: 0 (no posting rescoring - V1 has no medoid mappings)
+// V2+: DefaultPostingRescoreLimit (10) (rescoring enabled with medoid vectors)
+//
+// Note: This is separate from the final vector rescore limit (DefaultHFreshRescoreLimit = 350)
+// which controls how many vectors are rescored at the final stage after posting search.
 func rqRescoreLimitForVersion(version uint8) int {
 	if version >= HFreshIndexVersion2 {
-		return defaultCentroidRescoreLimit
+		return DefaultPostingRescoreLimit
 	}
-	return 0 // V1: no HNSW RQ rescoring
+	return 0 // V1: no HNSW posting rescoring
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, version uint8, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -160,8 +173,9 @@ func (i *HNSWIndex) RQBits() int16 {
 	return rqBitsForVersion(i.version)
 }
 
-// RQRescoreLimit returns the HNSW RQ rescore limit used by this index.
-// V1: 0 (no rescoring), V2+: defaultCentroidRescoreLimit (350)
+// RQRescoreLimit returns the HNSW posting-level RQ rescore limit used by this index.
+// V1: 0 (no posting rescoring), V2+: DefaultPostingRescoreLimit (10)
+// This is the posting/HNSW representative rescore limit, not the final vector rescore limit.
 func (i *HNSWIndex) RQRescoreLimit() int {
 	return rqRescoreLimitForVersion(i.version)
 }
