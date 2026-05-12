@@ -7869,7 +7869,9 @@ func init() {
           "enum": [
             "ready",
             "indexing",
-            "pending"
+            "pending",
+            "failed",
+            "cancelled"
           ]
         },
         "targetTokenization": {
@@ -18399,7 +18401,9 @@ func init() {
           "enum": [
             "ready",
             "indexing",
-            "pending"
+            "pending",
+            "failed",
+            "cancelled"
           ]
         },
         "targetTokenization": {
