@@ -38,7 +38,14 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
-		return // no migrations dir, nothing to do
+		if !os.IsNotExist(err) {
+			// ENOENT is the normal "no migrations in progress" path; anything
+			// else (EACCES, EIO, etc.) is worth surfacing so an operator can
+			// notice that pending finalizations are being silently skipped.
+			logger.WithField("path", migrationsDir).WithError(err).
+				Warn("reindex finalize: unable to read migrations dir; pending finalizations skipped")
+		}
+		return
 	}
 
 	for _, entry := range entries {

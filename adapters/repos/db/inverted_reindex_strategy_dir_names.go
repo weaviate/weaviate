@@ -11,7 +11,10 @@
 
 package db
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Migration directory names live under <shard>/lsm/.migrations/<name>/ and
 // uniquely identify a per-strategy in-progress migration on a shard.
@@ -76,9 +79,18 @@ const (
 // the prefix on its own; otherwise the prefix is joined with the
 // property names by underscores. Three strategies (enable-filterable,
 // enable-searchable, filterable-to-rangeable) share this naming pattern.
+//
+// Property names are sorted before joining so that the directory name
+// is a function of the *set* of properties, not the caller's slice
+// order. This keeps restart-recovery deterministic: a task built from
+// payload.Properties=["b","a"] and one built from ["a","b"] both
+// resolve to the same on-disk directory.
 func migrationDirWithProps(prefix string, propNames []string) string {
 	if len(propNames) == 0 {
 		return prefix
 	}
-	return prefix + "_" + strings.Join(propNames, "_")
+	sorted := make([]string, len(propNames))
+	copy(sorted, propNames)
+	sort.Strings(sorted)
+	return prefix + "_" + strings.Join(sorted, "_")
 }

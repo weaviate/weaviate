@@ -773,9 +773,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 //  2. Prepend reindex segments into the ingest bucket.
 //  3. Atomically swap the ingest bucket pointer into the main bucket slot.
 //  4. Shut down the old main bucket, rename its dir to _bak for crash safety.
-//  5. Disable double-write callbacks (no longer needed).
-//  6. Remove the reindex bucket directory.
-//  7. Mark tidied and call OnMigrationComplete.
+//  5. Mark tidied.
+//  6. Call OnMigrationComplete (schema flag flips).
+//
+// Disable double-write callbacks is handled by a deferred call at the
+// top of the function so it fires on every error path as well as the
+// happy path.
 //
 // On crash at any step, OnBeforeLsmInit on next restart will pick up from the
 // last completed sentinel state (reindexed/merged/swapped) and finish.
@@ -897,12 +900,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: all props swapped")
 
-	// Step 5: Disable double-write callbacks — writes now go directly to the
-	// (formerly ingest) main bucket. Handled by the deferred call at the top
-	// of this function so it also fires on every error path; see the comment
-	// there for the full rationale.
-
-	// Step 6: Mark tidied. The in-memory swap is complete — the ingest bucket
+	// Step 5: Mark tidied. The in-memory swap is complete — the ingest bucket
 	// is now serving queries under the main bucket name. The directory on disk
 	// still has the ingest name, and the old main dir is renamed to _bak.
 	// These filesystem renames (ingest→main, remove _bak) happen on next
@@ -915,7 +913,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: tidy complete (fs cleanup deferred to next restart)")
 
-	// Step 7: Signal migration complete (e.g. update schema).
+	// Step 6: Signal migration complete (e.g. update schema).
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
