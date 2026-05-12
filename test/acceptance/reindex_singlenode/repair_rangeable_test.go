@@ -57,8 +57,8 @@ func testRepairRangeable(t *testing.T, restURI string) {
 		Properties: []*models.Property{
 			{Name: "name", DataType: []string{"text"}},
 			{Name: "score", DataType: []string{"int"}, IndexRangeFilters: &trueVal},
-			{Name: "price", DataType: []string{"number"}},     // rangeable not enabled
-			{Name: "label", DataType: []string{"text"}},       // non-numeric
+			{Name: "price", DataType: []string{"number"}}, // rangeable not enabled
+			{Name: "label", DataType: []string{"text"}},   // non-numeric
 		},
 		Vectorizer: "none",
 	})
