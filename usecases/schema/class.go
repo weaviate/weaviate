@@ -423,6 +423,23 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 // enforces. This is intended for internal migrations that need to change
 // property-level indexing fields (e.g., IndexRangeFilters) after building new
 // indexes at runtime.
+//
+// Replication contract: this call synchronously awaits RAFT replication and
+// local FSM apply before returning a nil error. The path is:
+//
+//	h.schemaManager.UpdateProperty (cluster/raft_apply_endpoints.go:113)
+//	  → Raft.Execute (cluster/raft_apply_endpoints.go:296)
+//	      // leader:   Store.Execute (cluster/store_apply.go:27) which calls
+//	      //           raft.Apply(...) and blocks on fut.Error() + fut.Response()
+//	      // follower: cl.Apply (cluster/rpc/client.go:194) forwards to the
+//	      //           leader via gRPC and waits for the leader's response
+//
+// hashicorp/raft's ApplyFuture resolves only after the entry has been
+// committed (quorum-acknowledged) AND applied to the local FSM. A nil error
+// therefore implies the update is durable across a leader failover. Callers
+// such as reindex strategies' OnMigrationComplete rely on this guarantee to
+// flip schema flags (e.g. IndexFilterable=true) after a bucket swap without
+// risking a silent loss of the schema change.
 func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, prop *models.Property,
 ) error {
 	setPropertyDefaults(prop)
