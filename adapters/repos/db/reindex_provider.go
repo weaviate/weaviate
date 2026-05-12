@@ -269,43 +269,36 @@ func (p *ReindexProvider) processOneUnit(
 }
 
 func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*ShardReindexTaskGeneric, error) {
+	// Every migration type requires at least one property — repair-* / enable-*
+	// because they're per-property migrations, change-tokenization because it
+	// needs exactly one property. Check up front so each arm only deals with
+	// its unique constraints.
+	if len(payload.Properties) == 0 {
+		return nil, fmt.Errorf("%s requires at least one property", payload.MigrationType)
+	}
+
 	switch payload.MigrationType {
 	case ReindexTypeRepairSearchable:
-		if len(payload.Properties) == 0 {
-			return nil, fmt.Errorf("repair-searchable requires at least one property")
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
-		if len(payload.Properties) == 0 {
-			return nil, fmt.Errorf("repair-filterable requires at least one property")
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeEnableRangeable:
-		if len(payload.Properties) == 0 {
-			return nil, fmt.Errorf("enable-rangeable requires at least one property")
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
-		if len(payload.Properties) == 0 {
-			return nil, fmt.Errorf("enable-filterable requires at least one property")
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeEnableFilterableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeEnableSearchable:
-		if len(payload.Properties) == 0 {
-			return nil, fmt.Errorf("enable-searchable requires at least one property")
-		}
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
 		}
