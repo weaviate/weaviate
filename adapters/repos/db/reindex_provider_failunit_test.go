@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -168,17 +169,83 @@ func TestFailUnit_ContextCancelledBetweenRetries(t *testing.T) {
 // fire even though the FSM is internally consistent. Verify that
 // permanent rejections short-circuit after the first call and log at
 // warning level instead of the alarm.
+//
+// Each row exercises a specific permanent path and asserts both the
+// short-circuit (no retry, no alarm) and the correct log signal:
+//   - typed sentinel path: only the "FSM rejected ... as permanent"
+//     warning fires (no legacy-fallback log).
+//   - legacy substring path: BOTH the rejection warning and the
+//     legacy-fallback warning fire, so an operator can detect that a
+//     pre-sentinel peer is still in the cluster.
 func TestFailUnit_PermanentRejection_NoRetryNoAlarm(t *testing.T) {
-	permanentErrs := []string{
-		"executing command: task reindex/Foo/3 is no longer running",
-		"executing command: task reindex/Foo/3 does not exist",
-		"executing command: unit u1 in task reindex/Foo/3 is already terminal",
-		"executing command: unit u1 in task reindex/Foo/3 belongs to node node-B, not node-A",
+	// The typed-sentinel rows mirror what callers see in production:
+	// Manager.RecordUnitCompletion (and its gRPC-rehydrated form) chain
+	// the umbrella ErrPermanentRejection so errors.Is fires the fast
+	// path. We chain via errors.Join(sentinel, ErrPermanentRejection),
+	// which is the same shape produced by both
+	// distributedtask.wrapPermanent and
+	// distributedtask.RehydratePermanentRejection.
+	typedErr := func(sentinel error, humanMsg string) error {
+		return fmt.Errorf("executing command: %w",
+			errors.Join(sentinel, distributedtask.ErrPermanentRejection, errors.New(humanMsg)))
 	}
-	for _, msg := range permanentErrs {
-		t.Run(msg[:25], func(t *testing.T) {
+
+	cases := []struct {
+		name           string
+		err            error
+		expectFallback bool
+	}{
+		{
+			name:           "typed/task-not-running",
+			err:            typedErr(distributedtask.ErrTaskNotRunning, "task ns/Foo/3 is no longer running"),
+			expectFallback: false,
+		},
+		{
+			name:           "typed/task-not-exist",
+			err:            typedErr(distributedtask.ErrTaskDoesNotExist, "task ns/Foo/3 does not exist"),
+			expectFallback: false,
+		},
+		{
+			name:           "typed/unit-terminal",
+			err:            typedErr(distributedtask.ErrUnitAlreadyTerminal, "unit u1 in task ns/Foo/3 is already terminal"),
+			expectFallback: false,
+		},
+		{
+			name:           "typed/unit-wrong-node",
+			err:            typedErr(distributedtask.ErrUnitWrongNode, "unit u1 belongs to node X, not Y"),
+			expectFallback: false,
+		},
+		{
+			name:           "typed/umbrella-only",
+			err:            fmt.Errorf("executing command: %w", distributedtask.ErrPermanentRejection),
+			expectFallback: false,
+		},
+		{
+			name:           "legacy-substring/task-not-running",
+			err:            errors.New("executing command: task reindex/Foo/3 is no longer running"),
+			expectFallback: true,
+		},
+		{
+			name:           "legacy-substring/task-not-exist",
+			err:            errors.New("executing command: task reindex/Foo/3 does not exist"),
+			expectFallback: true,
+		},
+		{
+			name:           "legacy-substring/unit-terminal",
+			err:            errors.New("executing command: unit u1 in task reindex/Foo/3 is already terminal"),
+			expectFallback: true,
+		},
+		{
+			name:           "legacy-substring/unit-wrong-node",
+			err:            errors.New("executing command: unit u1 in task reindex/Foo/3 belongs to node node-B, not node-A"),
+			expectFallback: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			p, hook := newTestProvider(t)
-			rec := &stubRecorder{failureResults: []error{errors.New(msg)}}
+			rec := &stubRecorder{failureResults: []error{tc.err}}
 
 			p.failUnit(context.Background(), newFailUnitTestTask(), "u1", rec, "disk full")
 
@@ -192,13 +259,22 @@ func TestFailUnit_PermanentRejection_NoRetryNoAlarm(t *testing.T) {
 			}
 
 			// Must emit a Warn-level rejection log.
-			var foundWarn bool
+			var foundRejectionWarn, foundFallbackWarn bool
 			for _, e := range hook.AllEntries() {
-				if e.Level == logrus.WarnLevel && contains(e.Message, "FSM rejected unit-failure record as permanent") {
-					foundWarn = true
+				if e.Level != logrus.WarnLevel {
+					continue
+				}
+				if contains(e.Message, "FSM rejected unit-failure record as permanent") {
+					foundRejectionWarn = true
+				}
+				if contains(e.Message, "permanent-rejection detected via legacy substring fallback") {
+					foundFallbackWarn = true
 				}
 			}
-			require.True(t, foundWarn, "permanent rejection must emit a warning-level log")
+			require.True(t, foundRejectionWarn, "permanent rejection must emit a warning-level log")
+			require.Equal(t, tc.expectFallback, foundFallbackWarn,
+				"legacy-substring inputs must trigger the fallback warning; "+
+					"typed-sentinel inputs must NOT")
 		})
 	}
 }

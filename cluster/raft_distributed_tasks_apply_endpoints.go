@@ -27,6 +27,12 @@ func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.Appl
 		return fmt.Errorf("marshal request: %w", err)
 	}
 	if _, err = s.Execute(ctx, &cmd.ApplyRequest{Type: cmdType, SubCommand: subCommand}); err != nil {
+		// If the leader returned a permanent FSM rejection, the gRPC
+		// transport stripped the Go error type. Re-hydrate the sentinel
+		// here so callers (e.g. ReindexProvider.failUnit) can rely on
+		// errors.Is for classification rather than substring matching
+		// against an upstream-defined message.
+		err = distributedtask.RehydratePermanentRejection(err)
 		return fmt.Errorf("executing command: %w", err)
 	}
 	return nil

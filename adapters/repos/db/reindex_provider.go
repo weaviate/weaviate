@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -428,7 +429,7 @@ func (p *ReindexProvider) failUnit(
 		// Permanent FSM rejection: retry won't help. Log at warning level
 		// and exit — no operator action required, the FSM is in a stable
 		// state.
-		if isPermanentRecorderRejection(recErr) {
+		if isPermanentRecorderRejection(logger, recErr) {
 			logger.WithField("originalFailure", errMsg).WithField("recorderError", recErr.Error()).
 				Warn("reindex provider: FSM rejected unit-failure record as permanent (task already terminal, " +
 					"version mismatch, or unit owned by another node); not retrying")
@@ -457,9 +458,21 @@ func (p *ReindexProvider) failUnit(
 }
 
 // isPermanentRecorderRejection reports whether the recorder error
-// describes a stable FSM state that retrying cannot fix. The Manager in
-// cluster/distributedtask returns fmt.Errorf-formatted strings rather
-// than sentinel errors, so we match on substrings.
+// describes a stable FSM state that retrying cannot fix.
+//
+// The primary check is errors.Is against
+// [distributedtask.ErrPermanentRejection], which works for both local
+// FSM errors (sentinel wrapped via fmt.Errorf("...: %w", ...)) and
+// errors that have round-tripped through gRPC and been re-hydrated by
+// [distributedtask.RehydratePermanentRejection] in
+// applyDistributedTaskCommand.
+//
+// As a safety net during rolling upgrades, we keep the legacy
+// substring matching as a fallback for the case where an old leader
+// (pre-sentinel) returns the legacy plain-text error to a new
+// follower. Whenever the fallback fires, we log at Warn level so
+// operators can confirm in prod whether the sentinel path has fully
+// rolled out.
 //
 // The unmarshal-error path in Manager.RecordUnitCompletion (a malformed
 // SubCommand) is technically permanent too but is deliberately NOT
@@ -467,24 +480,26 @@ func (p *ReindexProvider) failUnit(
 // a malformed SubCommand reaching the Manager is a same-binary bug
 // rather than a recoverable FSM state — it should surface as the loud
 // alarm, not the quiet warning.
-//
-// TODO: replace with errors.Is once cluster/distributedtask exposes
-// sentinel error vars (e.g. ErrTaskNotRunning, ErrUnitAlreadyTerminal,
-// ErrUnitWrongNode). Note that the follower→leader gRPC forwarding
-// path re-encodes the error as a status-code string and loses the %w
-// chain, so any sentinel refactor needs to either keep this substring
-// fallback or teach the cluster RPC layer to preserve sentinels (e.g.
-// via gRPC status details).
-func isPermanentRecorderRejection(err error) bool {
+func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 	if err == nil {
 		return false
 	}
+
+	// Preferred path: typed sentinel.
+	if errors.Is(err, distributedtask.ErrPermanentRejection) {
+		return true
+	}
+
+	// Legacy fallback for mixed-version clusters: substring match
+	// against the historical phrasings. If this fires, we want a Warn
+	// log so an operator can see that the sentinel path isn't (yet)
+	// fully rolled out in their cluster.
 	msg := err.Error()
 	// All four substrings come from cluster/distributedtask/manager.go:
-	//   "task %s/%s/%d is no longer running"          → errTaskNotRunning
-	//   "task %s/%s/%d does not exist"                → findVersionedTaskWithLock
-	//   "unit %s in task %s/%s/%d is already terminal"
-	//   "unit %s in task %s/%s/%d belongs to node X, not Y"
+	//   "task %s/%s/%d is no longer running"          → ErrTaskNotRunning
+	//   "task %s/%s/%d does not exist"                → ErrTaskDoesNotExist
+	//   "unit %s in task %s/%s/%d is already terminal" → ErrUnitAlreadyTerminal
+	//   "unit %s in task %s/%s/%d belongs to node ..." → ErrUnitWrongNode
 	for _, marker := range []string{
 		"is no longer running",
 		"does not exist",
@@ -492,6 +507,11 @@ func isPermanentRecorderRejection(err error) bool {
 		"belongs to node",
 	} {
 		if strings.Contains(msg, marker) {
+			if logger != nil {
+				logger.WithField("matchedMarker", marker).WithField("recorderError", msg).
+					Warn("reindex provider: permanent-rejection detected via legacy substring fallback; " +
+						"a peer is likely running a pre-sentinel build")
+			}
 			return true
 		}
 	}

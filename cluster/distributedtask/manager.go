@@ -23,7 +23,12 @@ import (
 )
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
-	return fmt.Errorf("task %s/%s/%d is no longer running", namespace, taskID, version)
+	// Wrap with the permanent-rejection sentinels so callers can detect
+	// the stable FSM state via errors.Is. The legacy phrase
+	// "is no longer running" is preserved verbatim inside the human
+	// portion so substring-based classifiers on older nodes keep working.
+	return wrapPermanent(ErrTaskNotRunning,
+		fmt.Sprintf("task %s/%s/%d is no longer running", namespace, taskID, version))
 }
 
 // Manager is responsible for managing distributed tasks across the cluster.
@@ -127,12 +132,19 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 
 	u, ok := task.Units[unitID]
 	if !ok {
-		return nil, nil, fmt.Errorf("unit %s does not exist in task %s/%s/%d", unitID, namespace, taskID, task.Version)
+		// "unit ... does not exist" → ErrTaskDoesNotExist is the closest
+		// existing sentinel; both phrases historically used the
+		// "does not exist" substring and were classified as the same
+		// permanent state. Keep the original phrasing so legacy
+		// substring matching keeps working.
+		return nil, nil, wrapPermanent(ErrTaskDoesNotExist,
+			fmt.Sprintf("unit %s does not exist in task %s/%s/%d", unitID, namespace, taskID, task.Version))
 	}
 
 	if u.NodeID != "" && u.NodeID != nodeID {
-		return nil, nil, fmt.Errorf("unit %s in task %s/%s/%d belongs to node %s, not %s",
-			unitID, namespace, taskID, task.Version, u.NodeID, nodeID)
+		return nil, nil, wrapPermanent(ErrUnitWrongNode,
+			fmt.Sprintf("unit %s in task %s/%s/%d belongs to node %s, not %s",
+				unitID, namespace, taskID, task.Version, u.NodeID, nodeID))
 	}
 
 	return task, u, nil
@@ -158,7 +170,8 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	}
 
 	if u.Status == UnitStatusCompleted || u.Status == UnitStatusFailed {
-		return fmt.Errorf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version)
+		return wrapPermanent(ErrUnitAlreadyTerminal,
+			fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
 	}
 
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
@@ -318,7 +331,8 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
 	task := m.findTaskWithLock(namespace, taskID)
 	if task == nil || task.Version != taskVersion {
-		return nil, fmt.Errorf("task %s/%s/%d does not exist", namespace, taskID, taskVersion)
+		return nil, wrapPermanent(ErrTaskDoesNotExist,
+			fmt.Sprintf("task %s/%s/%d does not exist", namespace, taskID, taskVersion))
 	}
 
 	return task, nil
