@@ -216,18 +216,9 @@ func (p *ReindexProvider) processOneUnit(
 	}
 
 	// Find the shard.
-	var shard ShardLike
-	if err := idx.ForEachShard(func(name string, s ShardLike) error {
-		if name == shardName {
-			shard = s
-		}
-		return nil
-	}); err != nil {
-		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("iterating shards: %v", err))
-		return
-	}
-	if shard == nil {
-		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("shard %q not found", shardName))
+	shard, err := lookupShardByName(idx, shardName)
+	if err != nil {
+		p.failUnit(ctx, task, unitID, recorder, err.Error())
 		return
 	}
 
@@ -524,20 +515,10 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		}
 
 		shardName := payload.UnitToShard[unitID]
-		var shard ShardLike
-		if err := idx.ForEachShard(func(name string, s ShardLike) error {
-			if name == shardName {
-				shard = s
-			}
-			return nil
-		}); err != nil {
-			logger.WithField("unit", unitID).WithError(err).
-				Error("reindex provider: OnGroupCompleted: iterating shards")
-			continue
-		}
-		if shard == nil {
-			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Error("reindex provider: OnGroupCompleted: shard not found")
+		shard, err := lookupShardByName(idx, shardName)
+		if err != nil {
+			logger.WithField("unit", unitID).WithField("shard", shardName).WithError(err).
+				Error("reindex provider: OnGroupCompleted: shard lookup failed")
 			continue
 		}
 
@@ -768,4 +749,25 @@ func (db *DB) ShardReplicaOwnership(ctx context.Context, className string) (map[
 	}
 
 	return result, nil
+}
+
+// lookupShardByName returns the named shard from the index, or an error
+// describing why the lookup failed. There is no Index.GetShardByName, so
+// callers walk ForEachShard; centralise that walk here so the two call
+// sites (processOneUnit and OnGroupCompleted) report the same shape of
+// error.
+func lookupShardByName(idx *Index, shardName string) (ShardLike, error) {
+	var found ShardLike
+	if err := idx.ForEachShard(func(name string, s ShardLike) error {
+		if name == shardName {
+			found = s
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("iterating shards: %w", err)
+	}
+	if found == nil {
+		return nil, fmt.Errorf("shard %q not found", shardName)
+	}
+	return found, nil
 }
