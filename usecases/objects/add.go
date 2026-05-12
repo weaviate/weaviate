@@ -37,7 +37,10 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className, _ := m.resolveNS(principal, object.Class)
+	className, _, err := m.resolveNS(principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
 	object.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {

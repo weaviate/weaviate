@@ -32,7 +32,10 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
@@ -104,7 +107,10 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
 ) error {
-	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
@@ -161,8 +167,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	if err := h.validatePropertyIndexing(prop); err != nil {
 		return err
 	}
-	_, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop)
-	if err != nil {
+	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop); err != nil {
 		return err
 	}
 	return nil
@@ -174,7 +179,10 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
 		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
 	}
-	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err

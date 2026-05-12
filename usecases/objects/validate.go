@@ -28,7 +28,10 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	className, _ := m.resolveNS(principal, obj.Class)
+	className, _, err := m.resolveNS(principal, obj.Class)
+	if err != nil {
+		return err
+	}
 	obj.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID)); err != nil {

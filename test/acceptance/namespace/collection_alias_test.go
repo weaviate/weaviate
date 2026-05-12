@@ -338,4 +338,24 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		got := helper.GetClassAuth(t, "customer1:AdminAliasDeleteTarget", adminKey)
 		require.Equal(t, "customer1:AdminAliasDeleteTarget", got.Class)
 	})
+
+	// A delete with a wrong-case namespace prefix must be rejected at the
+	// resolver boundary; the class must survive untouched. Without this
+	// guard the qualify path accepted the casing variant, removed the data
+	// directory, and left the schema entry behind — blocking recreation.
+	t.Run("delete with wrong-case namespace prefix is rejected and class is untouched", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{Class: "CaseDelete"}, user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:CaseDelete", adminKey)
+
+		err := helper.DeleteClassAuthWithReturn(t, "Customer1:CaseDelete", adminKey)
+		require.Error(t, err)
+
+		got := helper.GetClassAuth(t, "customer1:CaseDelete", adminKey)
+		require.Equal(t, "customer1:CaseDelete", got.Class)
+
+		// Caller can still recreate after attempted bad-case delete fails,
+		// confirming no partial deletion occurred.
+		helper.DeleteClassAuth(t, "customer1:CaseDelete", adminKey)
+		helper.CreateClassAuth(t, &models.Class{Class: "CaseDelete"}, user1Key)
+	})
 }

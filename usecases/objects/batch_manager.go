@@ -80,6 +80,6 @@ func (m *BatchManager) resolveAlias(class string) (className, aliasName string) 
 
 // resolveNS qualifies name with the principal's namespace (if enabled)
 // and resolves any alias to its underlying class.
-func (b *BatchManager) resolveNS(principal *models.Principal, name string) (class, originalAlias string) {
+func (b *BatchManager) resolveNS(principal *models.Principal, name string) (class, originalAlias string, err error) {
 	return namespacing.Resolve(principal, b.schemaManager, b.config.Config.Namespaces.Enabled, name)
 }

@@ -33,7 +33,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	class, _ = m.resolveNS(principal, class)
+	class, _, err := m.resolveNS(principal, class)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
 		return nil, err
