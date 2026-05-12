@@ -597,16 +597,6 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Containment helpers — sanity checks on the small helper funcs.
-// -----------------------------------------------------------------------------
-
-func TestContainsStr(t *testing.T) {
-	require.True(t, containsStr([]string{"a", "b", "c"}, "b"))
-	require.False(t, containsStr([]string{"a", "b", "c"}, "d"))
-	require.False(t, containsStr(nil, "anything"))
-}
-
-// -----------------------------------------------------------------------------
 // touchesSearchable / touchesFilterable — exhaustive switch, including a
 // panic on unknown ReindexMigrationType so a future type cannot silently
 // bypass the conflict check.

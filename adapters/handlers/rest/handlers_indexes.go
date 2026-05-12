@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -419,7 +420,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// direct cluster payload authoring and is treated as "match
 		// nothing" so we never silently fan out a synthetic entry to
 		// every property in the collection.
-		if !containsStr(payload.Properties, propName) {
+		if !slices.Contains(payload.Properties, propName) {
 			continue
 		}
 
@@ -563,14 +564,6 @@ func isSyntheticStatus(s string) bool {
 	return false
 }
 
-func containsStr(ss []string, s string) bool {
-	for _, v := range ss {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
 
 func errorResponse(msg string) *models.ErrorResponse {
 	return &models.ErrorResponse{
