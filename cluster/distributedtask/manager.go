@@ -28,7 +28,7 @@ func errTaskNotRunning(namespace, taskID string, version uint64) error {
 
 // Manager is responsible for managing distributed tasks across the cluster.
 type Manager struct {
-	mu    sync.Mutex
+	mu    sync.RWMutex
 	tasks map[string]map[string]*Task // namespace -> taskID -> Task
 
 	completedTaskTTL time.Duration
@@ -284,8 +284,11 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
 // cloned, so callers may read the returned values without holding the Manager's lock.
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Read-only: holding RLock lets concurrent /indexes polls proceed
+	// without serialising against each other (they still wait on any
+	// in-flight RAFT-apply mutator).
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	result := make(map[string][]*Task, len(m.tasks))
 	for namespace, tasks := range m.tasks {
