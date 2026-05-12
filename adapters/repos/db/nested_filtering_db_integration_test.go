@@ -8382,7 +8382,7 @@ func TestNestedFilteringArrayIndexLevels(t *testing.T) {
 // clauses at the same LCA have *different* arr[N] constraint sets — one
 // unconstrained, the other pinned. Compatibility grouping treats {} and {N}
 // as compatible (same compatibility key) → both clauses share the same
-// resolveNestedCorrelatedGroup call, and same-element semantics force the
+// resolveNestedSubtreeGroup call, and same-element semantics force the
 // unconstrained side to match the same physical element pinned by the [N]
 // side. This is the cross-cutting case between Levels (1b) and the basic
 // arr[N] same-K AND in Access (1a).
@@ -13644,7 +13644,7 @@ func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
 	}
 
 	// Flat: AND(f1, f2, f3, f4) — groupNestedByProp folds all four leaves
-	// into one isCorrelated wrapper at LCA cars. The executor enforces
+	// into one isWithinRootSubtree wrapper at LCA cars. The executor enforces
 	// same-element AND across all four — ONE car must satisfy every leaf.
 	t.Run("flat_AND_requires_single_car_for_all_four", func(t *testing.T) {
 		runScenario(t, andFilter(f1, f2, f3, f4),
@@ -13652,7 +13652,7 @@ func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
 	})
 
 	// Nested: AND(AND(f1,f2), AND(f3,f4)) — each inner AND becomes its own
-	// isCorrelated wrapper at LCA cars. The outer AND combines the two
+	// isWithinRootSubtree wrapper at LCA cars. The outer AND combines the two
 	// inner results at docID level. So a doc matches when SOME car has
 	// (make+year) AND SOME — possibly different — car has (color+fuel).
 	//

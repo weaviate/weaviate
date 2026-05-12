@@ -155,7 +155,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 
 		pv := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "addresses",
 			children: []*propValuePair{
 				makeLeafPvp(class, "addresses", "city", "new"),

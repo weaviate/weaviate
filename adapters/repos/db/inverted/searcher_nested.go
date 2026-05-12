@@ -138,7 +138,7 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, f
 	case 1:
 		return pvps[0], nil
 	default:
-		return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
+		return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 	}
 }
 
@@ -207,10 +207,10 @@ func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPa
 // nestedRootProp returns the root property name for a child eligible for
 // correlated grouping, or "" if the child is flat and should pass through.
 // Eligible children are direct nested leaves (nested.isNested) or
-// tokenization compound ANDs (nested.isCorrelated).
+// tokenization compound ANDs (nested.isWithinRootSubtree).
 // For "garages.cars.tags", the root property name is "garages".
 func nestedRootProp(child *propValuePair) string {
-	if child.nested.isNested || child.nested.isCorrelated {
+	if child.nested.isNested || child.nested.isWithinRootSubtree {
 		return child.prop
 	}
 	return ""
@@ -218,13 +218,13 @@ func nestedRootProp(child *propValuePair) string {
 
 // groupNestedByProp rewrites a flat slice of AND children so that conditions
 // targeting the same root nested property are grouped into a single
-// isCorrelated AND node that the resolver will handle with position-aware
+// isWithinRootSubtree AND node that the resolver will handle with position-aware
 // same-element semantics. Flat (non-nested) conditions and nested conditions
 // from different props are returned unchanged in their original order.
 //
 // A child is eligible for grouping when it is:
 //   - a direct nested leaf (nested.isNested == true), or
-//   - a tokenization-produced compound AND (nested.isCorrelated == true)
+//   - a tokenization-produced compound AND (nested.isWithinRootSubtree == true)
 //
 // If no nested children are found, the original slice is returned as-is.
 // Single-child groups are kept as plain children (no wrapper node created).
@@ -238,7 +238,7 @@ func nestedRootProp(child *propValuePair) string {
 //
 // the result is:
 //
-//	isCorrelated(addresses) [city="Berlin", postcode="10115"]
+//	isWithinRootSubtree(addresses) [city="Berlin", postcode="10115"]
 //	age > 30
 //	cars.make = "BMW"
 func groupNestedByProp(children []*propValuePair, class *models.Class) []*propValuePair {
@@ -260,7 +260,7 @@ func groupNestedByProp(children []*propValuePair, class *models.Class) []*propVa
 	}
 
 	// Second pass: reconstruct the children slice, replacing multi-condition
-	// nested groups with a single isCorrelated AND node. Single-condition
+	// nested groups with a single isWithinRootSubtree AND node. Single-condition
 	// groups are kept as plain children. Flat conditions retain their position.
 	result := make([]*propValuePair, 0, len(children))
 	emitted := make(map[string]bool, len(propOrder))
@@ -280,7 +280,7 @@ func groupNestedByProp(children []*propValuePair, class *models.Class) []*propVa
 		} else {
 			result = append(result, &propValuePair{
 				operator: filters.OperatorAnd,
-				nested:   nestedInfo{isCorrelated: true},
+				nested:   nestedInfo{isWithinRootSubtree: true},
 				prop:     prop,
 				children: group,
 				Class:    class,

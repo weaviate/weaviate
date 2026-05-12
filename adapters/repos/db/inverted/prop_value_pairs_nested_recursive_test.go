@@ -135,7 +135,7 @@ func tokenWrapperOuter(tokens ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		prop:     "addresses",
 		operator: filters.OperatorAnd,
-		nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+		nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 		children: tokens,
 	}
 }
@@ -156,7 +156,7 @@ func outerCorrelated(children ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		prop:     "addresses",
 		operator: filters.OperatorAnd,
-		nested:   nestedInfo{isCorrelated: true},
+		nested:   nestedInfo{isWithinRootSubtree: true},
 		children: children,
 	}
 }

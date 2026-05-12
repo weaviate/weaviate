@@ -39,7 +39,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // correlationTestClass returns a minimal class with nested object-array
-// properties used across resolveNestedCorrelated tests.
+// properties used across resolveNestedSubtree tests.
 //
 //	addresses: object[] { city text, postcode text }
 //	cars:      object[] { make text, tires object[]{width int}, accessories object[]{type text} }
@@ -133,11 +133,11 @@ func makeLeafPvp(class *models.Class, prop, relPath, term string) *propValuePair
 	}
 }
 
-// makeCorrelatedPvp wraps children in an isCorrelatedNested AND node for prop.
+// makeCorrelatedPvp wraps children in an isWithinRootSubtree AND node for prop.
 func makeCorrelatedPvp(class *models.Class, prop string, children ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		operator: filters.OperatorAnd,
-		nested:   nestedInfo{isCorrelated: true},
+		nested:   nestedInfo{isWithinRootSubtree: true},
 		prop:     prop,
 		children: children,
 		Class:    class,
@@ -333,7 +333,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		addrVb := store.Bucket(addrBucketName)
 		writeNestedValue(t, addrVb, "city", "berlin", []uint64{invnested.Encode(1, 1, doc5)})
 
-		// groupNestedByProp creates one isCorrelatedNested node per prop;
+		// groupNestedByProp creates one isWithinRootSubtree node per prop;
 		// here we build the same structure directly.
 		pv := makeAndPvp(class,
 			makeCorrelatedPvp(class, "cars",
@@ -520,7 +520,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		//
 		// Both conditions hit the same relPath "cars.tags" and land in
 		// positionsByPath["cars.tags"].independent. "cars" is a DataTypeObjectArray
-		// within garages, so the fix in resolveNestedCorrelated detects this and
+		// within garages, so the fix in resolveNestedSubtree detects this and
 		// calls runIdxLoop("cars", [germanBm, electricBm]) before plan building.
 		// This enforces same-car semantics, not just same-garage semantics.
 		//
@@ -838,7 +838,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 
 		pv := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "addresses",
 			children: []*propValuePair{
 				makeLeafPvp(class, "addresses", "city", "new"),
@@ -1626,7 +1626,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 	// -----------------------------------------------------------------------
 
 	// tokenCompound builds a non-isNested compound AND whose children are
-	// routed as tokens by resolveNestedCorrelated. The outer correlated pvp's
+	// routed as tokens by resolveNestedSubtree. The outer correlated pvp's
 	// childrenFromTokenization is false, so this non-isNested child enters the
 	// else branch and its grandchildren become tokens for the given relPath.
 	tokenCompound := func(class *models.Class, prop, relPath string, terms ...string) *propValuePair {
@@ -1960,7 +1960,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 
 		valueBucketName := helpers.BucketNestedFromPropNameLSM("cars")
 		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("cars")
-		// Meta bucket is required by resolveNestedCorrelated, but intentionally left
+		// Meta bucket is required by resolveNestedSubtree, but intentionally left
 		// empty — this test proves that no _idx entries are accessed or needed.
 		searcher, store := newNestedTestSearcher(t, valueBucketName, metaBucketName)
 		class := correlationTestClass()
@@ -3298,7 +3298,7 @@ func TestPlanCasesIntegration(t *testing.T) {
 
 		// -----------------------------------------------------------------------
 		// Single-condition cases — each produces one leaf pvp resolved via
-		// fetchNestedDocIDs (not resolveNestedCorrelated). These verify that the
+		// fetchNestedDocIDs (not resolveNestedSubtree). These verify that the
 		// basic bucket read + MaskRootLeaf path works correctly at every nesting
 		// depth and for every leaf type.
 		//
@@ -4765,7 +4765,7 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 	// Root-level: nestedArray.addresses.city="berlin" AND nestedArray[1].cars.make="bmw"
 	//
 	// city ({}) and make ({[1]}) are compatible → same group → single
-	// resolveNestedCorrelatedGroup call. Plan: two sub-groups (addresses and cars
+	// resolveNestedSubtreeGroup call. Plan: two sub-groups (addresses and cars
 	// byFirst), resolved with AndAllMaskLeaf → same root element required.
 	//
 	// doc5: nestedArray[1] has berlin(root=2,leaf=1) AND bmw(root=2,leaf=2)
@@ -4824,7 +4824,7 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 	// Intermediate-level: nested.cars.colors="red" AND nested.cars[1].make="bmw"
 	//
 	// colors ({}) and make ({cars:1}) are compatible → same group → single
-	// resolveNestedCorrelatedGroup call. Plan: LCA="cars", groupAndAll — ANDs raw
+	// resolveNestedSubtreeGroup call. Plan: LCA="cars", groupAndAll — ANDs raw
 	// position bitmaps. make is restricted to cars[1] (leaf=2); colors spans all
 	// cars (leaf=1 for cars[0], leaf=2 for cars[1]). AND requires same leaf →
 	// both must be satisfied by cars[1].
@@ -5459,7 +5459,7 @@ func TestIsNullInCorrelatedAnd(t *testing.T) {
 
 		makeTokenNode := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "cars",
 			children: []*propValuePair{
 				makeLeafPvp(class, "cars", "make", "honda"),
@@ -5494,7 +5494,7 @@ func TestIsNullInCorrelatedAnd(t *testing.T) {
 
 		makeTokenNode := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "cars",
 			children: []*propValuePair{
 				makeLeafPvp(class, "cars", "make", "honda"),

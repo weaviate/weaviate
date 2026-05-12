@@ -26,14 +26,14 @@ func nestedPvp(prop, relPath string) *propValuePair {
 }
 
 // compoundAndPvp builds a compound AND propValuePair as produced by multi-token
-// text tokenization (childrenFromTokenization=true, isCorrelatedNested=true).
+// text tokenization (childrenFromTokenization=true, isWithinRootSubtree=true).
 // prop is derived from the first child, mirroring buildNestedTextFilterPair.
 func compoundAndPvp(children ...*propValuePair) *propValuePair {
 	var prop string
 	if len(children) > 0 {
 		prop = children[0].prop
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: children, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: prop}
+	return &propValuePair{operator: filters.OperatorAnd, children: children, nested: nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true}, prop: prop}
 }
 
 // userNestedAndPvp builds a compound AND propValuePair as produced by user
@@ -46,7 +46,7 @@ func userNestedAndPvp(children ...*propValuePair) *propValuePair {
 // wantChild describes one expected element in the groupNestedByProp output.
 type wantChild struct {
 	// correlatedProp is non-empty when the output child should be an
-	// isCorrelatedNested=true AND node wrapping conditions for that prop.
+	// isWithinRootSubtree=true AND node wrapping conditions for that prop.
 	correlatedProp string
 	// groupSize is the number of children inside the correlated group.
 	// Only inspected when correlatedProp is non-empty.
@@ -293,12 +293,12 @@ func TestGroupNestedByProp(t *testing.T) {
 			for i, wc := range tt.want {
 				child := result[i]
 				if wc.correlatedProp != "" {
-					assert.True(t, child.nested.isCorrelated, "child[%d] should be correlated", i)
+					assert.True(t, child.nested.isWithinRootSubtree, "child[%d] should be correlated", i)
 					assert.Equal(t, filters.OperatorAnd, child.operator, "child[%d] operator", i)
 					assert.Equal(t, wc.correlatedProp, child.prop, "child[%d] prop", i)
 					assert.Len(t, child.children, wc.groupSize, "child[%d] group size", i)
 				} else {
-					assert.False(t, child.nested.isCorrelated, "child[%d] should not be correlated", i)
+					assert.False(t, child.nested.isWithinRootSubtree, "child[%d] should not be correlated", i)
 				}
 			}
 		})

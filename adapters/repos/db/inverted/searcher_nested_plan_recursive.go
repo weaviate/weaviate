@@ -93,7 +93,7 @@ func (o *recOrNode) lcaPath() string    { return o.lca }
 func (n *recNotNode) lcaPath() string   { return n.lca }
 
 // recPlanBuilder builds a recPlanNode tree from the children of an
-// isCorrelated AND. Only the root property's nested schema is required; all
+// isWithinRootSubtree AND. Only the root property's nested schema is required; all
 // per-condition state lives on the propValuePair children.
 type recPlanBuilder struct {
 	props []*models.NestedProperty
@@ -103,7 +103,7 @@ func newRecPlanBuilder(props []*models.NestedProperty) *recPlanBuilder {
 	return &recPlanBuilder{props: props}
 }
 
-// build is the entry point. children are the conditions of an isCorrelated
+// build is the entry point. children are the conditions of an isWithinRootSubtree
 // AND. The returned plan starts from the root property scope ("").
 func (b *recPlanBuilder) build(children []*propValuePair) recPlanNode {
 	return b.buildPlan(children, "")
