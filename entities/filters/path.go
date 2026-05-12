@@ -104,7 +104,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 			return nil, fmt.Errorf("element %v is not a string", i+2)
 		}
 
-		className, err := schema.ValidateClassName(rawClassName)
+		className, err := schema.ValidateQualifiedClassName(rawClassName)
 		if err != nil {
 			return nil, fmt.Errorf("expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}

@@ -28,11 +28,13 @@ import (
 
 type AggregateParser struct {
 	authorizedGetClass classGetterWithAuthzFunc
+	namespacesEnabled  bool
 }
 
-func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
+		namespacesEnabled:  namespacesEnabled,
 	}
 }
 
@@ -76,7 +78,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}
