@@ -60,6 +60,10 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		}
 	}
 
+	// Pre-parse the reindex task payloads once per request so the per-property
+	// merge below doesn't re-unmarshal each task N times.
+	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
+
 	// Build per-property index status.
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
 	for _, prop := range class.Properties {
@@ -95,7 +99,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if e.flagOn && e.carryTokenization {
 				idx.Tokenization = prop.Tokenization
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, activeTasks, h.appState.Logger)
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, parsedTasks, h.appState.Logger)
 			// Flag on → always emit. Flag off → emit only when a reindex
 			// task carries actionable signal (in-flight or terminal
 			// failure/cancellation).
@@ -335,6 +339,35 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	})
 }
 
+// parsedReindexTask pairs a distributed task with its already-unmarshalled
+// reindex payload. The handler builds a slice of these once per request
+// so mergeReindexStatus doesn't re-unmarshal task.Payload N times where
+// N is the number of properties in the collection.
+type parsedReindexTask struct {
+	task    *distributedtask.Task
+	payload db.ReindexTaskPayload
+}
+
+// parseReindexTasks unmarshals every active reindex task's payload once.
+// Tasks in FINISHED status are skipped (merge logic ignores them anyway)
+// as are tasks with unparseable payloads — those are flagged elsewhere by
+// checkReindexConflict at submit time; for the read-side merge they're
+// the same as no task.
+func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
+	parsed := make([]parsedReindexTask, 0, len(tasks))
+	for _, task := range tasks {
+		if task.Status == distributedtask.TaskStatusFinished {
+			continue
+		}
+		var payload db.ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &payload); err != nil {
+			continue
+		}
+		parsed = append(parsed, parsedReindexTask{task: task, payload: payload})
+	}
+	return parsed
+}
+
 // mergeReindexStatus checks if there's an active or recently-terminated
 // reindex task that targets the given property+indexType and updates the
 // IndexStatus accordingly.
@@ -366,12 +399,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, allTasks map[string][]*distributedtask.Task, logger logrus.FieldLogger) {
-	if allTasks == nil {
-		return
-	}
-	tasks := allTasks[db.ReindexNamespace]
-
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -379,19 +407,14 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	// Pick the most useful one to surface rather than first-in-map-order:
 	//   STARTED  > FAILED ≈ CANCELLED       (in-flight beats terminal)
 	//   newer StartedAt > older StartedAt   (within the same priority)
-	// FINISHED is skipped entirely (the schema flag flips and the
-	// regular "ready" entry takes over).
+	// FINISHED was already skipped by parseReindexTasks (the schema flag
+	// flips and the regular "ready" entry takes over).
 	var best *distributedtask.Task
 	var bestPayload db.ReindexTaskPayload
-	for _, task := range tasks {
-		if task.Status == distributedtask.TaskStatusFinished {
-			continue
-		}
+	for _, pt := range parsedTasks {
+		task := pt.task
+		payload := pt.payload
 
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			continue
-		}
 		if !strings.EqualFold(payload.Collection, collection) {
 			continue
 		}

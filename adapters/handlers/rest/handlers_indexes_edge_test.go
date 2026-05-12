@@ -49,10 +49,8 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	}
 }
 
-func tasksMap(tasks ...*distributedtask.Task) map[string][]*distributedtask.Task {
-	return map[string][]*distributedtask.Task{
-		db.ReindexNamespace: tasks,
-	}
+func tasksMap(tasks ...*distributedtask.Task) []parsedReindexTask {
+	return parseReindexTasks(tasks)
 }
 
 // Edge case 1: Task in STARTED state but no unit has reported progress yet.
@@ -273,7 +271,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "foo", "filterable",
-				map[string][]*distributedtask.Task{db.ReindexNamespace: order.tasks}, nil)
+				parseReindexTasks(order.tasks), nil)
 
 			require.InDelta(t, 0.9, idx.Progress, 0.0001,
 				"newest STARTED task (change-tokenization) must win regardless of slice order")
@@ -327,7 +325,7 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "foo", "filterable",
-				map[string][]*distributedtask.Task{db.ReindexNamespace: order.tasks}, nil)
+				parseReindexTasks(order.tasks), nil)
 
 			require.Equal(t, "indexing", idx.Status,
 				"STARTED retry must beat older FAILED attempt regardless of slice order")
@@ -380,7 +378,7 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 			mergeReindexStatus(idx, "C", "foo", "filterable",
-				map[string][]*distributedtask.Task{db.ReindexNamespace: order.tasks}, nil)
+				parseReindexTasks(order.tasks), nil)
 
 			require.Equal(t, "failed", idx.Status)
 			require.InDelta(t, 0.7, idx.Progress, 0.0001,
