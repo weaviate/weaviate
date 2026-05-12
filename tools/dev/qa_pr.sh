@@ -55,7 +55,6 @@ fi
 
 WEAVIATE_REPO="weaviate/weaviate"
 QA_REPO="weaviate/weaviate-qa"
-ASSIGNEE="${QA_ASSIGNEE:-antas-marcin}"
 
 # Project #28 in weaviate/weaviate-qa
 PROJECT_ORG="weaviate"
@@ -72,6 +71,12 @@ require_cmd() {
 
 require_cmd gh
 require_cmd jq
+
+ASSIGNEE=$(gh api user --jq '.login' 2>/dev/null || true)
+if [[ -z "$ASSIGNEE" ]]; then
+  echo "ERROR: could not determine current GitHub user (is 'gh auth login' done?)" >&2
+  exit 1
+fi
 
 # ===== Step 1: Fetch docker image tags =====
 log "Step 1: Fetching docker image tags for PR #$PR_NUMBER"
