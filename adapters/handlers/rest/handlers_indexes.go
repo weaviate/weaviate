@@ -478,6 +478,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if bestPayload.TargetTokenization != "" {
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
+	case db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable,
+		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable:
+		// No tokenization side effects for these types.
 	}
 
 	switch best.Status {
@@ -495,6 +498,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		} else {
 			idx.Status = "pending"
 		}
+	case distributedtask.TaskStatusFinished:
+		// Skipped at the top of the loop; this branch is unreachable.
 	}
 }
 
