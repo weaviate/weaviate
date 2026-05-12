@@ -427,9 +427,22 @@ func (p *ReindexProvider) failUnit(
 // isPermanentRecorderRejection reports whether the recorder error
 // describes a stable FSM state that retrying cannot fix. The Manager in
 // cluster/distributedtask returns fmt.Errorf-formatted strings rather
-// than sentinel errors, so we match on substrings. TODO: replace with
-// errors.Is once cluster/distributedtask exposes sentinel error vars
-// (e.g. ErrTaskNotRunning, ErrUnitAlreadyTerminal, ErrUnitWrongNode).
+// than sentinel errors, so we match on substrings.
+//
+// The unmarshal-error path in Manager.RecordUnitCompletion (a malformed
+// SubCommand) is technically permanent too but is deliberately NOT
+// matched: applyDistributedTaskCommand marshals the request itself, so
+// a malformed SubCommand reaching the Manager is a same-binary bug
+// rather than a recoverable FSM state — it should surface as the loud
+// alarm, not the quiet warning.
+//
+// TODO: replace with errors.Is once cluster/distributedtask exposes
+// sentinel error vars (e.g. ErrTaskNotRunning, ErrUnitAlreadyTerminal,
+// ErrUnitWrongNode). Note that the follower→leader gRPC forwarding
+// path re-encodes the error as a status-code string and loses the %w
+// chain, so any sentinel refactor needs to either keep this substring
+// fallback or teach the cluster RPC layer to preserve sentinels (e.g.
+// via gRPC status details).
 func isPermanentRecorderRejection(err error) bool {
 	if err == nil {
 		return false
