@@ -361,6 +361,38 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 		return ActionNone
 	}
 
+	// Guard: if there are condensed or raw files whose timestamps fall within
+	// the sorted file range, skip merge/snapshot for this cycle. This can
+	// happen when allocChecker defers conversion of some files due to memory
+	// pressure. Creating a snapshot or merge now would give the output an
+	// endTS that covers those timestamps; the Loader would then treat the
+	// un-incorporated files as redundant (filtering them on load) and
+	// resolveOverlaps would delete them on the next cycle — both causing
+	// permanent data loss. Returning ActionNone lets the next cycle retry
+	// the conversion when memory is available.
+	if len(state.SortedFiles) > 0 {
+		maxSortedEndTS := int64(0)
+		for _, f := range state.SortedFiles {
+			if f.EndTS > maxSortedEndTS {
+				maxSortedEndTS = f.EndTS
+			}
+		}
+		for _, f := range state.CondensedFiles {
+			if f.EndTS <= maxSortedEndTS {
+				log.WithField("reason", "condensed file within sorted range, defer until converted").
+					Debug("decision: no action - defer merge/snapshot until interleaved condensed files are converted")
+				return ActionNone
+			}
+		}
+		for _, f := range state.RawFiles {
+			if f.EndTS <= maxSortedEndTS {
+				log.WithField("reason", "raw file within sorted range, defer until converted").
+					Debug("decision: no action - defer merge/snapshot until interleaved raw files are converted")
+				return ActionNone
+			}
+		}
+	}
+
 	sortedRatio := float64(sortedSize) / float64(totalSize)
 	log = log.WithField("sorted_ratio", sortedRatio)
 
