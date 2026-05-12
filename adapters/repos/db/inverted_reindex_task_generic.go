@@ -2282,71 +2282,29 @@ func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *r
 		case "conditionalStart":
 			config.conditionalStart = entcfg.Enabled(value)
 		case "concurrency":
-			concurrency, err := strconv.Atoi(value)
-			if err != nil {
-				logger.WithField("value", value).Warn("invalid concurrency value, must be an integer")
-				continue
+			if n, ok := parsePositiveInt(logger, "concurrency", value); ok {
+				config.concurrency = n
 			}
-			if concurrency <= 0 {
-				logger.WithField("value", value).Warn("invalid concurrency value, must be greater than 0")
-				continue
-			}
-			config.concurrency = concurrency
 		case "memtableOptBlockmaxFactor", "memtableOptFactor":
-			memtableOptFactor, err := strconv.Atoi(value)
-			if err != nil {
-				logger.WithField("value", value).Warn("invalid memtableOptFactor value, must be an integer")
-				continue
+			if n, ok := parsePositiveInt(logger, "memtableOptFactor", value); ok {
+				config.memtableOptFactor = n
 			}
-			if memtableOptFactor <= 0 {
-				logger.WithField("value", value).Warn("invalid memtableOptFactor value, must be greater than 0")
-				continue
-			}
-			config.memtableOptFactor = memtableOptFactor
 		case "processingDuration":
-			processingDuration, err := time.ParseDuration(value)
-			if err != nil {
-				logger.WithField("value", value).Warnf("invalid processingDuration value: %v", err)
-				continue
+			if d, ok := parsePositiveDuration(logger, "processingDuration", value, false); ok {
+				config.processingDuration = d
 			}
-			if processingDuration <= 0 {
-				logger.WithField("value", value).Warn("invalid processingDuration value, must be greater than 0")
-				continue
-			}
-			config.processingDuration = processingDuration
 		case "pauseDuration":
-			pauseDuration, err := time.ParseDuration(value)
-			if err != nil {
-				logger.WithField("value", value).Warnf("invalid pauseDuration value: %v", err)
-				continue
+			if d, ok := parsePositiveDuration(logger, "pauseDuration", value, false); ok {
+				config.pauseDuration = d
 			}
-			if pauseDuration <= 0 {
-				logger.WithField("value", value).Warn("invalid pauseDuration value, must be greater than 0")
-				continue
-			}
-			config.pauseDuration = pauseDuration
 		case "perObjectDelay":
-			perObjectDelay, err := time.ParseDuration(value)
-			if err != nil {
-				logger.WithField("value", value).Warnf("invalid perObjectDelay value: %v", err)
-				continue
+			if d, ok := parsePositiveDuration(logger, "perObjectDelay", value, true); ok {
+				config.perObjectDelay = d
 			}
-			if perObjectDelay < 0 {
-				logger.WithField("value", value).Warn("invalid perObjectDelay value, must be greater than or equal to 0")
-				continue
-			}
-			config.perObjectDelay = perObjectDelay
 		case "checkProcessingEveryNoObjects":
-			checkProcessingEveryNoObjects, err := strconv.Atoi(value)
-			if err != nil {
-				logger.WithField("value", value).Warnf("invalid checkProcessingEveryNoObjects value: %v", err)
-				continue
+			if n, ok := parsePositiveInt(logger, "checkProcessingEveryNoObjects", value); ok {
+				config.checkProcessingEveryNoObjects = n
 			}
-			if checkProcessingEveryNoObjects <= 0 {
-				logger.WithField("value", value).Warn("invalid checkProcessingEveryNoObjects value, must be greater than 0")
-				continue
-			}
-			config.checkProcessingEveryNoObjects = checkProcessingEveryNoObjects
 		default:
 			logger.WithField("key", key).Warnf("unknown override key, ignoring: %s", key)
 			continue
@@ -2354,4 +2312,40 @@ func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *r
 	}
 
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("reindex config overrides applied")
+}
+
+// parsePositiveInt parses a positive (>0) integer override. Logs a warning
+// and returns ok=false if value cannot be parsed or is not positive.
+func parsePositiveInt(logger logrus.FieldLogger, key, value string) (int, bool) {
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		logger.WithField("value", value).Warnf("invalid %s value, must be an integer", key)
+		return 0, false
+	}
+	if n <= 0 {
+		logger.WithField("value", value).Warnf("invalid %s value, must be greater than 0", key)
+		return 0, false
+	}
+	return n, true
+}
+
+// parsePositiveDuration parses a duration override. If allowZero is false the
+// value must be > 0; if allowZero is true it must be >= 0. Logs a warning and
+// returns ok=false on parse failure or constraint violation.
+func parsePositiveDuration(logger logrus.FieldLogger, key, value string, allowZero bool) (time.Duration, bool) {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		logger.WithField("value", value).Warnf("invalid %s value: %v", key, err)
+		return 0, false
+	}
+	if allowZero {
+		if d < 0 {
+			logger.WithField("value", value).Warnf("invalid %s value, must be greater than or equal to 0", key)
+			return 0, false
+		}
+	} else if d <= 0 {
+		logger.WithField("value", value).Warnf("invalid %s value, must be greater than 0", key)
+		return 0, false
+	}
+	return d, true
 }
