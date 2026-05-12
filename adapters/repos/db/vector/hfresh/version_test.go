@@ -398,8 +398,8 @@ func TestVersionConstants(t *testing.T) {
 // TestDecoupledRescoreLimits verifies that posting rescore limit and final vector
 // rescore limit are properly decoupled.
 func TestDecoupledRescoreLimits(t *testing.T) {
-	t.Run("posting rescore limit is 10 for V2", func(t *testing.T) {
-		assert.Equal(t, 10, DefaultPostingRescoreLimit, "posting rescore limit should be 10")
+	t.Run("posting rescore limit is 100 for V2", func(t *testing.T) {
+		assert.Equal(t, 100, DefaultPostingRescoreLimit, "posting rescore limit should be 100")
 	})
 
 	t.Run("final vector rescore limit is 350", func(t *testing.T) {
@@ -430,7 +430,7 @@ func TestCustomFinalRescoreLimitDoesNotChangePostingRescoreLimit(t *testing.T) {
 	// Final vector rescore limit should be the custom value
 	assert.Equal(t, uint32(500), index.rescoreLimit)
 
-	// HNSW posting rescore limit should still be DefaultPostingRescoreLimit (10)
+	// HNSW posting rescore limit should still be DefaultPostingRescoreLimit (100)
 	assert.Equal(t, DefaultPostingRescoreLimit, index.Centroids.RQRescoreLimit(),
 		"custom final vector rescore limit should not change posting rescore limit")
 }
@@ -448,14 +448,14 @@ func TestPostingRescoreLimitValues(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name:     "V2 has posting rescore limit of 10",
+			name:     "V2 has posting rescore limit of 100",
 			version:  HFreshIndexVersion2,
-			expected: 10,
+			expected: 100,
 		},
 		{
-			name:     "future version V3 has posting rescore limit of 10",
+			name:     "future version V3 has posting rescore limit of 100",
 			version:  3,
-			expected: 10,
+			expected: 100,
 		},
 	}
 
@@ -467,9 +467,9 @@ func TestPostingRescoreLimitValues(t *testing.T) {
 	}
 }
 
-// TestV2PostingRescoreLimitIs10 is a sanity check that V2 does not rescore
-// hundreds of postings by default.
-func TestV2PostingRescoreLimitIs10(t *testing.T) {
+// TestV2PostingRescoreLimitIs100 is a sanity check that V2 uses 100 postings
+// for rescoring during the centroid search phase.
+func TestV2PostingRescoreLimitIs100(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	cfg, uc := makeHFreshConfig(t)
 
@@ -478,10 +478,10 @@ func TestV2PostingRescoreLimitIs10(t *testing.T) {
 	// Verify V2 is created by default
 	assert.Equal(t, uint8(HFreshIndexVersion2), index.Version())
 
-	// Key assertion: posting rescore limit should be 10, NOT 350
+	// Key assertion: posting rescore limit should be 100, NOT 350
 	postingRescoreLimit := index.Centroids.RQRescoreLimit()
-	assert.Equal(t, 10, postingRescoreLimit,
-		"V2 posting rescore limit should be 10 to avoid rescoring too many postings")
+	assert.Equal(t, 100, postingRescoreLimit,
+		"V2 posting rescore limit should be 100")
 
 	// Ensure it's not the old value
 	assert.NotEqual(t, 350, postingRescoreLimit,

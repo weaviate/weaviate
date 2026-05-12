@@ -33,7 +33,7 @@ const (
 	// at the final stage after posting search. This is configurable via rq.rescoreLimit.
 	//
 	// Note: This is separate from the posting/HNSW representative rescore limit
-	// (DefaultPostingRescoreLimit = 10) which controls how many HNSW posting
+	// (DefaultPostingRescoreLimit = 100) which controls how many HNSW posting
 	// representatives are rescored during the centroid search phase.
 	DefaultHFreshRescoreLimit = 350
 )
