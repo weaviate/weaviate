@@ -1625,10 +1625,11 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 	// intermediate (intermediate ObjectArray LCA).
 	// -----------------------------------------------------------------------
 
-	// tokenCompound builds a non-isNested compound AND whose children are
-	// routed as tokens by resolveNestedSubtree. The outer correlated pvp's
-	// childrenFromTokenization is false, so this non-isNested child enters the
-	// else branch and its grandchildren become tokens for the given relPath.
+	// tokenCompound models the production tokenization wrapper from
+	// buildNestedTextFilterPair: childrenFromTokenization=true keeps the
+	// planner from unwrapping the AND as an associative compound, and
+	// normalizeRecGroup AndAlls the token grandchildren into one virtual
+	// leaf bitmap.
 	tokenCompound := func(class *models.Class, prop, relPath string, terms ...string) *propValuePair {
 		children := make([]*propValuePair, len(terms))
 		for i, term := range terms {
@@ -1636,7 +1637,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		}
 		return &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{}, // isNested=false → grandchildren become tokens
+			nested:   nestedInfo{childrenFromTokenization: true},
 			children: children,
 			Class:    class,
 		}

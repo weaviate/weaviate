@@ -165,25 +165,53 @@ func (b *recPlanBuilder) buildPlan(items []*propValuePair, scope string) recPlan
 	return &recSplitNode{lca: scope, branches: branches}
 }
 
-// buildGroup partitions items at scope into here (terminating at the scope
-// LCA), one sub-plan per next-deeper ObjectArray (for leaf items), and one
-// sub-plan per OR/NOT operator item (planned recursively from its natural
-// scope). An empty here with a single sub collapses to the sub directly so
-// trees stay tight.
+// buildGroup partitions items at scope into:
+//   - `here`: leaves (and tokenization wrappers) whose natural LCA equals scope.
+//   - `subsByPath[next]`: items whose natural LCA is a descendant of scope; the
+//     descendant `next` is the first ObjectArray segment from scope toward
+//     the item's LCA, recursing into buildPlan at that scope.
+//   - `operatorSubs`: OR/NOT operator items whose natural LCA equals scope —
+//     planned in place via buildOrAtScope / buildNotAtScope so their operands
+//     are planned within `scope` and share leaf alignment with sibling leaves.
+//
+// Non-tokenization AND operator items (introduced by groupNestedByProp's
+// recursive same-root wrapping or by user-written `A AND (B AND C)`) are
+// unwrapped: their children are treated as direct items at the same scope.
+// AND is associative, so this preserves semantics and lets the planner reach
+// the leaves at their natural depth.
+//
+// An empty here with a single sub collapses to the sub directly so trees
+// stay tight.
 func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPlanNode {
+	// Flatten non-tokenization AND wrappers so their leaves participate at
+	// `scope` directly. Tokenization wrappers (childrenFromTokenization=true)
+	// remain — the normalizer collapses their tokens into a virtual leaf
+	// bitmap and the planner treats them as leaves.
+	items = flattenAndOperators(items)
+
 	var here []*propValuePair
 	subsByPath := map[string][]*propValuePair{}
 	var operatorSubs []recPlanNode
 	for _, it := range items {
 		switch it.operator {
-		case filters.OperatorOr:
-			operatorSubs = append(operatorSubs, b.buildOr(it))
-			continue
-		case filters.OperatorNot:
-			operatorSubs = append(operatorSubs, b.buildNot(it))
+		case filters.OperatorOr, filters.OperatorNot:
+			lca := b.naturalLCA(it)
+			if lca == scope {
+				if it.operator == filters.OperatorOr {
+					operatorSubs = append(operatorSubs, b.buildOrAtScope(it, scope))
+				} else {
+					operatorSubs = append(operatorSubs, b.buildNotAtScope(it, scope))
+				}
+				continue
+			}
+			// Natural LCA is deeper than scope — bucket as a deeper sub
+			// so the OR/NOT is planned inside the deeper recGroupNode and
+			// its operands share leaf alignment with siblings at that scope.
+			next := b.nextObjectArrayAfter(scope, lca)
+			subsByPath[next] = append(subsByPath[next], it)
 			continue
 		default:
-			// Fall through to leaf-or-correlated-AND path below.
+			// Other operators fall through to the leaf/correlated-AND path below.
 		}
 		rp := childRelPath(it)
 		if b.lastIntermediateObjectArray(rp) == scope {
@@ -218,52 +246,92 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 	return &recGroupNode{lca: scope, here: here, subs: subs}
 }
 
-// buildOr plans each child of an OR operator at its own natural scope and
-// wraps the children in a recOrNode whose lca is the deepest common
-// ancestor of the children's lcas. Filter validation rejects OR with zero
-// children; we assert defensively to surface validation gaps loudly. See
-// step 7 (validation) in the position-level eval implementation plan.
-func (b *recPlanBuilder) buildOr(orPv *propValuePair) recPlanNode {
+// flattenAndOperators unwraps non-tokenization AND wrappers in items. AND is
+// associative, so `[A, AND(B, C)]` is logically the same as `[A, B, C]` and
+// the planner can treat them identically. Tokenization wrappers
+// (childrenFromTokenization=true) are NOT unwrapped — they behave as single
+// virtual leaves at normalize time.
+func flattenAndOperators(items []*propValuePair) []*propValuePair {
+	hasFlattenable := false
+	for _, it := range items {
+		if it.operator == filters.OperatorAnd && !it.nested.childrenFromTokenization && !it.nested.isNested {
+			hasFlattenable = true
+			break
+		}
+	}
+	if !hasFlattenable {
+		return items
+	}
+	out := make([]*propValuePair, 0, len(items))
+	for _, it := range items {
+		if it.operator == filters.OperatorAnd && !it.nested.childrenFromTokenization && !it.nested.isNested {
+			out = append(out, flattenAndOperators(it.children)...)
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// naturalLCA returns the deepest LCA at which all leaves of pv's subtree
+// coincide. For a single nested leaf it's lastIntermediateObjectArray of the
+// leaf's relPath. For an operator (AND/OR/NOT) it's the deepest common LCA
+// of all reachable leaves. The result is the scope at which a position-level
+// combine over pv's subtree enforces same-element correlation.
+func (b *recPlanBuilder) naturalLCA(pv *propValuePair) string {
+	if pv.nested.isNested {
+		return b.lastIntermediateObjectArray(pv.nested.relPath)
+	}
+	// Compound: gather all reachable leaves' natural LCAs and reduce.
+	if len(pv.children) == 0 {
+		return ""
+	}
+	lcas := make([]string, 0, len(pv.children))
+	for _, c := range pv.children {
+		lcas = append(lcas, b.naturalLCA(c))
+	}
+	return deepestCommonLCA(lcas)
+}
+
+// buildOrAtScope plans each child of an OR operator from `scope` and wraps
+// them in a recOrNode whose lca is the deepest common ancestor of the
+// children's lcas. The scope argument lets buildGroup plant the OR inside a
+// deeper recGroupNode so its operands share leaf alignment with siblings at
+// that scope (enabling same-deepest-LCA-element correlation across the
+// enclosing AND). Filter validation rejects OR with zero children; we
+// assert defensively to surface validation gaps loudly.
+func (b *recPlanBuilder) buildOrAtScope(orPv *propValuePair, scope string) recPlanNode {
 	if len(orPv.children) == 0 {
-		panic("recPlanBuilder.buildOr: OR with zero children — filter validation gap")
+		panic("recPlanBuilder.buildOrAtScope: OR with zero children — filter validation gap")
 	}
 	childPlans := make([]recPlanNode, 0, len(orPv.children))
 	childLCAs := make([]string, 0, len(orPv.children))
 	for _, c := range orPv.children {
-		plan := b.planSingleItem(c)
+		plan := b.buildPlan([]*propValuePair{c}, scope)
 		childPlans = append(childPlans, plan)
 		childLCAs = append(childLCAs, plan.lcaPath())
 	}
 	return &recOrNode{lca: deepestCommonLCA(childLCAs), children: childPlans}
 }
 
-// buildNot plans the single operand of a NOT operator and wraps it in a
-// recNotNode whose lca is the operand's natural LCA. arr[N] pins are
-// lifted from the operand for universe restriction during evaluation —
-// today this is best-effort: leaf operands' arrayIndices are propagated
-// directly, and compound operands (e.g. NOT(A AND B)) leave pins empty
-// (universe unrestricted; correct but loose).
-//
-// Filter validation rejects NOT with !=1 children; we assert defensively.
-// See step 7 (validation) for the broader operator-arity check.
-func (b *recPlanBuilder) buildNot(notPv *propValuePair) recPlanNode {
+// buildNotAtScope plans the single operand of a NOT operator from `scope`
+// and wraps it in a recNotNode whose lca is the operand's plan LCA. arr[N]
+// pins are lifted from the operand for universe restriction during
+// evaluation — leaf operands propagate their arrayIndices directly;
+// compound operands leave pins empty (universe unrestricted; correct but
+// loose). Filter validation rejects NOT with !=1 children; we assert
+// defensively.
+func (b *recPlanBuilder) buildNotAtScope(notPv *propValuePair, scope string) recPlanNode {
 	if len(notPv.children) != 1 {
-		panic(fmt.Sprintf("recPlanBuilder.buildNot: NOT with %d children — filter validation gap", len(notPv.children)))
+		panic(fmt.Sprintf("recPlanBuilder.buildNotAtScope: NOT with %d children — filter validation gap", len(notPv.children)))
 	}
 	operand := notPv.children[0]
-	plan := b.planSingleItem(operand)
+	plan := b.buildPlan([]*propValuePair{operand}, scope)
 	return &recNotNode{
 		lca:     plan.lcaPath(),
 		pins:    liftArrayIndicesFromOperand(operand),
 		operand: plan,
 	}
-}
-
-// planSingleItem plans one item from the root scope. Used by buildOr /
-// buildNot to plan their child operands without inheriting the parent's
-// scope (each operand's plan must reflect its own path's natural scope).
-func (b *recPlanBuilder) planSingleItem(it *propValuePair) recPlanNode {
-	return b.buildPlan([]*propValuePair{it}, "")
 }
 
 // liftArrayIndicesFromOperand extracts arr[N] pins from a NOT operand

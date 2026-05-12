@@ -570,17 +570,17 @@ func TestRecPlanBuilderOrShape(t *testing.T) {
 
 	t.Run("OR_inside_correlated_AND_alongside_leaf", func(t *testing.T) {
 		// make=tesla AND (color=red OR model=civic). All at garages.cars.
-		// Root recGroupNode wraps the leaf-derived sub and the OR sub.
+		// The OR's natural LCA matches the leaf's natural LCA, so the OR is
+		// pushed into the garages.cars subgroup as a sibling of the make
+		// leaf. Same-cars-element correlation now holds across the AND —
+		// see plan_planner_operator_subgroup_lca.md.
 		orPv := makeOrPvp(class,
 			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
 			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
 		)
-		want := `GROUP lcaPath=""
-  here=[]
+		want := `GROUP lcaPath="garages.cars"
+  here=[garages.cars.make]
   subs:
-    GROUP lcaPath="garages.cars"
-      here=[garages.cars.make]
-      subs=[]
     OR lcaPath="garages.cars"
       children:
         GROUP lcaPath="garages.cars"
@@ -666,15 +666,17 @@ func TestRecPlanBuilderNotShape(t *testing.T) {
 	})
 
 	t.Run("NOT_inside_correlated_AND_alongside_leaf", func(t *testing.T) {
+		// make=tesla AND NOT tires.width=205. The NOT's natural LCA is
+		// garages.cars.tires (deeper than the leaf's garages.cars). Both
+		// items pivot through the garages.cars subgroup; the NOT is placed
+		// as a sub of garages.cars, planned at scope garages.cars so its
+		// operand's deeper sub appears under garages.cars.tires.
 		notPv := makeNotPvp(class,
 			makeLeafPvp(class, "countries", "garages.cars.tires.width", "205"),
 		)
-		want := `GROUP lcaPath=""
-  here=[]
+		want := `GROUP lcaPath="garages.cars"
+  here=[garages.cars.make]
   subs:
-    GROUP lcaPath="garages.cars"
-      here=[garages.cars.make]
-      subs=[]
     NOT lcaPath="garages.cars.tires" pins=[]
       operand:
         GROUP lcaPath="garages.cars.tires"
@@ -690,21 +692,21 @@ func TestRecPlanBuilderNotShape(t *testing.T) {
 
 	t.Run("NOT_of_leaf_with_root_arrN_pin", func(t *testing.T) {
 		// NOT countries[1].garages.cars.make=tesla — pin at root scope.
-		// The operand plan is a root-level SPLIT, so the NOT inherits
-		// lcaPath="" from the operand. Universe restriction at evaluation
-		// time uses _exists."" (root positions) ∩ _idx.""[1] = cars-element
-		// positions of root index 1.
+		// The NOT's natural LCA is the operand's LCA (garages.cars), so
+		// NOT plants at lcaPath="garages.cars" and the operand is planned
+		// at scope garages.cars (where the root pin doesn't apply, so no
+		// SPLIT around the operand). The pin is lifted onto the NOT node
+		// and applied at evaluation time as universe ∩ _idx."[1]" — same
+		// result as the previous SPLIT-wrapped-operand shape but with a
+		// flatter plan tree.
 		pin := filnested.ArrayIndex{RelPath: "", Index: 1}
 		operand := makeLeafPvpWithIdx(class, "countries", "garages.cars.make", "tesla", pin)
 		notPv := makeNotPvp(class, operand)
-		want := `NOT lcaPath="" pins=[[1]]
+		want := `NOT lcaPath="garages.cars" pins=[[1]]
   operand:
-    SPLIT lcaPath=""
-      branches:
-        index=1
-          GROUP lcaPath="garages.cars"
-            here=[garages.cars.make]
-            subs=[]`
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs=[]`
 		assert.Equal(t, want, describePlan(builder.build([]*propValuePair{notPv})))
 	})
 
@@ -744,6 +746,13 @@ func TestRecPlanBuilderOrNotMixed(t *testing.T) {
 
 	t.Run("AND_with_leaf_OR_NOT_at_same_LCA", func(t *testing.T) {
 		// make=tesla AND (color=red OR model=civic) AND NOT tires.width=205.
+		// OR's natural LCA is "garages.cars" (deeper than root "") so it is
+		// pushed into the garages.cars subgroup alongside the leaf make
+		// condition. NOT's natural LCA is "garages.cars.tires", also pushed
+		// down through the same subgroup chain, ending up as a sub of the
+		// garages.cars group. The outer GROUP at "garages" wraps because the
+		// deeper garages.cars carries multi-subs (needs outer scope to
+		// disambiguate parents per needsWrappingGroup).
 		orPv := makeOrPvp(class,
 			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
 			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
@@ -751,25 +760,25 @@ func TestRecPlanBuilderOrNotMixed(t *testing.T) {
 		notPv := makeNotPvp(class,
 			makeLeafPvp(class, "countries", "garages.cars.tires.width", "205"),
 		)
-		want := `GROUP lcaPath=""
+		want := `GROUP lcaPath="garages"
   here=[]
   subs:
     GROUP lcaPath="garages.cars"
       here=[garages.cars.make]
-      subs=[]
-    OR lcaPath="garages.cars"
-      children:
-        GROUP lcaPath="garages.cars"
-          here=[garages.cars.color]
-          subs=[]
-        GROUP lcaPath="garages.cars"
-          here=[garages.cars.model]
-          subs=[]
-    NOT lcaPath="garages.cars.tires" pins=[]
-      operand:
-        GROUP lcaPath="garages.cars.tires"
-          here=[garages.cars.tires.width]
-          subs=[]`
+      subs:
+        NOT lcaPath="garages.cars.tires" pins=[]
+          operand:
+            GROUP lcaPath="garages.cars.tires"
+              here=[garages.cars.tires.width]
+              subs=[]
+        OR lcaPath="garages.cars"
+          children:
+            GROUP lcaPath="garages.cars"
+              here=[garages.cars.color]
+              subs=[]
+            GROUP lcaPath="garages.cars"
+              here=[garages.cars.model]
+              subs=[]`
 		assert.Equal(t, want, describePlan(builder.build(
 			[]*propValuePair{
 				makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),

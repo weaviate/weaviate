@@ -35,12 +35,14 @@ func writeExistsAt(t *testing.T, mb *lsmkv.Bucket, relPath string, positions []u
 }
 
 // makeTokenizationWrapper wraps tokens of a single multi-token text value.
-// The outer pv has childrenFromTokenization=false but isNested=false; tokens
-// are direct leaves at the same path. Used to model Pattern 2 tokenization.
+// Production tokenization wrappers from buildNestedTextFilterPair set
+// childrenFromTokenization=true; this is the discriminator that keeps the
+// planner from unwrapping AND children of the wrapper.
 func makeTokenizationWrapper(class *models.Class, tokens ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		operator: filters.OperatorAnd,
 		children: tokens,
+		nested:   nestedInfo{childrenFromTokenization: true},
 		Class:    class,
 	}
 }
