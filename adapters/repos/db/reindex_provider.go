@@ -349,6 +349,20 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 	}
 }
 
+// failUnit records that the given unit has failed. The recorder call
+// goes through RAFT (RecordDistributedTaskUnitFailure → applyDistributedTaskCommand),
+// so transient errors are possible: leadership loss, network blip, RAFT
+// timeout. If the FSM never learns the unit failed, the task stays in
+// "started" forever and the scheduler will not retry it on this node
+// (it only re-schedules units that have a terminal status). The
+// scheduler's task-level retry only fires when ALL local units are
+// terminal — a single un-recorded failure can therefore wedge the task.
+//
+// Retry the recorder call a few times with backoff to ride out transient
+// RAFT issues. If the retries also fail, log the recorder error with the
+// full context and the original failure reason so operators can replay
+// it manually (recording the failure is idempotent because the FSM keys
+// by (taskID, version, nodeID, unitID)).
 func (p *ReindexProvider) failUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -356,14 +370,39 @@ func (p *ReindexProvider) failUnit(
 	recorder distributedtask.TaskCompletionRecorder,
 	errMsg string,
 ) {
-	p.logger.WithField("taskID", task.ID).WithField("unit", unitID).
-		Error("reindex provider: unit failed: " + errMsg)
+	logger := p.logger.WithField("taskID", task.ID).WithField("unit", unitID)
+	logger.Error("reindex provider: unit failed: " + errMsg)
 
-	if err := recorder.RecordDistributedTaskUnitFailure(
-		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, errMsg,
-	); err != nil {
-		p.logger.WithError(err).Error("reindex provider: failed to record unit failure")
+	const maxAttempts = 3
+	backoff := 200 * time.Millisecond
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		recErr := recorder.RecordDistributedTaskUnitFailure(
+			ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, errMsg,
+		)
+		if recErr == nil {
+			return
+		}
+		lastErr = recErr
+		if attempt < maxAttempts {
+			select {
+			case <-ctx.Done():
+				logger.WithField("attempt", attempt).WithField("recorderError", recErr.Error()).
+					Error("reindex provider: context cancelled while recording unit failure; FSM may not see the failure")
+				return
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
 	}
+
+	// All retries exhausted. The FSM does not know this unit failed; the
+	// scheduler will not advance the task. Operators need to inspect the
+	// task (and likely abort it manually) using the recorded reason.
+	logger.WithField("originalFailure", errMsg).
+		WithField("recorderError", lastErr.Error()).
+		Error("reindex provider: failed to record unit failure after retries; " +
+			"FSM may not advance the task and manual operator action may be required")
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
