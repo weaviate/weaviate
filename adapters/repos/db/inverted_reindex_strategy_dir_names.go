@@ -11,6 +11,8 @@
 
 package db
 
+import "strings"
+
 // Migration directory names live under <shard>/lsm/.migrations/<name>/ and
 // uniquely identify a per-strategy in-progress migration on a shard.
 //
@@ -68,3 +70,15 @@ const (
 	// "_<prop1>_<prop2>...".
 	MigrationDirPrefixEnableSearchable = "enable_searchable"
 )
+
+// migrationDirWithProps assembles a migration directory name from a
+// prefix and an optional set of property names. Empty propNames returns
+// the prefix on its own; otherwise the prefix is joined with the
+// property names by underscores. Three strategies (enable-filterable,
+// enable-searchable, filterable-to-rangeable) share this naming pattern.
+func migrationDirWithProps(prefix string, propNames []string) string {
+	if len(propNames) == 0 {
+		return prefix
+	}
+	return prefix + "_" + strings.Join(propNames, "_")
+}

@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -36,10 +35,7 @@ type FilterableToRangeableStrategy struct {
 func (s *FilterableToRangeableStrategy) MigrationDirName() string {
 	// Include property names in the dir so multiple per-property tasks
 	// on the same shard don't share tracker state.
-	if len(s.propNames) > 0 {
-		return MigrationDirPrefixFilterableToRangeable + "_" + strings.Join(s.propNames, "_")
-	}
-	return MigrationDirPrefixFilterableToRangeable
+	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames)
 }
 
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {

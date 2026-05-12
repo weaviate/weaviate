@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -38,10 +37,7 @@ type EnableSearchableStrategy struct {
 }
 
 func (s *EnableSearchableStrategy) MigrationDirName() string {
-	if len(s.propNames) > 0 {
-		return MigrationDirPrefixEnableSearchable + "_" + strings.Join(s.propNames, "_")
-	}
-	return MigrationDirPrefixEnableSearchable
+	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames)
 }
 
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {

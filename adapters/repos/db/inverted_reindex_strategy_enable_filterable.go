@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -41,10 +40,7 @@ type EnableFilterableStrategy struct {
 func (s *EnableFilterableStrategy) MigrationDirName() string {
 	// Include property names in the dir so multiple per-property tasks
 	// on the same shard don't share tracker state.
-	if len(s.propNames) > 0 {
-		return MigrationDirPrefixEnableFilterable + "_" + strings.Join(s.propNames, "_")
-	}
-	return MigrationDirPrefixEnableFilterable
+	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.propNames)
 }
 
 func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
