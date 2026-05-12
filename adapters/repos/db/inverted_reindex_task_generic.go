@@ -97,24 +97,7 @@ func (t *ShardReindexTaskGeneric) Name() string {
 // This is intended for debug/runtime-triggered migrations on an already-running shard.
 // The shard may be a *Shard or *LazyLoadShard.
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
-	concreteShard, err := unwrapShard(ctx, shard)
-	if err != nil {
-		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
-	}
-
-	if err := t.OnAfterLsmInit(ctx, concreteShard); err != nil {
-		return fmt.Errorf("OnAfterLsmInit: %w", err)
-	}
-
-	for {
-		rerunAt, _, err := t.OnAfterLsmInitAsync(ctx, shard)
-		if err != nil {
-			return fmt.Errorf("OnAfterLsmInitAsync: %w", err)
-		}
-		if rerunAt.IsZero() {
-			return nil
-		}
-	}
+	return t.runShardLifecycle(ctx, shard, false)
 }
 
 // RunReindexOnlyOnShard runs the reindex iteration WITHOUT swap/tidy.
@@ -131,8 +114,18 @@ func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLik
 // until RunSwapOnShard completes — callers must use the same task instance for
 // both calls.
 func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, shard ShardLike) error {
-	t.skipSwapOnFinish = true
-	defer func() { t.skipSwapOnFinish = false }()
+	return t.runShardLifecycle(ctx, shard, true)
+}
+
+// runShardLifecycle is the shared body of RunOnShard / RunReindexOnlyOnShard.
+// skipSwap=true sets the same-named flag for the duration of the call so the
+// iteration loop stops after IsReindexed() — used for the barrier semantics
+// of semantic migrations. skipSwap=false runs all the way through swap+tidy.
+func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard ShardLike, skipSwap bool) error {
+	if skipSwap {
+		t.skipSwapOnFinish = true
+		defer func() { t.skipSwapOnFinish = false }()
+	}
 
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
