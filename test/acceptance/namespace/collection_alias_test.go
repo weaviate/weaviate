@@ -28,13 +28,26 @@ import (
 
 func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	t.Helper()
-	resp, err := helper.Client(t).Users.CreateUser(
-		users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: ns}),
-		helper.CreateAuth(adminKey),
-	)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Payload.Apikey)
-	apikey := *resp.Payload.Apikey
+
+	// AddNamespace no longer waits for local apply, so the follower the test
+	// client talks to may not yet see the namespace in its local controller
+	// when CreateUser arrives. The createUser handler's fast-path Exists()
+	// check then 422s with "namespace does not exist"; the local check 422s
+	// before any RAFT command is sent, so retries are safe.
+	var apikey string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: ns}),
+			helper.CreateAuth(adminKey),
+		)
+		if !assert.NoError(c, err) {
+			return
+		}
+		if !assert.NotNil(c, resp.Payload.Apikey) {
+			return
+		}
+		apikey = *resp.Payload.Apikey
+	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created", userID)
 
 	// On a multi-node cluster CreateUser is RAFT-forwarded to the leader and
 	// returns once the leader applies the FSM entry; the follower the test
