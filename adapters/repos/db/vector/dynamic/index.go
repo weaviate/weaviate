@@ -297,6 +297,18 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 		return false, errors.Wrap(err, "get dynamic state")
 	}
 
+	// If not yet upgraded, remove any stale HNSW commit log left by a
+	// previous failed upgrade attempt. The compact-v2 Loader replays the
+	// live WAL file on every hnsw.New() call, so without this cleanup each
+	// retry inherits partial state from the prior attempt, corrupting the
+	// compressor and causing vector-dimension mismatches at search time.
+	if !upgraded {
+		commitLogDir := hnswCommitLogDirectory(cfg.RootPath, cfg.ID)
+		if err := os.RemoveAll(commitLogDir); err != nil {
+			return false, errors.Wrap(err, "clean up stale hnsw commit log")
+		}
+	}
+
 	return upgraded, nil
 }
 
