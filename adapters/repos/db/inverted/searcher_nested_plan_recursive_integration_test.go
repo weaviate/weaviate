@@ -572,23 +572,32 @@ func TestRecPlanBuilderOrShape(t *testing.T) {
 		// make=tesla AND (color=red OR model=civic). All at garages.cars.
 		// The OR's natural LCA matches the leaf's natural LCA, so the OR is
 		// pushed into the garages.cars subgroup as a sibling of the make
-		// leaf. Same-cars-element correlation now holds across the AND —
-		// see plan_planner_operator_subgroup_lca.md.
+		// leaf. Same-cars-element correlation now holds across the AND.
+		//
+		// The outer GROUP at "garages" is kept by needsWrappingGroup —
+		// the cars group has an OR sub, which forces runIdxLoopRecursive
+		// at cars[], and that idx loop needs parentScope from the
+		// enclosing garages[] iteration to disambiguate same-K-different-
+		// garage cars (otherwise tesla in garages[0].cars[0] and a sibling
+		// non-tesla in garages[1].cars[0] would mix at K=0).
 		orPv := makeOrPvp(class,
 			makeLeafPvp(class, "countries", "garages.cars.color", "red"),
 			makeLeafPvp(class, "countries", "garages.cars.model", "civic"),
 		)
-		want := `GROUP lcaPath="garages.cars"
-  here=[garages.cars.make]
+		want := `GROUP lcaPath="garages"
+  here=[]
   subs:
-    OR lcaPath="garages.cars"
-      children:
-        GROUP lcaPath="garages.cars"
-          here=[garages.cars.color]
-          subs=[]
-        GROUP lcaPath="garages.cars"
-          here=[garages.cars.model]
-          subs=[]`
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs:
+        OR lcaPath="garages.cars"
+          children:
+            GROUP lcaPath="garages.cars"
+              here=[garages.cars.color]
+              subs=[]
+            GROUP lcaPath="garages.cars"
+              here=[garages.cars.model]
+              subs=[]`
 		assert.Equal(t, want, describePlan(builder.build(
 			[]*propValuePair{
 				makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),
@@ -671,17 +680,26 @@ func TestRecPlanBuilderNotShape(t *testing.T) {
 		// items pivot through the garages.cars subgroup; the NOT is placed
 		// as a sub of garages.cars, planned at scope garages.cars so its
 		// operand's deeper sub appears under garages.cars.tires.
+		//
+		// The outer GROUP at "garages" is kept by needsWrappingGroup —
+		// the cars group has a NOT sub, which forces
+		// runIdxLoopRecursive at cars[], and that idx loop needs
+		// parentScope from the enclosing garages[] iteration to
+		// disambiguate same-K-different-garage cars.
 		notPv := makeNotPvp(class,
 			makeLeafPvp(class, "countries", "garages.cars.tires.width", "205"),
 		)
-		want := `GROUP lcaPath="garages.cars"
-  here=[garages.cars.make]
+		want := `GROUP lcaPath="garages"
+  here=[]
   subs:
-    NOT lcaPath="garages.cars.tires" pins=[]
-      operand:
-        GROUP lcaPath="garages.cars.tires"
-          here=[garages.cars.tires.width]
-          subs=[]`
+    GROUP lcaPath="garages.cars"
+      here=[garages.cars.make]
+      subs:
+        NOT lcaPath="garages.cars.tires" pins=[]
+          operand:
+            GROUP lcaPath="garages.cars.tires"
+              here=[garages.cars.tires.width]
+              subs=[]`
 		assert.Equal(t, want, describePlan(builder.build(
 			[]*propValuePair{
 				makeLeafPvp(class, "countries", "garages.cars.make", "tesla"),

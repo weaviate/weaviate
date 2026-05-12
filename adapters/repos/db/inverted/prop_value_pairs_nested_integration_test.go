@@ -3780,14 +3780,14 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 			})
 
 			t.Run("complex — cars.make=bmw AND (cars.tires.width=205 OR cars.accessories.type=sunroof)", func(t *testing.T) {
-				// Outer AND groups all into one correlated node. OR children resolve to docIDs independently.
-				// bmw: [d1,d2,d3]. OR(tires,acc): [d1,d2,d3(nestedArray)/d1,d2,d4(nested)].
-				// nested: OR(tires,acc)=[d1,d2,d4]; ∩ bmw=[d1,d2,d3] → [d1,d2]
-				// nestedArray: OR(tires,acc)=[d1,d2,d3,d4]; ∩ bmw=[d1,d2,d3] → [d1,d2,d3]
+				// Same-cars-element AND: a single car must satisfy bmw
+				// AND (205 OR sunroof). d2 (bmw in cars[0], OR in
+				// cars[1]) drops in both variants; d3 in nestedArray
+				// (bmw in root=1, OR in root=2) also drops.
 				run(t, and(
 					textFlt(prop+".cars.make", "bmw"),
 					*or(intFlt(prop+".cars.tires.width", 205), textFlt(prop+".cars.accessories.type", "sunroof")),
-				), want([]uint64{d1, d2}, []uint64{d1, d2, d3}))
+				), []uint64{d1})
 			})
 
 			t.Run("complex — cars.make=bmw AND cars.tires.width=205 AND addresses.city=berlin", func(t *testing.T) {
@@ -3801,11 +3801,14 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 			})
 
 			t.Run("complex — (cars.make=bmw OR cars.make=honda) AND addresses.city=berlin", func(t *testing.T) {
-				// OR(bmw,honda)=[d1,d2,d3,d4]; berlin=[d1,d3,d4]. Intersection=[d1,d3,d4].
+				// Same-root-element AND: a single root entry must have
+				// (bmw OR honda) AND berlin. nested d3 (single root with
+				// bmw + berlin) stays in; nestedArray d3 (bmw in root=1,
+				// berlin in root=2) drops out.
 				run(t, and(
 					*or(textFlt(prop+".cars.make", "bmw"), textFlt(prop+".cars.make", "honda")),
 					textFlt(prop+".addresses.city", "berlin"),
-				), []uint64{d1, d3, d4})
+				), want([]uint64{d1, d3, d4}, []uint64{d1, d4}))
 			})
 
 			t.Run("complex — tags=premium AND cars.make=bmw AND cars.tires.width=205 AND cars.accessories.type=sunroof", func(t *testing.T) {

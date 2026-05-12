@@ -444,13 +444,24 @@ func (b *recPlanBuilder) needsWrappingGroup(scope string, sub recPlanNode) bool 
 //     canUseRawAndAll bails and collectFlatSubtree bails on scalar-array.
 //   - It has ≥1 scalar-array here AND ≥1 sub — collectFlatSubtree bails on
 //     scalar-array, canUseRawAndAll bails on subs.
+//   - It has an operator sub (recOrNode / recNotNode). canUseRawAndAll
+//     bails on any sub; collectFlatSubtree bails on non-recGroupNode
+//     subs. So an operator sub forces runIdxLoopRecursive too, and the
+//     idx loop needs outer scope to disambiguate same-K-different-parent
+//     instances at every intermediate object[] level above the group's
+//     LCA — root_idx alone only disambiguates the outermost level.
 func (b *recPlanBuilder) groupSubtreeNeedsOuterScope(g *recGroupNode) bool {
 	if g.lca != "" && (len(g.subs) >= 2 || hasDuplicateHerePaths(g) || b.groupNeedsIdxLoop(g)) {
 		return true
 	}
 	for _, sub := range g.subs {
-		if grp, ok := sub.(*recGroupNode); ok {
-			if b.groupSubtreeNeedsOuterScope(grp) {
+		switch s := sub.(type) {
+		case *recOrNode, *recNotNode:
+			if g.lca != "" {
+				return true
+			}
+		case *recGroupNode:
+			if b.groupSubtreeNeedsOuterScope(s) {
 				return true
 			}
 		}
