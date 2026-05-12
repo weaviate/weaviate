@@ -163,6 +163,58 @@ func TestFailUnit_ContextCancelledBetweenRetries(t *testing.T) {
 	require.True(t, found, "context cancellation between retries must be logged so the missing FSM update is visible")
 }
 
+// Permanent FSM rejection: retry would return the same error on every
+// attempt and the loud "manual operator action required" alarm would
+// fire even though the FSM is internally consistent. Verify that
+// permanent rejections short-circuit after the first call and log at
+// warning level instead of the alarm.
+func TestFailUnit_PermanentRejection_NoRetryNoAlarm(t *testing.T) {
+	permanentErrs := []string{
+		"executing command: task reindex/Foo/3 is no longer running",
+		"executing command: task reindex/Foo/3 does not exist",
+		"executing command: unit u1 in task reindex/Foo/3 is already terminal",
+		"executing command: unit u1 in task reindex/Foo/3 belongs to node node-B, not node-A",
+	}
+	for _, msg := range permanentErrs {
+		t.Run(msg[:25], func(t *testing.T) {
+			p, hook := newTestProvider(t)
+			rec := &stubRecorder{failureResults: []error{errors.New(msg)}}
+
+			p.failUnit(context.Background(), newFailUnitTestTask(), "u1", rec, "disk full")
+
+			require.Equal(t, int32(1), rec.failureCalls.Load(),
+				"permanent FSM rejection: exactly one Record call, no retry")
+
+			// Must NOT emit the loud alarm.
+			for _, e := range hook.AllEntries() {
+				require.NotContains(t, e.Message, "failed to record unit failure after retries",
+					"permanent rejection must not trigger the loud alarm")
+			}
+
+			// Must emit a Warn-level rejection log.
+			var foundWarn bool
+			for _, e := range hook.AllEntries() {
+				if e.Level == logrus.WarnLevel && contains(e.Message, "FSM rejected unit-failure record as permanent") {
+					foundWarn = true
+				}
+			}
+			require.True(t, foundWarn, "permanent rejection must emit a warning-level log")
+		})
+	}
+}
+
+// Regression: a transient error MUST still retry even though the loop
+// structure now early-exits on permanent rejections.
+func TestFailUnit_TransientError_StillRetriesAfterPermanentBranchAdded(t *testing.T) {
+	p, _ := newTestProvider(t)
+	rec := &stubRecorder{failureResults: []error{errors.New("raft applyTimeout")}}
+
+	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "disk full")
+
+	require.Equal(t, int32(2), rec.failureCalls.Load(),
+		"transient error path retries; second call succeeds")
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

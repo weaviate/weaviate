@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -363,6 +364,13 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 // full context and the original failure reason so operators can replay
 // it manually (recording the failure is idempotent because the FSM keys
 // by (taskID, version, nodeID, unitID)).
+//
+// Permanent FSM rejections — "task does not exist", "task is no longer
+// running", "unit ... is already terminal", "unit ... belongs to node X
+// not Y" — are NOT retried: the FSM is in a stable state where another
+// retry will return the same error. We log them at warning level (not
+// the loud "manual operator action required" alarm) because the FSM is
+// internally consistent; the local node just lost a race.
 func (p *ReindexProvider) failUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -384,6 +392,17 @@ func (p *ReindexProvider) failUnit(
 			return
 		}
 		lastErr = recErr
+
+		// Permanent FSM rejection: retry won't help. Log at warning level
+		// and exit — no operator action required, the FSM is in a stable
+		// state.
+		if isPermanentRecorderRejection(recErr) {
+			logger.WithField("originalFailure", errMsg).WithField("recorderError", recErr.Error()).
+				Warn("reindex provider: FSM rejected unit-failure record as permanent (task already terminal, " +
+					"version mismatch, or unit owned by another node); not retrying")
+			return
+		}
+
 		if attempt < maxAttempts {
 			select {
 			case <-ctx.Done():
@@ -403,6 +422,35 @@ func (p *ReindexProvider) failUnit(
 		WithField("recorderError", lastErr.Error()).
 		Error("reindex provider: failed to record unit failure after retries; " +
 			"FSM may not advance the task and manual operator action may be required")
+}
+
+// isPermanentRecorderRejection reports whether the recorder error
+// describes a stable FSM state that retrying cannot fix. The Manager in
+// cluster/distributedtask returns fmt.Errorf-formatted strings rather
+// than sentinel errors, so we match on substrings. TODO: replace with
+// errors.Is once cluster/distributedtask exposes sentinel error vars
+// (e.g. ErrTaskNotRunning, ErrUnitAlreadyTerminal, ErrUnitWrongNode).
+func isPermanentRecorderRejection(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	// All four substrings come from cluster/distributedtask/manager.go:
+	//   "task %s/%s/%d is no longer running"          → errTaskNotRunning
+	//   "task %s/%s/%d does not exist"                → findVersionedTaskWithLock
+	//   "unit %s in task %s/%s/%d is already terminal"
+	//   "unit %s in task %s/%s/%d belongs to node X, not Y"
+	for _, marker := range []string{
+		"is no longer running",
+		"does not exist",
+		"is already terminal",
+		"belongs to node",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
