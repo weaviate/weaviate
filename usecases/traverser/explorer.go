@@ -244,21 +244,18 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, namedVectors, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, models.Vectors, error) {
-	var err error
+// vectorizeTargets computes search vectors for each target in parallel and
+// also returns the name→vector map used by callers that need to surface the
+// vectorized query (e.g. _additional { queryVector }). nil entries are skipped
+// in the named map so callers can tell which targets failed to vectorize.
+func (e *Explorer) vectorizeTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]models.Vector, models.Vectors, error) {
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(2 * _NUMCPU)
 	for i := range targetVectors {
 		i := i
 		eg.Go(func() error {
-			var searchVectorParam *searchparams.NearVector
-			if params.NearVector != nil {
-				searchVectorParam = params.NearVector
-			} else if searchVectorParams != nil {
-				searchVectorParam = searchVectorParams
-			}
-
+			searchVectorParam := pickNearVectorParam(params.NearVector, searchVectorParams)
 			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
@@ -267,8 +264,31 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 			return nil
 		})
 	}
-
 	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	named := make(models.Vectors, len(targetVectors))
+	for i, name := range targetVectors {
+		if searchVectors[i] != nil {
+			named[name] = searchVectors[i]
+		}
+	}
+	return searchVectors, named, nil
+}
+
+// pickNearVectorParam returns the first non-nil NearVector params, preferring
+// the explicit one on the request over the hybrid/sub-search fallback.
+func pickNearVectorParam(primary, fallback *searchparams.NearVector) *searchparams.NearVector {
+	if primary != nil {
+		return primary
+	}
+	return fallback
+}
+
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, models.Vectors, error) {
+	searchVectors, named, err := e.vectorizeTargets(ctx, params, targetVectors, searchVectorParams)
+	if err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -279,12 +299,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		// if a group is set, vectors are needed
 		params.AdditionalProperties.Vector = true
 	}
-	named := make(models.Vectors, len(targetVectors))
-	for i, name := range targetVectors {
-		if searchVectors[i] != nil {
-			named[name] = searchVectors[i]
-		}
-	}
+
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
 		return nil, nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
@@ -545,7 +560,8 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			if terms := extractHighlightTerms(params); len(terms) > 0 {
 				if schema, ok := res.Schema.(map[string]interface{}); ok {
 					props := schemaTextPropNames(schema)
-					if h := dbinverted.GenerateHighlights(schema, props, terms, 0, 0); h != nil {
+					maxFragments, fragmentSize := highlightSizing(params)
+					if h := dbinverted.GenerateHighlights(schema, props, terms, maxFragments, fragmentSize); h != nil {
 						additionalProperties["highlight"] = h
 					}
 				}
@@ -1099,6 +1115,25 @@ func extractHighlightTerms(params dto.GetParams) []string {
 		}
 	}
 	return out
+}
+
+// highlightSizing picks max-fragments / fragment-size for the explorer-level
+// highlight fallback. Hybrid wins over KeywordRanking when both are set,
+// because hybrid is the higher-level request shape.
+func highlightSizing(params dto.GetParams) (maxFragments, fragmentSize int) {
+	if params.HybridSearch != nil {
+		maxFragments = params.HybridSearch.HighlightMaxFragments
+		fragmentSize = params.HybridSearch.HighlightFragmentSize
+	}
+	if params.KeywordRanking != nil {
+		if maxFragments == 0 {
+			maxFragments = params.KeywordRanking.HighlightMaxFragments
+		}
+		if fragmentSize == 0 {
+			fragmentSize = params.KeywordRanking.HighlightFragmentSize
+		}
+	}
+	return maxFragments, fragmentSize
 }
 
 // schemaTextPropNames returns the keys in a schema map whose values are

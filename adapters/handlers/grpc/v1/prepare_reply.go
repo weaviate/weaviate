@@ -14,6 +14,7 @@ package v1
 import (
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 
@@ -177,9 +178,19 @@ func (r *Replier) extractQueryVector(res []interface{}) []*pb.Vectors {
 		return nil
 	}
 
+	// Iterate keys in sorted order so the reply is deterministic — Go map
+	// iteration is randomized, which would otherwise reshuffle the repeated
+	// query_vector field between identical requests. The empty-string key
+	// (legacy single-vector classes) sorts first.
+	names := make([]string, 0, len(raw))
+	for name := range raw {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	out := make([]*pb.Vectors, 0, len(raw))
-	for name, vec := range raw {
-		switch v := vec.(type) {
+	for _, name := range names {
+		switch v := raw[name].(type) {
 		case []float32:
 			out = append(out, &pb.Vectors{
 				Name:        name,

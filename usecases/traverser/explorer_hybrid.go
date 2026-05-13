@@ -444,6 +444,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	out = attachQueryVector(out, origParams, denseQueryVec, namedQueryVecs)
 
+	if origParams.AdditionalProperties.QueryProfile {
+		out = helpers.AttachQueryProfileToResults(ctx, out)
+	}
+
 	if origParams.GroupBy != nil {
 		groupedResults, err := e.groupSearchResults(ctx, out, origParams.GroupBy)
 		if err != nil {
