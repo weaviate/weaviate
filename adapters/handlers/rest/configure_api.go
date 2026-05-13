@@ -725,6 +725,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Modules, appState.Cluster,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
+		appState.NamespacesController,
 	)
 	if err != nil {
 		appState.Logger.

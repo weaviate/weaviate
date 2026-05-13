@@ -148,6 +148,12 @@ func (m *Manager) IsActive(name string) bool {
 	return m.controller.IsActive(name)
 }
 
+// GetNamespace returns the namespace by name. ok is false when the
+// namespace does not exist.
+func (m *Manager) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
+	return m.controller.GetNamespace(name)
+}
+
 // Get handles a QueryGetNamespaces query. An empty Names slice returns all
 // known namespaces; otherwise only the named ones that exist are returned
 // (missing names are silently omitted).

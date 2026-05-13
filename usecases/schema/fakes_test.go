@@ -28,7 +28,8 @@ import (
 
 type fakeSchemaManager struct {
 	mock.Mock
-	countClassEqual bool
+	countClassEqual   bool
+	storageCandidates []string
 }
 
 func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
@@ -135,6 +136,9 @@ func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo)
 }
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
+	if len(f.storageCandidates) > 0 {
+		return f.storageCandidates
+	}
 	return []string{"node-1"}
 }
 

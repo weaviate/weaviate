@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -201,9 +202,13 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
+	candidates, err := h.namespaceCandidates(cls.Class)
+	if err != nil {
+		return nil, 0, err
+	}
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
-		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
+		h.clusterState.LocalName(), candidates, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
@@ -217,6 +222,36 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	return cls, version, err
+}
+
+// namespaceCandidates returns the storage-candidate list to feed into shard
+// placement for qualifiedClass.
+//
+// On NS-disabled clusters it returns the full cluster candidates (today's
+// default-spread behaviour). On NS-enabled clusters it looks up the
+// namespace embedded in the qualified class name and returns a single-node
+// list containing the namespace's home_node, so every shard for that
+// namespace lands on that one node.
+func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
+	if !h.config.Namespaces.Enabled {
+		return h.schemaManager.StorageCandidates(), nil
+	}
+	ns := namespacing.NamespaceFromQualified(qualifiedClass)
+	if ns == "" {
+		return nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
+	}
+	got, ok := h.namespacesExister.GetNamespace(ns)
+	if !ok {
+		return nil, fmt.Errorf("namespace %q not found", ns)
+	}
+	if got.HomeNode == "" {
+		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
+	}
+	candidates := h.schemaManager.StorageCandidates()
+	if !slices.Contains(candidates, got.HomeNode) {
+		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, got.HomeNode)
+	}
+	return []string{got.HomeNode}, nil
 }
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {

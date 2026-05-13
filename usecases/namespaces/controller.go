@@ -82,11 +82,12 @@ var reservedNames = map[string]struct{}{
 	"public":   {},
 }
 
-// Exister exposes namespace presence and lifecycle state. Exists matches
-// any state; IsActive excludes the deleting state.
+// Exister exposes read-only access to namespace state. Exists matches any
+// state; IsActive excludes the deleting state.
 type Exister interface {
 	Exists(name string) bool
 	IsActive(name string) bool
+	GetNamespace(name string) (cmd.Namespace, bool)
 }
 
 // Controller owns the namespace control-plane state.
@@ -253,6 +254,19 @@ func (c *Controller) Exists(name string) bool {
 	defer c.mu.RUnlock()
 	_, ok := c.namespaces[name]
 	return ok
+}
+
+// GetNamespace returns the namespace by name. ok is false when the
+// namespace does not exist. ns is a snapshot copy; mutating it does not
+// affect controller state.
+func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	got, ok := c.namespaces[name]
+	if !ok {
+		return cmd.Namespace{}, false
+	}
+	return *got, true
 }
 
 // IsActive reports whether the named namespace exists and is in the

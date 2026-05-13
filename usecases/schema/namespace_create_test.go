@@ -21,13 +21,48 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
+
+// fakeNamespacesExister implements [namespaces.Exister] for tests that only
+// need to seed a known namespace->home_node mapping. defaultHomeNode is the
+// HomeNode returned for any name not in byName; setting it lets tests that
+// don't care about per-namespace placement reuse this fake without seeding.
+type fakeNamespacesExister struct {
+	byName          map[string]cmd.Namespace
+	defaultHomeNode string
+}
+
+func (f fakeNamespacesExister) Exists(name string) bool {
+	if _, ok := f.byName[name]; ok {
+		return true
+	}
+	return f.defaultHomeNode != ""
+}
+
+func (f fakeNamespacesExister) IsActive(name string) bool {
+	if ns, ok := f.byName[name]; ok {
+		return ns.State == cmd.NamespaceStateActive
+	}
+	return f.defaultHomeNode != ""
+}
+
+func (f fakeNamespacesExister) GetNamespace(name string) (cmd.Namespace, bool) {
+	if ns, ok := f.byName[name]; ok {
+		return ns, true
+	}
+	if f.defaultHomeNode != "" {
+		return cmd.Namespace{Name: name, HomeNode: f.defaultHomeNode, State: cmd.NamespaceStateActive}, true
+	}
+	return cmd.Namespace{}, false
+}
 
 // newTestHandlerWithNamespaces returns a Handler that has the cluster-wide
 // NAMESPACES_ENABLED flag flipped on. It is otherwise identical to the helper
@@ -47,10 +82,15 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
+	// Default exister returns HomeNode=node-1 for any name, matching the
+	// default storage candidate set in fakeSchemaManager.StorageCandidates().
+	// Tests that exercise placement should set handler.namespacesExister
+	// directly to override this default.
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
+		fakeNamespacesExister{defaultHomeNode: "node-1"})
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -145,6 +185,139 @@ func TestAddClass(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.wantClass, got.Class)
+		})
+	}
+}
+
+// TestAddClass_PinsShardsToNamespaceHomeNode covers the placement override
+// on NS-enabled clusters: the shard state is built with [home_node] as the
+// candidate list, instead of the full storage candidate set. NS-disabled
+// clusters fall back to the default-spread behaviour.
+func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
+	t.Parallel()
+
+	allCandidates := []string{"node-1", "node-2", "node-3"}
+
+	tests := []struct {
+		name      string
+		enabled   bool
+		principal *models.Principal
+		exister   fakeNamespacesExister
+		inputName string
+		// allowedNodes is the set the picked shard node is expected to be
+		// a member of. With NS enabled and a pinned home_node it's the
+		// singleton {home_node}; with NS disabled InitState spreads across
+		// all storage candidates and picks one.
+		allowedNodes []string
+	}{
+		{
+			name:      "NS enabled: shard pinned to namespace home_node",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNode: "node-2", State: cmd.NamespaceStateActive},
+			}},
+			inputName:    "Movies",
+			allowedNodes: []string{"node-2"},
+		},
+		{
+			name:         "NS disabled: pick from full storage candidates",
+			enabled:      false,
+			principal:    globalPrincipal(),
+			exister:      fakeNamespacesExister{},
+			inputName:    "Movies",
+			allowedNodes: allCandidates,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			sm.storageCandidates = allCandidates
+			handler.namespacesExister = tt.exister
+
+			var capturedState *sharding.State
+			sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+				return c != nil
+			}), mock.MatchedBy(func(s *sharding.State) bool {
+				capturedState = s
+				return true
+			})).Return(nil)
+			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
+
+			class := &models.Class{
+				Class:             tt.inputName,
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			_, _, err := handler.AddClass(context.Background(), tt.principal, class)
+			require.NoError(t, err)
+
+			require.NotNil(t, capturedState, "expected AddClass to be called with a sharding state")
+			require.Len(t, capturedState.Physical, 1, "single non-MT shard expected")
+			for _, phys := range capturedState.Physical {
+				require.Len(t, phys.BelongsToNodes, 1, "RF=1 should pick exactly one node")
+				assert.Contains(t, tt.allowedNodes, phys.BelongsToNodes[0])
+			}
+		})
+	}
+}
+
+// TestAddClass_NamespacePlacementErrors covers the failure modes that
+// surface before the RAFT propose: missing namespace, missing home_node, or
+// a home_node that no longer belongs to the cluster's storage candidates.
+func TestAddClass_NamespacePlacementErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		exister    fakeNamespacesExister
+		candidates []string
+		wantErr    string
+	}{
+		{
+			name:       "namespace not found",
+			exister:    fakeNamespacesExister{}, // no seed
+			candidates: []string{"node-1"},
+			wantErr:    "namespace \"customer1\" not found",
+		},
+		{
+			name: "home_node empty",
+			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNode: "", State: cmd.NamespaceStateActive},
+			}},
+			candidates: []string{"node-1"},
+			wantErr:    "has no home_node",
+		},
+		{
+			name: "home_node not in storage candidates",
+			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNode: "node-9", State: cmd.NamespaceStateActive},
+			}},
+			candidates: []string{"node-1"},
+			wantErr:    "is not a current storage candidate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, true)
+			sm.storageCandidates = tt.candidates
+			handler.namespacesExister = tt.exister
+
+			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
+			class := &models.Class{
+				Class:             "Movies",
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }
