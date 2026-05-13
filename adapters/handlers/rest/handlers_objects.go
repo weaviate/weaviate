@@ -672,6 +672,10 @@ func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "GET "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsGetGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	ps := objects.ObjectsClassGetParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
