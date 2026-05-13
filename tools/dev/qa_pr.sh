@@ -251,23 +251,36 @@ TAGS=$(gh api "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
   | grep -oE 'semitechnologies/weaviate:[a-zA-Z0-9._-]+' \
   | sort -u || true)
 
-# Prefer the preview-branch tag (e.g. preview-prepare-release-v1-36-13-<sha>.amd64) over
-# the semver tag (e.g. 1.36.13-<sha>.amd64) — the preview tag encodes the source branch
-# and is what the QA workflow expects per the QA release process.
+# Prefer the preview-branch tag (e.g. preview-prepare-release-v1-36-13-<sha>) over the
+# semver tag (e.g. 1.36.13-<sha>) — the preview tag encodes the source branch and is
+# what the QA workflow expects per the QA release process.
+#
+# Two shapes are possible depending on how the PR built its image:
+#   - per-arch (default): two tags, suffixed `.amd64` and `.arm64`
+#   - multi-arch (opt-in): a single tag covering both arches, no suffix
 AMD64_TAG=$(echo "$TAGS" | grep '^semitechnologies/weaviate:preview-.*\.amd64$' | head -1 || true)
 ARM64_TAG=$(echo "$TAGS" | grep '^semitechnologies/weaviate:preview-.*\.arm64$' | head -1 || true)
+MULTIARCH_TAG=""
 
-if [[ -z "$AMD64_TAG" || -z "$ARM64_TAG" ]]; then
-  log "ERROR: Could not extract preview-* amd64/arm64 docker tags from job logs"
-  log "Tags found:"
-  echo "$TAGS" | sed 's/^/  /' >&2
-  exit 1
+if [[ -n "$AMD64_TAG" && -n "$ARM64_TAG" ]]; then
+  log "amd64 tag: $AMD64_TAG"
+  log "arm64 tag: $ARM64_TAG"
+  WEAVIATE_VERSION_INPUT="${AMD64_TAG#semitechnologies/weaviate:}"
+  TAGS_BLOCK="$AMD64_TAG"$'\n'"$ARM64_TAG"
+else
+  MULTIARCH_TAG=$(echo "$TAGS" \
+    | grep '^semitechnologies/weaviate:preview-' \
+    | grep -vE '\.(amd64|arm64)$' | head -1 || true)
+  if [[ -z "$MULTIARCH_TAG" ]]; then
+    log "ERROR: Could not extract preview-* docker tags from job logs (neither per-arch nor multi-arch)"
+    log "Tags found:"
+    echo "$TAGS" | sed 's/^/  /' >&2
+    exit 1
+  fi
+  log "multi-arch tag: $MULTIARCH_TAG"
+  WEAVIATE_VERSION_INPUT="${MULTIARCH_TAG#semitechnologies/weaviate:}"
+  TAGS_BLOCK="$MULTIARCH_TAG"
 fi
-log "amd64 tag: $AMD64_TAG"
-log "arm64 tag: $ARM64_TAG"
-
-# Strip the prefix for the workflow input (must NOT include semitechnologies/weaviate:)
-WEAVIATE_VERSION_INPUT="${AMD64_TAG#semitechnologies/weaviate:}"
 
 # ===== Step 2: Create QA issue =====
 log ""
@@ -278,8 +291,7 @@ if [[ "$IS_RELEASE_PR" == true ]]; then
 This issue tracks the testing executed to validate the Weaviate version $VERSION.
 
 \`\`\`
-$AMD64_TAG
-$ARM64_TAG
+$TAGS_BLOCK
 \`\`\`
 EOF
 )
@@ -288,8 +300,7 @@ else
 This issue tracks the QA tests executed for [PR #$PR_NUMBER](https://github.com/$WEAVIATE_REPO/pull/$PR_NUMBER): $PR_TITLE.
 
 \`\`\`
-$AMD64_TAG
-$ARM64_TAG
+$TAGS_BLOCK
 \`\`\`
 EOF
 )
