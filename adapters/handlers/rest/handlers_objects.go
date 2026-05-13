@@ -673,6 +673,7 @@ func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "GET "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsGetGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
 	}
@@ -689,6 +690,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "HEAD "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsHeadGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
 	}
@@ -702,6 +704,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PATCH "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsPatchGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
 	}
@@ -721,6 +724,7 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsUpdateGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
 	}
@@ -738,6 +742,7 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsDeleteGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
 	}
@@ -753,6 +758,7 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "POST "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesCreateGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
 	}
@@ -770,6 +776,7 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesUpdateGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
 	}
@@ -787,6 +794,7 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
 	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesDeleteGone().
 			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
 	}
@@ -865,6 +873,8 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &authzerrors.Forbidden{}):
 		e.logUserError(className)
 	case errors.As(err, &uco.ErrInvalidUserInput{}), errors.As(err, &uco.ErrNotFound{}):
+		e.logUserError(className)
+	case errors.As(err, &uco.ErrEndpointGone{}):
 		e.logUserError(className)
 	case errors.As(err, &customError):
 		switch customError.Code {
