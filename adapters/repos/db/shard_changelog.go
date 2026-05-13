@@ -79,8 +79,9 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 		}
 		s.writeBarrierMux.Lock()
 		if s.replicationMap.len() == 0 {
-			defer s.writeBarrierMux.Unlock()
-			return log.Finalize()
+			l, err := log.Finalize()
+			s.writeBarrierMux.Unlock()
+			return l, err
 		}
 		s.writeBarrierMux.Unlock()
 		select {

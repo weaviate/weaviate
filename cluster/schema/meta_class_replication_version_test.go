@@ -39,10 +39,10 @@ func TestMetaClass_ReplicationVersion(t *testing.T) {
 
 	t.Run("version() returns max across all three fields", func(t *testing.T) {
 		cases := []struct {
-			name             string
-			classV, shardV   uint64
-			replV            uint64
-			wantVersion      uint64
+			name           string
+			classV, shardV uint64
+			replV          uint64
+			wantVersion    uint64
 		}{
 			{"ClassVersion largest", 100, 50, 25, 100},
 			{"ShardVersion largest", 50, 100, 25, 100},
