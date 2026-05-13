@@ -27,9 +27,14 @@ import (
 
 func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, alias, className string) ([]*models.Alias, error) {
 	var class *models.Class
+	var qClass string
 	if className != "" {
-		name := schema.UppercaseClassName(className)
-		class = h.schemaReader.ReadOnlyClass(name)
+		var err error
+		qClass, err = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+		class = h.schemaReader.ReadOnlyClass(qClass)
 		if class == nil {
 			// Optional class Filter not found. So return empty aliases list
 			return []*models.Alias{}, nil
@@ -40,6 +45,19 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 		return nil, err
 	}
 
+	// Namespaced principals see only aliases in their own namespace. The
+	// schema layer is namespace-agnostic, and on NS-enabled clusters with
+	// RBAC off this is the only thing keeping the list scoped.
+	if principal != nil && principal.Namespace != "" {
+		filtered := aliases[:0]
+		for _, a := range aliases {
+			if namespacing.NamespaceFromQualified(a.Alias) == principal.Namespace {
+				filtered = append(filtered, a)
+			}
+		}
+		aliases = filtered
+	}
+
 	filteredAliases := filter.New[*models.Alias](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,
 		h.logger,
@@ -47,7 +65,7 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 		aliases,
 		authorization.READ,
 		func(alias *models.Alias) string {
-			class := className
+			class := qClass
 			if class == "" {
 				class = alias.Class
 			}
@@ -60,6 +78,12 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 
 func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) (*models.Alias, error) {
 	alias = schema.UppercaseClassName(alias)
+	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, alias)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+	alias = qAlias
+
 	a, err := h.schemaManager.GetAlias(ctx, alias)
 	if err != nil {
 		if errors.Is(err, cschema.ErrAliasNotFound) {

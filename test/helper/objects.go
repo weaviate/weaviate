@@ -790,6 +790,24 @@ func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.
 	return nil
 }
 
+// GetAliasAuthWithReturn issues an authenticated alias-get and returns
+// the raw response/error so the caller can assert on rejection paths
+// (e.g. malformed namespace prefix).
+func GetAliasAuthWithReturn(t *testing.T, aliasName, key string) (*schema.AliasesGetAliasOK, error) {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	return Client(t).Schema.AliasesGetAlias(params, CreateAuth(key))
+}
+
+// GetAliasesAuthWithReturn issues an authenticated alias-list and returns
+// the raw response/error so the caller can assert on rejection paths
+// (e.g. malformed namespace prefix on the class filter).
+func GetAliasesAuthWithReturn(t *testing.T, className *string, key string) (*schema.AliasesGetOK, error) {
+	t.Helper()
+	params := schema.NewAliasesGetParams().WithClass(className)
+	return Client(t).Schema.AliasesGet(params, CreateAuth(key))
+}
+
 func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
 	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
 }
