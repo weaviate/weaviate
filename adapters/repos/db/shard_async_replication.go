@@ -76,10 +76,16 @@ const (
 	minHashtreeHeight = 0
 	maxHashtreeHeight = 20
 
-	// minFrequency is the smallest accepted value for frequency and
-	// frequencyWhilePropagating in both per-class API overrides and global
-	// runtime config. Values below this would spin the dispatcher excessively.
-	minFrequency = 100 * time.Millisecond
+	// minFrequency is the smallest accepted value for `frequency` in both
+	// per-class API overrides and global runtime config. Below this, hashbeats
+	// would run too often to be useful in a steady-state cluster.
+	minFrequency = 5 * time.Second
+
+	// minFrequencyWhilePropagating is the smallest accepted value for
+	// `frequencyWhilePropagating`. This rate kicks in only while propagation is
+	// actively in flight, so it can be tighter than minFrequency but must stay
+	// at or above 1s to avoid dispatcher thrash.
+	minFrequencyWhilePropagating = 1 * time.Second
 
 	// minLoggingFrequency is the floor for loggingFrequency. Sub-second logging
 	// at hashbeat rate would flood logs in busy clusters.
@@ -216,17 +222,24 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 		}
 		*field = v
 	}
-	// applyDurMinFrequency applies a DynamicValue[time.Duration] only when it is
-	// at or above minFrequency. Used for scheduling-frequency fields where
-	// sub-100ms values would spin the dispatcher excessively; zero (the
-	// DynamicValue "not configured" default) is silently ignored.
-	applyDurMinFrequency := func(dv *configRuntime.DynamicValue[time.Duration], field *time.Duration) {
+	// applyDurMinFrequency applies a DynamicValue[time.Duration], clamping it
+	// up to the supplied minimum when the configured value is positive but
+	// below the minimum. Zero (the DynamicValue "not configured" sentinel) is
+	// silently ignored — mirrors applyInt's clamp-on-configured semantics so
+	// that an operator who explicitly sets a sub-minimum runtime value still
+	// gets a working value (the minimum) rather than a silently-dropped override.
+	applyDurMinFrequency := func(dv *configRuntime.DynamicValue[time.Duration], field *time.Duration, minVal time.Duration) {
 		if dv == nil {
 			return
 		}
-		if v := dv.Get(); v >= minFrequency {
-			*field = v
+		v := dv.Get()
+		if v <= 0 {
+			return
 		}
+		if v < minVal {
+			v = minVal
+		}
+		*field = v
 	}
 	// applyDurPositive applies a DynamicValue[time.Duration] only when it is
 	// strictly positive. Used for timeout and delay fields where zero is the
@@ -241,8 +254,8 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 		}
 	}
 	applyInt(globals.AsyncReplicationHashtreeHeight, &result.hashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
-	applyDurMinFrequency(globals.AsyncReplicationFrequency, &result.frequency)
-	applyDurMinFrequency(globals.AsyncReplicationFrequencyWhilePropagating, &result.frequencyWhilePropagating)
+	applyDurMinFrequency(globals.AsyncReplicationFrequency, &result.frequency, minFrequency)
+	applyDurMinFrequency(globals.AsyncReplicationFrequencyWhilePropagating, &result.frequencyWhilePropagating, minFrequencyWhilePropagating)
 	applyDurPositive(globals.AsyncReplicationLoggingFrequency, &result.loggingFrequency)
 	applyInt(globals.AsyncReplicationDiffBatchSize, &result.diffBatchSize, minDiffBatchSize, maxDiffBatchSize)
 	applyDurPositive(globals.AsyncReplicationDiffPerNodeTimeout, &result.diffPerNodeTimeout)
@@ -273,8 +286,8 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 	if result.frequency < minFrequency {
 		result.frequency = minFrequency
 	}
-	if result.frequencyWhilePropagating < minFrequency {
-		result.frequencyWhilePropagating = minFrequency
+	if result.frequencyWhilePropagating < minFrequencyWhilePropagating {
+		result.frequencyWhilePropagating = minFrequencyWhilePropagating
 	}
 	if result.loggingFrequency < minLoggingFrequency {
 		result.loggingFrequency = minLoggingFrequency
@@ -292,6 +305,61 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 	// Clear classOverrides in the snapshot — they have been applied.
 	result.classOverrides = asyncReplicationClassOverrides{}
 	return result
+}
+
+// asyncReplicationClampWarner surfaces positive-but-below-minimum global
+// runtime overrides on the two Frequency fields. Without it, an operator who
+// sets a frequency value below its declared minimum silently gets the
+// minimum, with no signal that their requested value was adjusted — the
+// per-class path emits this Warn, but the runtime path did not.
+//
+// Dedup is consecutive-duplicate suppression per field: only the last warned
+// value per field is remembered, so a stable misconfiguration logs exactly
+// once across all hashbeat cycles, and flipping to a new sub-minimum value
+// re-arms the warning. An A→B→A alternation would log A twice — a tradeoff
+// we accept to keep state O(fields).
+type asyncReplicationClampWarner struct {
+	mu     sync.Mutex
+	last   map[string]time.Duration
+	logger logrus.FieldLogger
+}
+
+// checkSubFloor emits one Warn per consecutive-distinct positive-but-below-minimum
+// requested value for the given field. Steady-state happy path returns under
+// the range check without touching the mutex.
+func (w *asyncReplicationClampWarner) checkSubFloor(field string, dv *configRuntime.DynamicValue[time.Duration], floor time.Duration) {
+	if w == nil || w.logger == nil || dv == nil {
+		return
+	}
+	v := dv.Get()
+	if v <= 0 || v >= floor {
+		return
+	}
+	w.mu.Lock()
+	if prev, ok := w.last[field]; ok && prev == v {
+		w.mu.Unlock()
+		return
+	}
+	if w.last == nil {
+		w.last = make(map[string]time.Duration)
+	}
+	w.last[field] = v
+	w.mu.Unlock()
+	w.logger.WithFields(logrus.Fields{
+		"field":     field,
+		"requested": v,
+		"min":       floor,
+		"applied":   floor,
+		"source":    "runtime",
+	}).Warn("async-replication global runtime value below minimum; clamping to min")
+}
+
+func (w *asyncReplicationClampWarner) checkGlobals(globals entreplication.GlobalConfig) {
+	if w == nil {
+		return
+	}
+	w.checkSubFloor("frequency", globals.AsyncReplicationFrequency, minFrequency)
+	w.checkSubFloor("frequencyWhilePropagating", globals.AsyncReplicationFrequencyWhilePropagating, minFrequencyWhilePropagating)
 }
 
 // initRetryBackoff returns the exponential backoff for hashtree initialisation

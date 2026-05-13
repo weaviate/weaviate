@@ -326,6 +326,12 @@ type AsyncReplicationScheduler struct {
 	metrics asyncReplicationSchedulerMetrics
 	logger  logrus.FieldLogger
 
+	// runtimeClampWarner surfaces sub-minimum global runtime overrides as a
+	// one-shot Warn so operator misconfiguration of the frequency env vars
+	// (or their runtime-YAML equivalent) does not stay invisible behind the
+	// per-cycle clamp in Effective().
+	runtimeClampWarner *asyncReplicationClampWarner
+
 	// closed is set true at the top of Close() (before cancel) and never reset.
 	// Read by Register/Deregister and handleAdd/handleRemove to reject
 	// post-Close calls deterministically.
@@ -410,6 +416,7 @@ func NewAsyncReplicationScheduler(
 		hashtreeInitSem:          semaphore.NewWeighted(int64(hashtreeInitConcurrency)),
 		metrics:                  m,
 		logger:                   logger,
+		runtimeClampWarner:       &asyncReplicationClampWarner{logger: logger},
 	}
 	heap.Init(&s.h)
 
@@ -995,6 +1002,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry) {
 
 	cfg := base
 	if s.index != nil && s.index.globalreplicationConfig != nil {
+		sched.runtimeClampWarner.checkGlobals(*s.index.globalreplicationConfig)
 		cfg = base.Effective(*s.index.globalreplicationConfig)
 	}
 
