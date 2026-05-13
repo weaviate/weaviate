@@ -1,6 +1,7 @@
 package highlight
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -30,7 +31,6 @@ func GenerateSnippets(
 		return nil
 	}
 
-	textLower := strings.ToLower(text)
 	textLen := len(text)
 
 	type match struct{ start, end int }
@@ -40,17 +40,12 @@ func GenerateSnippets(
 		if term == "" {
 			continue
 		}
-		termLower := strings.ToLower(term)
-		termLen := len(termLower)
-		offset := 0
-		for {
-			idx := strings.Index(textLower[offset:], termLower)
-			if idx < 0 {
-				break
-			}
-			abs := offset + idx
-			matches = append(matches, match{abs, abs + termLen})
-			offset = abs + 1
+		re, err := regexp.Compile("(?i)" + regexp.QuoteMeta(term))
+		if err != nil {
+			continue
+		}
+		for _, loc := range re.FindAllStringIndex(text, -1) {
+			matches = append(matches, match{loc[0], loc[1]})
 		}
 	}
 
@@ -124,8 +119,6 @@ func applyHighlight(fragment string, queryTerms []string, prefix, postfix string
 		return fragment
 	}
 
-	fragmentLower := strings.ToLower(fragment)
-
 	type span struct{ start, end int }
 	var spans []span
 
@@ -133,17 +126,12 @@ func applyHighlight(fragment string, queryTerms []string, prefix, postfix string
 		if term == "" {
 			continue
 		}
-		termLower := strings.ToLower(term)
-		termLen := len(termLower)
-		offset := 0
-		for {
-			idx := strings.Index(fragmentLower[offset:], termLower)
-			if idx < 0 {
-				break
-			}
-			abs := offset + idx
-			spans = append(spans, span{abs, abs + termLen})
-			offset = abs + 1
+		re, err := regexp.Compile("(?i)" + regexp.QuoteMeta(term))
+		if err != nil {
+			continue
+		}
+		for _, loc := range re.FindAllStringIndex(fragment, -1) {
+			spans = append(spans, span{loc[0], loc[1]})
 		}
 	}
 

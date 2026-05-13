@@ -25,13 +25,14 @@ func TestGenerateSnippets(t *testing.T) {
 		// 1. Basic single-term match                                           //
 		// ------------------------------------------------------------------ //
 		{
-			name:         "basic match",
-			text:         "The quick brown fox jumps over the lazy dog near the river bank.",
-			queryTerms:   []string{"fox"},
-			fragmentSize: 40,
-			maxFragments: 1,
-			wantCount:    1,
-			wantContains: []string{"<em>fox</em>"},
+			name:                 "basic match",
+			text:                 "The quick brown fox jumps over the lazy dog near the river bank.",
+			queryTerms:           []string{"fox"},
+			fragmentSize:         40,
+			maxFragments:         1,
+			wantCount:            1,
+			wantContains:         []string{"<em>fox</em>"},
+			wantTrailingEllipsis: true, // window ends before text end
 		},
 
 		// ------------------------------------------------------------------ //
@@ -67,14 +68,15 @@ func TestGenerateSnippets(t *testing.T) {
 		// 4. Match at the very end of the string (no upper index panic)       //
 		// ------------------------------------------------------------------ //
 		{
-			name:         "match at end of string",
-			text:         "The quick brown fox jumps over the lazy bank",
-			queryTerms:   []string{"bank"},
-			fragmentSize: 40,
-			maxFragments: 1,
-			wantCount:    1,
-			wantContains: []string{"<em>bank</em>"},
-			// window ends at textLen → no trailing ellipsis
+			name:                 "match at end of string",
+			text:                 "The quick brown fox jumps over the lazy bank",
+			queryTerms:           []string{"bank"},
+			fragmentSize:         40,
+			maxFragments:         1,
+			wantCount:            1,
+			wantContains:         []string{"<em>bank</em>"},
+			// window starts after byte 0 → leading ellipsis; ends at textLen → no trailing
+			wantLeadingEllipsis:  true,
 			wantTrailingEllipsis: false,
 		},
 
@@ -315,24 +317,16 @@ func TestGenerateSnippets(t *testing.T) {
 					}
 				}
 			}
-			if !tc.wantLeadingEllipsis {
-				// wantLeadingEllipsis == false means "it must NOT start with ..."
-				// (only enforced when the field is the zero value AND the test
-				//  explicitly documents this expectation via the field name)
-				if tc.name == "match at start of string" {
-					first := got[0]
-					// Strip any highlight tags to find the raw leading bytes.
-					if strings.HasPrefix(first, "...") {
-						t.Errorf("snippet %q must not have a leading ellipsis", first)
-					}
+			if tc.wantLeadingEllipsis {
+				first := got[0]
+				if !strings.HasPrefix(first, "...") {
+					t.Errorf("first snippet %q must start with leading ellipsis", first)
 				}
 			}
-			if !tc.wantTrailingEllipsis {
-				if tc.name == "match at end of string" {
-					last := got[len(got)-1]
-					if strings.HasSuffix(last, "...") {
-						t.Errorf("snippet %q must not have a trailing ellipsis", last)
-					}
+			if tc.wantTrailingEllipsis {
+				last := got[len(got)-1]
+				if !strings.HasSuffix(last, "...") {
+					t.Errorf("last snippet %q must end with trailing ellipsis", last)
 				}
 			}
 		})
