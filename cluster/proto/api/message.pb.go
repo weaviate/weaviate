@@ -9,12 +9,11 @@
 package api
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -59,6 +58,7 @@ const (
 	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                                  ApplyRequest_Type = 91
 	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                                     ApplyRequest_Type = 92
 	ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY                                    ApplyRequest_Type = 93
+	ApplyRequest_TYPE_UPDATE_NAMESPACE                                           ApplyRequest_Type = 94
 	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
@@ -124,6 +124,7 @@ var (
 		91:  "TYPE_DELETE_USERS_IN_NAMESPACE",
 		92:  "TYPE_CHANGE_NAMESPACE_STATE",
 		93:  "TYPE_REMOVE_NAMESPACE_ENTITY",
+		94:  "TYPE_UPDATE_NAMESPACE",
 		200: "TYPE_REPLICATION_REPLICATE",
 		201: "TYPE_REPLICATION_REPLICATE_UPDATE_STATE",
 		202: "TYPE_REPLICATION_REPLICATE_REGISTER_ERROR",
@@ -185,6 +186,7 @@ var (
 		"TYPE_DELETE_USERS_IN_NAMESPACE":                                  91,
 		"TYPE_CHANGE_NAMESPACE_STATE":                                     92,
 		"TYPE_REMOVE_NAMESPACE_ENTITY":                                    93,
+		"TYPE_UPDATE_NAMESPACE":                                           94,
 		"TYPE_REPLICATION_REPLICATE":                                      200,
 		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":                         201,
 		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":                       202,
@@ -2035,7 +2037,7 @@ func (x *UpdateDistributedTaskUnitProgressRequest) GetUpdatedAtUnixMillis() int6
 	return 0
 }
 
-// MarkTaskFinalizedRequest transitions a task from FINALIZING to
+// MarkTaskFinalizedRequest transitions a task from SWAPPING to
 // FINISHED. The scheduler issues this from OnTaskCompleted once
 // every post-task callback (per-node swap, cluster-wide schema flip)
 // has succeeded, so callers polling for FINISHED can trust the
@@ -2112,10 +2114,11 @@ func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
 }
 
 // RecordDistributedTaskPostCompletionAckRequest captures one node's
-// post-completion result for a task: i.e. did its OnGroupCompleted run
-// every local unit's swap/finalize phase to success? Emitted by every
-// node that has local units, after its OnGroupCompleted callbacks have
-// returned, before the cluster-wide MarkTaskFinalized commit lands.
+// SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
+// OnSwapRequested for barrier tasks) — i.e. did every local unit's
+// swap/finalize phase succeed? Emitted by every node that has local
+// units, after the SWAP callback returns, before the cluster-wide
+// MarkTaskFinalized commit lands.
 //
 // The scheduler gates MarkTaskFinalized on having an ack from every
 // node with local units in the task. If any ack reports success=false,
@@ -2333,13 +2336,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\x97\x12\n" +
+	"\x12NotifyPeerResponse\"\xb2\x12\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xf3\x10\n" +
+	"subCommand\"\x8e\x11\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2373,7 +2376,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x12TYPE_ADD_NAMESPACE\x10Z\x12\"\n" +
 	"\x1eTYPE_DELETE_USERS_IN_NAMESPACE\x10[\x12\x1f\n" +
 	"\x1bTYPE_CHANGE_NAMESPACE_STATE\x10\\\x12 \n" +
-	"\x1cTYPE_REMOVE_NAMESPACE_ENTITY\x10]\x12\x1f\n" +
+	"\x1cTYPE_REMOVE_NAMESPACE_ENTITY\x10]\x12\x19\n" +
+	"\x15TYPE_UPDATE_NAMESPACE\x10^\x12\x1f\n" +
 	"\x1aTYPE_REPLICATION_REPLICATE\x10\xc8\x01\x12,\n" +
 	"'TYPE_REPLICATION_REPLICATE_UPDATE_STATE\x10\xc9\x01\x12.\n" +
 	")TYPE_REPLICATION_REPLICATE_REGISTER_ERROR\x10\xca\x01\x12&\n" +
@@ -2574,46 +2578,44 @@ func file_api_message_proto_rawDescGZIP() []byte {
 	return file_api_message_proto_rawDescData
 }
 
-var (
-	file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-	file_api_message_proto_msgTypes  = make([]protoimpl.MessageInfo, 30)
-	file_api_message_proto_goTypes   = []any{
-		(ApplyRequest_Type)(0),                                     // 0: weaviate.internal.cluster.ApplyRequest.Type
-		(QueryRequest_Type)(0),                                     // 1: weaviate.internal.cluster.QueryRequest.Type
-		(TenantsProcess_Op)(0),                                     // 2: weaviate.internal.cluster.TenantsProcess.Op
-		(TenantProcessRequest_Action)(0),                           // 3: weaviate.internal.cluster.TenantProcessRequest.Action
-		(*JoinPeerRequest)(nil),                                    // 4: weaviate.internal.cluster.JoinPeerRequest
-		(*JoinPeerResponse)(nil),                                   // 5: weaviate.internal.cluster.JoinPeerResponse
-		(*RemovePeerRequest)(nil),                                  // 6: weaviate.internal.cluster.RemovePeerRequest
-		(*RemovePeerResponse)(nil),                                 // 7: weaviate.internal.cluster.RemovePeerResponse
-		(*NotifyPeerRequest)(nil),                                  // 8: weaviate.internal.cluster.NotifyPeerRequest
-		(*NotifyPeerResponse)(nil),                                 // 9: weaviate.internal.cluster.NotifyPeerResponse
-		(*ApplyRequest)(nil),                                       // 10: weaviate.internal.cluster.ApplyRequest
-		(*ApplyResponse)(nil),                                      // 11: weaviate.internal.cluster.ApplyResponse
-		(*QueryRequest)(nil),                                       // 12: weaviate.internal.cluster.QueryRequest
-		(*QueryResponse)(nil),                                      // 13: weaviate.internal.cluster.QueryResponse
-		(*AddTenantsRequest)(nil),                                  // 14: weaviate.internal.cluster.AddTenantsRequest
-		(*UpdateTenantsRequest)(nil),                               // 15: weaviate.internal.cluster.UpdateTenantsRequest
-		(*TenantsProcess)(nil),                                     // 16: weaviate.internal.cluster.TenantsProcess
-		(*TenantProcessRequest)(nil),                               // 17: weaviate.internal.cluster.TenantProcessRequest
-		(*DeleteTenantsRequest)(nil),                               // 18: weaviate.internal.cluster.DeleteTenantsRequest
-		(*Tenant)(nil),                                             // 19: weaviate.internal.cluster.Tenant
-		(*UnitSpec)(nil),                                           // 20: weaviate.internal.cluster.UnitSpec
-		(*AddDistributedTaskRequest)(nil),                          // 21: weaviate.internal.cluster.AddDistributedTaskRequest
-		(*RecordDistributedTaskNodeCompletionRequest)(nil),         // 22: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
-		(*CancelDistributedTaskRequest)(nil),                       // 23: weaviate.internal.cluster.CancelDistributedTaskRequest
-		(*CleanUpDistributedTaskRequest)(nil),                      // 24: weaviate.internal.cluster.CleanUpDistributedTaskRequest
-		(*SyncShardRequest)(nil),                                   // 25: weaviate.internal.cluster.SyncShardRequest
-		(*CreateAliasRequest)(nil),                                 // 26: weaviate.internal.cluster.CreateAliasRequest
-		(*ReplaceAliasRequest)(nil),                                // 27: weaviate.internal.cluster.ReplaceAliasRequest
-		(*DeleteAliasRequest)(nil),                                 // 28: weaviate.internal.cluster.DeleteAliasRequest
-		(*RecordDistributedTaskUnitCompletionRequest)(nil),         // 29: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
-		(*UpdateDistributedTaskUnitProgressRequest)(nil),           // 30: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
-		(*MarkTaskFinalizedRequest)(nil),                           // 31: weaviate.internal.cluster.MarkTaskFinalizedRequest
-		(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 32: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
-		(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 33: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
-	}
-)
+var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_api_message_proto_goTypes = []any{
+	(ApplyRequest_Type)(0),                                     // 0: weaviate.internal.cluster.ApplyRequest.Type
+	(QueryRequest_Type)(0),                                     // 1: weaviate.internal.cluster.QueryRequest.Type
+	(TenantsProcess_Op)(0),                                     // 2: weaviate.internal.cluster.TenantsProcess.Op
+	(TenantProcessRequest_Action)(0),                           // 3: weaviate.internal.cluster.TenantProcessRequest.Action
+	(*JoinPeerRequest)(nil),                                    // 4: weaviate.internal.cluster.JoinPeerRequest
+	(*JoinPeerResponse)(nil),                                   // 5: weaviate.internal.cluster.JoinPeerResponse
+	(*RemovePeerRequest)(nil),                                  // 6: weaviate.internal.cluster.RemovePeerRequest
+	(*RemovePeerResponse)(nil),                                 // 7: weaviate.internal.cluster.RemovePeerResponse
+	(*NotifyPeerRequest)(nil),                                  // 8: weaviate.internal.cluster.NotifyPeerRequest
+	(*NotifyPeerResponse)(nil),                                 // 9: weaviate.internal.cluster.NotifyPeerResponse
+	(*ApplyRequest)(nil),                                       // 10: weaviate.internal.cluster.ApplyRequest
+	(*ApplyResponse)(nil),                                      // 11: weaviate.internal.cluster.ApplyResponse
+	(*QueryRequest)(nil),                                       // 12: weaviate.internal.cluster.QueryRequest
+	(*QueryResponse)(nil),                                      // 13: weaviate.internal.cluster.QueryResponse
+	(*AddTenantsRequest)(nil),                                  // 14: weaviate.internal.cluster.AddTenantsRequest
+	(*UpdateTenantsRequest)(nil),                               // 15: weaviate.internal.cluster.UpdateTenantsRequest
+	(*TenantsProcess)(nil),                                     // 16: weaviate.internal.cluster.TenantsProcess
+	(*TenantProcessRequest)(nil),                               // 17: weaviate.internal.cluster.TenantProcessRequest
+	(*DeleteTenantsRequest)(nil),                               // 18: weaviate.internal.cluster.DeleteTenantsRequest
+	(*Tenant)(nil),                                             // 19: weaviate.internal.cluster.Tenant
+	(*UnitSpec)(nil),                                           // 20: weaviate.internal.cluster.UnitSpec
+	(*AddDistributedTaskRequest)(nil),                          // 21: weaviate.internal.cluster.AddDistributedTaskRequest
+	(*RecordDistributedTaskNodeCompletionRequest)(nil),         // 22: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
+	(*CancelDistributedTaskRequest)(nil),                       // 23: weaviate.internal.cluster.CancelDistributedTaskRequest
+	(*CleanUpDistributedTaskRequest)(nil),                      // 24: weaviate.internal.cluster.CleanUpDistributedTaskRequest
+	(*SyncShardRequest)(nil),                                   // 25: weaviate.internal.cluster.SyncShardRequest
+	(*CreateAliasRequest)(nil),                                 // 26: weaviate.internal.cluster.CreateAliasRequest
+	(*ReplaceAliasRequest)(nil),                                // 27: weaviate.internal.cluster.ReplaceAliasRequest
+	(*DeleteAliasRequest)(nil),                                 // 28: weaviate.internal.cluster.DeleteAliasRequest
+	(*RecordDistributedTaskUnitCompletionRequest)(nil),         // 29: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
+	(*UpdateDistributedTaskUnitProgressRequest)(nil),           // 30: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
+	(*MarkTaskFinalizedRequest)(nil),                           // 31: weaviate.internal.cluster.MarkTaskFinalizedRequest
+	(*RecordDistributedTaskPostCompletionAckRequest)(nil),      // 32: weaviate.internal.cluster.RecordDistributedTaskPostCompletionAckRequest
+	(*RecordDistributedTaskPreparationCompleteAckRequest)(nil), // 33: weaviate.internal.cluster.RecordDistributedTaskPreparationCompleteAckRequest
+}
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
 	1,  // 1: weaviate.internal.cluster.QueryRequest.type:type_name -> weaviate.internal.cluster.QueryRequest.Type

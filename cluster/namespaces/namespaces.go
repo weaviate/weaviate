@@ -80,6 +80,19 @@ func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	return m.controller.Create(req.Namespace)
 }
 
+// Update applies an UpdateNamespace RAFT command. It rewrites the stored
+// HomeNode for an existing namespace. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads or an empty
+// HomeNode, and [usecasesNamespaces.ErrNotFound] when the namespace does
+// not exist.
+func (m *Manager) Update(c *cmd.ApplyRequest) error {
+	req := &cmd.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return m.controller.Update(req.Namespace)
+}
+
 // ChangeState applies a ChangeNamespaceState RAFT command, transitioning
 // the namespace into the target state. Returns
 // [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown

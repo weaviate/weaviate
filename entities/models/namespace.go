@@ -31,6 +31,9 @@ import (
 // swagger:model Namespace
 type Namespace struct {
 
+	// The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.
+	HomeNode string `json:"home_node,omitempty"`
+
 	// The unique name of the namespace.
 	Name string `json:"name,omitempty"`
 

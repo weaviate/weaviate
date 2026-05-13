@@ -2954,6 +2954,67 @@ func init() {
           }
         }
       },
+      "put": {
+        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Update a namespace",
+        "operationId": "updateNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NamespaceUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace updated successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
         "tags": [
@@ -2968,6 +3029,14 @@ func init() {
             "name": "namespace_id",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/NamespaceCreateRequest"
+            }
           }
         ],
         "responses": {
@@ -8594,6 +8663,10 @@ func init() {
       "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
       "type": "object",
       "properties": {
+        "home_node": {
+          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
+          "type": "string"
+        },
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
@@ -8608,11 +8681,34 @@ func init() {
         }
       }
     },
+    "NamespaceCreateRequest": {
+      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
+          "type": "string"
+        }
+      }
+    },
     "NamespaceListResponse": {
       "description": "Response object containing a list of namespaces.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Namespace"
+      }
+    },
+    "NamespaceUpdateRequest": {
+      "description": "Update payload for an existing namespace.",
+      "type": "object",
+      "required": [
+        "home_node"
+      ],
+      "properties": {
+        "home_node": {
+          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
+          "type": "string"
+        }
       }
     },
     "NestedProperty": {
@@ -13714,6 +13810,67 @@ func init() {
           }
         }
       },
+      "put": {
+        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Update a namespace",
+        "operationId": "updateNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NamespaceUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace updated successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
         "tags": [
@@ -13728,6 +13885,14 @@ func init() {
             "name": "namespace_id",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/NamespaceCreateRequest"
+            }
           }
         ],
         "responses": {
@@ -19649,6 +19814,10 @@ func init() {
       "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
       "type": "object",
       "properties": {
+        "home_node": {
+          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
+          "type": "string"
+        },
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
@@ -19663,11 +19832,34 @@ func init() {
         }
       }
     },
+    "NamespaceCreateRequest": {
+      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
+          "type": "string"
+        }
+      }
+    },
     "NamespaceListResponse": {
       "description": "Response object containing a list of namespaces.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Namespace"
+      }
+    },
+    "NamespaceUpdateRequest": {
+      "description": "Update payload for an existing namespace.",
+      "type": "object",
+      "required": [
+        "home_node"
+      ],
+      "properties": {
+        "home_node": {
+          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
+          "type": "string"
+        }
       }
     },
     "NestedProperty": {

@@ -40,7 +40,14 @@ func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dyn
 
 func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.AddNamespaceRequest{Namespace: cmd.Namespace{Name: name}})
+	payload, err := json.Marshal(cmd.AddNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNode: "node-1"}})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{SubCommand: payload}
+}
+
+func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
+	t.Helper()
+	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNode: homeNode}})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
@@ -207,6 +214,7 @@ func TestManager_RejectsMalformedApplyRequest(t *testing.T) {
 		call func(*Manager) error
 	}{
 		{name: "Add", call: func(m *Manager) error { return m.Add(bad) }},
+		{name: "Update", call: func(m *Manager) error { return m.Update(bad) }},
 		{name: "ChangeState", call: func(m *Manager) error { return m.ChangeState(bad) }},
 		{name: "RemoveEntity", call: func(m *Manager) error { return m.RemoveEntity(bad) }},
 	}
@@ -216,6 +224,40 @@ func TestManager_RejectsMalformedApplyRequest(t *testing.T) {
 			err := tc.call(m)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+		})
+	}
+}
+
+func TestManager_Update(t *testing.T) {
+	tests := []struct {
+		name       string
+		updateName string
+		homeNode   string
+		wantErr    error
+		// wantHomeNode is checked on success to confirm the controller
+		// actually stored the new HomeNode (i.e. dispatch worked).
+		wantHomeNode string
+	}{
+		{name: "happy path dispatches to controller", updateName: "customer1", homeNode: "node-2", wantHomeNode: "node-2"},
+		{name: "update missing returns ErrNotFound", updateName: "never-existed", homeNode: "node-2", wantErr: usecasesNamespaces.ErrNotFound},
+		{name: "update empty home_node returns ErrBadRequest", updateName: "customer1", homeNode: "", wantErr: usecasesNamespaces.ErrBadRequest},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestManager(t)
+			require.NoError(t, m.Add(addCmd(t, "customer1")))
+
+			err := m.Update(updateCmd(t, tc.updateName, tc.homeNode))
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			got := m.controller.Get(tc.updateName)
+			require.Len(t, got, 1)
+			assert.Equal(t, tc.wantHomeNode, got[0].HomeNode)
 		})
 	}
 }

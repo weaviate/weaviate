@@ -409,6 +409,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		TokenizeTokenizeHandler: tokenize.TokenizeHandlerFunc(func(params tokenize.TokenizeParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation tokenize.Tokenize has not yet been implemented")
 		}),
+		NamespacesUpdateNamespaceHandler: namespaces.UpdateNamespaceHandlerFunc(func(params namespaces.UpdateNamespaceParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation namespaces.UpdateNamespace has not yet been implemented")
+		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -693,6 +696,8 @@ type WeaviateAPI struct {
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
 	// TokenizeTokenizeHandler sets the operation handler for the tokenize operation
 	TokenizeTokenizeHandler tokenize.TokenizeHandler
+	// NamespacesUpdateNamespaceHandler sets the operation handler for the update namespace operation
+	NamespacesUpdateNamespaceHandler namespaces.UpdateNamespaceHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -1115,6 +1120,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.TokenizeTokenizeHandler == nil {
 		unregistered = append(unregistered, "tokenize.TokenizeHandler")
+	}
+	if o.NamespacesUpdateNamespaceHandler == nil {
+		unregistered = append(unregistered, "namespaces.UpdateNamespaceHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -1667,6 +1675,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/tokenize"] = tokenize.NewTokenize(o.context, o.TokenizeTokenizeHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/namespaces/{namespace_id}"] = namespaces.NewUpdateNamespace(o.context, o.NamespacesUpdateNamespaceHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

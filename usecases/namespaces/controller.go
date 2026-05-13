@@ -111,12 +111,17 @@ func NewController(logger logrus.FieldLogger) *Controller {
 }
 
 // Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State is ignored. Returns [ErrBadRequest] for invalid names,
-// [ErrAlreadyExists] when the name maps to an active namespace, and
-// [ErrNamespaceDeleting] when the name is currently being torn down.
+// input's State is ignored. Returns [ErrBadRequest] for invalid names or an
+// empty HomeNode, [ErrAlreadyExists] when the name maps to an active
+// namespace, and [ErrNamespaceDeleting] when the name is currently being
+// torn down. HomeNode is rejected as empty here as defense in depth; the
+// REST/RAFT request paths fill it before propose.
 func (c *Controller) Create(ns cmd.Namespace) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if ns.HomeNode == "" {
+		return fmt.Errorf("%w: home_node is required", ErrBadRequest)
 	}
 
 	c.mu.Lock()
@@ -131,6 +136,26 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 
 	ns.State = cmd.NamespaceStateActive
 	c.namespaces[ns.Name] = &ns
+	return nil
+}
+
+// Update overwrites the stored HomeNode for an existing namespace. Returns
+// [ErrBadRequest] for an empty HomeNode and [ErrNotFound] when the
+// namespace does not exist. Only HomeNode is mutable through this path;
+// callers cannot use Update to change Name or State.
+func (c *Controller) Update(ns cmd.Namespace) error {
+	if ns.HomeNode == "" {
+		return fmt.Errorf("%w: home_node is required", ErrBadRequest)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	existing, ok := c.namespaces[ns.Name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrNotFound, ns.Name)
+	}
+	existing.HomeNode = ns.HomeNode
 	return nil
 }
 

@@ -14,18 +14,57 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterUtils "github.com/weaviate/weaviate/usecases/cluster"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// AddNamespace proposes an AddNamespace RAFT command and returns the apply
-// version. The apply side rejects duplicates with
-// [namespaces.ErrAlreadyExists] and invalid names with
+// AddNamespace proposes an AddNamespace RAFT command and returns the
+// persisted namespace alongside the apply version. The apply side rejects
+// duplicates with [namespaces.ErrAlreadyExists] and invalid names with
 // [namespaces.ErrBadRequest]. Callers that need a follow-up local read on
 // a non-leader node should pass the returned version to WaitForUpdate.
-func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
+//
+// An empty ns.HomeNode is filled from the cluster's storage candidates
+// before propose.
+func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error) {
+	if ns.HomeNode == "" {
+		picked, err := s.nextHomeNode(s.StorageCandidates())
+		if err != nil {
+			return cmd.Namespace{}, 0, fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+		}
+		ns.HomeNode = picked
+	}
+
 	req := cmd.AddNamespaceRequest{
+		Namespace: ns,
+		Version:   cmd.NamespaceLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return cmd.Namespace{}, 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
+		SubCommand: subCommand,
+	}
+	version, err := s.Execute(ctx, command)
+	if err != nil {
+		return cmd.Namespace{}, 0, err
+	}
+	return ns, version, nil
+}
+
+// UpdateNamespace proposes an UpdateNamespace RAFT command and returns the
+// apply version. The apply side returns [namespaces.ErrNotFound] when the
+// target namespace does not exist, and [namespaces.ErrBadRequest] for an
+// empty HomeNode. Only HomeNode is mutable; existing live shards are not
+// moved.
+func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
+	req := cmd.UpdateNamespaceRequest{
 		Namespace: ns,
 		Version:   cmd.NamespaceLatestCommandPolicyVersion,
 	}
@@ -34,7 +73,7 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, erro
 		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_NAMESPACE,
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
@@ -79,4 +118,25 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, 
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
+}
+
+// nextHomeNode returns the next home_node from nodes, rotating across calls.
+// The iterator is constructed lazily with StartRandom so cold starts aren't
+// biased to nodes[0].
+func (s *Raft) nextHomeNode(nodes []string) (string, error) {
+	if len(nodes) == 0 {
+		return "", errors.New("no storage candidates available")
+	}
+
+	s.homeNodeIteratorMu.Lock()
+	defer s.homeNodeIteratorMu.Unlock()
+
+	if s.homeNodeIterator == nil {
+		it, err := clusterUtils.NewNodeIterator(nodes, clusterUtils.StartRandom)
+		if err != nil {
+			return "", err
+		}
+		s.homeNodeIterator = it
+	}
+	return s.homeNodeIterator.Next(), nil
 }
