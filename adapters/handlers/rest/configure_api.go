@@ -1136,7 +1136,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
-	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
+	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)

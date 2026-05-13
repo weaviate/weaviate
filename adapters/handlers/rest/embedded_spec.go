@@ -2340,6 +2340,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -2387,6 +2393,12 @@ func init() {
           },
           "404": {
             "description": "Classification with the given ID not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
@@ -12792,6 +12804,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -12839,6 +12857,12 @@ func init() {
           },
           "404": {
             "description": "Classification with the given ID not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",

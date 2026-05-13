@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/classifications"
 	gql "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
@@ -175,6 +176,32 @@ func TestNamespaces_EndpointsGone(t *testing.T) {
 		require.Error(t, err)
 		var gone *objects.ObjectsReferencesDeleteGone
 		require.True(t, errors.As(err, &gone), "expected ObjectsReferencesDeleteGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("POST /v1/classifications returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Classifications.ClassificationsPost(
+			classifications.NewClassificationsPostParams().WithParams(&models.Classification{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *classifications.ClassificationsPostGone
+		require.True(t, errors.As(err, &gone), "expected ClassificationsPostGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("GET /v1/classifications/{id} returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Classifications.ClassificationsGet(
+			classifications.NewClassificationsGetParams().WithID("11111111-1111-1111-1111-111111111111"),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *classifications.ClassificationsGetGone
+		require.True(t, errors.As(err, &gone), "expected ClassificationsGetGone, got %T: %v", err, err)
 		require.NotNil(t, gone.Payload)
 		require.NotEmpty(t, gone.Payload.Error)
 		assert.NotEmpty(t, gone.Payload.Error[0].Message)
