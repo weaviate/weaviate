@@ -35,7 +35,7 @@ func setupMCPHandlers(api *operations.WeaviateAPI, appState *state.State, object
 		if !appState.ServerConfig.Config.MCP.Enabled.Get() {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"error":"MCP server is not enabled. Set MCP_SERVER_ENABLED=true (or mcp_server_enabled in runtime overrides) to enable it. See https://docs.weaviate.io/weaviate/mcp/mcp-server"}`))
+			_, _ = w.Write([]byte(`{"error":"MCP server is not enabled. To enable it, either set MCP_SERVER_ENABLED=true (requires restart) or set mcp_server_enabled: true in the runtime overrides YAML (no restart needed). See https://docs.weaviate.io/weaviate/mcp/mcp-server"}`))
 			return
 		}
 		mcpHandler.ServeHTTP(w, r)

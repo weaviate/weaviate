@@ -41,7 +41,7 @@ const (
 )
 
 // writeRuntimeOverride replaces the runtime override file's contents. Using
-// `sh -c` with a here-string keeps it simple and avoids shell-escaping issues.
+// `sh -c` with a heredoc keeps it simple and avoids shell-escaping issues.
 func writeRuntimeOverride(t *testing.T, ctx context.Context, container testcontainers.Container, contents string) {
 	t.Helper()
 	exitCode, _, err := container.Exec(ctx, []string{
@@ -76,10 +76,12 @@ func listMCPToolNames(ctx context.Context, t *testing.T, mcpURL, key string) []s
 // rawMCPInitializeStatus issues a raw HTTP POST to /v1/mcp with an initialize
 // request and returns the HTTP status code. Used to verify the disabled-MCP
 // 503 response without going through the MCP client (which masks status codes).
-func rawMCPInitializeStatus(t *testing.T, mcpURL, key string) (int, string) {
+// Accepts a context so the request stays bounded when called from
+// require.Eventually polls.
+func rawMCPInitializeStatus(ctx context.Context, t *testing.T, mcpURL, key string) (int, string) {
 	t.Helper()
 	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}`)
-	req, err := http.NewRequest(http.MethodPost, mcpURL, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mcpURL, body)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
@@ -88,7 +90,8 @@ func rawMCPInitializeStatus(t *testing.T, mcpURL, key string) (int, string) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	return resp.StatusCode, string(bodyBytes)
 }
 
@@ -179,7 +182,9 @@ func TestMCPRuntimeConfigToggle(t *testing.T) {
 		return func(t *testing.T, mcpURL, key string) {
 			t.Helper()
 			require.Eventually(t, func() bool {
-				status, _ := rawMCPInitializeStatus(t, mcpURL, key)
+				ctx, cancel := context.WithTimeout(context.Background(), pollInterval)
+				defer cancel()
+				status, _ := rawMCPInitializeStatus(ctx, t, mcpURL, key)
 				return status == wantStatus
 			}, pollTimeout, pollInterval, msg)
 		}
