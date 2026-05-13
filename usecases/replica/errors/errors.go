@@ -85,7 +85,10 @@ func (e *notEnoughReplicasError) Error() string {
 		fmt.Fprintf(&sb, ": required %d replicas, got %d", e.required, e.got)
 	}
 	if e.cause != nil {
-		fmt.Fprintf(&sb, ": %v", e.cause)
+		// errors.Join separates wrapped errors with newlines; normalise to
+		// "; " so the message stays on a single line in logs and HTTP
+		// responses while errors.Is / errors.As still traverse via Unwrap.
+		fmt.Fprintf(&sb, ": %s", strings.ReplaceAll(e.cause.Error(), "\n", "; "))
 	}
 	return sb.String()
 }

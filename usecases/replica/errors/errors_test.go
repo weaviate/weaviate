@@ -79,6 +79,29 @@ func TestNotEnoughReplicasError(t *testing.T) {
 	}
 }
 
+func TestNotEnoughReplicasError_JoinedCauseIsSingleLine(t *testing.T) {
+	a := errors.New("replica \"a\": dial tcp: i/o timeout")
+	b := errors.New("replica \"b\": connection refused")
+	joined := errors.Join(a, b)
+
+	err := NewNotEnoughReplicasErrorWithCounts(3, 1, joined)
+
+	if contains(err.Error(), "\n") {
+		t.Fatalf("Error() must not contain newlines, got %q", err.Error())
+	}
+	for _, want := range []string{a.Error(), b.Error(), "; "} {
+		if !contains(err.Error(), want) {
+			t.Fatalf("Error() = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+	if !errors.Is(err, ErrReplicas) {
+		t.Fatalf("errors.Is(err, ErrReplicas) = false, want true")
+	}
+	if !errors.Is(err, a) || !errors.Is(err, b) {
+		t.Fatalf("errors.Is must still traverse joined causes")
+	}
+}
+
 func TestNotEnoughReplicasError_Simple(t *testing.T) {
 	rootCause := errors.New("build routing plan: shard not found")
 	err := NewNotEnoughReplicasError(rootCause)

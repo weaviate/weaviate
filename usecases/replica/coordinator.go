@@ -248,7 +248,15 @@ func (c *coordinator[T, R]) read(
 	}
 	var finalErr error
 	if level > 0 {
-		finalErr = replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, required-level, errors.Join(replicaErrs...))
+		joined := errors.Join(replicaErrs...)
+		// If the upstream failure is already a "not enough replicas" error
+		// (e.g. broadcast aborted and sent its own NotEnoughReplicasError),
+		// surface it directly instead of nesting another wrapper.
+		if errors.Is(joined, replicaerrors.ErrReplicas) {
+			finalErr = joined
+		} else {
+			finalErr = replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, required-level, joined)
+		}
 	}
 	failures = append(failures, successes...)
 	return onFlatten(batchSize, failures, finalErr)
