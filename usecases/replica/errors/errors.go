@@ -50,16 +50,13 @@ var (
 
 // notEnoughReplicasError is returned by the coordinator when it cannot reach
 // a sufficient number of replicas to satisfy the requested consistency level.
-// It preserves the first underlying cause and tracks how many additional
-// errors were observed (without retaining them) so memory remains O(1).
 //
 // Use errors.Is(err, ErrReplicas) for detection and errors.Unwrap / errors.As
 // to inspect the underlying cause.
 type notEnoughReplicasError struct {
-	required   int   // total replicas required to satisfy the consistency level
-	got        int   // number of replicas that succeeded
-	cause      error // first error observed from a failed replica (may be nil)
-	additional int   // count of further errors observed beyond cause
+	required int   // total replicas required to satisfy the consistency level
+	got      int   // number of replicas that succeeded
+	cause    error // joined per-replica errors observed (may be nil)
 }
 
 // NewNotEnoughReplicasError wraps cause in an error that satisfies
@@ -72,15 +69,12 @@ func NewNotEnoughReplicasError(cause error) error {
 
 // NewNotEnoughReplicasErrorWithCounts is the rich form of
 // NewNotEnoughReplicasError used by the coordinator when it knows how
-// many replicas were required vs. succeeded.  additional is the count of
-// further errors observed beyond the first one (cause); the count is kept
-// rather than the errors themselves so memory remains O(1).
-func NewNotEnoughReplicasErrorWithCounts(required, got int, cause error, additional int) error {
+// many replicas were required vs. succeeded.
+func NewNotEnoughReplicasErrorWithCounts(required, got int, cause error) error {
 	return &notEnoughReplicasError{
-		required:   required,
-		got:        got,
-		cause:      cause,
-		additional: additional,
+		required: required,
+		got:      got,
+		cause:    cause,
 	}
 }
 
@@ -92,9 +86,6 @@ func (e *notEnoughReplicasError) Error() string {
 	}
 	if e.cause != nil {
 		fmt.Fprintf(&sb, ": %v", e.cause)
-	}
-	if e.additional > 0 {
-		fmt.Fprintf(&sb, " (and %d more errors)", e.additional)
 	}
 	return sb.String()
 }
@@ -168,13 +159,13 @@ func (e *repairError) Is(target error) bool {
 type StatusCode int
 
 const (
-	StatusOK            = 0
-	StatusClassNotFound = iota + 200
+	StatusOK            StatusCode = 0
+	StatusClassNotFound StatusCode = iota + 200
 	StatusShardNotFound
 	StatusNotFound
 	StatusAlreadyExisted
 	StatusNotReady
-	StatusConflict = iota + 300
+	StatusConflict StatusCode = iota + 300
 	StatusPreconditionFailed
 	StatusReadOnly
 	StatusObjectNotFound
@@ -238,6 +229,9 @@ func (e *Error) Clone() *Error {
 func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string {
+	if e.Err == nil {
+		return fmt.Sprintf("%s %q", StatusText(e.Code), e.Msg)
+	}
 	return fmt.Sprintf("%s %q: %v", StatusText(e.Code), e.Msg, e.Err)
 }
 

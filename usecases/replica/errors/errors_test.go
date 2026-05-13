@@ -21,12 +21,11 @@ func TestNotEnoughReplicasError(t *testing.T) {
 	rootCause := errors.New("dial tcp 10.0.1.5:8080: i/o timeout")
 
 	tests := []struct {
-		name       string
-		required   int
-		got        int
-		cause      error
-		additional int
-		wantMsg    string
+		name     string
+		required int
+		got      int
+		cause    error
+		wantMsg  string
 	}{
 		{
 			name:    "no context",
@@ -44,21 +43,19 @@ func TestNotEnoughReplicasError(t *testing.T) {
 			wantMsg:  ErrReplicas.Error() + ": required 3 replicas, got 1",
 		},
 		{
-			name:       "full message",
-			required:   3,
-			got:        1,
-			cause:      rootCause,
-			additional: 2,
+			name:     "full message",
+			required: 3,
+			got:      1,
+			cause:    rootCause,
 			wantMsg: ErrReplicas.Error() +
 				": required 3 replicas, got 1: " +
-				rootCause.Error() +
-				" (and 2 more errors)",
+				rootCause.Error(),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := NewNotEnoughReplicasErrorWithCounts(tc.required, tc.got, tc.cause, tc.additional)
+			err := NewNotEnoughReplicasErrorWithCounts(tc.required, tc.got, tc.cause)
 
 			if got := err.Error(); got != tc.wantMsg {
 				t.Fatalf("Error() = %q, want %q", got, tc.wantMsg)
@@ -100,7 +97,7 @@ func TestNotEnoughReplicasError_Simple(t *testing.T) {
 
 func TestNotEnoughReplicasError_WrapsFmtErrorf(t *testing.T) {
 	rootCause := errors.New("connection refused")
-	wrapped := fmt.Errorf("commit: %w", NewNotEnoughReplicasErrorWithCounts(3, 1, rootCause, 0))
+	wrapped := fmt.Errorf("commit: %w", NewNotEnoughReplicasErrorWithCounts(3, 1, rootCause))
 
 	if !errors.Is(wrapped, ErrReplicas) {
 		t.Fatalf("errors.Is(wrapped, ErrReplicas) = false, want true")
@@ -213,6 +210,94 @@ func TestErrors_DistinctSentinels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestError_Empty(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *Error
+		want bool
+	}{
+		{name: "zero value", err: &Error{}, want: true},
+		{name: "ok with empty msg and no inner", err: NewError(StatusOK, ""), want: true},
+		{name: "non-zero code", err: NewError(StatusConflict, ""), want: false},
+		{name: "non-empty msg", err: NewError(StatusOK, "boom"), want: false},
+		{name: "with inner err", err: &Error{Err: errors.New("x")}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.err.Empty(); got != tc.want {
+				t.Fatalf("Empty() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestError_IsStatusCode(t *testing.T) {
+	e := NewError(StatusConflict, "x")
+	if !e.IsStatusCode(StatusConflict) {
+		t.Fatalf("IsStatusCode(StatusConflict) = false, want true")
+	}
+	if e.IsStatusCode(StatusOK) {
+		t.Fatalf("IsStatusCode(StatusOK) = true, want false")
+	}
+}
+
+func TestError_ErrorFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		err  *Error
+		want string
+	}{
+		{
+			name: "with inner err",
+			err:  &Error{Code: StatusConflict, Msg: "Article", Err: errors.New("boom")},
+			want: `conflict "Article": boom`,
+		},
+		{
+			name: "no inner err omits trailing <nil>",
+			err:  &Error{Code: StatusConflict, Msg: "Article"},
+			want: `conflict "Article"`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.err.Error(); got != tc.want {
+				t.Fatalf("Error() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStatusText_Unknown(t *testing.T) {
+	if got := StatusText(StatusCode(-1)); got != "" {
+		t.Fatalf("StatusText(-1) = %q, want empty", got)
+	}
+	if got := StatusText(StatusCode(99999)); got != "" {
+		t.Fatalf("StatusText(99999) = %q, want empty", got)
+	}
+}
+
+// TestStatusCode_Values pins the wire values so cross-version nodes keep
+// decoding each other's replication errors correctly.
+func TestStatusCode_Values(t *testing.T) {
+	cases := map[StatusCode]int{
+		StatusOK:                 0,
+		StatusClassNotFound:      201,
+		StatusShardNotFound:      202,
+		StatusNotFound:           203,
+		StatusAlreadyExisted:     204,
+		StatusNotReady:           205,
+		StatusConflict:           306,
+		StatusPreconditionFailed: 307,
+		StatusReadOnly:           308,
+		StatusObjectNotFound:     309,
+	}
+	for sc, want := range cases {
+		if int(sc) != want {
+			t.Fatalf("StatusCode %s = %d, want %d", StatusText(sc), int(sc), want)
+		}
 	}
 }
 

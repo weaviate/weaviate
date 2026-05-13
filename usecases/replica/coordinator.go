@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -137,22 +138,14 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 	f := func() {
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
-		// Track only the first error and a count of additional errors to
-		// keep memory usage O(1) regardless of the replica count.
-		var firstErr error
-		var additionalErrs int
+		var replicaErrs []error
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
-				if firstErr == nil {
-					// Attach the failing replica identifier so the
-					// resulting error remains actionable regardless of
-					// whether the per-replica op wrapped it with host
-					// context.
-					firstErr = annotateReplicaErr(r.Value, r.Err)
-				} else {
-					additionalErrs++
-				}
+				// Attach the failing replica identifier so the resulting
+				// error remains actionable regardless of whether the
+				// per-replica op wrapped it with host context.
+				replicaErrs = append(replicaErrs, annotateReplicaErr(r.Value, r.Err))
 				continue
 			}
 
@@ -174,7 +167,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), firstErr, additionalErrs)}
+			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), errors.Join(replicaErrs...))}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -238,20 +231,13 @@ func (c *coordinator[T, R]) read(
 	required := level
 	failures := make([]T, 0, level)
 	successes := make([]T, 0, level)
-	// Track only the first error and a count of additional errors to keep
-	// memory usage O(1) regardless of the number of replicas.
-	var firstError error
-	var additionalErrs int
+	var replicaErrs []error
 	for x := range ch {
 		var err error
 		var shouldDecreaseLevel bool
 		successes, failures, shouldDecreaseLevel, err = onResult(x, successes, failures)
 		if err != nil {
-			if firstError == nil {
-				firstError = err
-			} else {
-				additionalErrs++
-			}
+			replicaErrs = append(replicaErrs, err)
 		}
 		if shouldDecreaseLevel {
 			level--
@@ -260,11 +246,12 @@ func (c *coordinator[T, R]) read(
 			return onFlatten(batchSize, successes, nil)
 		}
 	}
+	var finalErr error
 	if level > 0 {
-		firstError = replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, required-level, firstError, additionalErrs)
+		finalErr = replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, required-level, errors.Join(replicaErrs...))
 	}
 	failures = append(failures, successes...)
-	return onFlatten(batchSize, failures, firstError)
+	return onFlatten(batchSize, failures, finalErr)
 }
 
 // Push pushes updates to all replicas of a specific shard
