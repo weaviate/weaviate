@@ -81,6 +81,11 @@ type QuerySchemaResponse struct {
 	Schema models.Schema
 }
 
+type QueryCollectionsCountRequest struct {
+	// Namespace selects classes belonging to that namespace; empty counts all.
+	Namespace string
+}
+
 type QueryCollectionsCountResponse struct {
 	Count int
 }

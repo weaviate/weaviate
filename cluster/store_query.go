@@ -37,7 +37,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT:
-		payload, err = st.schemaManager.QueryCollectionsCount()
+		payload, err = st.schemaManager.QueryCollectionsCount(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}

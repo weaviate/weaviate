@@ -59,7 +59,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeS
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -79,7 +79,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -98,7 +98,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 	}
 
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -154,7 +154,7 @@ func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fa
 	}
 
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.Nil(t, err)
 
@@ -180,7 +180,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 
@@ -197,7 +197,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.ExpectedCalls = fakeSchemaManager.ExpectedCalls[:0]
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(ErrNotFound)
 
 	// Add it again
@@ -218,7 +218,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 		},
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(ctx, nil, class)
 	assert.Nil(t, err)
@@ -293,7 +293,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -323,7 +323,7 @@ func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeS
 		},
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.NoError(t, err)
@@ -377,7 +377,7 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 		Properties:        properties,
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)

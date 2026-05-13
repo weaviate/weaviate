@@ -677,3 +677,18 @@ func TestAliasNamespacePrefixPreserved(t *testing.T) {
 
 	require.Equal(t, "delhappy:Movies", sc.ResolveAlias("delhappy:Films"))
 }
+
+func TestCollectionsCount_Namespaced(t *testing.T) {
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, ss, 2))
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 3))
+	require.NoError(t, sc.addClass(&models.Class{Class: "Global"}, ss, 4))
+
+	assert.Equal(t, 4, sc.CollectionsCount(""), "empty namespace returns total")
+	assert.Equal(t, 2, sc.CollectionsCount("customer1"))
+	assert.Equal(t, 1, sc.CollectionsCount("customer2"))
+	assert.Equal(t, 0, sc.CollectionsCount("unknown"))
+}

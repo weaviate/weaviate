@@ -118,20 +118,29 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 	return resp.Schema, nil
 }
 
-// QueryCollectionsCount build a Query to read the schema that will be directed to the leader to ensure we will read the class
-// with strong consistency
-func (s *Raft) QueryCollectionsCount() (int, error) {
+// QueryCollectionsCount issues a leader-directed count query. An empty
+// namespace returns the cluster-global total; a non-empty namespace returns
+// the count restricted to classes in that namespace.
+func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
 			sentry.WithTransactionName("raft.query.collections.count"),
 			sentry.WithDescription("Query the collections count"),
 		)
+		transaction.SetData("namespace", namespace)
 		ctx = transaction.Context()
 		defer transaction.Finish()
 	}
+
+	req := cmd.QueryCollectionsCountRequest{Namespace: namespace}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
 	command := &cmd.QueryRequest{
-		Type: cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
+		Type:       cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
+		SubCommand: subCommand,
 	}
 	queryResp, err := s.Query(ctx, command)
 	if err != nil {

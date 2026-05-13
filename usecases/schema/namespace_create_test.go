@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // newTestHandlerWithNamespaces returns a Handler that has the cluster-wide
@@ -133,7 +134,7 @@ func TestAddClass(t *testing.T) {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.wantClass
 				}), mock.Anything).Return(nil)
-				sm.On("QueryCollectionsCount").Return(0, nil)
+				sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 			}
 
 			got, _, err := handler.AddClass(context.Background(), tt.principal, class)
@@ -222,4 +223,81 @@ func TestAddAlias(t *testing.T) {
 			require.Equal(t, tt.wantClass, got.Class)
 		})
 	}
+}
+
+// TestAddClass_NamespacedCollectionLimit checks that the
+// MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
+// namespaces are enabled, using principal.Namespace as the selector.
+func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("same namespace at cap rejects", func(t *testing.T) {
+		t.Parallel()
+		handler, sm := newTestHandlerWithNamespaces(t, true)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(1)
+
+		// Caller is in customer1; the count must be requested for that
+		// namespace, and we return a value at the cap.
+		sm.On("QueryCollectionsCount", "customer1").Return(1, nil)
+
+		class := &models.Class{
+			Class:             "Movies",
+			Vectorizer:        "model1",
+			VectorIndexConfig: map[string]interface{}{},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+
+		require.Error(t, err)
+		le, ok := usagelimits.AsLimitExceeded(err)
+		require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+		assert.Equal(t, usagelimits.LimitCollections, le.Limit)
+		assert.Equal(t, int64(1), le.Value)
+		sm.AssertExpectations(t)
+	})
+
+	t.Run("other namespace under cap succeeds", func(t *testing.T) {
+		t.Parallel()
+		handler, sm := newTestHandlerWithNamespaces(t, true)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(1)
+
+		// Caller in customer1 gets back 0 — the count returned is scoped
+		// to customer1, regardless of what may exist in other namespaces.
+		sm.On("QueryCollectionsCount", "customer1").Return(0, nil)
+		sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+			return c.Class == "customer1:Movies"
+		}), mock.Anything).Return(nil)
+
+		class := &models.Class{
+			Class:             "Movies",
+			Vectorizer:        "model1",
+			VectorIndexConfig: map[string]interface{}{},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+		require.NoError(t, err)
+		sm.AssertExpectations(t)
+	})
+
+	t.Run("selector comes from principal namespace", func(t *testing.T) {
+		t.Parallel()
+		handler, sm := newTestHandlerWithNamespaces(t, true)
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(10)
+
+		// The matcher requires exactly the principal namespace string.
+		sm.On("QueryCollectionsCount", "customer2").Return(0, nil)
+		sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+			return c.Class == "customer2:Movies"
+		}), mock.Anything).Return(nil)
+
+		class := &models.Class{
+			Class:             "Movies",
+			Vectorizer:        "model1",
+			VectorIndexConfig: map[string]interface{}{},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+		_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer2"), class)
+		require.NoError(t, err)
+		sm.AssertExpectations(t)
+	})
 }
