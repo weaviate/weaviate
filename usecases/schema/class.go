@@ -162,9 +162,17 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	// On namespace-enabled clusters the cap is enforced per namespace.
+	// QualifyForCreate above already required principal.Namespace for this
+	// flow, so it is the correct selector here.
+	countNamespace := ""
+	if h.config.Namespaces.Enabled {
+		countNamespace = principal.Namespace
+	}
+
+	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
 	if err != nil {
-		h.logger.WithField("error", err).Error("could not query the collections count")
+		h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
 	}
 
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
