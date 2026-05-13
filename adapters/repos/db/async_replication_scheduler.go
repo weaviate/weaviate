@@ -257,8 +257,8 @@ func (m *asyncReplicationSchedulerMetrics) setWorkerPoolSize(n int) {
 // AsyncReplicationScheduler is a DB-level scheduler that dispatches hashbeat
 // cycles to a fixed-size worker pool. It replaces the former two-goroutines-
 // per-shard model (hashbeater + trigger) with a single pool of N workers,
-// one dispatcher goroutine, and one worker-count watcher goroutine — scaling
-// O(1) with respect to tenant count instead of O(tenants).
+// one dispatcher, and one watcher — total goroutine count is fixed regardless
+// of tenant count, instead of O(tenants).
 //
 // Lifecycle:
 //
@@ -271,19 +271,12 @@ type AsyncReplicationScheduler struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// Lock ordering across all mutexes in this struct and related shard state:
-	//   1. workersMu (if needed) — shortest critical section, protects targetWorkers.
-	//   2. mu — protects heap, entries, nextSeq. Must NEVER be held while
-	//      acquiring a shard's asyncReplicationRWMux, because the init-scan
-	//      goroutine (spawned by initAsyncReplication) holds asyncReplicationRWMux
-	//      .RLock while calling Deregister — which blocks on the dispatcher that
-	//      needs mu. Holding both in the wrong order would deadlock.
-	//      Close() enforces this by releasing mu before iterating stuck-shard
-	//      contexts (see the comment in Close()).
-	// Current code never holds workersMu and mu simultaneously, but the rule
-	// prevents a future deadlock if that changes.
+	// Lock ordering: workersMu → mu → asyncReplicationRWMux. Never hold mu
+	// while acquiring asyncReplicationRWMux: init-scan goroutines hold the
+	// RLock while calling Deregister, which blocks on the dispatcher needing
+	// mu — reverse ordering deadlocks.
 
-	// mu protects heap, entries, and nextSeq. Held only for brief heap operations.
+	// mu protects heap, entries, and nextSeq.
 	mu      sync.Mutex
 	h       asyncSchedulerHeap
 	entries map[*Shard]*asyncSchedulerEntry
@@ -310,15 +303,14 @@ type AsyncReplicationScheduler struct {
 	// limit 10k concurrent scans would thrash disk and spike RSS.
 	hashtreeInitSem *semaphore.Weighted
 
-	// workCh feeds runHashbeatCycle calls to the worker pool.
-	// Buffered to maxMaxWorkers so dispatchDueLocked completes the send in O(1)
-	// without a goroutine rendezvous while sched.mu is held. The "all workers
-	// busy" backpressure fires when the buffer is full (default branch in
-	// dispatchDueLocked) rather than when no worker goroutine is immediately
-	// waiting, which is semantically equivalent under steady-state scheduling.
+	// workCh feeds entries to the worker pool. Buffered (maxMaxWorkers) so
+	// dispatchDueLocked sends in O(1) under sched.mu; a full buffer triggers
+	// "all workers busy" backpressure via the default branch.
 	workCh chan *asyncSchedulerEntry
 
-	// resultCh receives results from workers; buffered so workers never block.
+	// resultCh receives results from workers. Buffer absorbs normal-operation
+	// bursts; Close()'s parallel drain keeps runEntry's unconditional send
+	// non-blocking at shutdown.
 	resultCh chan asyncSchedulerResult
 
 	// addCh / removeCh are used to register / deregister shards synchronously
@@ -334,32 +326,26 @@ type AsyncReplicationScheduler struct {
 	metrics asyncReplicationSchedulerMetrics
 	logger  logrus.FieldLogger
 
-	// closed is set to true once at the top of Close() (before cancel), never
-	// reset. Read by Register/Deregister and the dispatcher's addCh branch to
-	// reject post-Close calls deterministically.
+	// closed is set true at the top of Close() (before cancel) and never reset.
+	// Read by Register/Deregister and handleAdd/handleRemove to reject
+	// post-Close calls deterministically.
 	closed atomic.Bool
 }
 
-// NewAsyncReplicationScheduler creates and starts a scheduler bound to the
-// given context and replication configuration. The dispatcher, worker-count
-// watcher, and worker-pool goroutines are launched before this function
-// returns; the scheduler is ready to accept Register/Deregister calls.
-// prom may be nil, in which case all Prometheus metrics are no-ops.
-// Returns an error only if Prometheus metric registration fails.
+// NewAsyncReplicationScheduler creates and starts a scheduler. The dispatcher,
+// watcher, and worker-pool goroutines are launched before returning, so the
+// scheduler is ready to accept Register/Deregister calls. prom may be nil
+// (metrics become no-ops). Returns an error only if metric registration fails.
 //
-// Note: GlobalConfig.AsyncReplicationHashtreeInitConcurrency is read once at
-// construction time to size the internal init semaphore; changing its DynamicValue
-// after construction has no effect without creating a new scheduler.
+// AsyncReplicationHashtreeInitConcurrency is read once here to size the init
+// semaphore; later changes to its DynamicValue have no effect.
 func NewAsyncReplicationScheduler(
 	ctx context.Context,
 	replicationCfg replication.GlobalConfig,
 	prom *monitoring.PrometheusMetrics,
 	logger logrus.FieldLogger,
 ) (*AsyncReplicationScheduler, error) {
-	// Guard against nil DynamicValue pointers that arise when GlobalConfig is
-	// zero-valued (e.g. in unit/integration tests that don't configure
-	// replication). A nil pointer's Get() returns the zero value for its type
-	// which for int is 0 — treated as "use the default worker count".
+	// Guard against nil DynamicValue pointers (zero-valued GlobalConfig in tests).
 	maxWorkersConfig := replicationCfg.AsyncReplicationSchedulerWorkers
 	if maxWorkersConfig == nil {
 		maxWorkersConfig = configRuntime.NewDynamicValue(defaultAsyncReplicationSchedulerWorkers)
@@ -368,12 +354,9 @@ func NewAsyncReplicationScheduler(
 	if workers <= 0 {
 		workers = defaultAsyncReplicationSchedulerWorkers
 	}
-	// Remember the requested value before capping so we can warn after the
-	// logger is resolved below.
+	// Cap at maxMaxWorkers so resultCh (sized maxMaxWorkers*2) fits the pool.
 	requestedWorkers := workers
 	if workers > maxMaxWorkers {
-		// Cap at maxMaxWorkers to match the resultCh buffer size (maxMaxWorkers*2)
-		// and keep invariants consistent with adjustWorkers.
 		workers = maxMaxWorkers
 	}
 
@@ -412,17 +395,14 @@ func NewAsyncReplicationScheduler(
 	}
 
 	s := &AsyncReplicationScheduler{
-		ctx:              sctx,
-		cancel:           cancel,
-		h:                make(asyncSchedulerHeap, 0),
-		entries:          make(map[*Shard]*asyncSchedulerEntry),
-		targetWorkers:    workers,
-		maxWorkersConfig: maxWorkersConfig,
-		scaleDownCh:      make(chan struct{}, maxMaxWorkers),
-		workCh:           make(chan *asyncSchedulerEntry, maxMaxWorkers),
-		// Buffer is sized to maxMaxWorkers*2 (the hard ceiling on the pool)
-		// so workers never block even if adjustWorkers scales the pool to its
-		// maximum.
+		ctx:                      sctx,
+		cancel:                   cancel,
+		h:                        make(asyncSchedulerHeap, 0),
+		entries:                  make(map[*Shard]*asyncSchedulerEntry),
+		targetWorkers:            workers,
+		maxWorkersConfig:         maxWorkersConfig,
+		scaleDownCh:              make(chan struct{}, maxMaxWorkers),
+		workCh:                   make(chan *asyncSchedulerEntry, maxMaxWorkers),
 		resultCh:                 make(chan asyncSchedulerResult, maxMaxWorkers*2),
 		addCh:                    make(chan addRequest),
 		removeCh:                 make(chan removeRequest),
@@ -468,39 +448,22 @@ func (sched *AsyncReplicationScheduler) releaseHashtreeInitSlot() {
 	sched.hashtreeInitSem.Release(1)
 }
 
-// Close shuts down the scheduler and waits for all goroutines to exit.
+// Close shuts down the scheduler and blocks until all goroutines exit.
 //
-// Recommended shutdown sequence to bound latency:
-//  1. Call mayStopAsyncReplication (or disableAsyncReplication followed by
-//     asyncRepWg.Wait()) on every registered shard before calling Close.
-//     This cancels each shard's per-shard context via asyncReplicationCancelFunc,
-//     which causes any in-flight hashbeat RPC to abort promptly rather than
-//     waiting for the full diffPerNodeTimeout.
-//     NOTE: Deregister alone does NOT cancel the per-shard context; it only
-//     removes the shard from the scheduler's dispatch queue.
-//  2. Call Close(). Workers drain quickly because in-flight RPCs are already
-//     cancelled.
-//
-// Skipping step 1 is safe: Close force-cancels the per-shard context of any
-// shard still registered so that in-flight RPCs abort promptly rather than
-// blocking until diffPerNodeTimeout. The force-cancellation is a safety net
-// for ordering bugs; the recommended sequence above is still preferred.
-//
-// Close always waits for all goroutines to finish before returning — the 30 s
-// mark is a diagnostic threshold only: a warning is logged if shutdown takes
-// longer than expected, but Close continues waiting until the pool is fully
-// drained.
+// Recommended: call mayStopAsyncReplication on every shard first so per-shard
+// contexts are cancelled and in-flight RPCs abort promptly. Skipping this is
+// safe — each shard's asyncRepCtx is derived from sched.ctx, so sched.cancel()
+// propagates cancellation; the recommended order is for latency, not
+// correctness. Close also force-cancels any still-registered shard's context
+// as a safety net. The 30 s mark only triggers a diagnostic warning; Close
+// keeps waiting until the pool drains.
 func (sched *AsyncReplicationScheduler) Close() {
-	// Mark closed before any other side effect. Establishes the happens-before
-	// for Register/Deregister callers: any caller whose closed.Load() returned
-	// false started before Close did anything observable. The dispatcher's
-	// addCh branch also reads this flag to drop late-arriving registrations.
+	// Set closed before anything else so Register/Deregister and handleAdd/
+	// handleRemove can deterministically reject post-Close calls.
 	sched.closed.Store(true)
 
-	// Invariant: all shards must be deregistered before Close is called.
-	// Log an error so ordering bugs surface early. As a safety net, collect
-	// the stuck shards so we can force-cancel their per-shard contexts below,
-	// bounding Close even when the caller violates the invariant.
+	// Invariant: shards must be deregistered before Close. Collect any
+	// stragglers so we can force-cancel their per-shard contexts.
 	var stuckShards []*Shard
 	sched.mu.Lock()
 	if n := len(sched.entries); n > 0 {
@@ -514,11 +477,9 @@ func (sched *AsyncReplicationScheduler) Close() {
 	}
 	sched.mu.Unlock()
 
-	// Force-cancel each stuck shard's asyncReplicationCancelFunc AFTER releasing
-	// sched.mu. We must not hold sched.mu while acquiring asyncReplicationRWMux:
-	// initAsyncReplication's goroutine can hold asyncReplicationRWMux.RLock while
-	// calling Deregister (sending on removeCh); the dispatcher processes removeCh
-	// while needing sched.mu — holding both in the opposite order would deadlock.
+	// Release sched.mu before acquiring asyncReplicationRWMux: holding both
+	// in reverse order would deadlock against init-scan goroutines that hold
+	// the RLock while calling Deregister.
 	for _, s := range stuckShards {
 		s.asyncReplicationRWMux.RLock()
 		cancel := s.asyncReplicationCancelFunc
@@ -537,31 +498,39 @@ func (sched *AsyncReplicationScheduler) Close() {
 		sched.wg.Wait()
 		close(done)
 	}, sched.logger)
+
+	// Drain resultCh in parallel: the dispatcher stops draining once it picks
+	// ctx.Done(), and runEntry's send is unconditional, so under heavy load a
+	// full buffer would pin sched.wg.Wait(). Discarding is safe — runEntry
+	// already called Done() before sending.
+	shutdownWg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer shutdownWg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			case <-sched.resultCh:
+			}
+		}
+	}, sched.logger)
+
 	select {
 	case <-done:
 	case <-time.After(30 * time.Second):
 		sched.logger.WithField("action", "async_replication_scheduler_close").
 			Warn("scheduler shutdown still waiting for goroutines after 30s; workers may be blocked on long RPCs")
 	}
-	// shutdownWg.Wait() is unbounded: Close blocks until every goroutine tracked
-	// by sched.wg exits. Workers are context-cancellable so this is normally
-	// fast, but callers should be aware there is no hard deadline.
+	// Unbounded wait: Close has no hard deadline.
 	shutdownWg.Wait()
 }
 
-// Register adds a shard to the scheduler for periodic hashbeat dispatching.
-// The first hashbeat cycle is triggered immediately.
-// Register must not be called while holding asyncReplicationRWMux (see
-// the same constraint that applied to startHashbeaterGoroutines).
+// Register adds a shard for periodic hashbeat dispatching. The first cycle
+// fires immediately. Must not be called while holding asyncReplicationRWMux.
 //
-// Strict nil-postcondition: returning nil implies the shard is in the
-// scheduler's registry (added by this call or already present from a prior
-// Register). The error branch is asymmetric: ErrSchedulerClosed is the only
-// possible non-nil return, but it does NOT imply the shard was not added —
-// a rare race between the dispatcher acking and ctx cancellation can produce
-// a false negative (operation succeeded, error reported). Callers should
-// treat any error as "registration is not confirmed" and not rely on it
-// implying the absence of side effects.
+// Strict pre/postcondition: nil iff the shard is in the registry afterwards;
+// ErrSchedulerClosed iff it is not (closed at entry, ctx cancelled before
+// send, or closed flipped before handleAdd checked). non-nil ⇒ no side effect.
 func (sched *AsyncReplicationScheduler) Register(s *Shard) error {
 	if sched.closed.Load() {
 		return ErrSchedulerClosed
@@ -571,38 +540,27 @@ func (sched *AsyncReplicationScheduler) Register(s *Shard) error {
 	req := addRequest{shard: s, ackCh: ackCh, processed: &processed}
 	select {
 	case sched.addCh <- req:
-		// The send completed: the dispatcher has committed to processing the
-		// request. Wait for the ack and read processed to decide the outcome.
-		// The ctx.Done() branch is a panic backstop: if the dispatcher exits
-		// without closing ackCh, this prevents the caller from deadlocking.
-		select {
-		case <-ackCh:
-			if processed.Load() {
-				return nil
-			}
-			// Dispatcher dropped the request because closed was set between
-			// the up-front check and the dispatcher dequeueing the request.
-			return ErrSchedulerClosed
-		case <-sched.ctx.Done():
-			return ErrSchedulerClosed
+		// addCh is unbuffered: once the send succeeds, handleAdd has the
+		// request and will close ackCh via its first-line defer. Waiting on
+		// ackCh unconditionally keeps the strict postcondition — racing it
+		// against ctx.Done() would let Close produce false-negative errors.
+		<-ackCh
+		if processed.Load() {
+			return nil
 		}
+		return ErrSchedulerClosed
 	case <-sched.ctx.Done():
 		return ErrSchedulerClosed
 	}
 }
 
-// Deregister removes a shard from the scheduler. It returns only after the
-// dispatcher has confirmed the removal, so subsequent in-flight cycles will
-// not be re-enqueued. Callers that need to guarantee no in-flight cycle races
-// with subsequent shard state mutations (e.g. rebuildHashtree) must separately
-// call shard.asyncRepWg.Wait() after Deregister returns.
+// Deregister removes a shard from the scheduler. Returns only after the
+// dispatcher confirms the removal, so no further cycles will be re-enqueued.
+// Callers needing to wait for an in-flight cycle must call asyncRepWg.Wait()
+// separately afterwards.
 //
-// Strict nil-postcondition: returning nil implies the shard is not in the
-// scheduler's registry after this call. As with Register, the error branch
-// is asymmetric — ErrSchedulerClosed does NOT imply the shard was not
-// removed (the dispatcher may have removed it before the ctx cancellation
-// backstop fired). Callers should treat any non-nil return as "removal not
-// confirmed", not as proof of absence of side effects.
+// Strict pre/postcondition: nil iff the shard is no longer in the registry;
+// ErrSchedulerClosed iff the removal did not run. non-nil ⇒ no side effect.
 func (sched *AsyncReplicationScheduler) Deregister(s *Shard) error {
 	if sched.closed.Load() {
 		return ErrSchedulerClosed
@@ -612,15 +570,12 @@ func (sched *AsyncReplicationScheduler) Deregister(s *Shard) error {
 	req := removeRequest{shard: s, ackCh: ackCh, processed: &processed}
 	select {
 	case sched.removeCh <- req:
-		select {
-		case <-ackCh:
-			if processed.Load() {
-				return nil
-			}
-			return ErrSchedulerClosed
-		case <-sched.ctx.Done():
-			return ErrSchedulerClosed
+		// See Register for why we wait on ackCh unconditionally.
+		<-ackCh
+		if processed.Load() {
+			return nil
 		}
+		return ErrSchedulerClosed
 	case <-sched.ctx.Done():
 		return ErrSchedulerClosed
 	}
@@ -650,14 +605,9 @@ func (sched *AsyncReplicationScheduler) handleResult(result asyncSchedulerResult
 	sched.onResultLocked(result)
 }
 
-// handleAdd processes an addRequest, dropping it if the scheduler is closing.
-// processed is set only when onAddLocked actually ran; Register reads it after
-// ackCh closes to decide between nil and ErrSchedulerClosed.
-//
-// The deferred close(req.ackCh) guarantees the caller's <-ackCh unblocks even
-// if a future change introduces an early return path. defer ordering is LIFO:
-// the deferred Unlock fires before the deferred close, preserving the current
-// "release lock before notifying readers" sequencing.
+// handleAdd processes an addRequest, dropping it if closing. processed is set
+// only when onAddLocked ran. The deferred close(ackCh) is registered first so
+// it fires last (LIFO) — readers see the ack after sched.mu is released.
 func (sched *AsyncReplicationScheduler) handleAdd(req addRequest) {
 	defer close(req.ackCh)
 	if sched.closed.Load() {
@@ -669,10 +619,9 @@ func (sched *AsyncReplicationScheduler) handleAdd(req addRequest) {
 	req.processed.Store(true)
 }
 
-// handleRemove mirrors handleAdd: skip when closing so that Deregister returns
-// ErrSchedulerClosed (strict postcondition: nil iff the removal definitely
-// took effect). Close iterates entries on its own to clean up and force-cancel
-// per-shard contexts, so dropping late removeCh requests does not leak entries.
+// handleRemove mirrors handleAdd: skip when closing. Dropping late requests
+// is safe — Close() force-cancels per-shard contexts and the entries map is
+// discarded on teardown.
 func (sched *AsyncReplicationScheduler) handleRemove(req removeRequest) {
 	defer close(req.ackCh)
 	if sched.closed.Load() {
@@ -687,15 +636,16 @@ func (sched *AsyncReplicationScheduler) handleRemove(req removeRequest) {
 func (sched *AsyncReplicationScheduler) dispatcher() {
 	timer := time.NewTimer(math.MaxInt64)
 	defer timer.Stop()
+	// Sole drain mechanism for workCh. Workers exit promptly on ctx.Done()
+	// without competing for items; the dispatcher is the only producer so
+	// anything left here on exit gets its Add(1) balanced by Done().
+	defer sched.drainWorkChOnExit()
 
 	resetTimer := func() {
 		if !timer.Stop() {
-			// Non-blocking drain: when resetTimer is called from the case <-timer.C
-			// branch, the channel has already been consumed by the select case and is
-			// empty — a blocking drain would deadlock the dispatcher. The default
-			// branch handles that safely. When called from other branches (resultCh,
-			// addCh, removeCh), the timer may or may not have fired concurrently;
-			// the non-blocking select drains it if present and skips if not.
+			// Non-blocking drain: when called from the timer.C branch the
+			// channel is already empty (a blocking drain would deadlock);
+			// from other branches the timer may or may not have fired.
 			select {
 			case <-timer.C:
 			default:
@@ -734,12 +684,9 @@ func (sched *AsyncReplicationScheduler) dispatcher() {
 // resultCh.
 const minDispatchInterval = time.Millisecond
 
-// fullChannelBackoff is the wait used when due entries are queued but workCh
-// is full (all workers busy). Without this distinction the dispatcher would
-// wake every minDispatchInterval (1 ms), attempt a send, get the default
-// branch, and spin — ~1000 syscalls/s of pure CPU churn under sustained load.
-// 20 ms is short enough that the dispatcher catches a freed worker slot within
-// one human-perceptible tick, yet long enough to eliminate the spin.
+// fullChannelBackoff is the wait when due entries exist but workCh is full
+// (all workers busy). Prevents the dispatcher from spinning at
+// minDispatchInterval while waiting for a worker slot.
 const fullChannelBackoff = 20 * time.Millisecond
 
 // timeUntilNextLocked returns how long until the next heap entry is due.
@@ -776,24 +723,11 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 	for len(sched.h) > 0 && !sched.h[0].nextRunAt.After(now) {
 		entry := sched.h[0]
 		if entry.inFlight {
-			// Invariant violation: an inFlight entry must never be in the heap
-			// (onResultLocked pops it before clearing inFlight). Reaching here
-			// means the scheduler has a bug.
-			//
-			// Recovery goal is liveness only. Without the pop+reset below,
-			// dispatchDueLocked would spin forever over this entry (it is due
-			// now and inFlight=true keeps triggering `continue`), holding
-			// sched.mu and stalling the entire dispatcher. The asyncRepWg is
-			// already balanced: the worker that was dispatched for this entry
-			// already called asyncRepWg.Add(1) and will call asyncRepWg.Done()
-			// via its defer, so no additional Done() is needed here.
-			//
-			// This reset does NOT guarantee shard-internal safety: if two
-			// concurrent runHashbeatCycle calls were actually running on the same
-			// shard, the shard-level state maps accessed there (asyncRepLast*) are
-			// not concurrency-safe. Such a bug must be fixed at the source.
-			//
-			// onResultLocked guards against a double heap insertion via heapIdx.
+			// Invariant violation: heap entries must have inFlight=false
+			// (onResultLocked clears inFlight before heap.Push). Liveness
+			// recovery only — without the pop+reset, dispatchDueLocked
+			// would spin on this entry forever. asyncRepWg is already
+			// balanced: the in-flight worker's defer will call Done().
 			heap.Pop(&sched.h)
 			entry.inFlight = false
 			entry.nextRunAt = time.Now()
@@ -811,20 +745,15 @@ func (sched *AsyncReplicationScheduler) dispatchDueLocked() {
 			continue
 		}
 
-		// Add(1) before sending to workCh so that Deregister+asyncRepWg.Wait()
-		// reliably waits for the cycle even if the worker hasn't started yet.
+		// Add(1) before send so Deregister+asyncRepWg.Wait() catches the cycle.
 		entry.shard.asyncRepWg.Add(1)
-		// Set inFlight before the send: the channel send→receive carries this
-		// write to the worker, so the worker's ctx-cancelled drain path (which
-		// also writes entry.inFlight without holding sched.mu) does not race.
 		entry.inFlight = true
 
 		select {
 		case sched.workCh <- entry:
 			heap.Pop(&sched.h)
 		default:
-			// workCh buffer full (all workers busy): roll back inFlight + Add(1)
-			// and leave entry in heap.
+			// All workers busy: roll back and leave entry in heap.
 			entry.inFlight = false
 			entry.shard.asyncRepWg.Done()
 			sched.metrics.setQueueDepth(len(sched.h))
@@ -847,41 +776,27 @@ func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResu
 		return
 	}
 
-	// Guard against double heap insertion: if the dispatchDueLocked inFlight
-	// guard already re-pushed this entry (heapIdx >= 0 means it is currently
-	// in the heap), skip the push. The entry will be dispatched from its
-	// current position; a duplicate push would corrupt the heap invariant.
+	// Skip re-push if dispatchDueLocked's invariant-violation recovery
+	// already re-queued this entry (heapIdx >= 0 ⇒ in heap).
 	if entry.heapIdx >= 0 {
 		return
 	}
 
-	// Use the config snapshot carried in the result (pre-read by the worker
-	// under asyncReplicationRWMux.RLock before the cycle) rather than
-	// re-reading it here. This avoids acquiring asyncReplicationRWMux.RLock
-	// while sched.mu is held, which would stall the dispatcher if a pending
-	// write-lock request (e.g. updateHashtreeOnFlush) is waiting.
+	// Use the cfg snapshot from the result (read under asyncReplicationRWMux
+	// in the worker) so we don't acquire that RLock while holding sched.mu.
 	interval := sched.nextInterval(result.cfg, entry, result)
 	now := time.Now()
 
-	// Epoch-relative scheduling: compute the next run time from when the
-	// cycle was DUE (entry.nextRunAt), not from when it actually completed.
-	// Under worker saturation a shard that ran late keeps an earlier deadline
-	// and climbs the heap against shards that ran on time, so short-interval
-	// (propagating) shards cannot perpetually crowd out long-interval (idle)
-	// ones.
-	//
-	// Safety floor: if the shard is so far behind that base.Add(interval) is
-	// still in the past, cap look-back to one interval before now. This
-	// prevents a shard delayed by many intervals from monopolising workers
-	// with a flood of catch-up cycles.
+	// Epoch-relative scheduling: next run is interval after the original due
+	// time, not after completion, so late shards retain priority over
+	// on-time ones. Safety floor: cap look-back to one interval before now so
+	// a far-behind shard can't flood the queue with catch-up cycles.
 	base := entry.nextRunAt
 	if minBase := now.Add(-interval); base.Before(minBase) {
 		base = minBase
 	}
 	entry.nextRunAt = base.Add(interval)
 
-	// Assign a monotone sequence number for FIFO tie-breaking within equal
-	// nextRunAt values.
 	entry.seq = sched.nextSeq
 	sched.nextSeq++
 	heap.Push(&sched.h, entry)
@@ -892,8 +807,7 @@ func (sched *AsyncReplicationScheduler) onResultLocked(result asyncSchedulerResu
 func (sched *AsyncReplicationScheduler) nextInterval(cfg AsyncReplicationConfig, entry *asyncSchedulerEntry, result asyncSchedulerResult) time.Duration {
 	if result.err != nil {
 		if result.ctx != nil && errors.Is(result.err, result.ctx.Err()) {
-			// Context cancelled (shard shutting down) — use a long interval;
-			// the entry will be deregistered shortly.
+			// Shard shutting down — long interval; will be deregistered soon.
 			return 24 * time.Hour
 		}
 		return cfg.frequency
@@ -923,7 +837,8 @@ func (sched *AsyncReplicationScheduler) onAddLocked(s *Shard) {
 }
 
 // onRemoveLocked removes a shard from the registry (and heap if not in-flight).
-// mu must be held.
+// If in-flight, the worker's eventual result will be discarded by onResultLocked
+// (entry no longer in sched.entries). mu must be held.
 func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	entry, ok := sched.entries[s]
 	if !ok {
@@ -934,20 +849,34 @@ func (sched *AsyncReplicationScheduler) onRemoveLocked(s *Shard) {
 	if !entry.inFlight {
 		heap.Remove(&sched.h, entry.heapIdx)
 	}
-	// If inFlight: the worker will finish and send on resultCh; onResultLocked
-	// will see the shard is no longer in entries and will not re-enqueue.
 	sched.metrics.setQueueDepth(len(sched.h))
+}
+
+// drainWorkChOnExit empties workCh after the dispatcher has returned, balancing
+// the Add(1) that dispatchDueLocked did before each send. Dispatcher is the
+// sole producer so a single non-blocking pass suffices; channel receives are
+// atomic so concurrent workers can't double-take any entry.
+func (sched *AsyncReplicationScheduler) drainWorkChOnExit() {
+	for {
+		select {
+		case entry, ok := <-sched.workCh:
+			if !ok || entry == nil {
+				return
+			}
+			entry.inFlight = false
+			entry.shard.asyncRepWg.Done()
+		default:
+			return
+		}
+	}
 }
 
 // ----- worker goroutines ----------------------------------------------------
 
 func (sched *AsyncReplicationScheduler) worker() {
 	for {
-		// Prioritise work over scale-down so that a scale-down token and a work
-		// item ready simultaneously always results in the work being processed.
-		// Without this, Go's random select resolution could terminate a worker
-		// while work sits in the channel, temporarily shrinking the effective pool
-		// below the target size.
+		// Prioritise work over scale-down: prevents Go's random select from
+		// terminating a worker while items sit in workCh.
 		select {
 		case entry, ok := <-sched.workCh:
 			if !ok {
@@ -960,30 +889,8 @@ func (sched *AsyncReplicationScheduler) worker() {
 
 		select {
 		case <-sched.ctx.Done():
-			// Drain any work items that were buffered before the context was cancelled.
-			// Each one had asyncRepWg.Add(1) called in dispatchDueLocked; calling
-			// Done() here keeps the WaitGroup balanced so that asyncRepWg.Wait()
-			// callers (rebuildHashtree, mayStopAsyncReplication) are not stuck forever.
-			// Check ok so that a future close(workCh) during shutdown does not panic,
-			// and nil-guard entry for the same reason.
-			// Clear inFlight so that these entries are not treated as live by any
-			// subsequent inspection. Do NOT call decWorkersActive here: incWorkersActive
-			// is called inside runEntry, not at dispatch time, so these buffered entries
-			// never incremented the gauge — decrementing would drive it negative.
-			// Each entry is owned by exactly one worker (workCh sends are 1:1), so
-			// touching entry.inFlight here without sched.mu is safe.
-			for {
-				select {
-				case entry, ok := <-sched.workCh:
-					if !ok || entry == nil {
-						return
-					}
-					entry.inFlight = false
-					entry.shard.asyncRepWg.Done()
-				default:
-					return
-				}
-			}
+			// drainWorkChOnExit handles any leftover items.
+			return
 		case <-sched.scaleDownCh:
 			return
 		case entry, ok := <-sched.workCh:
@@ -1011,19 +918,15 @@ func (sched *AsyncReplicationScheduler) workerWatcher() {
 	}
 }
 
-// adjustWorkers scales the worker pool to n. It spawns new goroutines when
-// n > targetWorkers and sends scale-down tokens when n < targetWorkers.
-// n <= 0 is treated as defaultAsyncReplicationSchedulerWorkers, matching the
-// construction-time behaviour in NewAsyncReplicationScheduler.
-// Called by workerWatcher on each tick; may also be called manually for testing.
-// Safe to call concurrently; workersMu serialises adjustments.
+// adjustWorkers scales the pool to n: spawns goroutines when growing, sends
+// scale-down tokens when shrinking. n <= 0 falls back to the default. Safe
+// to call concurrently; workersMu serialises adjustments.
 func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	if n <= 0 {
 		n = defaultAsyncReplicationSchedulerWorkers
 	}
 	if n > maxMaxWorkers {
-		// Cap at maxMaxWorkers so resultCh (sized maxMaxWorkers*2) is always
-		// large enough to hold all pending results without blocking workers.
+		// Cap so resultCh (sized maxMaxWorkers*2) stays large enough.
 		if sched.logger != nil {
 			sched.logger.
 				WithField("action", "async_replication_scheduler_adjust_workers").
@@ -1044,13 +947,9 @@ func (sched *AsyncReplicationScheduler) adjustWorkers(n int) {
 	sched.metrics.setWorkerPoolSize(n)
 
 	if delta > 0 {
-		// Drain any stale scale-down tokens that were sent by a prior shrink
-		// before these new workers start. Without this, a rapid scale-down
-		// followed by a scale-up would leave tokens in scaleDownCh that
-		// immediately terminate the freshly spawned workers, leaving the pool
-		// under-provisioned. workersMu prevents a concurrent shrink from adding
-		// new tokens while we drain, but running workers can still consume tokens
-		// concurrently, so we must use non-blocking receives to avoid deadlock.
+		// Drain stale scale-down tokens from a prior shrink, otherwise new
+		// workers would consume them immediately and exit. Non-blocking
+		// receives because running workers may consume concurrently.
 		for drained := false; !drained; {
 			select {
 			case <-sched.scaleDownCh:
@@ -1080,19 +979,10 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry) {
 	sched.metrics.incWorkersActive()
 	s := entry.shard
 
-	// Read base config and ctx under a single RLock. asyncRepCtx is set by
-	// initAsyncReplication under the write lock; reading it without RLock is a
-	// data race. A nil ctx means the shard was registered before
-	// initAsyncReplication completed — skip this cycle and let the scheduler
-	// re-dispatch at cfg.frequency.
-	// Read base config, ctx, and current hashtree height under a single RLock so
-	// all three values come from the same snapshot. Two separate RLocks would
-	// allow a concurrent initAsyncReplication (WLock) to install a new config
-	// and tree between the two acquisitions, producing a cross-snapshot mismatch
-	// (e.g. base.height=16 from the old config, currentHTHeight=10 from the new
-	// tree) that would trigger a spurious rebuild of an already-correct tree.
-	// Height() is lock-free (immutable field set at construction), so calling it
-	// under RLock is safe.
+	// Read config, ctx, and hashtree height under one RLock so all three come
+	// from the same snapshot — a split read could be torn by initAsyncReplication
+	// installing a new config+tree between acquisitions, triggering a spurious
+	// rebuild. Height() is lock-free so calling it under RLock is fine.
 	s.asyncReplicationRWMux.RLock()
 	base := s.asyncReplicationConfig
 	ctx := s.asyncRepCtx
@@ -1108,9 +998,9 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry) {
 		cfg = base.Effective(*s.index.globalreplicationConfig)
 	}
 
-	// Detect a hashtree height change requested via runtime config. Mark the
-	// shard for rebuild; the goroutine is spawned after asyncRepWg.Done() below
-	// so that DisableAsyncReplication can safely call Deregister+Wait.
+	// Runtime config changed the hashtree height — flag a rebuild. The rebuild
+	// goroutine is spawned post-Done() so mayStopAsyncReplication's Wait isn't
+	// blocked by this cycle.
 	if currentHT != nil && currentHTHeight != cfg.hashtreeHeight {
 		s.asyncRepNeedsRebuild.Store(true)
 	}
@@ -1120,32 +1010,29 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry) {
 	var err error
 
 	defer func() {
-		// Recover any panic from runHashbeatCycle so the worker goroutine stays
-		// alive and the dispatcher receives a non-nil error (triggering a proper
-		// retry delay) rather than a false success with err=nil.
+		// Recover panics so the worker stays alive and the dispatcher sees a
+		// non-nil error (proper retry delay) rather than a false success.
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in runHashbeatCycle: %v", r)
-			sched.logger.WithField("panic", r).Error("recovered from panic in async replication worker")
+			sched.logger.
+				WithField("panic", r).
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Error("recovered from panic in async replication worker")
 			enterrors.PrintStack(sched.logger)
 		}
 
-		// Done() before the result send: ensures the counter for this hashbeat
-		// cycle drops before the dispatcher can re-enqueue and re-dispatch.
-		// asyncRepWg may legitimately be >1 when an init goroutine (spawned by
-		// initAsyncReplication) overlaps with a hashbeat cycle; the inFlight
-		// flag in the scheduler heap enforces "at most one hashbeat cycle at a
-		// time", not asyncRepWg alone.
+		// Done() before the resultCh send so the WG drops before the
+		// dispatcher re-enqueues. inFlight (not asyncRepWg) enforces "at
+		// most one cycle per shard"; asyncRepWg may legitimately be >1.
 		s.asyncRepWg.Done()
 
 		if needsRebuild {
-			// Respect exponential backoff from previous failures: if the last
-			// rebuild failed, wait before retrying. Re-arm the flag so the next
-			// cycle checks again without spinning.
 			if until := s.asyncRepRebuildBackoffUntil.Load(); until > 0 && time.Now().UnixNano() < until {
+				// Still in backoff from prior failure — re-arm for next cycle.
 				s.asyncRepNeedsRebuild.Store(true)
 			} else if s.asyncRepRebuildInFlight.CompareAndSwap(false, true) {
-				// Serialise rebuilds: CAS false→true before spawning so that at
-				// most one rebuild goroutine runs at a time.
+				// Serialise: at most one rebuild goroutine at a time.
 				sched.wg.Add(1)
 				enterrors.GoWrapper(func() {
 					defer sched.wg.Done()
@@ -1153,43 +1040,29 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry) {
 					sched.rebuildHashtree(s)
 				}, sched.logger)
 			} else {
-				// A rebuild goroutine is already in flight. Re-arm the flag so
-				// the next dispatch cycle retries. There is a narrow window where
-				// the in-flight goroutine clears asyncRepRebuildInFlight after the
-				// CAS above but before this Store, leaving the flag set after the
-				// rebuild already completed. That results in one extra rebuild on
-				// the next cycle — a benign over-trigger, not a missed rebuild.
+				// Rebuild already in flight; re-arm. A narrow window can
+				// over-trigger one extra rebuild — benign.
 				s.asyncRepNeedsRebuild.Store(true)
 			}
 		}
 
 		sched.metrics.decWorkersActive()
 
-		// Result sent after Done() so the dispatcher cannot dispatch a new
-		// cycle (and increment the WaitGroup) before Done() has run.
-		//
-		// The send is unconditional (no ctx.Done() alternative) because
-		// resultCh is buffered to maxMaxWorkers*2, which always exceeds the
-		// number of in-flight workers. The send therefore never blocks even
-		// when the dispatcher has already exited due to ctx cancellation.
-		// Dropping the result via a ctx.Done() branch would leave
-		// entry.inFlight=true permanently if the scheduler continued running.
+		// Unconditional send: the buffered resultCh plus Close()'s parallel
+		// drain keep this non-blocking. A ctx.Done() branch would leave
+		// entry.inFlight=true permanently if the scheduler kept running.
 		sched.resultCh <- asyncSchedulerResult{entry: entry, propagated: propagated, err: err, cfg: cfg, ctx: ctx}
 	}()
 
 	if ctx == nil {
-		// Shard was registered before initAsyncReplication completed. Skip this
-		// cycle; the deferred result with err != nil causes the scheduler to
-		// re-dispatch at cfg.frequency rather than spinning immediately.
+		// Registered before initAsyncReplication completed — skip; the err
+		// result re-dispatches at cfg.frequency rather than spinning.
 		err = errors.New("shard not yet initialized")
 		return
 	}
 	if ctx.Err() != nil {
-		// Per-shard context already cancelled: mayStopAsyncReplication fired
-		// between dispatchDueLocked (which incremented asyncRepWg) and this
-		// worker starting. Return immediately so asyncRepWg.Done() fires
-		// without running any blocking RPCs, allowing asyncRepWg.Wait() in
-		// mayStopAsyncReplication to unblock promptly.
+		// mayStopAsyncReplication fired between dispatch and now — return
+		// fast so asyncRepWg.Wait() unblocks promptly.
 		err = ctx.Err()
 		return
 	}
@@ -1198,29 +1071,22 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry) {
 	needsRebuild = s.asyncRepNeedsRebuild.CompareAndSwap(true, false)
 }
 
-// rebuildHashtree stops async replication on s, waits for any in-flight cycle
-// to complete, then restarts with the same base config. enableAsyncReplication
-// re-evaluates Effective() internally, so it picks up the new hashtree height
-// from the current runtime-config DynamicValues.
+// rebuildHashtree stops then restarts async replication on s, picking up the
+// new hashtree height from runtime config via enableAsyncReplication's
+// internal Effective() call.
 func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
-	// Wait for any cycle that may have been dispatched between our Done() and
-	// SetAsyncReplicationState acquiring the write lock.
+	// Wait for any cycle dispatched between our Done() and the disable below.
 	s.asyncRepWg.Wait()
 
-	// Guard against re-enabling a shard whose store is already being torn down.
-	// performShutdown sets s.shut=true (before calling mayStopAsyncReplication),
-	// so this check is a reliable happens-before: if shut is true here, the shard
-	// store is either already shut or in the process of shutting down. Calling
-	// enableAsyncReplication in that state would race with s.store.Shutdown
-	// (initAsyncReplication reads s.store.Bucket) and spawn an init-scan goroutine
-	// with context.Background() — a context not cancelled by sched.ctx — letting
-	// it outlive scheduler.Close().
+	// Skip if the shard store is being torn down. performShutdown sets
+	// s.shut=true before calling mayStopAsyncReplication, so this is a
+	// reliable happens-before. Re-enabling now would race with store shutdown
+	// and leak an init-scan goroutine past scheduler.Close().
 	if s.shut.Load() {
 		return
 	}
 
-	// Use sched.ctx so disable/enable respect scheduler shutdown; context.Background()
-	// would allow enableAsyncReplication to spawn a goroutine that leaks after Close().
+	// sched.ctx so disable/enable respect scheduler shutdown.
 	if err := s.disableAsyncReplication(sched.ctx); err != nil {
 		if sched.logger != nil {
 			sched.logger.
@@ -1235,9 +1101,8 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 		return
 	}
 
-	// Guard against re-enabling on a shutting-down scheduler: if Close() was
-	// called between disableAsyncReplication and here, enableAsyncReplication
-	// would spawn an init-scan goroutine with no context to cancel it.
+	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an
+	// init-scan goroutine with no cancellable context.
 	if sched.ctx.Err() != nil {
 		return
 	}
@@ -1246,8 +1111,7 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	baseCfg := s.asyncReplicationConfig
 	s.asyncReplicationRWMux.RUnlock()
 
-	// Double-check after reading baseCfg: Close() could have fired in the window
-	// between the first ctx.Err() check and here.
+	// Re-check after the RLock window.
 	if sched.ctx.Err() != nil {
 		return
 	}
@@ -1266,18 +1130,15 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 		return
 	}
 
-	// Rebuild succeeded: clear backoff state so subsequent height changes start
-	// with a clean slate rather than inheriting a stale backoff window.
+	// Reset backoff so subsequent height changes start clean.
 	s.asyncRepRebuildFailures.Store(0)
 	s.asyncRepRebuildBackoffUntil.Store(0)
 
-	// If Close() fired between the last ctx.Err() check and enableAsyncReplication
-	// returning, the init-scan ran with a cancelled ctx and exited immediately.
-	// The shard is registered but asyncRepNeedsRebuild was cleared, so disable
-	// now to avoid leaving a stale registration with an un-initialized hashtree.
-	// dumpHashTreeWithTimeout (called inside disableAsyncReplication) bounds the
-	// hashtree fsync to hashtreeDumpTimeout, preventing an indefinite block.
-	if sched.ctx.Err() != nil {
+	// If Close() fired during enableAsyncReplication, or performShutdown set
+	// s.shut between the entry-time check and now, the enable touched a store
+	// being torn down or registered against a cancelled scheduler. Disable to
+	// clean up; disableAsyncReplication's fsync is bounded by hashtreeDumpTimeout.
+	if sched.ctx.Err() != nil || s.shut.Load() {
 		s.disableAsyncReplication(sched.ctx)
 	}
 }
