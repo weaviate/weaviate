@@ -251,6 +251,9 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &uco.ErrEndpointGone{}):
+			return objects.NewObjectsListGone().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
