@@ -44,6 +44,10 @@ type Properties struct {
 	// QueryProfile enables per-shard query profiling data collection and return.
 	QueryProfile bool `json:"queryProfile"`
 
+	// Highlight, when non-nil, requests keyword snippet generation for BM25 /
+	// Hybrid searches via _additional { highlight { field snippets } }.
+	Highlight *HighlightParams `json:"highlight,omitempty"`
+
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.
 	NoProps bool `json:"noProps"`

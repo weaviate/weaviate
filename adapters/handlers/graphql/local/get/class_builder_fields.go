@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -590,7 +591,7 @@ func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
-			name == "group" || name == "queryProfile" {
+			name == "group" || name == "queryProfile" || name == "highlight" {
 			return true
 		}
 		if ac.isModuleAdditional(name) {
@@ -716,6 +717,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							if err != nil {
 								return nil, additionalProps, nil, err
 							}
+							continue
+						}
+						if additionalProperty == "highlight" {
+							additionalProps.Highlight = extractHighlightArgs(s.Arguments)
 							continue
 						}
 						if modulesProvider != nil {
@@ -893,4 +898,44 @@ func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string,
 	}
 
 	return string(matches[1]), nil
+}
+
+// extractHighlightArgs parses _additional { highlight(...) } arguments into
+// an additional.HighlightParams, applying defaults for any omitted arguments.
+func extractHighlightArgs(args []*ast.Argument) *additional.HighlightParams {
+	p := &additional.HighlightParams{
+		FragmentSize:      100,
+		NumberOfFragments: 3,
+		Prefix:            "<em>",
+		Postfix:           "</em>",
+	}
+
+	for _, arg := range args {
+		switch arg.Name.Value {
+		case "properties":
+			if listVal, ok := arg.Value.(*ast.ListValue); ok {
+				props := make([]string, 0, len(listVal.Values))
+				for _, v := range listVal.Values {
+					if s, ok := v.GetValue().(string); ok && s != "" {
+						props = append(props, s)
+					}
+				}
+				p.Properties = props
+			}
+		case "fragmentSize":
+			if v, err := strconv.Atoi(arg.Value.GetValue().(string)); err == nil && v > 0 {
+				p.FragmentSize = v
+			}
+		case "numberOfFragments":
+			if v, err := strconv.Atoi(arg.Value.GetValue().(string)); err == nil && v > 0 {
+				p.NumberOfFragments = v
+			}
+		case "prefix":
+			p.Prefix = arg.Value.GetValue().(string)
+		case "postfix":
+			p.Postfix = arg.Value.GetValue().(string)
+		}
+	}
+
+	return p
 }

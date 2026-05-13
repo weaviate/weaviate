@@ -189,6 +189,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
+	additionalProperties["highlight"] = b.additionalHighlightField(class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
 	}
@@ -302,6 +303,48 @@ func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
 func (b *classBuilder) isConsistentField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Boolean,
+	}
+}
+
+// additionalHighlightField exposes keyword highlighting under
+// _additional { highlight { field snippets } } for BM25 / Hybrid queries.
+// All arguments are optional and carry sensible defaults.
+func (b *classBuilder) additionalHighlightField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Description: "Keyword highlighting for BM25 / Hybrid search results.",
+		Args: graphql.FieldConfigArgument{
+			"properties": &graphql.ArgumentConfig{
+				Description: "Text/string properties to highlight. Omit to highlight all string properties.",
+				Type:        graphql.NewList(graphql.String),
+			},
+			"fragmentSize": &graphql.ArgumentConfig{
+				Description:  "Approximate byte length of each returned snippet (default: 100).",
+				Type:         graphql.Int,
+				DefaultValue: 100,
+			},
+			"numberOfFragments": &graphql.ArgumentConfig{
+				Description:  "Maximum number of snippets returned per property (default: 3).",
+				Type:         graphql.Int,
+				DefaultValue: 3,
+			},
+			"prefix": &graphql.ArgumentConfig{
+				Description:  "String prepended to each matched term in a snippet (default: \"<em>\").",
+				Type:         graphql.String,
+				DefaultValue: "<em>",
+			},
+			"postfix": &graphql.ArgumentConfig{
+				Description:  "String appended to each matched term in a snippet (default: \"</em>\").",
+				Type:         graphql.String,
+				DefaultValue: "</em>",
+			},
+		},
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", class.Class),
+			Fields: graphql.Fields{
+				"field":    &graphql.Field{Type: graphql.String},
+				"snippets": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
 	}
 }
 

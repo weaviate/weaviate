@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
@@ -39,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	highlightpkg "github.com/weaviate/weaviate/usecases/highlight"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -528,6 +530,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			additionalProperties["isConsistent"] = res.IsConsistent
 		}
 
+		if params.AdditionalProperties.Highlight != nil {
+			if highlights := generateHighlights(res.Schema, params); len(highlights) > 0 {
+				additionalProperties["highlight"] = highlights
+			}
+		}
+
 		if len(additionalProperties) > 0 {
 			if additionalProperties["group"] != nil {
 				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.GroupBy.Properties)
@@ -991,4 +999,67 @@ func (e *Explorer) usageOperationFromExploreParams(params ExploreParams) string 
 	}
 
 	return "n/a"
+}
+
+// generateHighlights iterates over the string properties in a search result
+// and calls the highlight engine for each, returning a slice of
+// additional.HighlightResult ready to be attached to _additional.
+func generateHighlights(schema models.PropertySchema, params dto.GetParams) []additional.HighlightResult {
+	hp := params.AdditionalProperties.Highlight
+
+	// Extract query terms from BM25 or Hybrid params.
+	var queryTerms []string
+	if params.KeywordRanking != nil && params.KeywordRanking.Query != "" {
+		queryTerms = strings.Fields(params.KeywordRanking.Query)
+	} else if params.HybridSearch != nil && params.HybridSearch.Query != "" {
+		queryTerms = strings.Fields(params.HybridSearch.Query)
+	}
+	if len(queryTerms) == 0 {
+		return nil
+	}
+
+	schemaMap, ok := schema.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	// Determine which properties to highlight.
+	propsToHighlight := hp.Properties
+	if len(propsToHighlight) == 0 {
+		for k, v := range schemaMap {
+			if k == "_additional" {
+				continue
+			}
+			if _, isStr := v.(string); isStr {
+				propsToHighlight = append(propsToHighlight, k)
+			}
+		}
+	}
+
+	var results []additional.HighlightResult
+	for _, prop := range propsToHighlight {
+		val, ok := schemaMap[prop]
+		if !ok {
+			continue
+		}
+		text, ok := val.(string)
+		if !ok || text == "" {
+			continue
+		}
+		snippets := highlightpkg.GenerateSnippets(
+			text,
+			queryTerms,
+			hp.FragmentSize,
+			hp.NumberOfFragments,
+			hp.Prefix,
+			hp.Postfix,
+		)
+		if len(snippets) > 0 {
+			results = append(results, additional.HighlightResult{
+				Field:    prop,
+				Snippets: snippets,
+			})
+		}
+	}
+	return results
 }
