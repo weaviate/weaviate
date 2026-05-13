@@ -106,12 +106,59 @@ func (_c *MockschemaManager_GetCachedClassNoAuth_Call) RunAndReturn(run func(con
 	return _c
 }
 
+// ResolveAlias provides a mock function with given fields: alias
+func (_m *MockschemaManager) ResolveAlias(alias string) string {
+	ret := _m.Called(alias)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolveAlias")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string) string); ok {
+		r0 = rf(alias)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockschemaManager_ResolveAlias_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveAlias'
+type MockschemaManager_ResolveAlias_Call struct {
+	*mock.Call
+}
+
+// ResolveAlias is a helper method to define mock.On call
+//   - alias string
+func (_e *MockschemaManager_Expecter) ResolveAlias(alias interface{}) *MockschemaManager_ResolveAlias_Call {
+	return &MockschemaManager_ResolveAlias_Call{Call: _e.mock.On("ResolveAlias", alias)}
+}
+
+func (_c *MockschemaManager_ResolveAlias_Call) Run(run func(alias string)) *MockschemaManager_ResolveAlias_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockschemaManager_ResolveAlias_Call) Return(_a0 string) *MockschemaManager_ResolveAlias_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockschemaManager_ResolveAlias_Call) RunAndReturn(run func(string) string) *MockschemaManager_ResolveAlias_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockschemaManager creates a new instance of MockschemaManager. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockschemaManager(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockschemaManager {
+},
+) *MockschemaManager {
 	mock := &MockschemaManager{}
 	mock.Mock.Test(t)
 

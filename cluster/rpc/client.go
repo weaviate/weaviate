@@ -15,11 +15,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -197,7 +199,8 @@ func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.App
 		return nil, err
 	}
 
-	return cmd.NewClusterServiceClient(conn).Apply(ctx, req)
+	resp, err := cmd.NewClusterServiceClient(conn).Apply(ctx, req)
+	return resp, fromRPCError(err)
 }
 
 // Query will contact the node at leaderRaftAddr and send req to read data in the RAFT store
@@ -279,14 +282,50 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	return cl.leaderRpcConn, nil
 }
 
-// fromRPCError parses the error sent by rpc server
-// to identify status and chain sentinal errors accordingly.
-// This is helpful on the client side to make decision based on
-// type-full errors rather than just string-based error
+// fromRPCError parses the error sent by rpc server to identify status
+// and chain sentinel errors accordingly. This is the only sentinel
+// re-chain point on the client side; the gRPC hop drops the errors.Is
+// chain and callers expect typed sentinels they can match against.
+// Sentinels that share a status code are disambiguated by message text.
 func fromRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
 	st, ok := status.FromError(err)
-	if ok && (st.Code() == codes.NotFound) {
+	if !ok {
+		return err
+	}
+	msg := err.Error()
+	switch st.Code() {
+	case codes.NotFound:
+		switch {
+		case strings.Contains(msg, namespaces.ErrNamespaceGone.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceGone)
+		case strings.Contains(msg, namespaces.ErrNotFound.Error()):
+			return errors.Join(err, namespaces.ErrNotFound)
+		}
 		return errors.Join(err, schemaUC.ErrNotFound)
+	case codes.FailedPrecondition:
+		switch {
+		case strings.Contains(msg, namespaces.ErrNamespaceNotEmpty.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceNotEmpty)
+		case strings.Contains(msg, namespaces.ErrNamespaceDeleting.Error()):
+			return errors.Join(err, namespaces.ErrNamespaceDeleting)
+		case strings.Contains(msg, namespaces.ErrInvalidStateTransition.Error()):
+			return errors.Join(err, namespaces.ErrInvalidStateTransition)
+		case strings.Contains(msg, namespaces.ErrInvalidState.Error()):
+			return errors.Join(err, namespaces.ErrInvalidState)
+		}
+	case codes.AlreadyExists:
+		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
+			return errors.Join(err, namespaces.ErrAlreadyExists)
+		}
+	case codes.InvalidArgument:
+		if strings.Contains(msg, namespaces.ErrBadRequest.Error()) {
+			return errors.Join(err, namespaces.ErrBadRequest)
+		}
+	default:
+		// All other codes pass through unchanged.
 	}
 	return err
 }

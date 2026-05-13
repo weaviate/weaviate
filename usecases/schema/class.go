@@ -40,12 +40,15 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
@@ -64,10 +67,11 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	name = schema.UppercaseClassName(name)
-	if rname := h.schemaReader.ResolveAlias(name); rname != "" {
-		name = rname
+	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
+	name = resolved
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
@@ -112,8 +116,23 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
+	// originalClassName must be passed to validateCanAddClass below: the
+	// qualified form ("<ns>:<Class>") fails ValidateClassName because
+	// ClassNameRegexCore forbids ":". Removing this capture would reject
+	// every legitimate namespaced create. Both the rejection of
+	// caller-supplied ":" and the success of the namespaced-create flow are
+	// covered by test/acceptance/namespace/collection_alias_test.go.
+	originalClassName := cls.Class
+	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class, "class")
+	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
+		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
+	}
 	if err != nil {
+		return nil, 0, err
+	}
+	cls.Class = qualified
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -134,7 +153,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, true); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, originalClassName, classGetterWithAuth, true); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -151,12 +170,27 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		return nil, 0, fmt.Errorf(
-			"cannot create collection: maximum number of collections (%d) reached - "+
-				"please consider switching to multi-tenancy or increasing the collection count limit - "+
-				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
-				"when working with multiple collections and tenants",
-			limit)
+		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+		// in the usage-limits work; see docs/usage_limits.md for the wire
+		// contract.
+		return nil, 0, usagelimits.NewLimitExceededError(
+			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+	}
+
+	// Per-collection shard cap. Config-time check only — shard count comes
+	// straight from the create request, no live state to consult.
+	// Multi-tenant collections set DesiredCount=0 (shards are created
+	// per-tenant on demand) so the cap is naturally satisfied for those;
+	// the check meaningfully constrains single-tenant configurations only.
+	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
+		shardCap := dv.Get()
+		if shardCap >= 0 {
+			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
+			if requested > shardCap {
+				return nil, 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
+			}
+		}
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -254,7 +288,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateClassInvariants(ctx, class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, class.Class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -300,16 +334,20 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	return nil
 }
 
-// DeleteClass from the schema
+// DeleteClass from the schema. Aliases are intentionally not resolved
+// here: deleting via an alias name must be a no-op on the underlying
+// class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
 		return err
 	}
 
-	class = schema.UppercaseClassName(class)
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...); err != nil {
+		return err
+	}
 
-	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+	if _, err := h.schemaManager.DeleteClass(ctx, class); err != nil {
 		return err
 	}
 
@@ -319,8 +357,12 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
-	if err != nil || updated == nil {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}
 
@@ -328,11 +370,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// but not when the user is updating other collection settings without
 	// touching TTL configuration.
 	initial := h.schemaReader.ReadOnlyClass(className)
-	var initialTTLConfig *models.ObjectTTLConfig
-	if initial != nil {
-		initialTTLConfig = initial.ObjectTTLConfig
+	if initial == nil {
+		// Reject here so the body's Class field can't redirect the
+		// update to a different, existing class.
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
-	if ttl.IsTtlConfigChanged(initialTTLConfig, updated.ObjectTTLConfig) {
+	if ttl.IsTtlConfigChanged(initial.ObjectTTLConfig, updated.ObjectTTLConfig) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsData(className)...); err != nil {
 			return err
 		}
@@ -487,6 +530,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
 		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
 			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if globalCfg.MaximumFactor > 0 && class.ReplicationConfig.Factor > int64(globalCfg.MaximumFactor) {
+		return fmt.Errorf("invalid replication factor: setup caps replication at %d: got %d",
+			globalCfg.MaximumFactor, class.ReplicationConfig.Factor)
 	}
 
 	if class.ReplicationConfig.Factor < 1 {
@@ -771,7 +819,10 @@ func setInvertedConfigDefaults(class *models.Class) {
 	}
 }
 
-func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+// validateCanAddClass runs heavy creation-time validation. originalName is
+// the raw user-supplied short class name; ValidateClassName must see it
+// rather than the qualified form because ClassNameRegexCore forbids ":".
+func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
@@ -788,14 +839,14 @@ func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, 
 		}
 	}
 
-	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
+	return h.validateClassInvariants(ctx, class, originalName, classGetterWithAuth, relaxCrossRefValidation)
 }
 
 func (h *Handler) validateClassInvariants(
-	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+	ctx context.Context, class *models.Class, originalName string, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
-	if _, err := schema.ValidateClassName(class.Class); err != nil {
+	if _, err := schema.ValidateClassName(originalName); err != nil {
 		return err
 	}
 

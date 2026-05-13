@@ -501,18 +501,7 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	if index == nil {
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
-
-	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("get shard %s err: %w", shardName, err)
-	}
-	defer release()
-
-	if shard == nil {
-		return fmt.Errorf("get shard %s: not found", shardName)
-	}
-
-	return shard.SetAsyncReplicationState(ctx, index.AsyncReplicationConfig(), true)
+	return index.InitAsyncReplicationOnShard(ctx, shardName)
 }
 
 func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -520,18 +509,7 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	if index == nil {
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
-
-	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("get shard %s err: %w", shardName, err)
-	}
-	defer release()
-
-	if shard == nil {
-		return fmt.Errorf("get shard %s: not found", shardName)
-	}
-
-	return shard.SetAsyncReplicationState(ctx, index.AsyncReplicationConfig(), index.AsyncReplicationEnabled())
+	return index.RevertAsyncReplicationOnShard(ctx, shardName)
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.

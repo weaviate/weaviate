@@ -31,11 +31,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestTenantStatusChanges(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := t.Name() + "Class"
@@ -116,7 +118,7 @@ func TestTenantStatusChanges(t *testing.T) {
 
 func TestUsageTenantDelete(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	className := t.Name() + "Class"
@@ -193,7 +195,7 @@ func TestUsageTenantDelete(t *testing.T) {
 
 func TestCollectionDeletion(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	getClassName := func(t *testing.T, i int) string {
@@ -250,7 +252,7 @@ func TestCollectionDeletion(t *testing.T) {
 
 func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"

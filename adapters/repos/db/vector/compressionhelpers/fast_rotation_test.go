@@ -15,12 +15,13 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
-	"golang.org/x/exp/slices"
 )
 
 // Euclidean norm.

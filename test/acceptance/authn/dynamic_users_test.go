@@ -60,6 +60,16 @@ func TestCreateUser(t *testing.T) {
 	}()
 	userName := "CreateUserTestUser"
 
+	t.Run("namespace on NS-disabled cluster rejects", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(userName).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
 	t.Run("create and delete user", func(t *testing.T) {
 		helper.DeleteUser(t, userName, adminKey)
 		resp, err := helper.Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userName), helper.CreateAuth(adminKey))
@@ -370,5 +380,121 @@ func TestSuspendAndActivate(t *testing.T) {
 		require.Error(t, err)
 		var conflict *users.ActivateUserConflict
 		require.True(t, errors.As(err, &conflict))
+	})
+}
+
+func TestCreateUser_Namespaces(t *testing.T) {
+	const (
+		adminKey  = "admin-key"
+		adminUser = "admin-user"
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithDbUsers().
+		WithNamespaces().
+		Start(ctx)
+	require.NoError(t, err)
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+
+	helper.CreateNamespace(t, "ns1", adminKey)
+	helper.CreateNamespace(t, "ns2", adminKey)
+	defer helper.DeleteNamespace(t, "ns1", adminKey)
+	defer helper.DeleteNamespace(t, "ns2", adminKey)
+
+	t.Run("happy path: create user bound to ns1", func(t *testing.T) {
+		const (
+			userID  = "u1"
+			fullKey = "ns1:u1" // operator-facing form for namespaced users
+		)
+		helper.DeleteUser(t, fullKey, adminKey)
+
+		resp, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, resp.Payload.Apikey)
+
+		// admin is a static API key (global operator) — namespace must be returned.
+		// The storage/operator-addressable key is the namespace-prefixed form.
+		got := helper.GetUser(t, fullKey, adminKey)
+		require.Equal(t, "ns1", got.Namespace)
+
+		// The bare short id must not address a namespaced user. This locks
+		// the prefix-only addressing contract: an operator who omits the
+		// namespace gets 404, not the user from a different namespace (or
+		// any user at all).
+		_, err = helper.Client(t).Users.GetUserInfo(
+			users.NewGetUserInfoParams().WithUserID(userID),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var notFound *users.GetUserInfoNotFound
+		require.True(t, errors.As(err, &notFound), "expected GetUserInfoNotFound, got %T: %v", err, err)
+
+		helper.DeleteUser(t, fullKey, adminKey)
+	})
+
+	t.Run("missing namespace rejects", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("u-missing"),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("unknown namespace rejects", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("u-unknown").WithBody(users.CreateUserBody{Namespace: "ns404"}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("import of existing key on NS-enabled cluster rejects", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(adminUser).WithBody(users.CreateUserBody{Import: new(true), Namespace: "ns1"}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("non-operator cannot bind a user to a namespace", func(t *testing.T) {
+		// RBAC is off, so the namespaced DB user u1 reaches the handler unconditionally.
+		// The 403 here proves the handler-level IsGlobalOperator check is the ceiling.
+		const (
+			callerID  = "u1"
+			callerKey = "ns1:u1" // operator-facing form
+		)
+		helper.DeleteUser(t, callerKey, adminKey)
+		createResp, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(callerID).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, createResp.Payload.Apikey)
+		callerApiKey := *createResp.Payload.Apikey
+		t.Cleanup(func() { helper.DeleteUser(t, callerKey, adminKey) })
+
+		_, err = helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{Namespace: "ns2"}),
+			helper.CreateAuth(callerApiKey),
+		)
+		require.Error(t, err)
+		var forbidden *users.CreateUserForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateUserForbidden, got %T: %v", err, err)
 	})
 }

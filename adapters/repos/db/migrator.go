@@ -203,7 +203,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationWorkersLimiter:               m.db.asyncReplicationWorkersLimiter,
+			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
@@ -242,6 +242,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return errors.Wrap(err, "create index")
 	}
 
+	idx.usageLimits = m.db.usageLimits
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
@@ -556,13 +557,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	tenantName := ""
-	if idx.partitioningEnabled {
-		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
-		// otherwise the tenant name is expected to be empty.
-		tenantName = shardName
-	}
-	return idx.updateShardStatus(ctx, tenantName, shardName, targetStatus, schemaVersion)
+	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
 // NewTenants creates new partitions
@@ -969,7 +964,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.AnalyzeObject(object)
+			props, _, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil

@@ -21,13 +21,14 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error {
+func (s *Raft) CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error {
 	req := cmd.CreateUsersRequest{
 		UserId:             userId,
 		SecureHash:         secureHash,
 		UserIdentifier:     userIdentifier,
 		CreatedAt:          createdAt,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
+		Namespace:          namespace,
 		Version:            cmd.DynUserLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
@@ -38,13 +39,13 @@ func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters
 		Type:       cmd.ApplyRequest_TYPE_UPSERT_USER,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Raft) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
+func (s *Raft) CreateUserWithKey(ctx context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
 	req := cmd.CreateUserWithKeyRequest{
 		UserId:             userId,
 		CreatedAt:          createdAt,
@@ -60,13 +61,13 @@ func (s *Raft) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sh
 		Type:       cmd.ApplyRequest_TYPE_CREATE_USER_WITH_KEY,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Raft) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
+func (s *Raft) RotateKey(ctx context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
 	req := cmd.RotateUserApiKeyRequest{
 		UserId:             userId,
 		ApiKeyFirstLetters: apiKeyFirstLetters,
@@ -83,13 +84,13 @@ func (s *Raft) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, 
 		Type:       cmd.ApplyRequest_TYPE_ROTATE_USER_API_KEY,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Raft) DeleteUser(userId string) error {
+func (s *Raft) DeleteUser(ctx context.Context, userId string) error {
 	req := cmd.DeleteUsersRequest{
 		UserId:  userId,
 		Version: cmd.DynUserLatestCommandPolicyVersion,
@@ -102,13 +103,32 @@ func (s *Raft) DeleteUser(userId string) error {
 		Type:       cmd.ApplyRequest_TYPE_DELETE_USER,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Raft) ActivateUser(userId string) error {
+func (s *Raft) DeleteUsersInNamespace(ctx context.Context, namespace string) error {
+	req := cmd.DeleteUsersInNamespaceRequest{
+		Namespace: namespace,
+		Version:   cmd.DynUserLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ActivateUser(ctx context.Context, userId string) error {
 	req := cmd.ActivateUsersRequest{
 		UserId:  userId,
 		Version: cmd.DynUserLatestCommandPolicyVersion,
@@ -121,13 +141,13 @@ func (s *Raft) ActivateUser(userId string) error {
 		Type:       cmd.ApplyRequest_TYPE_ACTIVATE_USER,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Raft) DeactivateUser(userId string, revokeKey bool) error {
+func (s *Raft) DeactivateUser(ctx context.Context, userId string, revokeKey bool) error {
 	req := cmd.SuspendUserRequest{
 		UserId:    userId,
 		RevokeKey: revokeKey,
@@ -141,7 +161,7 @@ func (s *Raft) DeactivateUser(userId string, revokeKey bool) error {
 		Type:       cmd.ApplyRequest_TYPE_SUSPEND_USER,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil

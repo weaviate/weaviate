@@ -139,6 +139,7 @@ type Compose struct {
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
+	withWeaviateNamespaces         bool
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
@@ -156,6 +157,7 @@ type Compose struct {
 	withAutoschema                 bool
 	withMockOIDC                   bool
 	withMockOIDCWithCertificate    bool
+	withMockOIDCNamespacedUsers    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
@@ -626,6 +628,14 @@ func (d *Compose) WithMockOIDCWithCertificate() *Compose {
 	return d
 }
 
+// WithMockOIDCNamespacedUsers preseeds mockoidc with users that pass
+// OIDC classification on a namespace-enabled cluster
+// (oidc-namespaced-customer1, oidc-namespaced-customer2, oidc-global).
+func (d *Compose) WithMockOIDCNamespacedUsers() *Compose {
+	d.withMockOIDCNamespacedUsers = true
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -649,6 +659,13 @@ func (d *Compose) WithRBAC() *Compose {
 
 func (d *Compose) WithDbUsers() *Compose {
 	d.withWeaviateDbUsers = true
+	return d
+}
+
+// WithNamespaces enables NAMESPACES_ENABLED on the Weaviate container and
+// disables GraphQL, which Config.Validate requires whenever namespaces are on.
+func (d *Compose) WithNamespaces() *Compose {
+	d.withWeaviateNamespaces = true
 	return d
 }
 
@@ -903,7 +920,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			}
 		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
+		preseedMode := ""
+		if d.withMockOIDCNamespacedUsers {
+			preseedMode = "namespaces"
+		}
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey, preseedMode)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
@@ -1058,6 +1079,15 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 
 	if d.withWeaviateDbUsers {
 		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
+	}
+
+	if d.withWeaviateNamespaces {
+		settings["NAMESPACES_ENABLED"] = "true"
+		settings["DISABLE_GRAPHQL"] = "true"
+		// Tight cleanup tick for acceptance: deletion tests poll for the
+		// 404 that arrives once the leader has finished tearing down the
+		// namespace's classes, aliases, and users.
+		settings["NAMESPACE_CLEANUP_INTERVAL"] = "1s"
 	}
 
 	if d.withAutoschema {

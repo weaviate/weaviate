@@ -105,6 +105,10 @@
           ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise."
         }
       },
       "required": [
@@ -307,6 +311,17 @@
             }
           }
         },
+        "namespaces": {
+          "type": "object",
+          "description": "Resources applicable for namespace actions.",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "default": "*",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value `*` applies the permission to all namespaces."
+            }
+          }
+        },
         "action": {
           "type": "string",
           "description": "Allowed actions in weaviate.",
@@ -347,7 +362,8 @@
             "read_groups",
             "create_mcp",
             "read_mcp",
-            "update_mcp"
+            "update_mcp",
+            "manage_namespaces"
           ]
         }
       },
@@ -398,6 +414,14 @@
         },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys)."
+        },
+        "isGlobalOperator": {
+          "type": "boolean",
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace."
         }
       }
     },
@@ -579,6 +603,38 @@
         }
       },
       "type": "object"
+    },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (`errorCode`, `limit`, `value`) are stable contract; the `message` text is operator-overridable via the `USAGE_LIMITS_ERROR_MESSAGE` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "type": "string",
+          "description": "Machine-stable identifier. Always `USAGE_LIMIT_EXCEEDED` for this response.",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "type": "string",
+          "description": "Which limit was hit.",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "value": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The configured threshold value (the cap, not the current count)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message rendered from the `USAGE_LIMITS_ERROR_MESSAGE` template with `{limit}` and `{value}` placeholders substituted."
+        }
+      }
     },
     "ExportCreateRequest": {
       "description": "Request to create a new export operation",
@@ -2303,13 +2359,6 @@
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "hashtreeHeight": {
           "description": "Height of the hashtree used for diffing.",
           "type": "integer",
@@ -2326,13 +2375,6 @@
         },
         "frequencyWhilePropagating": {
           "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -3485,6 +3527,28 @@
           }
         }
       }
+    },
+    "Namespace": {
+      "type": "object",
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+      "properties": {
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "type": "string",
+          "enum": ["active", "deleting"]
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
+      }
     }
   },
   "externalDocs": {
@@ -3498,7 +3562,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.37.2"
+    "version": "1.38.0-dev"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4521,6 +4585,10 @@
                   "type": "string",
                   "format": "date-time",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
+                },
+                "namespace": {
+                  "type": "string",
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only."
                 }
               }
             }
@@ -6140,6 +6208,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -7424,6 +7498,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -7871,6 +7951,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the `UsageLimitExceededResponse` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -7926,6 +8012,12 @@
           },
           "404": {
             "description": "Collection not found."
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
@@ -8482,6 +8574,12 @@
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -9042,6 +9140,206 @@
           },
           "422": {
             "description": "Invalid delete alias request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "summary": "List namespaces",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list (never 403).",
+        "operationId": "listNamespaces",
+        "tags": [
+          "namespaces"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "post": {
+        "summary": "Create a new namespace",
+        "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+        "operationId": "createNamespace",
+        "tags": [
+          "namespaces"
+        ],
+        "parameters": [
+          {
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "in": "path",
+            "name": "namespace_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get a namespace",
+        "description": "Retrieve details about a specific namespace by its name.",
+        "operationId": "getNamespace",
+        "tags": [
+          "namespaces"
+        ],
+        "parameters": [
+          {
+            "description": "The name of the namespace.",
+            "in": "path",
+            "name": "namespace_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a namespace",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "operationId": "deleteNamespace",
+        "tags": [
+          "namespaces"
+        ],
+        "parameters": [
+          {
+            "description": "The name of the namespace.",
+            "in": "path",
+            "name": "namespace_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10131,6 +10429,10 @@
     {
       "name": "mcp",
       "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport."
+    },
+    {
+      "name": "namespaces",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier `manage_namespaces` action."
     }
   ]
 }

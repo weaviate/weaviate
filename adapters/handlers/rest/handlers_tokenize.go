@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -33,9 +32,10 @@ import (
 	schemaops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	tokenizeops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/tokenize"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, logger logrus.FieldLogger) {
+func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, namespacesEnabled bool, logger logrus.FieldLogger) {
 	api.TokenizeTokenizeHandler = tokenizeops.TokenizeHandlerFunc(
 		func(params tokenizeops.TokenizeParams, principal *models.Principal) middleware.Responder {
 			return genericTokenize(params)
@@ -43,7 +43,7 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 
 	api.SchemaSchemaObjectsPropertiesTokenizeHandler = schemaops.SchemaObjectsPropertiesTokenizeHandlerFunc(
 		func(params schemaops.SchemaObjectsPropertiesTokenizeParams, principal *models.Principal) middleware.Responder {
-			return propertyTokenize(params, principal, schemaManager, logger)
+			return propertyTokenize(params, principal, schemaManager, namespacesEnabled, logger)
 		})
 }
 
@@ -170,18 +170,18 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 }
 
 func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
-	principal *models.Principal, schemaManager *schemaUC.Manager, logger logrus.FieldLogger,
+	principal *models.Principal, schemaManager *schemaUC.Manager, namespacesEnabled bool, logger logrus.FieldLogger,
 ) middleware.Responder {
-	className := schema.UppercaseClassName(params.ClassName)
-
-	// Resolve alias before authorization so authz uses the real collection name
-	// for permissions and error UX (matches Handler.ShardsStatus).
-	if resolved := schemaManager.ResolveAlias(className); resolved != "" {
-		className = resolved
+	// Resolve before authorization so authz uses the real collection name
+	// for permissions and error UX.
+	className, _, err := namespacing.Resolve(principal, schemaManager, namespacesEnabled, params.ClassName)
+	if err != nil {
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	// Authorize: reading collection metadata (same as other schema read operations)
-	err := schemaManager.Authorizer.Authorize(
+	err = schemaManager.Authorizer.Authorize(
 		params.HTTPRequest.Context(), principal, authorization.READ,
 		authorization.CollectionsMetadata(className)...,
 	)

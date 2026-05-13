@@ -41,11 +41,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // State is the only source of application-wide state
@@ -88,15 +90,20 @@ type State struct {
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
-	ClusterService *rCluster.Service
-	TenantActivity *tenantactivity.Handler
-	InternalServer types.ClusterServer
+	ClusterService       *rCluster.Service
+	TenantActivity       *tenantactivity.Handler
+	InternalServer       types.ClusterServer
+	NamespacesController *usecasesNamespaces.Controller
 
 	ObjectTTLCoordinator *objectttl.Coordinator
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+
+	// UsageLimits gates the object-count cap only. Collections/tenants/
+	// shards caps are read directly at the schema-handler use sites.
+	UsageLimits *usagelimits.Manager
 
 	// GRPCConnManager is a general connection manager for any/all gRPC connections used by the application. It implements retry logic and connection pooling.
 	GRPCConnManager *grpcconn.ConnManager

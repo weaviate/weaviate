@@ -148,6 +148,14 @@ func CreateClassAuth(t *testing.T, class *models.Class, key string) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+// CreateClassAuthWithReturn issues an authenticated class-create and returns
+// the raw response/error so the caller can assert on rejection paths.
+func CreateClassAuthWithReturn(t *testing.T, class *models.Class, key string) (*schema.SchemaObjectsCreateOK, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	return Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
+}
+
 func GetClass(t *testing.T, class string) *models.Class {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
@@ -164,10 +172,26 @@ func GetClassAuth(t *testing.T, class string, key string) *models.Class {
 	return resp.Payload
 }
 
-func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
+// GetClassAuthWithReturn issues an authenticated class-get and returns the
+// raw response/error. Useful for asserting that a deleted/never-existed
+// class is reported missing.
+func GetClassAuthWithReturn(t *testing.T, class string, key string) (*schema.SchemaObjectsGetOK, error) {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
-	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	return Client(t).Schema.SchemaObjectsGet(params, CreateAuth(key))
+}
+
+// GetClassWithoutAssert fetches a class without asserting on the result.
+// An empty key skips authentication; otherwise the call is made with the
+// given API key.
+func GetClassWithoutAssert(t *testing.T, class, key string) (*models.Class, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	var auth runtime.ClientAuthInfoWriter
+	if key != "" {
+		auth = CreateAuth(key)
+	}
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +204,27 @@ func UpdateClass(t *testing.T, class *models.Class) {
 		WithObjectClass(class).WithClassName(class.Class)
 	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+}
+
+// UpdateClassAuth issues an authenticated class-update and asserts ok.
+// className is the path argument and may differ from class.Class — the
+// caller controls what goes in the URL vs. the body.
+func UpdateClassAuth(t *testing.T, className string, class *models.Class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsUpdateParams().
+		WithClassName(className).WithObjectClass(class)
+	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+}
+
+// UpdateClassAuthWithReturn issues an authenticated class-update and
+// returns the raw response/error. See UpdateClassAuth for the className
+// vs. class.Class distinction.
+func UpdateClassAuthWithReturn(t *testing.T, className string, class *models.Class, key string) (*schema.SchemaObjectsUpdateOK, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsUpdateParams().
+		WithClassName(className).WithObjectClass(class)
+	return Client(t).Schema.SchemaObjectsUpdate(params, CreateAuth(key))
 }
 
 func CreateObject(t *testing.T, object *models.Object) error {
@@ -367,6 +412,29 @@ func DeleteClassAuth(t *testing.T, class string, key string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, CreateAuth(key))
 	AssertRequestOk(t, delRes, err, nil)
+}
+
+// DeleteClassWithoutAssert deletes a class without asserting on the
+// result. Use it for best-effort cleanup where the class may already
+// have been removed by another path (e.g. a cascading namespace delete).
+func DeleteClassWithoutAssert(t *testing.T, class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	var auth runtime.ClientAuthInfoWriter
+	if key != "" {
+		auth = CreateAuth(key)
+	}
+	_, _ = Client(t).Schema.SchemaObjectsDelete(params, auth)
+}
+
+// DeleteClassAuthWithReturn issues an authenticated class-delete and
+// returns the raw error so callers can assert on rejection (e.g. malformed
+// namespace prefix in the URL).
+func DeleteClassAuthWithReturn(t *testing.T, class string, key string) error {
+	t.Helper()
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	_, err := Client(t).Schema.SchemaObjectsDelete(delParams, CreateAuth(key))
+	return err
 }
 
 func DeleteObject(t *testing.T, object *models.Object) {
@@ -675,6 +743,15 @@ func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.Cl
 func CreateAliasAuth(t *testing.T, alias *models.Alias, key string) {
 	t.Helper()
 	CreateAliasWithAuthz(t, alias, CreateAuth(key))
+}
+
+// CreateAliasAuthWithReturn issues an authenticated alias-create and
+// returns the raw response/error so the caller can assert on rejection
+// paths.
+func CreateAliasAuthWithReturn(t *testing.T, alias *models.Alias, key string) (*schema.AliasesCreateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesCreateParams().WithBody(alias)
+	return Client(t).Schema.AliasesCreate(params, CreateAuth(key))
 }
 
 func GetAliases(t *testing.T, className *string) *models.AliasResponse {

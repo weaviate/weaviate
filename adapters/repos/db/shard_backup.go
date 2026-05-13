@@ -65,9 +65,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
 	}
-	if err = s.store.FlushMemtables(ctx); err != nil {
-		return fmt.Errorf("flush memtables: %w", err)
-	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
 	}
@@ -105,6 +102,19 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if err != nil {
 		return err
 	}
+
+	// Flush memtables after draining the queues and preparing the indexes.
+	// Queue tasks (e.g. HNSW insertions) and index PrepareForBackup (e.g.
+	// HFresh queue drains) may have written compressed vectors to the LSM
+	// store after the initial FlushMemtables call above. Without this flush
+	// those compressed vectors stay in the memtable (WAL only) and are absent
+	// from the backup while the HNSW commit log references them — including
+	// potentially as the entrypoint. On restore this leads to "entrypoint was
+	// deleted in the object store" errors on every search.
+	if err = s.store.FlushMemtables(ctx); err != nil {
+		return fmt.Errorf("flush memtables after queue drain: %w", err)
+	}
+
 	return nil
 }
 

@@ -88,7 +88,12 @@ func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldL
 // middleware will still be able to provide the user with a valuable error
 // message, even when OIDC is globally disabled.
 func configureOIDC(appState *state.State) *oidc.Client {
-	c, err := oidc.New(appState.ServerConfig.Config, appState.Logger)
+	c, err := oidc.New(
+		appState.ServerConfig.Config,
+		appState.NamespacesController,
+		appState.ServerConfig.Config.Namespaces.Enabled,
+		appState.Logger,
+	)
 	if err != nil {
 		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
 		os.Exit(1)
@@ -124,6 +129,7 @@ func configureAuthorizer(appState *state.State) error {
 		rbacController, err := rbac.New(
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
+			appState.ServerConfig.Config.Namespaces.Enabled,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)

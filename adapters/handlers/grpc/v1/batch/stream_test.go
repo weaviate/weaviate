@@ -41,6 +41,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -61,7 +62,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -72,6 +73,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -92,7 +94,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -103,6 +105,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -145,7 +148,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.Equal(t, ctx.Err(), err, "Expected context cancelled error")
 	})
@@ -157,6 +160,7 @@ func TestStreamHandler(t *testing.T) {
 		collection := "TestClass"
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockSchemaManager.EXPECT().
 			GetCachedClassNoAuth(mock.Anything, collection).
 			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).
@@ -199,7 +203,7 @@ func TestStreamHandler(t *testing.T) {
 		mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when streaming")
 	})
@@ -212,6 +216,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -264,7 +269,7 @@ func TestStreamHandler(t *testing.T) {
 		})).Return(nil).Once()
 
 		numWorkers := 1
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err, "Expected no error when handling stream")
 		require.Len(t, objsCh, numObjs, "Expected all objects to be processed into mock channel")
@@ -276,6 +281,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -325,7 +331,7 @@ func TestStreamHandler(t *testing.T) {
 
 		// numWorkers > 1 so worker Results overlap with receiver Acks in time.
 		numWorkers := 4
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err)
 
@@ -339,6 +345,7 @@ func TestStreamHandler(t *testing.T) {
 
 		mockBatcher := mocks.NewMockbatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
 		mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -397,7 +404,7 @@ func TestStreamHandler(t *testing.T) {
 			Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
 
 		numWorkers := 4
-		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger)
+		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, false)
 		err := handler.Handle(mockStream)
 		require.NoError(t, err)
 
@@ -442,4 +449,108 @@ func newBatchStreamStopRequest() *pb.BatchStreamRequest {
 func newMockStream(t *testing.T) *mocks.MockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply] {
 	stream := mocks.NewMockWeaviate_BatchStreamServer[pb.BatchStreamRequest, pb.BatchStreamReply](t)
 	return stream
+}
+
+// TestStreamHandlerCollectionResolution verifies that the receiver resolves the
+// raw obj.Collection to a namespace-qualified / alias-resolved / uppercased name
+// before the vectorisation-hint schema lookup. Without this resolution the
+// schema lookup misses on NS-enabled clusters, for alias callers, and for
+// lowercased class input — which silently disables the 10x fan-out optimization
+// in worker.sendObjects for vectoriser-backed collections.
+func TestStreamHandlerCollectionResolution(t *testing.T) {
+	logger := logrus.New()
+
+	cases := []struct {
+		name              string
+		namespacesEnabled bool
+		principal         *models.Principal
+		rawCollection     string // value sent by the client in obj.Collection
+		resolvedAs        string // expected argument to GetCachedClassNoAuth
+		aliasTarget       string // non-empty if ResolveAlias should resolve to this target
+	}{
+		{
+			name:              "namespaced principal qualifies short class",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Namespace: "customer1"},
+			rawCollection:     "Movies",
+			resolvedAs:        "Movies",
+		},
+		{
+			name:              "alias is resolved to its target class",
+			namespacesEnabled: false,
+			principal:         &models.Principal{},
+			rawCollection:     "MyAlias",
+			resolvedAs:        "Movies",
+			aliasTarget:       "Movies",
+		},
+		{
+			name:              "lowercased class is uppercased before lookup",
+			namespacesEnabled: false,
+			principal:         &models.Principal{},
+			rawCollection:     "movies",
+			resolvedAs:        "Movies",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			mockBatcher := mocks.NewMockbatcher(t)
+			mockSchemaManager := mocks.NewMockschemaManager(t)
+			mockStream := newMockStream(t)
+			mockStream.EXPECT().Context().Return(ctx).Maybe()
+			mockAuthenticator := mocks.NewMockauthenticator(t)
+			mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(tc.principal, nil).Once()
+
+			expectedLookup := tc.resolvedAs
+			if tc.namespacesEnabled && tc.principal.Namespace != "" {
+				expectedLookup = tc.principal.Namespace + ":" + tc.resolvedAs
+			}
+
+			// First ResolveAlias is called on the qualified input; in alias cases
+			// it returns the target, otherwise "".
+			if tc.aliasTarget != "" {
+				mockSchemaManager.EXPECT().ResolveAlias(tc.rawCollection).Return(tc.aliasTarget).Once()
+			} else {
+				mockSchemaManager.EXPECT().ResolveAlias(expectedLookup).Return("").Once()
+			}
+
+			// The schema lookup must use the resolved name, not the raw client input.
+			mockSchemaManager.EXPECT().
+				GetCachedClassNoAuth(mock.Anything, expectedLookup).
+				Return(map[string]versioned.Class{
+					expectedLookup: {Class: &models.Class{Class: expectedLookup}},
+				}, nil).
+				Once()
+
+			mockBatcher.EXPECT().
+				BatchObjects(mock.Anything, mock.Anything).
+				Return(&pb.BatchObjectsReply{}, nil).
+				Maybe()
+
+			recvCount := 0
+			mockStream.EXPECT().Recv().RunAndReturn(func() (*pb.BatchStreamRequest, error) {
+				recvCount++
+				switch recvCount {
+				case 1:
+					return newBatchStreamStartRequest(), nil
+				case 2:
+					return newBatchStreamObjsRequest([]*pb.BatchObject{
+						{Collection: tc.rawCollection, Uuid: uuid.New().String()},
+					}), nil
+				default:
+					return nil, io.EOF
+				}
+			}).Times(3)
+			mockStream.EXPECT().Send(newBatchStreamStartedReply()).Return(nil).Once()
+			mockStream.EXPECT().Send(mock.Anything).Return(nil).Maybe()
+
+			numWorkers := 1
+			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, numWorkers, logger, tc.namespacesEnabled)
+			err := handler.Handle(mockStream)
+			require.NoError(t, err)
+		})
+	}
 }

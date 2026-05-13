@@ -476,6 +476,57 @@ func Test_AliasesAPI(t *testing.T) {
 			assert.Nil(t, dresp)
 		})
 
+		t.Run("read tenants via alias - should resolve", func(t *testing.T) {
+			className := "TenantReadViaAlias"
+			testClass := models.Class{
+				Class: className,
+				MultiTenancyConfig: &models.MultiTenancyConfig{
+					Enabled: true,
+				},
+				Properties: []*models.Property{
+					{
+						Name:     "name",
+						DataType: entschema.DataTypeText.PropString(),
+					},
+				},
+			}
+			helper.CreateClass(t, &testClass)
+			defer helper.DeleteClass(t, className)
+
+			aliasName := "TenantReadViaAliasAlias"
+			helper.CreateAlias(t, &models.Alias{Class: className, Alias: aliasName})
+			defer helper.DeleteAlias(t, aliasName)
+
+			tenantName := "T1"
+			helper.CreateTenants(t, className, []*models.Tenant{{
+				Name: tenantName, ActivityStatus: "HOT",
+			}})
+
+			// GetConsistentTenants via alias resolves to the underlying class.
+			gresp, err := helper.GetTenants(t, aliasName)
+			require.NoError(t, err)
+			require.NotNil(t, gresp)
+			require.Len(t, gresp.Payload, 1)
+			assert.Equal(t, tenantName, gresp.Payload[0].Name)
+
+			// GetConsistentTenant via alias resolves to the underlying class.
+			oneResp, err := helper.GetOneTenant(t, aliasName, tenantName)
+			require.NoError(t, err)
+			require.NotNil(t, oneResp)
+			assert.Equal(t, tenantName, oneResp.Payload.Name)
+
+			// TenantExists via alias resolves to the underlying class.
+			existsResp, err := helper.TenantExists(t, aliasName, tenantName)
+			require.NoError(t, err)
+			require.True(t, existsResp.IsSuccess())
+
+			// Missing tenant via alias still 404s rather than silently passing.
+			_, err = helper.GetOneTenant(t, aliasName, "Missing")
+			require.Error(t, err)
+			_, err = helper.TenantExists(t, aliasName, "Missing")
+			require.Error(t, err)
+		})
+
 		t.Run("create class with alias name", func(t *testing.T) {
 			class := books.ClassModel2VecVectorizerWithName(aliasName)
 			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
@@ -641,6 +692,19 @@ func Test_AliasesAPI(t *testing.T) {
 			err := helper.ValidateObject(t, obj)
 			require.NoError(t, err)
 			assertGetObject(t, objID)
+		})
+
+		t.Run("tokenize property with alias", func(t *testing.T) {
+			text := "Hello World"
+			resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesTokenize(
+				schema.NewSchemaObjectsPropertiesTokenizeParams().
+					WithClassName(aliasName).
+					WithPropertyName("title").
+					WithBody(&models.PropertyTokenizeRequest{Text: &text}),
+				nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"Hello", "World"}, resp.Payload.Indexed)
 		})
 
 		t.Run("batch insert with alias", func(t *testing.T) {

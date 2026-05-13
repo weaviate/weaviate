@@ -42,24 +42,26 @@ const (
 	InternalPlaceHolder = "wv_internal_empty"
 )
 
-var (
-	BuiltInPolicies = map[string]string{
-		authorization.Viewer:   authorization.READ,
-		authorization.Admin:    VALID_VERBS,
-		authorization.Root:     VALID_VERBS,
-		authorization.ReadOnly: authorization.READ,
-	}
-	weaviate_actions_prefixes = map[string]string{
-		CRUD:                           "manage",
-		CRU:                            "manage",
-		authorization.ROLE_SCOPE_MATCH: "manage",
-		authorization.CREATE:           "create",
-		authorization.READ:             "read",
-		authorization.UPDATE:           "update",
-		authorization.DELETE:           "delete",
-		authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
-	}
-)
+// BuiltInWildcardVerb is the wildcard verb pattern Casbin registers for each
+// built-in role: Admin/Root get full CRUD, Viewer/ReadOnly get READ. The
+// matcher specializes namespace-bearing resources at enforce time.
+var BuiltInWildcardVerb = map[string]string{
+	authorization.Admin:    VALID_VERBS,
+	authorization.Root:     VALID_VERBS,
+	authorization.Viewer:   authorization.READ,
+	authorization.ReadOnly: authorization.READ,
+}
+
+var weaviate_actions_prefixes = map[string]string{
+	CRUD:                           "manage",
+	CRU:                            "manage",
+	authorization.ROLE_SCOPE_MATCH: "manage",
+	authorization.CREATE:           "create",
+	authorization.READ:             "read",
+	authorization.UPDATE:           "update",
+	authorization.DELETE:           "delete",
+	authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
+}
 
 var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.GroupsDomain),
@@ -82,6 +84,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/aliases/[^/]+$`, authorization.AliasesDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.NamespacesDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -202,6 +205,25 @@ func CasbinData(collection, shard, object string) string {
 
 func CasbinMcp() string {
 	return authorization.McpDomain
+}
+
+// CasbinNamespaces returns the casbin resource string for a namespace name.
+// An empty name expands to the wildcard pattern.
+func CasbinNamespaces(name string) string {
+	if name == "" {
+		name = "*"
+	}
+	name = strings.ReplaceAll(name, "*", ".*")
+	return fmt.Sprintf("%s/%s", authorization.NamespacesDomain, name)
+}
+
+// ContainsNamespaceSeparator reports whether a casbin resource path contains
+// the namespace separator. The separator never appears in any other valid
+// resource path segment (collection, shard, tenant, role, and user names all
+// forbid it), so a plain byte scan unambiguously detects namespace
+// qualification regardless of the path shape.
+func ContainsNamespaceSeparator(resource string) bool {
+	return strings.IndexByte(resource, schema.NamespaceSeparator[0]) >= 0
 }
 
 func extractFromExtAction(inputAction string) (string, string, error) {
@@ -361,6 +383,12 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinAliases(collection, alias)
 	case authorization.McpDomain:
 		resource = CasbinMcp()
+	case authorization.NamespacesDomain:
+		name := "*"
+		if permission.Namespaces != nil && permission.Namespaces.Namespace != nil {
+			name = *permission.Namespaces.Namespace
+		}
+		resource = CasbinNamespaces(name)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -480,6 +508,10 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		}
 	case authorization.McpDomain:
 		// do nothing
+	case authorization.NamespacesDomain:
+		permission.Namespaces = &models.PermissionNamespaces{
+			Namespace: &splits[1],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -491,6 +523,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Replicate = authorization.AllReplicate
 		permission.Aliases = authorization.AllAliases
 		permission.Groups = authorization.AllOIDCGroups
+		permission.Namespaces = authorization.AllNamespaces
 	case authorization.ClusterDomain:
 		// do nothing
 	default:
