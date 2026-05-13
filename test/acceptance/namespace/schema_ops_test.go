@@ -14,6 +14,7 @@ package namespace
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -429,6 +430,166 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
+	})
+}
+
+// TestNamespaces_UpdateShardStatus exercises PUT
+// /v1/schema/<class>/shards/<shard>. The write path qualifies via
+// QualifyClass — same pattern as the other schema mutations — so short
+// names from a namespaced principal must hit "<ns>:<class>" and aliases
+// must not be a backdoor.
+func TestNamespaces_UpdateShardStatus(t *testing.T) {
+	const (
+		ns1 = "customer1"
+		ns2 = "customer2"
+	)
+
+	helper.CreateNamespace(t, ns1, adminKey)
+	defer helper.DeleteNamespace(t, ns1, adminKey)
+	helper.CreateNamespace(t, ns2, adminKey)
+	defer helper.DeleteNamespace(t, ns2, adminKey)
+
+	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
+	defer helper.DeleteUser(t, ns1+":u1", adminKey)
+	user2Key := createNamespacedUser(t, "u2", ns2, adminKey)
+	defer helper.DeleteUser(t, ns2+":u2", adminKey)
+
+	newClass := func(name string) *models.Class {
+		return &models.Class{
+			Class: name,
+			Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+			},
+			ShardingConfig: map[string]any{"desiredCount": 1},
+		}
+	}
+
+	getShards := func(t *testing.T, className, key string) (models.ShardStatusList, error) {
+		t.Helper()
+		params := schema.NewSchemaObjectsShardsGetParams().WithClassName(className)
+		resp, err := helper.Client(t).Schema.SchemaObjectsShardsGet(params, helper.CreateAuth(key))
+		if err != nil {
+			return nil, err
+		}
+		return resp.Payload, nil
+	}
+
+	updateShard := func(t *testing.T, className, shardName, status, key string) error {
+		t.Helper()
+		params := schema.NewSchemaObjectsShardsUpdateParams().
+			WithClassName(className).
+			WithShardName(shardName).
+			WithBody(&models.ShardStatus{Status: status})
+		_, err := helper.Client(t).Schema.SchemaObjectsShardsUpdate(params, helper.CreateAuth(key))
+		return err
+	}
+
+	// eventuallyShardStatus polls getShards until the named shard reports
+	// the expected status. UpdateShardStatus commits via RAFT on the
+	// leader, but the actual shard state lives on the shard owner, which
+	// applies the entry asynchronously — so a read on a follower can
+	// briefly see the old status.
+	eventuallyShardStatus := func(t *testing.T, className, shardName, want, key string) {
+		t.Helper()
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			after, err := getShards(t, className, key)
+			if !assert.NoError(c, err) {
+				return
+			}
+			for _, s := range after {
+				if s.Name == shardName {
+					assert.Equal(c, want, s.Status)
+					return
+				}
+			}
+			assert.Failf(c, "shard not found", "shard %q not in %s", shardName, className)
+		}, 10*time.Second, 50*time.Millisecond)
+	}
+
+	t.Run("namespaced user updates shard status by short name; lands on qualified class", func(t *testing.T) {
+		helper.CreateClassAuth(t, newClass("Movies"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+
+		shards, err := getShards(t, "Movies", user1Key)
+		require.NoError(t, err)
+		require.Len(t, shards, 1)
+		shardName := shards[0].Name
+
+		require.NoError(t, updateShard(t, "Movies", shardName, "READONLY", user1Key))
+
+		eventuallyShardStatus(t, "customer1:Movies", shardName, "READONLY", adminKey)
+	})
+
+	t.Run("global admin updates shard status by qualified name", func(t *testing.T) {
+		helper.CreateClassAuth(t, newClass("Shows"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+
+		shards, err := getShards(t, "customer1:Shows", adminKey)
+		require.NoError(t, err)
+		require.Len(t, shards, 1)
+		shardName := shards[0].Name
+
+		require.NoError(t, updateShard(t, "customer1:Shows", shardName, "READONLY", adminKey))
+
+		eventuallyShardStatus(t, "customer1:Shows", shardName, "READONLY", adminKey)
+	})
+
+	t.Run("alias is not a backdoor: UpdateShardStatus by alias name fails and underlying shard unchanged", func(t *testing.T) {
+		helper.CreateClassAuth(t, newClass("Concerts"), user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+
+		shards, err := getShards(t, "Concerts", user1Key)
+		require.NoError(t, err)
+		require.Len(t, shards, 1)
+		shardName := shards[0].Name
+		initialStatus := shards[0].Status
+
+		// Wait for the alias entry to be visible on the node handling the
+		// request before asserting that UpdateShardStatus rejects it. On a
+		// multi-node cluster CreateAliasAuth returns once the leader has
+		// applied, but the follower may still be replicating — without
+		// this, a transient "alias not found" would make the test pass
+		// even if UpdateShardStatus incorrectly resolved aliases.
+		retryOnAliasLag(t, func() error {
+			_, err := getShards(t, "Gigs", user1Key)
+			return err
+		})
+
+		err = updateShard(t, "Gigs", shardName, "READONLY", user1Key)
+		require.Error(t, err, "UpdateShardStatus must not resolve aliases on namespaced clusters")
+
+		after, err := getShards(t, "customer1:Concerts", adminKey)
+		require.NoError(t, err)
+		require.Len(t, after, 1)
+		assert.Equal(t, initialStatus, after[0].Status, "underlying shard status must be unchanged")
+	})
+
+	t.Run("each namespace updates only its own class", func(t *testing.T) {
+		helper.CreateClassAuth(t, newClass("Books"), user1Key)
+		helper.CreateClassAuth(t, newClass("Books"), user2Key)
+		defer helper.DeleteClassAuth(t, "customer1:Books", adminKey)
+		defer helper.DeleteClassAuth(t, "customer2:Books", adminKey)
+
+		// Shard ids are per-class, so customer1:Books and customer2:Books
+		// have disjoint shard name sets.
+		shards2, err := getShards(t, "customer2:Books", adminKey)
+		require.NoError(t, err)
+		require.Len(t, shards2, 1)
+		shardName := shards2[0].Name
+
+		// user2 says "Books" + a shard id that exists only on customer2:Books.
+		// If qualification were skipped the update would resolve to
+		// customer1:Books and fail with "shard not found".
+		require.NoError(t, updateShard(t, "Books", shardName, "READONLY", user2Key))
+
+		eventuallyShardStatus(t, "customer2:Books", shardName, "READONLY", adminKey)
+
+		after1, err := getShards(t, "customer1:Books", adminKey)
+		require.NoError(t, err)
+		require.Len(t, after1, 1)
+		assert.NotEqual(t, "READONLY", after1[0].Status, "customer1:Books must be untouched by user2's update")
 	})
 }
 

@@ -259,8 +259,12 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
+		return 0, err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...); err != nil {
 		return 0, err
 	}
 
