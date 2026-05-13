@@ -341,4 +341,30 @@ func TestNamespacesOIDC(t *testing.T) {
 		stored := helper.GetClassAuth(t, "customer1:Albums", adminKey)
 		assert.Equal(t, "customer1:Albums", stored.Class)
 	})
+
+	// Regression: GET /v1/authz/roles/{name}/users used to 500 once any
+	// namespaced principal was assigned to the role, because the internal
+	// casbin key for a namespaced DB user has three `:`-segments
+	// (`db:<namespace>:<username>`) and the prefix parser rejected it.
+	t.Run("GET roles/{name}/users lists namespaced DB users", func(t *testing.T) {
+		const shortSubject = "roles-endpoint-user"
+		const qualifiedID = "customer1:" + shortSubject
+
+		_ = helper.CreateUserWithNamespace(t, shortSubject, "customer1", adminKey)
+		defer helper.DeleteUser(t, qualifiedID, adminKey)
+
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, qualifiedID)
+		defer helper.RevokeRoleFromUser(t, adminKey, authorization.Admin, qualifiedID)
+
+		users := helper.GetUserForRolesBoth(t, authorization.Admin, adminKey)
+
+		var found bool
+		for _, u := range users {
+			if u.UserType != nil && *u.UserType == models.UserTypeOutputDbUser && u.UserID == qualifiedID {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "namespaced DB user %q must appear in GET roles/{name}/users; got %+v", qualifiedID, users)
+	})
 }
