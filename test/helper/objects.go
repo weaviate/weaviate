@@ -790,6 +790,24 @@ func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.
 	return nil
 }
 
+// GetAliasAuthWithReturn issues an authenticated alias-get and returns
+// the raw response/error so the caller can assert on rejection paths
+// (e.g. malformed namespace prefix).
+func GetAliasAuthWithReturn(t *testing.T, aliasName, key string) (*schema.AliasesGetAliasOK, error) {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	return Client(t).Schema.AliasesGetAlias(params, CreateAuth(key))
+}
+
+// GetAliasesAuthWithReturn issues an authenticated alias-list and returns
+// the raw response/error so the caller can assert on rejection paths
+// (e.g. malformed namespace prefix on the class filter).
+func GetAliasesAuthWithReturn(t *testing.T, className *string, key string) (*schema.AliasesGetOK, error) {
+	t.Helper()
+	params := schema.NewAliasesGetParams().WithClass(className)
+	return Client(t).Schema.AliasesGet(params, CreateAuth(key))
+}
+
 func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
 	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
 }
@@ -808,6 +826,15 @@ func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authI
 	AssertRequestOk(t, resp, err, nil)
 }
 
+// UpdateAliasAuthWithReturn issues an authenticated alias-update and
+// returns the raw response/error so the caller can assert on rejection
+// paths (e.g. malformed namespace prefix).
+func UpdateAliasAuthWithReturn(t *testing.T, aliasName, targetClassName, key string) (*schema.AliasesUpdateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	return Client(t).Schema.AliasesUpdate(params, CreateAuth(key))
+}
+
 func DeleteAlias(t *testing.T, aliasName string) {
 	DeleteAliasWithAuthz(t, aliasName, nil)
 }
@@ -817,6 +844,15 @@ func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDelet
 	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesDelete(params, nil)
 	return resp, err
+}
+
+// DeleteAliasAuthWithReturn issues an authenticated alias-delete and
+// returns the raw response/error so the caller can assert on rejection
+// paths (e.g. malformed namespace prefix).
+func DeleteAliasAuthWithReturn(t *testing.T, aliasName, key string) (*schema.AliasesDeleteNoContent, error) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	return Client(t).Schema.AliasesDelete(params, CreateAuth(key))
 }
 
 func DeleteAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) {
