@@ -17,7 +17,9 @@
 // the next write would push the live total past MAXIMUM_ALLOWED_OBJECTS_COUNT.
 // The check is invoked from the storage chokepoint (Shard.PutObject{,Batch}
 // in adapters/repos/db/) so it covers both local and forwarded writes for
-// RF=1.
+// RF=1. On namespace-enabled clusters the cap applies per namespace: the
+// chokepoint passes the namespace extracted from the (namespace-qualified)
+// class name and the counter sums only that namespace's shards.
 //
 // Schema-side limits (collections, tenants, shards) do their own counting
 // inline in usecases/schema/ and only reach into this package for the typed
@@ -38,8 +40,12 @@ import (
 // counting on every write is unacceptable on hot paths. Brief overshoot
 // during fast bulk imports is documented and accepted; it self-corrects on
 // the next memtable flush.
+//
+// namespace scopes the sum to a single namespace's classes; an empty
+// namespace sums all classes (NS-disabled clusters, or the global slice
+// on NS-enabled clusters that have no namespaced classes yet).
 type ObjectCounter interface {
-	LocalObjectCount(ctx context.Context) (int64, error)
+	LocalObjectCount(ctx context.Context, namespace string) (int64, error)
 }
 
 // Config is the read-only view of usage-limit configuration the Manager
@@ -71,10 +77,12 @@ func NewManager(cfg Config, counter ObjectCounter) *Manager {
 
 // CheckObjects rejects when (currentObjects + n) would exceed the cap. n is
 // the number of objects this request would add (1 for single writes,
-// len(batch) for batches). Whole-batch-rejection is the caller's
-// responsibility — the caller passes len(batch) and rejects the entire
-// request on a non-nil return.
-func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
+// len(batch) for batches). namespace scopes the count to a single
+// namespace's classes; an empty namespace counts all classes (NS-disabled,
+// or pre-namespaces classes on an NS-enabled cluster). Whole-batch-rejection
+// is the caller's responsibility — the caller passes len(batch) and rejects
+// the entire request on a non-nil return.
+func (m *Manager) CheckObjects(ctx context.Context, n int64, namespace string) error {
 	if m == nil {
 		return nil
 	}
@@ -85,7 +93,7 @@ func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
 	if m.counter == nil {
 		return fmt.Errorf("usagelimits: object limit configured but no counter wired")
 	}
-	current, err := m.counter.LocalObjectCount(ctx)
+	current, err := m.counter.LocalObjectCount(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("usagelimits: counting objects: %w", err)
 	}

@@ -42,6 +42,8 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 
 The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
 
+On namespace-enabled clusters the chokepoint passes the namespace extracted from the (namespace-qualified) class name; the counter then sums only indices in that namespace. The cap is applied **per namespace**, not cluster-wide. An empty namespace sums all indices (NS-disabled clusters; the global slice on NS-enabled clusters that have no namespaced classes yet).
+
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 
 The collection count is **schema/RAFT-backed**: the limit check in `AddClass()` calls `schemaManager.QueryCollectionsCount(namespace)`, which goes through RAFT to the leader. When `NAMESPACES_ENABLED=false` the namespace selector is empty and the response is the cluster-global `len(s.classes)`. When `NAMESPACES_ENABLED=true` the selector is the caller's `principal.Namespace` (namespaced creates already require a namespaced principal) and the count is restricted to stored class names whose `<namespace>:` prefix matches. Aliases live outside this map and do not consume the cap.
@@ -75,7 +77,7 @@ When a batch insert would exceed `MAXIMUM_ALLOWED_OBJECTS_COUNT`, the **shard-sl
 Supported deployment shapes (where the cap is meaningful and exact):
 
 - **Single-node clusters** (the Free Tier sandbox case) — there is no other node.
-- **Namespaced clusters in phase 1** — a namespace's collections/shards are pinned to a single node, so the per-namespace sum is local.
+- **Namespaced clusters in phase 1** — a namespace's collections/shards are pinned to a single node, so the per-namespace sum is local. `MAXIMUM_ALLOWED_OBJECTS_COUNT` applies per namespace.
 
 **Out of scope:**
 

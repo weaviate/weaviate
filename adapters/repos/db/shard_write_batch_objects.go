@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -37,7 +38,8 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return []error{err}
 	}
 
-	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects))); err != nil {
+	ns := namespacing.NamespaceFromQualified(s.index.Config.ClassName.String())
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), ns); err != nil {
 		errs := make([]error, len(objects))
 		for i := range errs {
 			errs[i] = err
