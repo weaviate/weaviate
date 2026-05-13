@@ -172,7 +172,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
 	if err != nil {
-		h.logger.WithField("namespace", countNamespace).Error(fmt.Errorf("could not query the collections count: %w", err))
+		h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
 	}
 
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
