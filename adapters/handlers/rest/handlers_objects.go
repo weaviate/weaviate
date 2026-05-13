@@ -688,6 +688,10 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "HEAD "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsHeadGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	r := objects.ObjectsClassHeadParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -697,6 +701,10 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 
 func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PATCH "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsPatchGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	args := objects.ObjectsClassPatchParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -712,6 +720,10 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsUpdateGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	ps := objects.ObjectsClassPutParams{
 		HTTPRequest: params.HTTPRequest,
 		ClassName:   params.Body.Class,
@@ -725,6 +737,10 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsDeleteGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	ps := objects.ObjectsClassDeleteParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -736,6 +752,10 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "POST "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsReferencesCreateGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+	}
 	req := objects.ObjectsClassReferencesCreateParams{
 		HTTPRequest:  params.HTTPRequest,
 		Body:         params.Body,
@@ -749,6 +769,10 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsReferencesUpdateGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+	}
 	req := objects.ObjectsClassReferencesPutParams{
 		HTTPRequest:  params.HTTPRequest,
 		ID:           params.ID,
@@ -762,6 +786,10 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		return objects.NewObjectsReferencesDeleteGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+	}
 	req := objects.ObjectsClassReferencesDeleteParams{
 		HTTPRequest:  params.HTTPRequest,
 		Body:         params.Body,

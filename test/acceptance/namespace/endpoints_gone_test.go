@@ -81,4 +81,102 @@ func TestNamespaces_EndpointsGone(t *testing.T) {
 		require.NotEmpty(t, gone.Payload.Error)
 		assert.NotEmpty(t, gone.Payload.Error[0].Message)
 	})
+
+	id := strfmt.UUID("11111111-1111-1111-1111-111111111111")
+
+	t.Run("HEAD /v1/objects/{id} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsHead(
+			objects.NewObjectsHeadParams().WithID(id),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsHeadGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsHeadGone, got %T: %v", err, err)
+	})
+
+	t.Run("DELETE /v1/objects/{id} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsDelete(
+			objects.NewObjectsDeleteParams().WithID(id),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsDeleteGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsDeleteGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("PATCH /v1/objects/{id} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsPatch(
+			objects.NewObjectsPatchParams().WithID(id).WithBody(&models.Object{ID: id}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsPatchGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsPatchGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("PUT /v1/objects/{id} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsUpdate(
+			objects.NewObjectsUpdateParams().WithID(id).WithBody(&models.Object{ID: id}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsUpdateGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsUpdateGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	beacon := strfmt.URI("weaviate://localhost/Foo/22222222-2222-2222-2222-222222222222")
+
+	t.Run("POST /v1/objects/{id}/references/{propertyName} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsReferencesCreate(
+			objects.NewObjectsReferencesCreateParams().
+				WithID(id).WithPropertyName("ref").
+				WithBody(&models.SingleRef{Beacon: beacon}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsReferencesCreateGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsReferencesCreateGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("PUT /v1/objects/{id}/references/{propertyName} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsReferencesUpdate(
+			objects.NewObjectsReferencesUpdateParams().
+				WithID(id).WithPropertyName("ref").
+				WithBody(models.MultipleRef{{Beacon: beacon}}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsReferencesUpdateGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsReferencesUpdateGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("DELETE /v1/objects/{id}/references/{propertyName} (deprecated, no class) returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsReferencesDelete(
+			objects.NewObjectsReferencesDeleteParams().
+				WithID(id).WithPropertyName("ref").
+				WithBody(&models.SingleRef{Beacon: beacon}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsReferencesDeleteGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsReferencesDeleteGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
 }
