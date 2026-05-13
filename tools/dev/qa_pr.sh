@@ -9,7 +9,7 @@
 #   4. Trigger the e2e + chaos tests matrix workflow
 #
 # Usage:
-#   tools/dev/qa_pr.sh <pr_number_or_url>
+#   tools/dev/qa_pr.sh <pr_number_or_url> [--e2e-branch=<branch>] [--chaos-branch=<branch>]
 #
 # You can pass the PR in either of two ways:
 #   1. As a PR number:
@@ -17,13 +17,22 @@
 #   2. As a full PR URL:
 #        ./tools/dev/qa_pr.sh https://github.com/weaviate/weaviate/pull/11222
 #
+# Optional flags (both default to "main" when omitted or empty):
+#   --e2e-branch=<branch>    Branch of the e2e test suite to run
+#   --chaos-branch=<branch>  Branch of the chaos test suite to run
+#
+# Examples:
+#   ./tools/dev/qa_pr.sh 11222 --e2e-branch=custom-e2e-branch
+#   ./tools/dev/qa_pr.sh 11222 --chaos-branch=custom-chaos-branch
+#   ./tools/dev/qa_pr.sh 11222 --e2e-branch=foo --chaos-branch=bar
+#
 # Requires gh scopes: repo, project
 #   gh auth refresh -h github.com -s project
 
 set -euo pipefail
 
 usage() {
-  sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 if [[ $# -eq 0 ]]; then
@@ -33,12 +42,53 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
-if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
+PR_INPUT=""
+E2E_BRANCH=""
+CHAOS_BRANCH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --e2e-branch=*)
+      E2E_BRANCH="${1#--e2e-branch=}"
+      shift
+      ;;
+    --chaos-branch=*)
+      CHAOS_BRANCH="${1#--chaos-branch=}"
+      shift
+      ;;
+    --*)
+      echo "ERROR: unknown option '$1'" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n "$PR_INPUT" ]]; then
+        echo "ERROR: unexpected positional argument '$1' (PR already set to '$PR_INPUT')" >&2
+        echo "" >&2
+        usage >&2
+        exit 1
+      fi
+      PR_INPUT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$PR_INPUT" ]]; then
+  echo "ERROR: missing required argument <pr_number_or_url>" >&2
+  echo "" >&2
+  usage >&2
   exit 1
 fi
 
-PR_INPUT="$1"
+# Default both branches to "main" when omitted or empty.
+E2E_BRANCH="${E2E_BRANCH:-main}"
+CHAOS_BRANCH="${CHAOS_BRANCH:-main}"
 
 # Accept either a bare PR number (e.g. 11222) or a GitHub PR URL
 # (e.g. https://github.com/weaviate/weaviate/pull/11222).
@@ -300,7 +350,9 @@ log "Step 4: Triggering tests matrix workflow in $QA_REPO"
 log "  weaviate_version:        $WEAVIATE_VERSION_INPUT"
 log "  issue_number:            $ISSUE_NUMBER"
 log "  run_e2e_tests:           true"
+log "  e2e_branch:              $E2E_BRANCH"
 log "  run_chaos_tests:         true"
+log "  chaos_branch:            $CHAOS_BRANCH"
 log "  run_vectorizer_tests:    false"
 log "  run_performance_tests:   false"
 log "  include_7_replicas:      true"
@@ -308,12 +360,12 @@ log "  include_7_replicas:      true"
 gh workflow run main.yaml \
   --repo "$QA_REPO" \
   -f weaviate_version="$WEAVIATE_VERSION_INPUT" \
-  -f e2e_branch="main" \
+  -f e2e_branch="$E2E_BRANCH" \
   -f run_e2e_tests=true \
   -f run_vectorizer_tests=false \
   -f include_7_replicas=true \
   -f run_chaos_tests=true \
-  -f chaos_branch="main" \
+  -f chaos_branch="$CHAOS_BRANCH" \
   -f run_performance_tests=false \
   -f performance_branch="main" \
   -f issue_number="$ISSUE_NUMBER"
