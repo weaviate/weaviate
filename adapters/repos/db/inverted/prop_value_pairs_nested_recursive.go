@@ -152,7 +152,7 @@ func normalizeRecGroup(
 		}
 		switch child.operator {
 		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
-			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, input); err != nil {
+			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return nil, err
 			}
 			input.positives = append(input.positives, child)
@@ -211,6 +211,13 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 // themselves don't go to rawsByCond — the planner walks them via
 // buildOr/buildNot/buildGroup and reads bitmaps for the leaves at evaluation.
 //
+// Tokenization wrappers (childrenFromTokenization=true) inside the subtree are
+// treated as virtual leaves: their tokens are ANDed once into a combined
+// bitmap and stored in rawsByCond keyed by the wrapper. This mirrors
+// normalizeRecGroup Pattern 2 for direct AND-wrapped tokenization wrappers,
+// so the planner sees the same shape regardless of how deeply the wrapper is
+// nested under operator subtrees.
+//
 // IsNull leaves inside operator subtrees are not yet supported; if encountered
 // the function returns an error so callers can detect the gap rather than
 // produce silent wrong results. Mixing IsNull with same-element OR/NOT
@@ -219,6 +226,8 @@ func fetchOperatorSubtreeBitmaps(
 	ctx context.Context,
 	node *propValuePair,
 	fetcher recBitmapFetcher,
+	bitmapOps *invnested.BitmapOps,
+	maxConcurrency int,
 	input *recGroupInput,
 ) error {
 	if node.nested.isNested {
@@ -233,10 +242,19 @@ func fetchOperatorSubtreeBitmaps(
 		input.rawsByCond[node] = bm
 		return nil
 	}
+	if node.nested.childrenFromTokenization {
+		combined, releases, err := fetchAndAndAllTokens(ctx, node.children, fetcher, bitmapOps, maxConcurrency)
+		if err != nil {
+			return fmt.Errorf("normalizeRecGroup: combine tokenization wrapper inside operator subtree: %w", err)
+		}
+		input.releases = append(input.releases, releases...)
+		input.rawsByCond[node] = combined
+		return nil
+	}
 	switch node.operator {
 	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
 		for _, child := range node.children {
-			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, input); err != nil {
+			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return err
 			}
 		}
@@ -342,7 +360,16 @@ func (pv *propValuePair) buildRecGroupExecutor(
 
 	var plan recPlanNode
 	if len(input.positives) > 0 {
-		plan = builder.build(input.positives)
+		// Dispatch on outer operator: AND-of-same-root → recGroupNode
+		// (same-element correlation at LCA). OR-of-same-root →
+		// recOrNode (union at the deepest common LCA per element).
+		// Wrapping for both shapes is decided at extraction time by
+		// groupNestedSubtrees; here we just plant the right plan node.
+		if pv.operator == filters.OperatorOr {
+			plan = builder.buildOrAtScope(pv, "")
+		} else {
+			plan = builder.build(input.positives)
+		}
 	}
 
 	excludes := make([]recExclude, 0, len(input.excludePositions))

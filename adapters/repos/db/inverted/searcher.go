@@ -354,18 +354,18 @@ func (s *Searcher) extractPropValuePair(
 }
 
 // groupNestedSubtrees walks pv's tree post-order and applies the
-// same-root grouping rule of groupNestedByProp at every AND node it
-// finds. OR / NOT / leaf nodes pass through; their children are still
-// walked so AND nodes deeper in the tree get grouped. Pre-marked
+// same-root grouping rule of groupNestedByProp at every AND / OR node
+// it finds. NOT / leaf nodes pass through; their children are still
+// walked so AND / OR nodes deeper in the tree get grouped. Pre-marked
 // wrappers (isWithinRootSubtree=true, e.g. tokenization wrappers from
 // buildNestedTextFilterPair) are skipped — their children are already
 // the leaves of one same-root subtree and need no further grouping.
 //
-// When grouping collapses every child of an AND into a single same-root
-// wrapper, the AND is promoted in place: its own isWithinRootSubtree
-// flag and prop are set, and the redundant single-child wrapping level
-// is elided. Mixed-root ANDs keep the per-group wrappers as separate
-// children.
+// When grouping collapses every child of an AND / OR into a single
+// same-root wrapper, the outer operator is promoted in place: its own
+// isWithinRootSubtree flag and prop are set, and the redundant single-
+// child wrapping level is elided. Mixed-root nodes keep the per-group
+// wrappers as separate children.
 func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
 	if pv == nil || len(pv.children) == 0 {
 		return pv
@@ -373,14 +373,16 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 	for i := range pv.children {
 		pv.children[i] = groupNestedSubtrees(pv.children[i], class)
 	}
-	if pv.operator != filters.OperatorAnd || pv.nested.isWithinRootSubtree {
+	if (pv.operator != filters.OperatorAnd && pv.operator != filters.OperatorOr) ||
+		pv.nested.isWithinRootSubtree {
 		return pv
 	}
-	grouped := groupNestedByProp(pv.children, class)
+	grouped := groupNestedByProp(pv.children, class, pv.operator)
 	if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
 		// Collapse: every child landed in one same-root wrapper.
 		// Promote pv to be that wrapper instead of holding it as a
-		// useless single-child outer AND.
+		// useless single-child outer node. pv keeps its operator
+		// (AND or OR), so the planner sees the right shape.
 		w := grouped[0]
 		pv.nested.isWithinRootSubtree = true
 		pv.prop = w.prop

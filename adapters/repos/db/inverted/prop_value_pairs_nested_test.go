@@ -419,7 +419,7 @@ func TestGroupNestedByProp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := groupNestedByProp(tt.children, class)
+			result := groupNestedByProp(tt.children, class, filters.OperatorAnd)
 			if tt.want == nil {
 				// nil or empty input → passthrough (may be nil or empty slice)
 				assert.Empty(t, result)

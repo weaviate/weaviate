@@ -17214,14 +17214,13 @@ func TestNestedFilteringNotInsideOr3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT root-universe
-		// NOT semantics inside OR. NOT(cars.make=tesla) today returns
-		// docs that have zero tesla cars (including empty docs). OR
-		// with cars.model=s unions at docID. Under scope-aware NOT
-		// (operand-LCA), NOT(cars.make=tesla) becomes existential per
-		// cars element: exists at least one cars element with
-		// make!=tesla. Empty docs no longer satisfy NOT; mixed-make
-		// docs flip the other way.
+		// regression_NOT_inside_OR — sub-rule 1 (OR-of-same-root
+		// grouping): OR-isWithinRootSubtree wrapper around (NOT leaf,
+		// leaf) routes through buildOrAtScope → NOT inverts at cars LCA
+		// per-element (exists cars element with make≠tesla), OR'd with
+		// model=s at cars LCA. Empty docs no longer satisfy NOT (no
+		// cars elements); mixed-make docs flip to incl regardless of
+		// where the non-tesla car sits.
 		t.Run("regression_NOT_inside_OR", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -17283,14 +17282,11 @@ func TestNestedFilteringNotInsideOr3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.model",
 			docs,
-			// today: empty + any-no-tesla doc + any model=s doc.
-			[]strfmt.UUID{idBmwS, idTeslaS, idEmpty, idBmw3, idTesla3PlusTeslaS},
-			// expected after scope-aware NOT (operand-LCA inversion):
-			// []strfmt.UUID{idBmwS, idTeslaS, idTesla3PlusBmw3, idBmw3,
-			//               idTesla3PlusTeslaS}
-			//   (idTesla3PlusBmw3 flips to incl — bmw element satisfies
-			//   make!=tesla. idEmpty flips to excl — no element to
-			//   satisfy NOT.)
+			// scope-aware NOT inside OR: ∃ cars element with make≠tesla
+			// OR ∃ cars element with model=s. idTesla3PlusBmw3 flips to
+			// incl (bmw element satisfies make≠tesla); idEmpty flips to
+			// excl (no cars element to satisfy).
+			[]strfmt.UUID{idBmwS, idTeslaS, idTesla3PlusBmw3, idBmw3, idTesla3PlusTeslaS},
 		)
 	})
 
@@ -17337,15 +17333,14 @@ func TestNestedFilteringNotInsideOr3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.model",
 			docs,
-			// today
-			[]strfmt.UUID{idBmwS, idTeslaS, idEmpty, idBmw3, idTesla3PlusTeslaSSameGarage},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idBmwS, idTeslaS, idTesla3PlusBmw3SameGarage,
-			//               idBmw3, idTesla3PlusTeslaSSameGarage,
-			//               idTesla3PlusBmw3SplitGarages}
-			//   (mixed-make docs flip to incl regardless of whether the
-			//   non-tesla car shares a garage with tesla; idEmpty flips
-			//   to excl.)
+			// scope-aware NOT inside OR — mixed-make docs flip in
+			// regardless of whether the non-tesla car shares a garage;
+			// idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS, idTeslaS, idTesla3PlusBmw3SameGarage,
+				idBmw3, idTesla3PlusTeslaSSameGarage,
+				idTesla3PlusBmw3SplitGarages,
+			},
 		)
 	})
 
@@ -17399,16 +17394,15 @@ func TestNestedFilteringNotInsideOr3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.model",
 			docs,
-			// today
-			[]strfmt.UUID{idBmwS, idTeslaS, idEmpty, idBmw3, idTesla3PlusTeslaSSameGarage},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idBmwS, idTeslaS, idTesla3PlusBmw3SameGarage,
-			//               idBmw3, idTesla3PlusTeslaSSameGarage,
-			//               idTesla3PlusBmw3SplitGarages,
-			//               idTesla3PlusBmw3SplitCountries}
-			//   (mixed-make docs flip to incl whether the non-tesla car
-			//   shares the garage, the country, or lives in a different
-			//   country; idEmpty flips to excl.)
+			// scope-aware NOT inside OR — mixed-make docs flip in
+			// across every layout (same garage, split garages, split
+			// countries); idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS, idTeslaS, idTesla3PlusBmw3SameGarage,
+				idBmw3, idTesla3PlusTeslaSSameGarage,
+				idTesla3PlusBmw3SplitGarages,
+				idTesla3PlusBmw3SplitCountries,
+			},
 		)
 	})
 }
@@ -17530,13 +17524,9 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT split-NOT
-		// shape: (NOT make=tesla) OR (NOT model=s). Today each NOT
-		// inverts at root universe: union of docs with no tesla and
-		// docs with no model=s. Under scope-aware NOT (operand-LCA):
-		// exists cars element with make!=tesla, OR exists cars
-		// element with model!=s, OR'd per-element under position-
-		// level OR.
+		// regression_split_NOT_inside_OR — sub-rule 1 wraps the OR;
+		// each NOT inverts at cars LCA per-element. Predicate: ∃ cars
+		// element with make≠tesla, OR ∃ cars element with model≠s.
 		t.Run("regression_split_NOT_inside_OR", func(t *testing.T) {
 			runScenario(t, orF(
 				notF(textF(makePath, "tesla")),
@@ -17613,17 +17603,17 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.model",
 			docs,
-			// today B1: (no tesla) OR (no model=s).
-			[]strfmt.UUID{idBmwS, idTesla3, idEmpty, idBmw3},
-			// today B2: no single tesla-s car (correlated AND denylist).
-			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS, idEmpty, idBmw3},
-			// expected after scope-aware NOT — both forms equal:
+			// B1 — scope-aware NOT inside OR: ∃ cars element with
+			// make≠tesla OR ∃ cars element with model≠s.
+			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS, idTesla3PlusTeslaS, idBmw3},
+			// B2 — TODO aliszka:nested_filtering: still locks in
+			// CURRENT docID-level NOT-of-compound. Under scope-aware
+			// top-level NOT-of-compound (sub-rule 3 pending), B2
+			// converges with B1:
 			// []strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS,
 			//               idTesla3PlusTeslaS, idBmw3}
-			//   (B1 and B2 collapse to: exists cars element where
-			//   make!=tesla OR model!=s. idTesla3PlusBmwS and
-			//   idTesla3PlusTeslaS flip to incl in B1; idEmpty flips
-			//   to excl in both.)
+			//   (idTesla3PlusTeslaS flips in; idEmpty drops.)
+			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS, idEmpty, idBmw3},
 		)
 	})
 
@@ -17670,17 +17660,21 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.model",
 			docs,
-			// today B1: no tesla anywhere OR no s anywhere.
-			[]strfmt.UUID{idBmwS, idTesla3, idEmpty, idBmw3},
-			// today B2: no single garages.cars with both tesla AND s.
-			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage, idEmpty, idBmw3, idTesla3PlusBmwSSplitGarages},
-			// expected after scope-aware NOT:
+			// B1 — scope-aware NOT inside OR. Mixed-doc layouts flip
+			// in; idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
+				idTesla3PlusTeslaSSameGarage, idBmw3,
+				idTesla3PlusBmwSSplitGarages,
+			},
+			// B2 — TODO aliszka:nested_filtering: still locks in
+			// CURRENT docID-level NOT-of-compound. Sub-rule 3 will
+			// collapse B2 with B1:
 			// []strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
 			//               idTesla3PlusTeslaSSameGarage, idBmw3,
 			//               idTesla3PlusBmwSSplitGarages}
-			//   (split-NOT and compound-NOT collapse equal; mixed
-			//   docs flip to incl regardless of garage layout;
-			//   idEmpty flips to excl.)
+			//   (idTesla3PlusTeslaSSameGarage flips in; idEmpty drops.)
+			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage, idEmpty, idBmw3, idTesla3PlusBmwSSplitGarages},
 		)
 	})
 
@@ -17734,19 +17728,24 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.model",
 			docs,
-			// today B1
-			[]strfmt.UUID{idBmwS, idTesla3, idEmpty, idBmw3},
-			// today B2: no single countries.garages.cars with both
-			// tesla AND s. Cross-garage and cross-country splits both
-			// satisfy because no single car has both.
-			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage, idEmpty, idBmw3, idTesla3PlusBmwSSplitGarages, idTesla3PlusBmwSSplitCountries},
-			// expected after scope-aware NOT:
+			// B1 — scope-aware NOT inside OR. Mixed-doc layouts (same
+			// garage, split garages, split countries) all flip in;
+			// idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
+				idTesla3PlusTeslaSSameGarage, idBmw3,
+				idTesla3PlusBmwSSplitGarages,
+				idTesla3PlusBmwSSplitCountries,
+			},
+			// B2 — TODO aliszka:nested_filtering: still locks in
+			// CURRENT docID-level NOT-of-compound. Sub-rule 3 will
+			// collapse B2 with B1:
 			// []strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
 			//               idTesla3PlusTeslaSSameGarage, idBmw3,
 			//               idTesla3PlusBmwSSplitGarages,
 			//               idTesla3PlusBmwSSplitCountries}
-			//   (B1 catches up to B2 across all mixed-doc layouts;
-			//   idEmpty flips to excl in both forms.)
+			//   (idTesla3PlusTeslaSSameGarage flips in; idEmpty drops.)
+			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage, idEmpty, idBmw3, idTesla3PlusBmwSSplitGarages, idTesla3PlusBmwSSplitCountries},
 		)
 	})
 }
@@ -17846,12 +17845,11 @@ func TestNestedFilteringNotInsideOrThreeWaySiblings3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT root-universe
-		// NOT inside a 3-way OR. Same flip pattern as the 2-branch
-		// shape — empty docs drop out, mixed-make docs gain match
-		// via per-element NOT — verified here with an extra positive
-		// branch (year=2020) to ensure additional siblings don't
-		// shift behavior.
+		// regression_NOT_inside_three_way_OR — sub-rule 1 wraps a
+		// 3-way OR-of-same-root. Same flip pattern as the 2-branch
+		// shape — empty docs drop, mixed-make docs gain match via
+		// per-element NOT — verified with an extra positive branch
+		// (year=2020).
 		t.Run("regression_NOT_inside_three_way_OR", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -17916,16 +17914,13 @@ func TestNestedFilteringNotInsideOrThreeWaySiblings3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.model", "cars.year",
 			docs,
-			// today: empty + no-tesla docs + s-model docs + 2020 docs.
-			[]strfmt.UUID{idBmwS1990, idTeslaS1990, idTesla3_2020, idEmpty, idTesla3PlusTesla3_2020, idBmw3_1990},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idBmwS1990, idTeslaS1990, idTesla3_2020,
-			//               idTesla3PlusBmw3, idTesla3PlusTesla3_2020,
-			//               idBmw3_1990}
-			//   (idTesla3PlusBmw3 flips to incl — bmw element
-			//   satisfies make!=tesla. idEmpty flips to excl. The
-			//   third OR sibling year=2020 doesn't change the flip
-			//   pattern — same as the 2-branch shape.)
+			// scope-aware NOT inside OR: ∃ cars element with make≠tesla
+			// OR ∃ s-model element OR ∃ 2020 element. idTesla3PlusBmw3
+			// flips in (bmw element); idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS1990, idTeslaS1990, idTesla3_2020,
+				idTesla3PlusBmw3, idTesla3PlusTesla3_2020, idBmw3_1990,
+			},
 		)
 	})
 
@@ -17974,16 +17969,14 @@ func TestNestedFilteringNotInsideOrThreeWaySiblings3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.model", "garages.cars.year",
 			docs,
-			// today
-			[]strfmt.UUID{idBmwS1990, idTeslaS1990, idTesla3_2020, idEmpty, idTesla3PlusTesla3_2020SameGarage, idBmw3_1990},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idBmwS1990, idTeslaS1990, idTesla3_2020,
-			//               idTesla3PlusBmw3SameGarage,
-			//               idTesla3PlusTesla3_2020SameGarage,
-			//               idBmw3_1990,
-			//               idTesla3PlusBmw3SplitGarages}
-			//   (mixed-make docs flip to incl regardless of garage
-			//   layout; idEmpty flips to excl.)
+			// scope-aware NOT inside OR — mixed-make docs flip in
+			// regardless of garage layout; idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS1990, idTeslaS1990, idTesla3_2020,
+				idTesla3PlusBmw3SameGarage,
+				idTesla3PlusTesla3_2020SameGarage, idBmw3_1990,
+				idTesla3PlusBmw3SplitGarages,
+			},
 		)
 	})
 
@@ -18039,18 +18032,16 @@ func TestNestedFilteringNotInsideOrThreeWaySiblings3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.model", "countries.garages.cars.year",
 			docs,
-			// today
-			[]strfmt.UUID{idBmwS1990, idTeslaS1990, idTesla3_2020, idEmpty, idTesla3PlusTesla3_2020SameGarage, idBmw3_1990},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idBmwS1990, idTeslaS1990, idTesla3_2020,
-			//               idTesla3PlusBmw3SameGarage,
-			//               idTesla3PlusTesla3_2020SameGarage,
-			//               idBmw3_1990,
-			//               idTesla3PlusBmw3SplitGarages,
-			//               idTesla3PlusBmw3SplitCountries}
-			//   (mixed-make docs flip to incl whether non-tesla car
-			//   shares garage, country, or different country;
-			//   idEmpty flips to excl.)
+			// scope-aware NOT inside OR — mixed-make docs flip in
+			// across every layout (same garage, split garages, split
+			// countries); idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS1990, idTeslaS1990, idTesla3_2020,
+				idTesla3PlusBmw3SameGarage,
+				idTesla3PlusTesla3_2020SameGarage, idBmw3_1990,
+				idTesla3PlusBmw3SplitGarages,
+				idTesla3PlusBmw3SplitCountries,
+			},
 		)
 	})
 }
@@ -18887,10 +18878,9 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			runScenario(t, andF(ownerAliceF(), notF(colorRedF())), want.andOuterScope)
 		})
 
-		// TODO aliszka:nested_filtering: Context 4 — OR with
-		// same-root sibling. Today's NOT docID-unioned with cars.
-		// make=tesla. per-element inversion and universal-within-scope inversion both invert at cars[]
-		// (enclosing OR's LCA = cars[] = operand LCA).
+		// ctx4_OR_same_root_sibling — sub-rule 1 wraps OR-of-same-root.
+		// NOT inverts at cars LCA (operand LCA = enclosing OR's LCA).
+		// Option A and Option B agree.
 		t.Run("ctx4_OR_same_root_sibling", func(t *testing.T) {
 			runScenario(t, orF(makeF(), notF(colorRedF())), want.orSameRoot)
 		})
@@ -18979,13 +18969,10 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				//   universal-within-scope inversion: {d2,d4,d5} — same as today (enclosing
 				//             LCA = doc).
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
-				// ctx4 OR same-root — TODO aliszka:nested_filtering:
-				// locks in CURRENT root-universe NOT (top-level OR
-				// doesn't trigger scope-aware NOT yet).
-				//   per-element inversion: {d1,d2,d4,d5,d6,d8} — d6 in, d7 out.
-				//   universal-within-scope inversion: same as per-element inversion (enclosing OR's LCA =
-				//             cars = operand LCA).
-				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed, idEmpty, idTesla2020RedOwnerBob},
+				// ctx4 OR same-root — Option A and Option B agree:
+				// scope-aware NOT inside OR at cars LCA. idMixed (d6)
+				// flips in; idEmpty (d7) drops.
+				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed, idTesla2020RedOwnerBob},
 				// ctx5 mix — passes under today, option A, and option B.
 				// The OR positive branch (Y) absorbs the discriminators.
 				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixed, idTesla2020RedOwnerBob},
@@ -19066,11 +19053,10 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				//   per-element inversion: {d2,d4,d5,d6,d9}.
 				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
-				// ctx4 OR same-root — TODO aliszka:nested_filtering:
-				// locks in CURRENT root-universe NOT.
-				//   per-element inversion: {d1,d2,d4,d5,d6,d8,d9}.
-				//   universal-within-scope inversion: same as per-element inversion.
-				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages},
+				// ctx4 OR same-root — Option A and Option B agree.
+				// idMixedSameGarage and idMixedSplitGarages flip in;
+				// idEmpty drops.
+				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages},
 				// ctx5 mix — passes under today, option A, and option B.
 				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages},
 			},
@@ -19153,11 +19139,10 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
 				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
-				// ctx4 OR same-root — TODO aliszka:nested_filtering:
-				// locks in CURRENT root-universe NOT.
-				//   per-element inversion: {d1,d2,d4,d5,d6,d8,d9,d10}.
-				//   universal-within-scope inversion: same as per-element inversion.
-				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
+				// ctx4 OR same-root — Option A and Option B agree.
+				// idMixedSameGarage, idMixedSplitGarages, and
+				// idMixedSplitCountries flip in; idEmpty drops.
+				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
 				// ctx5 mix — passes under today, option A, and option B.
 				// Cross-country split docs flip alongside cross-garage
 				// ones — uniformly per-element regardless of where in

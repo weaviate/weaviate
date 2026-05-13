@@ -205,20 +205,30 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 	return restricted.docIDs, restricted.release, nil
 }
 
-// resolveNestedSubtree resolves a correlated AND filter using position-aware
-// same-element semantics. Children are grouped by arr[N] compatibility, then:
+// resolveNestedSubtree resolves a nested correlated subtree using
+// position-aware semantics. The outer operator dispatches:
 //
-//   - Single group: resolved directly via resolveNestedSubtreeGroup.
-//   - All groups root-constrained (all first arr[N] have RelPath=""): the user
-//     is explicitly querying different root elements → docID-level AND.
-//   - Otherwise: resolve each group to root+docID positions and AND them so all
-//     conditions must land in the same root element.
+//   - AND: children are partitioned by arr[N] compatibility, then resolved
+//     as same-element AND within each group; multi-group ANDs combine via
+//     docID-level AND (or root+docID AND under intermediate-LCA conflicts).
+//   - OR: arr[N] partitioning is skipped — the planner's recOrNode plans
+//     each child independently and OR-combines them at the deepest common
+//     LCA, naturally handling arr[N] pins per-child via recSplitNode.
 //
 // TODO aliszka:nested_filtering reject filters mixing conflicting explicit
 // intermediate arr[N] constraints with unconstrained conditions at the same
 // level in filter validation. Until that lands, unconstrained items in that
 // shape are silently dropped during plan construction.
 func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	if pv.operator == filters.OperatorOr {
+		// OR doesn't need arr[N] partitioning at this level — the planner
+		// handles arr[N] pins per-child inside the recOrNode (each child's
+		// own buildPlan emits recSplitNode for pinned operands). Passing
+		// pv.children directly preserves the operand list so buildOrAtScope
+		// sees the right shape.
+		return pv.resolveNestedSubtreeGroup(ctx, s, pv.children)
+	}
+
 	groups, allRootConstrained := groupChildrenByArrayIndicesKey(pv.children)
 	switch len(groups) {
 	case 0:
