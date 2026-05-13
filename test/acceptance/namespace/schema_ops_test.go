@@ -14,6 +14,7 @@ package namespace
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -483,6 +484,28 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		return err
 	}
 
+	// eventuallyShardStatus polls getShards until the named shard reports
+	// the expected status. UpdateShardStatus commits via RAFT on the
+	// leader, but the actual shard state lives on the shard owner, which
+	// applies the entry asynchronously — so a read on a follower can
+	// briefly see the old status.
+	eventuallyShardStatus := func(t *testing.T, className, shardName, want, key string) {
+		t.Helper()
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			after, err := getShards(t, className, key)
+			if !assert.NoError(c, err) {
+				return
+			}
+			for _, s := range after {
+				if s.Name == shardName {
+					assert.Equal(c, want, s.Status)
+					return
+				}
+			}
+			assert.Failf(c, "shard not found", "shard %q not in %s", shardName, className)
+		}, 10*time.Second, 50*time.Millisecond)
+	}
+
 	t.Run("namespaced user updates shard status by short name; lands on qualified class", func(t *testing.T) {
 		helper.CreateClassAuth(t, newClass("Movies"), user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
@@ -494,10 +517,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 
 		require.NoError(t, updateShard(t, "Movies", shardName, "READONLY", user1Key))
 
-		after, err := getShards(t, "customer1:Movies", adminKey)
-		require.NoError(t, err)
-		require.Len(t, after, 1)
-		assert.Equal(t, "READONLY", after[0].Status)
+		eventuallyShardStatus(t, "customer1:Movies", shardName, "READONLY", adminKey)
 	})
 
 	t.Run("global admin updates shard status by qualified name", func(t *testing.T) {
@@ -511,10 +531,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 
 		require.NoError(t, updateShard(t, "customer1:Shows", shardName, "READONLY", adminKey))
 
-		after, err := getShards(t, "customer1:Shows", adminKey)
-		require.NoError(t, err)
-		require.Len(t, after, 1)
-		assert.Equal(t, "READONLY", after[0].Status)
+		eventuallyShardStatus(t, "customer1:Shows", shardName, "READONLY", adminKey)
 	})
 
 	t.Run("alias is not a backdoor: UpdateShardStatus by alias name fails and underlying shard unchanged", func(t *testing.T) {
@@ -528,6 +545,17 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		require.Len(t, shards, 1)
 		shardName := shards[0].Name
 		initialStatus := shards[0].Status
+
+		// Wait for the alias entry to be visible on the node handling the
+		// request before asserting that UpdateShardStatus rejects it. On a
+		// multi-node cluster CreateAliasAuth returns once the leader has
+		// applied, but the follower may still be replicating — without
+		// this, a transient "alias not found" would make the test pass
+		// even if UpdateShardStatus incorrectly resolved aliases.
+		retryOnAliasLag(t, func() error {
+			_, err := getShards(t, "Gigs", user1Key)
+			return err
+		})
 
 		err = updateShard(t, "Gigs", shardName, "READONLY", user1Key)
 		require.Error(t, err, "UpdateShardStatus must not resolve aliases on namespaced clusters")
@@ -556,10 +584,7 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 		// customer1:Books and fail with "shard not found".
 		require.NoError(t, updateShard(t, "Books", shardName, "READONLY", user2Key))
 
-		after2, err := getShards(t, "customer2:Books", adminKey)
-		require.NoError(t, err)
-		require.Len(t, after2, 1)
-		assert.Equal(t, "READONLY", after2[0].Status)
+		eventuallyShardStatus(t, "customer2:Books", shardName, "READONLY", adminKey)
 
 		after1, err := getShards(t, "customer1:Books", adminKey)
 		require.NoError(t, err)
