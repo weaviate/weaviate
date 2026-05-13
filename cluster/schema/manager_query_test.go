@@ -37,28 +37,38 @@ func TestQueryCollectionsCount(t *testing.T) {
 		return sm
 	}
 
-	t.Run("empty subcommand returns global count", func(t *testing.T) {
-		sm := newManager(t)
-		payload, err := sm.QueryCollectionsCount(&cmd.QueryRequest{})
-		require.NoError(t, err)
+	tests := []struct {
+		name      string
+		subCmd    []byte
+		wantCount int
+	}{
+		{
+			name:      "empty subcommand returns global count",
+			subCmd:    nil,
+			wantCount: 3,
+		},
+		{
+			name:      "explicit empty namespace returns global count",
+			subCmd:    mustMarshal(t, cmd.QueryCollectionsCountRequest{Namespace: ""}),
+			wantCount: 3,
+		},
+		{
+			name:      "namespace selector filters",
+			subCmd:    mustMarshal(t, cmd.QueryCollectionsCountRequest{Namespace: "customer1"}),
+			wantCount: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newManager(t)
+			payload, err := sm.QueryCollectionsCount(&cmd.QueryRequest{SubCommand: tt.subCmd})
+			require.NoError(t, err)
 
-		var resp cmd.QueryCollectionsCountResponse
-		require.NoError(t, json.Unmarshal(payload, &resp))
-		assert.Equal(t, 3, resp.Count)
-	})
-
-	t.Run("namespace selector filters", func(t *testing.T) {
-		sm := newManager(t)
-		sub, err := json.Marshal(cmd.QueryCollectionsCountRequest{Namespace: "customer1"})
-		require.NoError(t, err)
-
-		payload, err := sm.QueryCollectionsCount(&cmd.QueryRequest{SubCommand: sub})
-		require.NoError(t, err)
-
-		var resp cmd.QueryCollectionsCountResponse
-		require.NoError(t, json.Unmarshal(payload, &resp))
-		assert.Equal(t, 2, resp.Count)
-	})
+			var resp cmd.QueryCollectionsCountResponse
+			require.NoError(t, json.Unmarshal(payload, &resp))
+			assert.Equal(t, tt.wantCount, resp.Count)
+		})
+	}
 
 	t.Run("invalid subcommand JSON is a bad request", func(t *testing.T) {
 		sm := newManager(t)
@@ -66,4 +76,11 @@ func TestQueryCollectionsCount(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, ErrBadRequest))
 	})
+}
+
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return b
 }
