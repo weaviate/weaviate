@@ -135,6 +135,9 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	}
 
 	class := h.schemaReader.ReadOnlyClass(alias.Class)
+	if class == nil {
+		return nil, 0, fmt.Errorf("%w: target class %q does not exist", ErrValidation, alias.Class)
+	}
 	version, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 	if err != nil {
 		if errors.Is(err, cschema.ErrBadRequest) ||
@@ -177,9 +180,17 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 	alias := aliases[0]
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
+	if targetClass == nil {
+		return nil, fmt.Errorf("%w: target class %q does not exist", ErrValidation, targetClassName)
+	}
 
 	_, err = h.schemaManager.ReplaceAlias(ctx, alias, targetClass)
 	if err != nil {
+		if errors.Is(err, cschema.ErrBadRequest) ||
+			errors.Is(err, cschema.ErrClassNotFound) ||
+			errors.Is(err, cschema.ErrAliasNotFound) {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 		return nil, err
 	}
 
@@ -207,6 +218,12 @@ func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, 
 	}
 
 	if _, err := h.schemaManager.DeleteAlias(ctx, aliasName); err != nil {
+		if errors.Is(err, cschema.ErrAliasNotFound) {
+			return fmt.Errorf("alias %s not found: %w", aliasName, ErrNotFound)
+		}
+		if errors.Is(err, cschema.ErrBadRequest) {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 		return err
 	}
 	return nil
