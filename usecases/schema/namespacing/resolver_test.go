@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -176,10 +177,66 @@ func TestQualifyClass(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			got := QualifyClass(tc.principal, tc.namespacesEnabled, tc.input)
+			got, err := QualifyClass(tc.principal, tc.namespacesEnabled, tc.input)
+			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// TestQualifyClass_RejectsInvalidNamespacePrefix verifies that a wrong-case
+// namespace prefix from a global operator on an NS-enabled cluster surfaces
+// the specific "invalid namespace prefix" message so they can correct the
+// request, rather than propagating through the resolver into lookup.
+func TestQualifyClass_RejectsInvalidNamespacePrefix(t *testing.T) {
+	cases := []struct {
+		testName string
+		input    string
+	}{
+		{testName: "uppercase prefix", input: "Customer1:Movies"},
+		{testName: "mixed-case prefix", input: "Customer1:movies"},
+		{testName: "uppercase in middle of prefix", input: "cusTomer1:Movies"},
+		{testName: "leading-hyphen prefix", input: "-customer1:Movies"},
+		{testName: "trailing-hyphen prefix", input: "customer1-:Movies"},
+		{testName: "empty prefix", input: ":Movies"},
+		{testName: "too-short prefix", input: "ab:Movies"},
+	}
+	principal := &models.Principal{Username: "admin", IsGlobalOperator: true}
+	for _, tc := range cases {
+		t.Run(tc.testName, func(t *testing.T) {
+			_, err := QualifyClass(principal, true, tc.input)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "invalid namespace prefix")
+		})
+	}
+}
+
+// TestQualifyClass_NamespacedPrincipalSeesClassNameError verifies the
+// transparency contract: a namespaced caller who mistakenly includes a ":"
+// in their input gets a generic class-name error instead of one that
+// mentions namespaces.
+func TestQualifyClass_NamespacedPrincipalSeesClassNameError(t *testing.T) {
+	principal := &models.Principal{Username: "u", Namespace: "customer1"}
+	cases := []string{"Customer2:Movies", "customer2:Movies", "FOO:bar"}
+	for _, input := range cases {
+		t.Run(input, func(t *testing.T) {
+			_, err := QualifyClass(principal, true, input)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "is not a valid class name")
+			require.NotContains(t, err.Error(), "namespace")
+		})
+	}
+}
+
+// TestQualifyClass_NSDisabledSeesClassNameError verifies that on
+// NS-disabled clusters the resolver does not mention namespaces — the
+// concept simply does not exist for the operator there.
+func TestQualifyClass_NSDisabledSeesClassNameError(t *testing.T) {
+	principal := &models.Principal{Username: "admin", IsGlobalOperator: true}
+	_, err := QualifyClass(principal, false, "customer1:Movies")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "is not a valid class name")
+	require.NotContains(t, err.Error(), "namespace")
 }
 
 func TestResolve(t *testing.T) {
@@ -235,15 +292,6 @@ func TestResolve(t *testing.T) {
 			namespacesEnabled: true,
 			input:             "Movies",
 			wantClass:         "Movies",
-			wantAlias:         "",
-		},
-		{
-			testName:          "namespaced principal qualified input gets double prefixed",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: true,
-			input:             "customer2:Movies",
-			wantClass:         "customer1:customer2:Movies",
 			wantAlias:         "",
 		},
 		{
@@ -303,9 +351,30 @@ func TestResolve(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			gotClass, gotAlias := Resolve(tc.principal, tc.sm, tc.namespacesEnabled, tc.input)
+			gotClass, gotAlias, err := Resolve(tc.principal, tc.sm, tc.namespacesEnabled, tc.input)
+			require.NoError(t, err)
 			assert.Equal(t, tc.wantClass, gotClass)
 			assert.Equal(t, tc.wantAlias, gotAlias)
+		})
+	}
+}
+
+// TestResolve_RejectsInvalidNamespacePrefix mirrors the QualifyClass guard
+// on the read path so list/get/aggregate/search callers also surface a 4xx
+// instead of routing the wrong-case input into schema/alias lookup.
+func TestResolve_RejectsInvalidNamespacePrefix(t *testing.T) {
+	sm := &fakeSchemaManager{aliases: map[string]string{}}
+	principal := &models.Principal{Username: "admin", IsGlobalOperator: true}
+	cases := []string{
+		"Customer1:Movies",
+		"FOO:bar",
+		"-bad:Movies",
+		":Movies",
+	}
+	for _, input := range cases {
+		t.Run(input, func(t *testing.T) {
+			_, _, err := Resolve(principal, sm, true, input)
+			require.Error(t, err)
 		})
 	}
 }

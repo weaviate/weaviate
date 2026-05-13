@@ -98,7 +98,7 @@ func TestQualifyForCreate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := QualifyForCreate(tc.principal, tc.namespacesEnabled, tc.raw)
+			got, err := QualifyForCreate(tc.principal, tc.namespacesEnabled, tc.raw, "class")
 			switch {
 			case tc.wantSentinel:
 				require.ErrorIs(t, err, ErrCreateRequiresNamespace)

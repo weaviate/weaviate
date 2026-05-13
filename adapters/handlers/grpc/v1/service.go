@@ -101,7 +101,9 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	req.Collection, _ = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+		return nil, err
+	}
 
 	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
@@ -180,7 +182,9 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	req.Collection, _ = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+		return nil, err
+	}
 
 	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
@@ -281,7 +285,9 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	req.Collection, _ = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+		return nil, err
+	}
 
 	parser := NewParser(
 		req.Uses_127Api,

@@ -67,7 +67,10 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	resolved, _ := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
 	name = resolved
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
@@ -120,7 +123,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// caller-supplied ":" and the success of the namespaced-create flow are
 	// covered by test/acceptance/namespace/collection_alias_test.go.
 	originalClassName := cls.Class
-	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class)
+	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class, "class")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
@@ -335,7 +338,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 // here: deleting via an alias name must be a no-op on the underlying
 // class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return err
+	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
@@ -351,10 +357,12 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
-	if err != nil || updated == nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}
 

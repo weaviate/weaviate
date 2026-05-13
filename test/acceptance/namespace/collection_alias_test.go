@@ -351,4 +351,42 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		got := helper.GetClassAuth(t, "customer1:AdminAliasDeleteTarget", adminKey)
 		require.Equal(t, "customer1:AdminAliasDeleteTarget", got.Class)
 	})
+
+	// A delete with a wrong-case namespace prefix must be rejected at the
+	// resolver boundary; the class must survive untouched. Without this
+	// guard the qualify path accepted the casing variant, removed the data
+	// directory, and left the schema entry behind — blocking recreation.
+	t.Run("delete with wrong-case namespace prefix is rejected and class is untouched", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{Class: "CaseDelete"}, user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:CaseDelete", adminKey)
+
+		err := helper.DeleteClassAuthWithReturn(t, "Customer1:CaseDelete", adminKey)
+		require.Error(t, err)
+
+		got := helper.GetClassAuth(t, "customer1:CaseDelete", adminKey)
+		require.Equal(t, "customer1:CaseDelete", got.Class)
+
+		// Caller can still recreate after attempted bad-case delete fails,
+		// confirming no partial deletion occurred.
+		helper.DeleteClassAuth(t, "customer1:CaseDelete", adminKey)
+		helper.CreateClassAuth(t, &models.Class{Class: "CaseDelete"}, user1Key)
+	})
+
+	// Read path: GET /schema/{className} with a wrong-case namespace prefix
+	// must surface a 422 (not a 500), so the 422 contract has end-to-end
+	// coverage on the read side too.
+	t.Run("get with wrong-case namespace prefix returns 422", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{Class: "CaseGet"}, user1Key)
+		defer helper.DeleteClassAuth(t, "customer1:CaseGet", adminKey)
+
+		_, err := helper.GetClassAuthWithReturn(t, "Customer1:CaseGet", adminKey)
+		require.Error(t, err)
+		var unproc *schema.SchemaObjectsGetUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected SchemaObjectsGetUnprocessableEntity, got %T: %v", err, err)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
+
+		// Correct casing still works — the class is reachable as registered.
+		got := helper.GetClassAuth(t, "customer1:CaseGet", adminKey)
+		require.Equal(t, "customer1:CaseGet", got.Class)
+	})
 }

@@ -97,6 +97,9 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewSchemaObjectsGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))

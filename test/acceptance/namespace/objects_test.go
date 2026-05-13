@@ -252,7 +252,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("namespaced caller submitting :-qualified class on read double-prefixes to 404", func(t *testing.T) {
+	t.Run("namespaced caller submitting :-qualified class on read is rejected as 422", func(t *testing.T) {
 		const class = "DoublePrefix"
 		setupClassInNs1(t, class, user1Key)
 
@@ -263,12 +263,12 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, obj.ID)
 
-		// user1 supplying the already-qualified name double-prefixes to
-		// "customer1:customer1:DoublePrefix" — no such class, 404.
+		// user1 supplying the already-qualified name is rejected by namespace
+		// prefix validation — namespaced callers must use the short name.
 		_, err = helper.GetObjectAuth(t, "customer1:"+class, obj.ID, user1Key)
 		require.Error(t, err)
-		var nf *objects.ObjectsClassGetNotFound
-		require.True(t, errors.As(err, &nf), "expected ObjectsClassGetNotFound, got %T: %v", err, err)
+		var unproc *objects.ObjectsClassGetUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected ObjectsClassGetUnprocessableEntity, got %T: %v", err, err)
 	})
 
 	t.Run("global admin reads object via qualified class name", func(t *testing.T) {
