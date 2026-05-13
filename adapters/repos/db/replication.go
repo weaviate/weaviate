@@ -987,9 +987,12 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			}
 			return fmt.Errorf("replay decode payload for %s: %w", u.ID, err)
 		}
-		// Strict `>` keeps clock-skew protection but breaks same-ms ties on
-		// LSN-order-last, matching source's bucket state.
-		if existing, ok := pending[u.ID]; ok && existing.ts > u.LastUpdateTimeUnixMilli {
+		// Dedupe by max LastUpdateTimeUnixMilli rather than relying on
+		// PutObjectBatch's own dedupe — findDuplicatesInBatchObjects keeps the
+		// LAST occurrence by index, not the highest timestamp, so a
+		// clock-skewed source whose LSN order disagrees with timestamp order
+		// would otherwise let an older PUT win over a newer one.
+		if existing, ok := pending[u.ID]; ok && existing.ts >= u.LastUpdateTimeUnixMilli {
 			continue
 		}
 		pending[u.ID] = pendingPut{decoded: decoded, ts: u.LastUpdateTimeUnixMilli}
