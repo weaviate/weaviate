@@ -101,8 +101,11 @@ func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewAliasesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -125,8 +128,11 @@ func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewAliasesUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -147,8 +153,12 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewAliasesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesDeleteUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewAliasesDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 

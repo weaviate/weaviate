@@ -89,11 +89,11 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	qTarget, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Class, "class")
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	alias.Alias = qAlias
 	alias.Class = qTarget
@@ -104,15 +104,20 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 
 	// alias should have same validation as collection.
 	if _, err := schema.ValidateAliasName(originalAliasName); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	if _, err := schema.ValidateClassName(originalTargetName); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	class := h.schemaReader.ReadOnlyClass(alias.Class)
 	version, err := h.schemaManager.CreateAlias(ctx, alias.Alias, class)
 	if err != nil {
+		if errors.Is(err, cschema.ErrBadRequest) ||
+			errors.Is(err, cschema.ErrAliasExists) ||
+			errors.Is(err, cschema.ErrClassNotFound) {
+			return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 		return nil, 0, err
 	}
 	return &models.Alias{Alias: alias.Alias, Class: class.Class}, version, nil
