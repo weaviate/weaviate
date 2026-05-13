@@ -136,7 +136,7 @@ func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
 	req := cmd.QueryCollectionsCountRequest{Namespace: namespace}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return 0, fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal collections count request (namespace=%q): %w", namespace, err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_COLLECTIONS_COUNT,
@@ -144,14 +144,12 @@ func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
 	}
 	queryResp, err := s.Query(ctx, command)
 	if err != nil {
-		return 0, fmt.Errorf("failed to execute query: %w", err)
+		return 0, fmt.Errorf("execute collections count query (namespace=%q): %w", namespace, err)
 	}
 
-	// Unmarshal the response
 	resp := cmd.QueryCollectionsCountResponse{}
-	err = json.Unmarshal(queryResp.Payload, &resp)
-	if err != nil {
-		return 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+	if err := json.Unmarshal(queryResp.Payload, &resp); err != nil {
+		return 0, fmt.Errorf("unmarshal collections count response (namespace=%q): %w", namespace, err)
 	}
 	return resp.Count, nil
 }

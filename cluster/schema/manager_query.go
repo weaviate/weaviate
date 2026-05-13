@@ -58,7 +58,7 @@ func (sm *SchemaManager) QueryCollectionsCount(req *cmd.QueryRequest) ([]byte, e
 	if len(req.SubCommand) > 0 {
 		subCommand := cmd.QueryCollectionsCountRequest{}
 		if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
-			return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+			return []byte{}, fmt.Errorf("%w: unmarshal collections count request: %w", ErrBadRequest, err)
 		}
 		namespace = subCommand.Namespace
 	}
@@ -66,7 +66,7 @@ func (sm *SchemaManager) QueryCollectionsCount(req *cmd.QueryRequest) ([]byte, e
 	response := cmd.QueryCollectionsCountResponse{Count: sm.schema.CollectionsCount(namespace)}
 	payload, err := json.Marshal(&response)
 	if err != nil {
-		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+		return []byte{}, fmt.Errorf("marshal collections count response (namespace=%q): %w", namespace, err)
 	}
 	return payload, nil
 }
