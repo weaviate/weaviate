@@ -477,7 +477,3 @@ func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.Q
 	}
 	return &cmd.QueryResponse{}, nil
 }
-
-func (m *MockExecutor) WaitForAppliedIndex(_ context.Context, _ uint64) error {
-	return nil
-}

@@ -125,7 +125,6 @@ type RemoteIndexIncomingRepo interface {
 	IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error)
 	// IncomingStopChangeCapture deactivates and removes the log.
 	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error
-	IncomingWaitForReplicationDrain(ctx context.Context, shardName string, deadline time.Duration) error
 }
 
 type RemoteIndexIncoming struct {

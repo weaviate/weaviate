@@ -606,7 +606,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 	}
 	log, ok := shard.GetChangeLog(ctx, opID)
 	if !ok {
-		return nil, fmt.Errorf("incoming get change log: no active log for op %q on shard %q", opID, shardName)
+		return nil, fmt.Errorf("incoming get change log: %s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
 	}
 	return log.NewTailerWithCap(0, untilLSN)
 }
@@ -656,21 +656,6 @@ func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID s
 	}
 	if err := shard.StopChangeCapture(ctx, opID); err != nil {
 		return fmt.Errorf("incoming stop change capture: op %q: %w", opID, err)
-	}
-	return nil
-}
-
-func (i *Index) IncomingWaitForReplicationDrain(ctx context.Context, shardName string, deadline time.Duration) error {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("incoming wait for replication drain: get shard %q: %w", shardName, err)
-	}
-	defer release()
-	if shard == nil {
-		return fmt.Errorf("incoming wait for replication drain: shard %q not found", shardName)
-	}
-	if err := shard.WaitForReplicationDrain(ctx, deadline); err != nil {
-		return fmt.Errorf("incoming wait for replication drain: shard %q: %w", shardName, err)
 	}
 	return nil
 }
@@ -1002,12 +987,9 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			}
 			return fmt.Errorf("replay decode payload for %s: %w", u.ID, err)
 		}
-		// Dedupe by max LastUpdateTimeUnixMilli rather than relying on
-		// PutObjectBatch's own dedupe — findDuplicatesInBatchObjects keeps the
-		// LAST occurrence by index, not the highest timestamp, so a
-		// clock-skewed source whose LSN order disagrees with timestamp order
-		// would otherwise let an older PUT win over a newer one.
-		if existing, ok := pending[u.ID]; ok && existing.ts >= u.LastUpdateTimeUnixMilli {
+		// Strict `>` keeps clock-skew protection but breaks same-ms ties on
+		// LSN-order-last, matching source's bucket state.
+		if existing, ok := pending[u.ID]; ok && existing.ts > u.LastUpdateTimeUnixMilli {
 			continue
 		}
 		pending[u.ID] = pendingPut{decoded: decoded, ts: u.LastUpdateTimeUnixMilli}

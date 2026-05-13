@@ -469,6 +469,14 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 	)
 }
 
+// BumpReplicationVersion is a side-effect hook from the replication manager's
+// apply path — not a top-level RAFT command. Called under the apply lock with
+// v = RAFT index of the op-mutating apply, so the per-write WaitForUpdate
+// fence covers that index transitively.
+func (s *SchemaManager) BumpReplicationVersion(class string, v uint64) {
+	s.schema.bumpReplicationVersion(class, v)
+}
+
 func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := &command.AddTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {

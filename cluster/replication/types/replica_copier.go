@@ -13,7 +13,6 @@ package types
 
 import (
 	"context"
-	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -56,7 +55,4 @@ type ReplicaCopier interface {
 
 	// StopChangeCapture see cluster/replication/copier.Copier.StopChangeCapture
 	StopChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error
-
-	// WaitForReplicationDrain see cluster/replication/copier.Copier.WaitForReplicationDrain
-	WaitForReplicationDrain(ctx context.Context, srcNodeId, indexName, shardName string, deadline time.Duration) error
 }

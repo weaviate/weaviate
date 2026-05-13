@@ -36,6 +36,11 @@ type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
+
+	// Bumps the per-class metaClass.ReplicationVersion from every op-mutating
+	// apply, so the per-write WaitForUpdate fence covers op-state transitions
+	// without a per-move RPC fan-out. Wired in store.NewFSM.
+	bumpReplicationVersion func(class string, raftIndex uint64)
 }
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
@@ -45,6 +50,19 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 		schemaReader:   schemaReader,
 		nodeSelector:   nodeSelector,
 	}
+}
+
+// SetReplicationVersionBumper wires the bump callback. nil is tolerated so
+// tests don't have to install a real SchemaManager just to exercise apply.
+func (m *Manager) SetReplicationVersionBumper(fn func(class string, raftIndex uint64)) {
+	m.bumpReplicationVersion = fn
+}
+
+func (m *Manager) bump(class string, raftIndex uint64) {
+	if m.bumpReplicationVersion == nil || class == "" {
+		return
+	}
+	m.bumpReplicationVersion(class, raftIndex)
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
@@ -87,9 +105,14 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 			if err != nil {
 				return fmt.Errorf("failed to get op uuid from id %d: %w", req.Id, err)
 			}
-			return m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
+			class, err := m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
 				Uuid: uuid,
 			})
+			if err != nil {
+				return err
+			}
+			m.bump(class, c.Version)
+			return nil
 		}
 		return err
 	}
@@ -106,8 +129,12 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Store the updated shard replication op in the FSM
-	return m.replicationFSM.UpdateReplicationOpStatus(req)
+	class, err := m.replicationFSM.UpdateReplicationOpStatus(req)
+	if err != nil {
+		return err
+	}
+	m.bump(class, c.Version)
+	return nil
 }
 
 func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
@@ -526,8 +553,12 @@ func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Trigger cancellation of the replication operation in the FSM
-	return m.replicationFSM.CancelReplication(req)
+	class, err := m.replicationFSM.CancelReplication(req)
+	if err != nil {
+		return err
+	}
+	m.bump(class, c.Version)
+	return nil
 }
 
 func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
@@ -536,8 +567,12 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Trigger deletion of the replication operation in the FSM
-	return m.replicationFSM.DeleteReplication(req)
+	class, err := m.replicationFSM.DeleteReplication(req)
+	if err != nil {
+		return err
+	}
+	m.bump(class, c.Version)
+	return nil
 }
 
 func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {

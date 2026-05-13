@@ -223,7 +223,7 @@ func (x ApplyRequest_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ApplyRequest_Type.Descriptor instead.
 func (ApplyRequest_Type) EnumDescriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{8, 0}
+	return file_api_message_proto_rawDescGZIP(), []int{6, 0}
 }
 
 type QueryRequest_Type int32
@@ -350,7 +350,7 @@ func (x QueryRequest_Type) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use QueryRequest_Type.Descriptor instead.
 func (QueryRequest_Type) EnumDescriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{10, 0}
+	return file_api_message_proto_rawDescGZIP(), []int{8, 0}
 }
 
 type TenantsProcess_Op int32
@@ -402,7 +402,7 @@ func (x TenantsProcess_Op) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TenantsProcess_Op.Descriptor instead.
 func (TenantsProcess_Op) EnumDescriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{14, 0}
+	return file_api_message_proto_rawDescGZIP(), []int{12, 0}
 }
 
 type TenantProcessRequest_Action int32
@@ -451,7 +451,7 @@ func (x TenantProcessRequest_Action) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use TenantProcessRequest_Action.Descriptor instead.
 func (TenantProcessRequest_Action) EnumDescriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{15, 0}
+	return file_api_message_proto_rawDescGZIP(), []int{13, 0}
 }
 
 type JoinPeerRequest struct {
@@ -734,86 +734,6 @@ func (*NotifyPeerResponse) Descriptor() ([]byte, []int) {
 	return file_api_message_proto_rawDescGZIP(), []int{5}
 }
 
-type WaitForAppliedIndexRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       uint64                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *WaitForAppliedIndexRequest) Reset() {
-	*x = WaitForAppliedIndexRequest{}
-	mi := &file_api_message_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WaitForAppliedIndexRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WaitForAppliedIndexRequest) ProtoMessage() {}
-
-func (x *WaitForAppliedIndexRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WaitForAppliedIndexRequest.ProtoReflect.Descriptor instead.
-func (*WaitForAppliedIndexRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *WaitForAppliedIndexRequest) GetVersion() uint64 {
-	if x != nil {
-		return x.Version
-	}
-	return 0
-}
-
-type WaitForAppliedIndexResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *WaitForAppliedIndexResponse) Reset() {
-	*x = WaitForAppliedIndexResponse{}
-	mi := &file_api_message_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *WaitForAppliedIndexResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*WaitForAppliedIndexResponse) ProtoMessage() {}
-
-func (x *WaitForAppliedIndexResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use WaitForAppliedIndexResponse.ProtoReflect.Descriptor instead.
-func (*WaitForAppliedIndexResponse) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{7}
-}
-
 type ApplyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          ApplyRequest_Type      `protobuf:"varint,1,opt,name=type,proto3,enum=weaviate.internal.cluster.ApplyRequest_Type" json:"type,omitempty"`
@@ -826,7 +746,7 @@ type ApplyRequest struct {
 
 func (x *ApplyRequest) Reset() {
 	*x = ApplyRequest{}
-	mi := &file_api_message_proto_msgTypes[8]
+	mi := &file_api_message_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -838,7 +758,7 @@ func (x *ApplyRequest) String() string {
 func (*ApplyRequest) ProtoMessage() {}
 
 func (x *ApplyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[8]
+	mi := &file_api_message_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -851,7 +771,7 @@ func (x *ApplyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyRequest.ProtoReflect.Descriptor instead.
 func (*ApplyRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{8}
+	return file_api_message_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ApplyRequest) GetType() ApplyRequest_Type {
@@ -892,7 +812,7 @@ type ApplyResponse struct {
 
 func (x *ApplyResponse) Reset() {
 	*x = ApplyResponse{}
-	mi := &file_api_message_proto_msgTypes[9]
+	mi := &file_api_message_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -904,7 +824,7 @@ func (x *ApplyResponse) String() string {
 func (*ApplyResponse) ProtoMessage() {}
 
 func (x *ApplyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[9]
+	mi := &file_api_message_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -917,7 +837,7 @@ func (x *ApplyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyResponse.ProtoReflect.Descriptor instead.
 func (*ApplyResponse) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{9}
+	return file_api_message_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ApplyResponse) GetVersion() uint64 {
@@ -944,7 +864,7 @@ type QueryRequest struct {
 
 func (x *QueryRequest) Reset() {
 	*x = QueryRequest{}
-	mi := &file_api_message_proto_msgTypes[10]
+	mi := &file_api_message_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -956,7 +876,7 @@ func (x *QueryRequest) String() string {
 func (*QueryRequest) ProtoMessage() {}
 
 func (x *QueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[10]
+	mi := &file_api_message_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -969,7 +889,7 @@ func (x *QueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryRequest.ProtoReflect.Descriptor instead.
 func (*QueryRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{10}
+	return file_api_message_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *QueryRequest) GetType() QueryRequest_Type {
@@ -995,7 +915,7 @@ type QueryResponse struct {
 
 func (x *QueryResponse) Reset() {
 	*x = QueryResponse{}
-	mi := &file_api_message_proto_msgTypes[11]
+	mi := &file_api_message_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1007,7 +927,7 @@ func (x *QueryResponse) String() string {
 func (*QueryResponse) ProtoMessage() {}
 
 func (x *QueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[11]
+	mi := &file_api_message_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1020,7 +940,7 @@ func (x *QueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryResponse.ProtoReflect.Descriptor instead.
 func (*QueryResponse) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{11}
+	return file_api_message_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *QueryResponse) GetPayload() []byte {
@@ -1040,7 +960,7 @@ type AddTenantsRequest struct {
 
 func (x *AddTenantsRequest) Reset() {
 	*x = AddTenantsRequest{}
-	mi := &file_api_message_proto_msgTypes[12]
+	mi := &file_api_message_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +972,7 @@ func (x *AddTenantsRequest) String() string {
 func (*AddTenantsRequest) ProtoMessage() {}
 
 func (x *AddTenantsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[12]
+	mi := &file_api_message_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +985,7 @@ func (x *AddTenantsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddTenantsRequest.ProtoReflect.Descriptor instead.
 func (*AddTenantsRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{12}
+	return file_api_message_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AddTenantsRequest) GetClusterNodes() []string {
@@ -1093,7 +1013,7 @@ type UpdateTenantsRequest struct {
 
 func (x *UpdateTenantsRequest) Reset() {
 	*x = UpdateTenantsRequest{}
-	mi := &file_api_message_proto_msgTypes[13]
+	mi := &file_api_message_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1105,7 +1025,7 @@ func (x *UpdateTenantsRequest) String() string {
 func (*UpdateTenantsRequest) ProtoMessage() {}
 
 func (x *UpdateTenantsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[13]
+	mi := &file_api_message_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1118,7 +1038,7 @@ func (x *UpdateTenantsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTenantsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTenantsRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{13}
+	return file_api_message_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateTenantsRequest) GetTenants() []*Tenant {
@@ -1152,7 +1072,7 @@ type TenantsProcess struct {
 
 func (x *TenantsProcess) Reset() {
 	*x = TenantsProcess{}
-	mi := &file_api_message_proto_msgTypes[14]
+	mi := &file_api_message_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1084,7 @@ func (x *TenantsProcess) String() string {
 func (*TenantsProcess) ProtoMessage() {}
 
 func (x *TenantsProcess) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[14]
+	mi := &file_api_message_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1097,7 @@ func (x *TenantsProcess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TenantsProcess.ProtoReflect.Descriptor instead.
 func (*TenantsProcess) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{14}
+	return file_api_message_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TenantsProcess) GetOp() TenantsProcess_Op {
@@ -1205,7 +1125,7 @@ type TenantProcessRequest struct {
 
 func (x *TenantProcessRequest) Reset() {
 	*x = TenantProcessRequest{}
-	mi := &file_api_message_proto_msgTypes[15]
+	mi := &file_api_message_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1217,7 +1137,7 @@ func (x *TenantProcessRequest) String() string {
 func (*TenantProcessRequest) ProtoMessage() {}
 
 func (x *TenantProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[15]
+	mi := &file_api_message_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1230,7 +1150,7 @@ func (x *TenantProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TenantProcessRequest.ProtoReflect.Descriptor instead.
 func (*TenantProcessRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{15}
+	return file_api_message_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TenantProcessRequest) GetNode() string {
@@ -1263,7 +1183,7 @@ type DeleteTenantsRequest struct {
 
 func (x *DeleteTenantsRequest) Reset() {
 	*x = DeleteTenantsRequest{}
-	mi := &file_api_message_proto_msgTypes[16]
+	mi := &file_api_message_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1275,7 +1195,7 @@ func (x *DeleteTenantsRequest) String() string {
 func (*DeleteTenantsRequest) ProtoMessage() {}
 
 func (x *DeleteTenantsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[16]
+	mi := &file_api_message_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1288,7 +1208,7 @@ func (x *DeleteTenantsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteTenantsRequest.ProtoReflect.Descriptor instead.
 func (*DeleteTenantsRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{16}
+	return file_api_message_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DeleteTenantsRequest) GetTenants() []string {
@@ -1308,7 +1228,7 @@ type Tenant struct {
 
 func (x *Tenant) Reset() {
 	*x = Tenant{}
-	mi := &file_api_message_proto_msgTypes[17]
+	mi := &file_api_message_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1240,7 @@ func (x *Tenant) String() string {
 func (*Tenant) ProtoMessage() {}
 
 func (x *Tenant) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[17]
+	mi := &file_api_message_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1253,7 @@ func (x *Tenant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Tenant.ProtoReflect.Descriptor instead.
 func (*Tenant) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{17}
+	return file_api_message_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Tenant) GetName() string {
@@ -1360,7 +1280,7 @@ type UnitSpec struct {
 
 func (x *UnitSpec) Reset() {
 	*x = UnitSpec{}
-	mi := &file_api_message_proto_msgTypes[18]
+	mi := &file_api_message_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1372,7 +1292,7 @@ func (x *UnitSpec) String() string {
 func (*UnitSpec) ProtoMessage() {}
 
 func (x *UnitSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[18]
+	mi := &file_api_message_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1385,7 +1305,7 @@ func (x *UnitSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnitSpec.ProtoReflect.Descriptor instead.
 func (*UnitSpec) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{18}
+	return file_api_message_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UnitSpec) GetId() string {
@@ -1416,7 +1336,7 @@ type AddDistributedTaskRequest struct {
 
 func (x *AddDistributedTaskRequest) Reset() {
 	*x = AddDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[19]
+	mi := &file_api_message_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1428,7 +1348,7 @@ func (x *AddDistributedTaskRequest) String() string {
 func (*AddDistributedTaskRequest) ProtoMessage() {}
 
 func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[19]
+	mi := &file_api_message_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1441,7 +1361,7 @@ func (x *AddDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*AddDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{19}
+	return file_api_message_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AddDistributedTaskRequest) GetNamespace() string {
@@ -1501,7 +1421,7 @@ type RecordDistributedTaskNodeCompletionRequest struct {
 
 func (x *RecordDistributedTaskNodeCompletionRequest) Reset() {
 	*x = RecordDistributedTaskNodeCompletionRequest{}
-	mi := &file_api_message_proto_msgTypes[20]
+	mi := &file_api_message_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1513,7 +1433,7 @@ func (x *RecordDistributedTaskNodeCompletionRequest) String() string {
 func (*RecordDistributedTaskNodeCompletionRequest) ProtoMessage() {}
 
 func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[20]
+	mi := &file_api_message_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1526,7 +1446,7 @@ func (x *RecordDistributedTaskNodeCompletionRequest) ProtoReflect() protoreflect
 
 // Deprecated: Use RecordDistributedTaskNodeCompletionRequest.ProtoReflect.Descriptor instead.
 func (*RecordDistributedTaskNodeCompletionRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{20}
+	return file_api_message_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RecordDistributedTaskNodeCompletionRequest) GetNamespace() string {
@@ -1583,7 +1503,7 @@ type CancelDistributedTaskRequest struct {
 
 func (x *CancelDistributedTaskRequest) Reset() {
 	*x = CancelDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[21]
+	mi := &file_api_message_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1595,7 +1515,7 @@ func (x *CancelDistributedTaskRequest) String() string {
 func (*CancelDistributedTaskRequest) ProtoMessage() {}
 
 func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[21]
+	mi := &file_api_message_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1608,7 +1528,7 @@ func (x *CancelDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*CancelDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{21}
+	return file_api_message_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CancelDistributedTaskRequest) GetNamespace() string {
@@ -1650,7 +1570,7 @@ type CleanUpDistributedTaskRequest struct {
 
 func (x *CleanUpDistributedTaskRequest) Reset() {
 	*x = CleanUpDistributedTaskRequest{}
-	mi := &file_api_message_proto_msgTypes[22]
+	mi := &file_api_message_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1662,7 +1582,7 @@ func (x *CleanUpDistributedTaskRequest) String() string {
 func (*CleanUpDistributedTaskRequest) ProtoMessage() {}
 
 func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[22]
+	mi := &file_api_message_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1675,7 +1595,7 @@ func (x *CleanUpDistributedTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanUpDistributedTaskRequest.ProtoReflect.Descriptor instead.
 func (*CleanUpDistributedTaskRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{22}
+	return file_api_message_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CleanUpDistributedTaskRequest) GetNamespace() string {
@@ -1710,7 +1630,7 @@ type SyncShardRequest struct {
 
 func (x *SyncShardRequest) Reset() {
 	*x = SyncShardRequest{}
-	mi := &file_api_message_proto_msgTypes[23]
+	mi := &file_api_message_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1722,7 +1642,7 @@ func (x *SyncShardRequest) String() string {
 func (*SyncShardRequest) ProtoMessage() {}
 
 func (x *SyncShardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[23]
+	mi := &file_api_message_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1735,7 +1655,7 @@ func (x *SyncShardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncShardRequest.ProtoReflect.Descriptor instead.
 func (*SyncShardRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{23}
+	return file_api_message_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SyncShardRequest) GetCollection() string {
@@ -1769,7 +1689,7 @@ type CreateAliasRequest struct {
 
 func (x *CreateAliasRequest) Reset() {
 	*x = CreateAliasRequest{}
-	mi := &file_api_message_proto_msgTypes[24]
+	mi := &file_api_message_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1781,7 +1701,7 @@ func (x *CreateAliasRequest) String() string {
 func (*CreateAliasRequest) ProtoMessage() {}
 
 func (x *CreateAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[24]
+	mi := &file_api_message_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1794,7 +1714,7 @@ func (x *CreateAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAliasRequest.ProtoReflect.Descriptor instead.
 func (*CreateAliasRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{24}
+	return file_api_message_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CreateAliasRequest) GetCollection() string {
@@ -1821,7 +1741,7 @@ type ReplaceAliasRequest struct {
 
 func (x *ReplaceAliasRequest) Reset() {
 	*x = ReplaceAliasRequest{}
-	mi := &file_api_message_proto_msgTypes[25]
+	mi := &file_api_message_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1833,7 +1753,7 @@ func (x *ReplaceAliasRequest) String() string {
 func (*ReplaceAliasRequest) ProtoMessage() {}
 
 func (x *ReplaceAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[25]
+	mi := &file_api_message_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1846,7 +1766,7 @@ func (x *ReplaceAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplaceAliasRequest.ProtoReflect.Descriptor instead.
 func (*ReplaceAliasRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{25}
+	return file_api_message_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ReplaceAliasRequest) GetCollection() string {
@@ -1872,7 +1792,7 @@ type DeleteAliasRequest struct {
 
 func (x *DeleteAliasRequest) Reset() {
 	*x = DeleteAliasRequest{}
-	mi := &file_api_message_proto_msgTypes[26]
+	mi := &file_api_message_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1884,7 +1804,7 @@ func (x *DeleteAliasRequest) String() string {
 func (*DeleteAliasRequest) ProtoMessage() {}
 
 func (x *DeleteAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[26]
+	mi := &file_api_message_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1897,7 +1817,7 @@ func (x *DeleteAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAliasRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAliasRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{26}
+	return file_api_message_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DeleteAliasRequest) GetAlias() string {
@@ -1922,7 +1842,7 @@ type RecordDistributedTaskUnitCompletionRequest struct {
 
 func (x *RecordDistributedTaskUnitCompletionRequest) Reset() {
 	*x = RecordDistributedTaskUnitCompletionRequest{}
-	mi := &file_api_message_proto_msgTypes[27]
+	mi := &file_api_message_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1934,7 +1854,7 @@ func (x *RecordDistributedTaskUnitCompletionRequest) String() string {
 func (*RecordDistributedTaskUnitCompletionRequest) ProtoMessage() {}
 
 func (x *RecordDistributedTaskUnitCompletionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[27]
+	mi := &file_api_message_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1947,7 +1867,7 @@ func (x *RecordDistributedTaskUnitCompletionRequest) ProtoReflect() protoreflect
 
 // Deprecated: Use RecordDistributedTaskUnitCompletionRequest.ProtoReflect.Descriptor instead.
 func (*RecordDistributedTaskUnitCompletionRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{27}
+	return file_api_message_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RecordDistributedTaskUnitCompletionRequest) GetNamespace() string {
@@ -2014,7 +1934,7 @@ type UpdateDistributedTaskUnitProgressRequest struct {
 
 func (x *UpdateDistributedTaskUnitProgressRequest) Reset() {
 	*x = UpdateDistributedTaskUnitProgressRequest{}
-	mi := &file_api_message_proto_msgTypes[28]
+	mi := &file_api_message_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2026,7 +1946,7 @@ func (x *UpdateDistributedTaskUnitProgressRequest) String() string {
 func (*UpdateDistributedTaskUnitProgressRequest) ProtoMessage() {}
 
 func (x *UpdateDistributedTaskUnitProgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[28]
+	mi := &file_api_message_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2039,7 +1959,7 @@ func (x *UpdateDistributedTaskUnitProgressRequest) ProtoReflect() protoreflect.M
 
 // Deprecated: Use UpdateDistributedTaskUnitProgressRequest.ProtoReflect.Descriptor instead.
 func (*UpdateDistributedTaskUnitProgressRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{28}
+	return file_api_message_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *UpdateDistributedTaskUnitProgressRequest) GetNamespace() string {
@@ -2109,10 +2029,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"6\n" +
-	"\x1aWaitForAppliedIndexRequest\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x04R\aversion\"\x1d\n" +
-	"\x1bWaitForAppliedIndexResponse\"\xad\x10\n" +
+	"\x12NotifyPeerResponse\"\xad\x10\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
@@ -2303,7 +2220,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x17\n" +
 	"\aunit_id\x18\x05 \x01(\tR\x06unitId\x12\x1a\n" +
 	"\bprogress\x18\x06 \x01(\x02R\bprogress\x123\n" +
-	"\x16updated_at_unix_millis\x18\a \x01(\x03R\x13updatedAtUnixMillis2\x96\x05\n" +
+	"\x16updated_at_unix_millis\x18\a \x01(\x03R\x13updatedAtUnixMillis2\x8d\x04\n" +
 	"\x0eClusterService\x12k\n" +
 	"\n" +
 	"RemovePeer\x12,.weaviate.internal.cluster.RemovePeerRequest\x1a-.weaviate.internal.cluster.RemovePeerResponse\"\x00\x12e\n" +
@@ -2311,8 +2228,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\n" +
 	"NotifyPeer\x12,.weaviate.internal.cluster.NotifyPeerRequest\x1a-.weaviate.internal.cluster.NotifyPeerResponse\"\x00\x12\\\n" +
 	"\x05Apply\x12'.weaviate.internal.cluster.ApplyRequest\x1a(.weaviate.internal.cluster.ApplyResponse\"\x00\x12\\\n" +
-	"\x05Query\x12'.weaviate.internal.cluster.QueryRequest\x1a(.weaviate.internal.cluster.QueryResponse\"\x00\x12\x86\x01\n" +
-	"\x13WaitForAppliedIndex\x125.weaviate.internal.cluster.WaitForAppliedIndexRequest\x1a6.weaviate.internal.cluster.WaitForAppliedIndexResponse\"\x00B\xe1\x01\n" +
+	"\x05Query\x12'.weaviate.internal.cluster.QueryRequest\x1a(.weaviate.internal.cluster.QueryResponse\"\x00B\xe1\x01\n" +
 	"\x1dcom.weaviate.internal.clusterB\fMessageProtoP\x01Z,github.com/weaviate/weaviate/cloud/proto/api\xa2\x02\x03WIC\xaa\x02\x19Weaviate.Internal.Cluster\xca\x02\x19Weaviate\\Internal\\Cluster\xe2\x02%Weaviate\\Internal\\Cluster\\GPBMetadata\xea\x02\x1bWeaviate::Internal::Clusterb\x06proto3"
 
 var (
@@ -2328,7 +2244,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -2340,54 +2256,50 @@ var file_api_message_proto_goTypes = []any{
 	(*RemovePeerResponse)(nil),                         // 7: weaviate.internal.cluster.RemovePeerResponse
 	(*NotifyPeerRequest)(nil),                          // 8: weaviate.internal.cluster.NotifyPeerRequest
 	(*NotifyPeerResponse)(nil),                         // 9: weaviate.internal.cluster.NotifyPeerResponse
-	(*WaitForAppliedIndexRequest)(nil),                 // 10: weaviate.internal.cluster.WaitForAppliedIndexRequest
-	(*WaitForAppliedIndexResponse)(nil),                // 11: weaviate.internal.cluster.WaitForAppliedIndexResponse
-	(*ApplyRequest)(nil),                               // 12: weaviate.internal.cluster.ApplyRequest
-	(*ApplyResponse)(nil),                              // 13: weaviate.internal.cluster.ApplyResponse
-	(*QueryRequest)(nil),                               // 14: weaviate.internal.cluster.QueryRequest
-	(*QueryResponse)(nil),                              // 15: weaviate.internal.cluster.QueryResponse
-	(*AddTenantsRequest)(nil),                          // 16: weaviate.internal.cluster.AddTenantsRequest
-	(*UpdateTenantsRequest)(nil),                       // 17: weaviate.internal.cluster.UpdateTenantsRequest
-	(*TenantsProcess)(nil),                             // 18: weaviate.internal.cluster.TenantsProcess
-	(*TenantProcessRequest)(nil),                       // 19: weaviate.internal.cluster.TenantProcessRequest
-	(*DeleteTenantsRequest)(nil),                       // 20: weaviate.internal.cluster.DeleteTenantsRequest
-	(*Tenant)(nil),                                     // 21: weaviate.internal.cluster.Tenant
-	(*UnitSpec)(nil),                                   // 22: weaviate.internal.cluster.UnitSpec
-	(*AddDistributedTaskRequest)(nil),                  // 23: weaviate.internal.cluster.AddDistributedTaskRequest
-	(*RecordDistributedTaskNodeCompletionRequest)(nil), // 24: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
-	(*CancelDistributedTaskRequest)(nil),               // 25: weaviate.internal.cluster.CancelDistributedTaskRequest
-	(*CleanUpDistributedTaskRequest)(nil),              // 26: weaviate.internal.cluster.CleanUpDistributedTaskRequest
-	(*SyncShardRequest)(nil),                           // 27: weaviate.internal.cluster.SyncShardRequest
-	(*CreateAliasRequest)(nil),                         // 28: weaviate.internal.cluster.CreateAliasRequest
-	(*ReplaceAliasRequest)(nil),                        // 29: weaviate.internal.cluster.ReplaceAliasRequest
-	(*DeleteAliasRequest)(nil),                         // 30: weaviate.internal.cluster.DeleteAliasRequest
-	(*RecordDistributedTaskUnitCompletionRequest)(nil), // 31: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
-	(*UpdateDistributedTaskUnitProgressRequest)(nil),   // 32: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
+	(*ApplyRequest)(nil),                               // 10: weaviate.internal.cluster.ApplyRequest
+	(*ApplyResponse)(nil),                              // 11: weaviate.internal.cluster.ApplyResponse
+	(*QueryRequest)(nil),                               // 12: weaviate.internal.cluster.QueryRequest
+	(*QueryResponse)(nil),                              // 13: weaviate.internal.cluster.QueryResponse
+	(*AddTenantsRequest)(nil),                          // 14: weaviate.internal.cluster.AddTenantsRequest
+	(*UpdateTenantsRequest)(nil),                       // 15: weaviate.internal.cluster.UpdateTenantsRequest
+	(*TenantsProcess)(nil),                             // 16: weaviate.internal.cluster.TenantsProcess
+	(*TenantProcessRequest)(nil),                       // 17: weaviate.internal.cluster.TenantProcessRequest
+	(*DeleteTenantsRequest)(nil),                       // 18: weaviate.internal.cluster.DeleteTenantsRequest
+	(*Tenant)(nil),                                     // 19: weaviate.internal.cluster.Tenant
+	(*UnitSpec)(nil),                                   // 20: weaviate.internal.cluster.UnitSpec
+	(*AddDistributedTaskRequest)(nil),                  // 21: weaviate.internal.cluster.AddDistributedTaskRequest
+	(*RecordDistributedTaskNodeCompletionRequest)(nil), // 22: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
+	(*CancelDistributedTaskRequest)(nil),               // 23: weaviate.internal.cluster.CancelDistributedTaskRequest
+	(*CleanUpDistributedTaskRequest)(nil),              // 24: weaviate.internal.cluster.CleanUpDistributedTaskRequest
+	(*SyncShardRequest)(nil),                           // 25: weaviate.internal.cluster.SyncShardRequest
+	(*CreateAliasRequest)(nil),                         // 26: weaviate.internal.cluster.CreateAliasRequest
+	(*ReplaceAliasRequest)(nil),                        // 27: weaviate.internal.cluster.ReplaceAliasRequest
+	(*DeleteAliasRequest)(nil),                         // 28: weaviate.internal.cluster.DeleteAliasRequest
+	(*RecordDistributedTaskUnitCompletionRequest)(nil), // 29: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
+	(*UpdateDistributedTaskUnitProgressRequest)(nil),   // 30: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
 	1,  // 1: weaviate.internal.cluster.QueryRequest.type:type_name -> weaviate.internal.cluster.QueryRequest.Type
-	21, // 2: weaviate.internal.cluster.AddTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
-	21, // 3: weaviate.internal.cluster.UpdateTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
+	19, // 2: weaviate.internal.cluster.AddTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
+	19, // 3: weaviate.internal.cluster.UpdateTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
 	2,  // 4: weaviate.internal.cluster.TenantsProcess.op:type_name -> weaviate.internal.cluster.TenantsProcess.Op
-	21, // 5: weaviate.internal.cluster.TenantsProcess.tenant:type_name -> weaviate.internal.cluster.Tenant
+	19, // 5: weaviate.internal.cluster.TenantsProcess.tenant:type_name -> weaviate.internal.cluster.Tenant
 	3,  // 6: weaviate.internal.cluster.TenantProcessRequest.action:type_name -> weaviate.internal.cluster.TenantProcessRequest.Action
-	18, // 7: weaviate.internal.cluster.TenantProcessRequest.tenants_processes:type_name -> weaviate.internal.cluster.TenantsProcess
-	22, // 8: weaviate.internal.cluster.AddDistributedTaskRequest.unit_specs:type_name -> weaviate.internal.cluster.UnitSpec
+	16, // 7: weaviate.internal.cluster.TenantProcessRequest.tenants_processes:type_name -> weaviate.internal.cluster.TenantsProcess
+	20, // 8: weaviate.internal.cluster.AddDistributedTaskRequest.unit_specs:type_name -> weaviate.internal.cluster.UnitSpec
 	6,  // 9: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
 	4,  // 10: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
 	8,  // 11: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
-	12, // 12: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
-	14, // 13: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
-	10, // 14: weaviate.internal.cluster.ClusterService.WaitForAppliedIndex:input_type -> weaviate.internal.cluster.WaitForAppliedIndexRequest
-	7,  // 15: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
-	5,  // 16: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
-	9,  // 17: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
-	13, // 18: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
-	15, // 19: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
-	11, // 20: weaviate.internal.cluster.ClusterService.WaitForAppliedIndex:output_type -> weaviate.internal.cluster.WaitForAppliedIndexResponse
-	15, // [15:21] is the sub-list for method output_type
-	9,  // [9:15] is the sub-list for method input_type
+	10, // 12: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
+	12, // 13: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
+	7,  // 14: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
+	5,  // 15: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
+	9,  // 16: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
+	11, // 17: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
+	13, // 18: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -2398,14 +2310,14 @@ func file_api_message_proto_init() {
 	if File_api_message_proto != nil {
 		return
 	}
-	file_api_message_proto_msgTypes[20].OneofWrappers = []any{}
+	file_api_message_proto_msgTypes[18].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   29,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

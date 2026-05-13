@@ -14,6 +14,7 @@ package replication
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -44,9 +46,51 @@ type OpConsumer interface {
 // DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
 
-// replicationDrainDeadline bounds the source-side drain so a stuck source
-// cannot block a MOVE indefinitely.
-const replicationDrainDeadline = 5 * time.Second
+// finalizeAndTail seals the source CCL while an uncapped tailer drains it
+// onto target. Idempotent: on retry after StopChangeCapture, both RPCs see
+// "log gone" and we treat that as already-drained.
+func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Entry, src, coll, shard, opID string) error {
+	tailCtx, cancelTail := context.WithCancel(ctx)
+	defer cancelTail()
+
+	tailErrCh := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, err := c.replicaCopier.TailAndApply(tailCtx, src, coll, shard, opID, math.MaxUint64)
+		if isCCLAlreadyGone(err) {
+			err = nil
+		}
+		tailErrCh <- err
+	}, c.logger)
+
+	if _, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID); err != nil {
+		if !isCCLAlreadyGone(err) {
+			cancelTail()
+			<-tailErrCh
+			logger.WithError(err).Error("failure while finalizing change log")
+			return err
+		}
+		logger.WithError(err).Info("FinalizeChangeLog: log already gone, treating as already finalized")
+	}
+	if err := <-tailErrCh; err != nil {
+		logger.WithError(err).Error("failure while draining change log to final LSN")
+		return err
+	}
+	if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil {
+		logger.WithError(err).Warn("StopChangeCapture failed (non-fatal)")
+	}
+	return nil
+}
+
+// isCCLAlreadyGone matches the gRPC-wrapped "log gone" errors source emits
+// after StopChangeCapture — the already-drained signal on retry.
+func isCCLAlreadyGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, changelog.ErrMsgNoActiveLog) ||
+		strings.Contains(msg, changelog.ErrMsgNoActiveChangeCaptureLog)
+}
 
 // errOpCancelled is an error indicating that the operation was cancelled.
 var errOpCancelled = errors.New("operation cancelled")
@@ -624,19 +668,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
-		// finalLSN drain catches the RAFT-propagation dual-write window;
-		// LWW handles re-applies safely.
-		finalLSN, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID)
-		if err != nil {
-			logger.WithError(err).Error("failure while finalizing change log")
+		if err := c.finalizeAndTail(ctx, logger, src, coll, shard, opID); err != nil {
 			return api.ShardReplicationState(""), err
-		}
-		if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, finalLSN); err != nil {
-			logger.WithError(err).Error("failure while draining change log to final LSN")
-			return api.ShardReplicationState(""), err
-		}
-		if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil {
-			logger.WithError(err).Warn("StopChangeCapture failed (non-fatal)")
 		}
 		// sync the replica shard to ensure that the schema and store are consistent on each node
 		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
@@ -654,9 +687,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 }
 
-// processDehydratingOp is the state handler for the DEHYDRATING state (MOVE
-// only). The Finalize-and-drain captures stale-FSM coordinator writes that
-// land on the source between DeleteReplicaFromShard and RAFT propagation.
+// processDehydratingOp is the DEHYDRATING handler (MOVE only). finalizeAndTail
+// runs before DeleteReplicaFromShard: the apply of DeleteReplicaFromShard on
+// source drops the shard and its CCL synchronously, so a tail after the delete
+// has nothing to replay — losing any best-effort write to target that dropped
+// during FINALIZING.
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
@@ -683,10 +718,10 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 			return api.ShardReplicationState(""), ctx.Err()
 		}
 
-		// If the replica got deleted due to eventual consistency between our sanity check and this call, the delete will be a no-op and return no error
-		ver, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, src)
-		if err != nil {
-			logger.WithError(err).Error("failure while deleting replica from shard")
+		// Drain CCL onto target while source still owns the shard.
+		// Stale-FSM coord routing is fenced by per-write WaitForUpdate via
+		// metaClass.ReplicationVersion bumped on op-state apply.
+		if err := c.finalizeAndTail(ctx, logger, src, coll, shard, opID); err != nil {
 			return api.ShardReplicationState(""), err
 		}
 
@@ -695,33 +730,9 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 			return api.ShardReplicationState(""), ctx.Err()
 		}
 
-		// Converge every peer's FSM on the source-removal before sealing:
-		// a stale-FSM coordinator would otherwise still 2PC source, and a
-		// post-seal COMMIT lands in the bucket but bypasses the change log.
-		if err := c.leaderClient.WaitForUpdateAllNodes(ctx, ver); err != nil {
-			logger.WithError(err).Error("failure while waiting for source-removal to converge across nodes")
+		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, src); err != nil {
+			logger.WithError(err).Error("failure while deleting replica from shard")
 			return api.ShardReplicationState(""), err
-		}
-
-		// Drain PREPAREs already in flight before convergence; on deadline
-		// proceed — the residual race is no worse than the pre-fix behavior.
-		if err := c.replicaCopier.WaitForReplicationDrain(ctx, src, coll, shard, replicationDrainDeadline); err != nil {
-			logger.WithError(err).Warn("WaitForReplicationDrain on source did not complete cleanly (proceeding)")
-		}
-
-		finalLSN, err := c.replicaCopier.FinalizeChangeLog(ctx, src, coll, shard, opID)
-		if err != nil {
-			logger.WithError(err).Error("failure while finalizing change log")
-			return api.ShardReplicationState(""), err
-		}
-
-		if _, err := c.replicaCopier.TailAndApply(ctx, src, coll, shard, opID, finalLSN); err != nil {
-			logger.WithError(err).Error("failure while draining change log to final LSN")
-			return api.ShardReplicationState(""), err
-		}
-
-		if err := c.replicaCopier.StopChangeCapture(ctx, src, coll, shard, opID); err != nil {
-			logger.WithError(err).Warn("StopChangeCapture failed (non-fatal)")
 		}
 	}
 

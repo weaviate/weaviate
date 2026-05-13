@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 )
 
-var errNoSuchChangeLog = errors.New("shard: no active change-capture log for that op-id")
+var errNoSuchChangeLog = errors.New("shard: " + changelog.ErrMsgNoActiveChangeCaptureLog + " for that op-id")
 
 const (
 	changelogDirName       = "changelog"
@@ -63,16 +63,32 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 	return log, nil
 }
 
-// FinalizeChangeLog briefly takes writeBarrierMux.Lock so the returned LSN
-// is a true upper bound on writes already past the bucket-write boundary.
+// FinalizeChangeLog seals only when no PREPARE'd-but-not-COMMIT'd task
+// remains. Yielding Lock lets blocked COMMITs drain through the still-open
+// log — otherwise their post-seal CCL append would silently drop while
+// their bucket commit lands. The log stays registered+readable for tailers
+// until StopChangeCapture.
 func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	s.writeBarrierMux.Lock()
-	defer s.writeBarrierMux.Unlock()
-	return log.Finalize()
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		s.writeBarrierMux.Lock()
+		if s.replicationMap.len() == 0 {
+			defer s.writeBarrierMux.Unlock()
+			return log.Finalize()
+		}
+		s.writeBarrierMux.Unlock()
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
 }
 
 // SnapshotChangeLogLSN returns the highest LSN under the same brief

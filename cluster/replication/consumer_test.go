@@ -801,7 +801,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 		Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(0, nil)
+		Return(uint64(0), nil)
 	expectChangeCaptureMocks(mockReplicaCopier, mockFSMUpdater)
 
 	var completionWg sync.WaitGroup
@@ -1420,8 +1420,4 @@ func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpda
 	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	m.EXPECT().WaitForReplicationDrain(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	if fsm != nil {
-		fsm.EXPECT().WaitForUpdateAllNodes(mock.Anything, mock.Anything).Return(nil).Maybe()
-	}
 }

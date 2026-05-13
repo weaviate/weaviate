@@ -15,10 +15,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	mathrand "math/rand/v2"
 	"net/http"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -31,9 +33,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/nodes"
-	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -43,6 +46,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
+
+// errObjectNotFound is the sentinel returned by getTenantObjectThreadSafe on
+// HTTP 404 so deleted-id assertions can use errors.Is instead of pattern-
+// matching on the swagger error type.
+var errObjectNotFound = errors.New("object not found")
 
 var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
@@ -471,6 +479,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
+	tenant := "tenant0"
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
@@ -478,34 +487,58 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 			AsyncEnabled: false,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:              true,
-			AutoTenantActivation: true,
-			AutoTenantCreation:   true,
+			Enabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
+		helper.CreateTenants(t, paragraphClass.Class, []*models.Tenant{{Name: tenant}})
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       2,
 			AsyncEnabled: false,
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
-			Enabled:              true,
-			AutoTenantActivation: true,
-			AutoTenantCreation:   true,
+			Enabled: true,
 		}
 		helper.CreateClass(t, articleClass)
 	})
 
+	t.Run("wait for eventual consistency of schema", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for i := 1; i <= clusterSize; i++ {
+				helper.SetupClient(compose.ContainerURI(i))
+
+				consistency := false
+				respSchema, err := helper.Client(t).Schema.SchemaDump(
+					&schema.SchemaDumpParams{Consistency: &consistency},
+					nil,
+				)
+				assert.Nil(ct, err)
+				assert.Len(ct, respSchema.Payload.Classes, 2, "expected 2 classes in schema dump from node %d, got %d", i, len(respSchema.Payload.Classes))
+
+				respTenants, err := helper.Client(t).Schema.TenantExists(
+					&schema.TenantExistsParams{ClassName: paragraphClass.Class, TenantName: tenant, Consistency: &consistency},
+					nil,
+				)
+				assert.Nil(ct, err)
+				assert.True(ct, respTenants.IsSuccess(), 1, "expected tenant to exist in tenant exists response from node %d", i)
+			}
+		}, 10*time.Second, 1*time.Second, "schema not consistent across all nodes")
+	})
+	helper.SetupClient(compose.GetWeaviate().URI())
+
 	t.Run("insert initial paragraphs", func(t *testing.T) {
-		batch := make([]*models.Object, len(paragraphIDs))
+		objs := make([]*models.Object, len(paragraphIDs))
 		for i, id := range paragraphIDs {
-			batch[i] = articles.NewParagraph().
+			objs[i] = articles.NewParagraph().
 				WithID(id).
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
-				WithTenant("tenant0").
+				WithTenant(tenant).
 				Object()
 		}
-		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
+		all := "ALL"
+		params := batch.NewBatchObjectsCreateParams().WithConsistencyLevel(&all).WithBody(batch.BatchObjectsCreateBody{Objects: objs})
+		_, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+		require.NoError(t, err, "failed to create initial batch of paragraphs: %s", err)
 	})
 
 	parallelWriteWg := sync.WaitGroup{}
@@ -561,7 +594,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 					case roll < 60 || len(liveIDs) == 0:
 						newID := strfmt.UUID(uuid.New().String())
 						contents := fmt.Sprintf("paragraph#%d", opSeq)
-						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]any{"contents": contents}, string(newID), "tenant0"); err != nil {
+						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]any{"contents": contents}, string(newID), tenant); err != nil {
 							assert.NoError(t, err, "error creating object %s on node %s", newID, uri)
 							continue
 						}
@@ -572,7 +605,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 							continue
 						}
 						contents := fmt.Sprintf("paragraph#%d-updated-%d", opSeq, opSeq)
-						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), "tenant0", map[string]any{"contents": contents}); err != nil {
+						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), tenant, map[string]any{"contents": contents}); err != nil {
 							assert.NoError(t, err, "error patching object %s on node %s", target, uri)
 							continue
 						}
@@ -582,7 +615,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 						if target == "" {
 							continue
 						}
-						if err := deleteObjectThreadSafe(uri, paragraphClass.Class, string(target), "tenant0"); err != nil {
+						if err := deleteObjectThreadSafe(uri, paragraphClass.Class, string(target), tenant); err != nil {
 							assert.NoError(t, err, "error deleting object %s on node %s", target, uri)
 							continue
 						}
@@ -608,7 +641,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	replicaNode := nodeInfo{}
 	// TODO test copy as well
 	transferType := api.MOVE.String()
-	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
+	t.Run(fmt.Sprintf("start replica replication to %s for paragraph", targetNode.nodeName), func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
 		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
@@ -716,14 +749,20 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	t.Run("post-move object set matches the writer's tracked state on target", func(t *testing.T) {
 		// give time for any pending replication to finish so that all parallel writes are replicated to the new node before we check for their existence
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			assert.Equal(ct, int64(len(liveIDs)), common.CountTenantObjects(t, targetNode.nodeURI, paragraphClass.Class, "tenant0"))
+			n, err := countTenantObjectsThreadSafe(targetNode.nodeURI, paragraphClass.Class, tenant)
+			if !assert.NoError(ct, err, "count aggregate failed against target %s", targetNode.nodeName) {
+				return
+			}
+			assert.Equal(ct, int64(len(liveIDs)), n)
 		}, 30*time.Second, 1*time.Second, "not all parallel writes are available on target %s", targetNode.nodeName)
 
 		for id, expectedContents := range liveIDs {
 			var obj *models.Object
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				obj, err = common.GetTenantObjectFromNode(t, targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, "tenant0")
-				assert.Nil(ct, err, "error getting live id %s from target %s", id, targetNode.nodeName)
+				o, err := getTenantObjectThreadSafe(targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, tenant)
+				assert.NoError(ct, err, "error getting live id %s from target %s", id, targetNode.nodeName)
+				assert.NotNil(ct, o, "live id %s not yet present on target %s", id, targetNode.nodeName)
+				obj = o
 			}, 10*time.Second, 1*time.Second, "live id %s missing on target %s", id, targetNode.nodeName)
 			if !assert.NotNil(t, obj, "live id %s missing on target %s", id, targetNode.nodeName) {
 				continue
@@ -738,12 +777,97 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 
 		for id := range deletedIDs {
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				_, err := common.GetTenantObjectFromNode(t, targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, "tenant0")
-				var notFound *objects.ObjectsClassGetNotFound
-				assert.ErrorAs(ct, err, &notFound, "deleted id %s unexpectedly present on target %s", id, targetNode.nodeName)
+				_, err := getTenantObjectThreadSafe(targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, tenant)
+				assert.ErrorIs(ct, err, errObjectNotFound, "deleted id %s unexpectedly present on target %s", id, targetNode.nodeName)
 			}, 10*time.Second, 1*time.Second, "deleted id %s still present on target %s", id, targetNode.nodeName)
 		}
 	})
+}
+
+// getTenantObjectThreadSafe issues GET /v1/objects/{class}/{id} with node_name
+// and tenant query params, bypassing the helper.Client global so it can be
+// called concurrently with other helper calls without racing on the
+// SetupClient/Client globals.
+//
+// Returns (nil, errObjectNotFound) on 404 so callers can distinguish "not
+// here yet" from network/server errors.
+func getTenantObjectThreadSafe(uri, class string, id strfmt.UUID, nodename, tenant string) (*models.Object, error) {
+	q := url.Values{}
+	q.Set("node_name", nodename)
+	q.Set("tenant", tenant)
+	target := fmt.Sprintf("http://%s/v1/objects/%s/%s?%s", uri, class, id, q.Encode())
+	req, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil, errObjectNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("status %s, body: %s", resp.Status, string(body))
+	}
+	var obj models.Object
+	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
+		return nil, fmt.Errorf("decode object: %w", err)
+	}
+	return &obj, nil
+}
+
+// countTenantObjectsThreadSafe runs an Aggregate{Class(tenant:X){meta{count}}}
+// GraphQL query against the given node URI, bypassing the helper.Client
+// global. Same race-free rationale as getTenantObjectThreadSafe.
+func countTenantObjectsThreadSafe(uri, class, tenant string) (int64, error) {
+	query := fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, class, tenant)
+	body, err := json.Marshal(map[string]string{"query": query})
+	if err != nil {
+		return 0, fmt.Errorf("marshal graphql query: %w", err)
+	}
+	req, err := http.NewRequest("POST", "http://"+uri+"/v1/graphql", bytes.NewBuffer(body))
+	if err != nil {
+		return 0, fmt.Errorf("create graphql request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("send graphql request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("graphql status %s, body: %s", resp.Status, string(respBody))
+	}
+	var raw struct {
+		Data struct {
+			Aggregate map[string][]struct {
+				Meta struct {
+					Count json.Number `json:"count"`
+				} `json:"meta"`
+			} `json:"Aggregate"`
+		} `json:"data"`
+		Errors []map[string]any `json:"errors"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return 0, fmt.Errorf("decode graphql response: %w", err)
+	}
+	if len(raw.Errors) > 0 {
+		return 0, fmt.Errorf("graphql errors: %v", raw.Errors)
+	}
+	arr, ok := raw.Data.Aggregate[class]
+	if !ok || len(arr) == 0 {
+		return 0, fmt.Errorf("missing aggregate result for class %s", class)
+	}
+	n, err := arr[0].Meta.Count.Int64()
+	if err != nil {
+		return 0, fmt.Errorf("parse count %q: %w", arr[0].Meta.Count.String(), err)
+	}
+	return n, nil
 }
 
 func createObjectThreadSafe(uri string, class string, properties map[string]any, id string, tenant string) error {

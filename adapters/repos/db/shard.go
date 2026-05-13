@@ -148,8 +148,6 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	WaitForReplicationDrain(ctx context.Context, deadline time.Duration) error
-
 	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
@@ -193,9 +191,11 @@ type ShardLike interface {
 	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
 	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
 	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
-	// FinalizeChangeLog freezes the log and returns its final LSN.
+	// FinalizeChangeLog seals + unregisters + deactivates the log atomically
+	// and returns its final LSN. Tailers drain to finalLSN and EOF.
 	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
-	// StopChangeCapture unregisters and deactivates the log, removing its file.
+	// StopChangeCapture unregisters and deactivates the log without sealing
+	// (cancellation paths where Finalize was never called).
 	StopChangeCapture(ctx context.Context, opID string) error
 	// GetChangeLog returns the active log for opID, or (nil, false) if none.
 	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)

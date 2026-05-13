@@ -29,5 +29,4 @@ type FSMUpdater interface {
 	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
 	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
-	WaitForUpdateAllNodes(ctx context.Context, schemaVersion uint64) error
 }

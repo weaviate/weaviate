@@ -175,31 +175,6 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 	return cmd.NewClusterServiceClient(conn).NotifyPeer(ctx, req)
 }
 
-// WaitForAppliedIndex uses a short-lived per-peer connection rather than the
-// cached leader connection because the call fans out to every peer.
-func (cl *Client) WaitForAppliedIndex(ctx context.Context, peerRaftAddr string, req *cmd.WaitForAppliedIndexRequest) (*cmd.WaitForAppliedIndexResponse, error) {
-	addr, err := cl.addrResolver.Address(peerRaftAddr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve address: %w", err)
-	}
-
-	options := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(serviceConfig),
-	}
-	if cl.sentryEnabled {
-		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
-	}
-
-	conn, err := grpc.NewClient(addr, options...)
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
-	}
-	defer conn.Close()
-
-	return cmd.NewClusterServiceClient(conn).WaitForAppliedIndex(ctx, req)
-}
-
 // Remove will contact the node at leaderRaftAddr and remove the client node from the RAFT cluster using req
 // Returns the server response to the remove request
 // Returns an error if an RPC connection to leaderRaftAddr can't be established

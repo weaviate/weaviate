@@ -313,6 +313,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
+	// Wire op-state-apply → metaClass.ReplicationVersion bump so per-write
+	// WaitForUpdate fences stale-FSM coord routing.
+	replicationManager.SetReplicationVersionBumper(schemaManager.BumpReplicationVersion)
 
 	return Store{
 		cfg:          cfg,
@@ -712,17 +715,6 @@ func (st *Store) Stats() map[string]any {
 	}
 
 	return stats
-}
-
-func (st *Store) Servers() ([]raft.Server, error) {
-	if st.raft == nil {
-		return nil, fmt.Errorf("raft not initialized")
-	}
-	cf := st.raft.GetConfiguration()
-	if err := cf.Error(); err != nil {
-		return nil, fmt.Errorf("get raft configuration: %w", err)
-	}
-	return cf.Configuration().Servers, nil
 }
 
 // Leader is used to return the current leader address.

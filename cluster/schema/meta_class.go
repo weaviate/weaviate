@@ -33,6 +33,10 @@ type (
 		ClassVersion uint64
 		Sharding     sharding.State
 		ShardVersion uint64
+		// Latest RAFT index of any replication-op-mutating apply for this
+		// class. Folded into version() so per-write WaitForUpdate fences
+		// stale-FSM coord routing during a move without an explicit fan-out.
+		ReplicationVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
 	}
@@ -47,13 +51,14 @@ func (m *metaClass) ClassInfo() ClassInfo {
 	defer m.RUnlock()
 
 	ci := ClassInfo{
-		ReplicationFactor: 1,
-		Exists:            true,
-		Properties:        len(m.Class.Properties),
-		MultiTenancy:      models.MultiTenancyConfig{},
-		Tenants:           len(m.Sharding.Physical),
-		ClassVersion:      m.ClassVersion,
-		ShardVersion:      m.ShardVersion,
+		ReplicationFactor:  1,
+		Exists:             true,
+		Properties:         len(m.Class.Properties),
+		MultiTenancy:       models.MultiTenancyConfig{},
+		Tenants:            len(m.Sharding.Physical),
+		ClassVersion:       m.ClassVersion,
+		ShardVersion:       m.ShardVersion,
+		ReplicationVersion: m.ReplicationVersion,
 	}
 
 	if m.Class.MultiTenancyConfig != nil {
@@ -69,7 +74,17 @@ func (m *metaClass) version() uint64 {
 	if m == nil {
 		return 0
 	}
-	return max(m.ClassVersion, m.ShardVersion)
+	return max(m.ClassVersion, m.ShardVersion, m.ReplicationVersion)
+}
+
+// BumpReplicationVersion is monotonic: a late RAFT-replicated apply must
+// not regress the version a coord may already be waiting on.
+func (m *metaClass) BumpReplicationVersion(v uint64) {
+	m.Lock()
+	defer m.Unlock()
+	if v > m.ReplicationVersion {
+		m.ReplicationVersion = v
+	}
 }
 
 func (m *metaClass) MultiTenancyConfig() (mc models.MultiTenancyConfig, v uint64) {

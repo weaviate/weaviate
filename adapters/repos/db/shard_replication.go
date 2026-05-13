@@ -64,26 +64,12 @@ func (p *pendingReplicaTasks) len() int {
 	return len(p.Tasks)
 }
 
-// WaitForReplicationDrain bounds the in-flight 2PC window structurally
-// rather than by arbitrary sleep before the source seals its change log.
-func (s *Shard) WaitForReplicationDrain(ctx context.Context, deadline time.Duration) error {
-	if deadline <= 0 {
-		return fmt.Errorf("deadline must be positive")
-	}
-	waitCtx, cancel := context.WithTimeout(ctx, deadline)
-	defer cancel()
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if s.replicationMap.len() == 0 {
-			return nil
-		}
-		select {
-		case <-waitCtx.Done():
-			return fmt.Errorf("wait for replication drain: %w (pending=%d)", waitCtx.Err(), s.replicationMap.len())
-		case <-ticker.C:
-		}
-	}
+// registerReplicaTask holds writeBarrierMux.RLock so FinalizeChangeLog's
+// Lock fences out new PREPAREs before sealing.
+func (s *Shard) registerReplicaTask(requestID string, task replicaTask) {
+	s.writeBarrierMux.RLock()
+	defer s.writeBarrierMux.RUnlock()
+	s.replicationMap.set(requestID, task)
 }
 
 func (s *Shard) commitReplication(ctx context.Context, requestID string) interface{} {
@@ -117,7 +103,7 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 		}
 		return resp
 	}
-	s.replicationMap.set(requestID, task)
+	s.registerReplicaTask(requestID, task)
 	return replica.SimpleResponse{}
 }
 
@@ -143,7 +129,7 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 		}
 		return resp
 	}
-	s.replicationMap.set(requestID, task)
+	s.registerReplicaTask(requestID, task)
 	return replica.SimpleResponse{}
 }
 
@@ -157,7 +143,7 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 		}
 		return resp
 	}
-	s.replicationMap.set(requestID, task)
+	s.registerReplicaTask(requestID, task)
 	return replica.SimpleResponse{}
 }
 
@@ -172,7 +158,7 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 		}
 		return resp
 	}
-	s.replicationMap.set(requestID, task)
+	s.registerReplicaTask(requestID, task)
 	return replica.SimpleResponse{}
 }
 
@@ -194,7 +180,7 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 		}
 		return resp
 	}
-	s.replicationMap.set(requestID, task)
+	s.registerReplicaTask(requestID, task)
 	return replica.SimpleResponse{}
 }
 
@@ -209,7 +195,7 @@ func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs
 		}
 		return resp
 	}
-	s.replicationMap.set(requestID, task)
+	s.registerReplicaTask(requestID, task)
 	return replica.SimpleResponse{}
 }
 

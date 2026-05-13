@@ -44,11 +44,12 @@ func driveToState(t *testing.T, fsm *ShardReplicationFSM, opID uint64, state api
 	if state == api.REGISTERED {
 		return
 	}
-	require.NoError(t, fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+	_, err := fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Id:      opID,
 		State:   state,
-	}))
+	})
+	require.NoError(t, err)
 }
 
 func driveToCancelled(t *testing.T, fsm *ShardReplicationFSM, opID uint64) {
@@ -113,7 +114,7 @@ func TestShardReplicationFSM_CancelReplication(t *testing.T) {
 				require.NoError(t, fsm.SetUnCancellable(opID))
 			}
 
-			err := fsm.CancelReplication(&api.ReplicationCancelRequest{
+			_, err := fsm.CancelReplication(&api.ReplicationCancelRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Uuid:    uuid,
 			})
@@ -133,7 +134,7 @@ func TestShardReplicationFSM_CancelReplication(t *testing.T) {
 
 	t.Run("unknown UUID wraps ErrReplicationOperationNotFound", func(t *testing.T) {
 		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
-		err := fsm.CancelReplication(&api.ReplicationCancelRequest{
+		_, err := fsm.CancelReplication(&api.ReplicationCancelRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 		})
@@ -204,7 +205,7 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 				require.NoError(t, fsm.SetUnCancellable(opID))
 			}
 
-			err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+			_, err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Uuid:    uuid,
 			})
@@ -224,7 +225,7 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 
 	t.Run("unknown UUID wraps ErrReplicationOperationNotFound", func(t *testing.T) {
 		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
-		err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+		_, err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 		})

@@ -612,53 +612,6 @@ func (_c *MockFSMUpdater_WaitForUpdate_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// WaitForUpdateAllNodes provides a mock function with given fields: ctx, schemaVersion
-func (_m *MockFSMUpdater) WaitForUpdateAllNodes(ctx context.Context, schemaVersion uint64) error {
-	ret := _m.Called(ctx, schemaVersion)
-
-	if len(ret) == 0 {
-		panic("no return value specified for WaitForUpdateAllNodes")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
-		r0 = rf(ctx, schemaVersion)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockFSMUpdater_WaitForUpdateAllNodes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForUpdateAllNodes'
-type MockFSMUpdater_WaitForUpdateAllNodes_Call struct {
-	*mock.Call
-}
-
-// WaitForUpdateAllNodes is a helper method to define mock.On call
-//   - ctx context.Context
-//   - schemaVersion uint64
-func (_e *MockFSMUpdater_Expecter) WaitForUpdateAllNodes(ctx interface{}, schemaVersion interface{}) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	return &MockFSMUpdater_WaitForUpdateAllNodes_Call{Call: _e.mock.On("WaitForUpdateAllNodes", ctx, schemaVersion)}
-}
-
-func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Run(run func(ctx context.Context, schemaVersion uint64)) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uint64))
-	})
-	return _c
-}
-
-func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Return(_a0 error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockFSMUpdater creates a new instance of MockFSMUpdater. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockFSMUpdater(t interface {

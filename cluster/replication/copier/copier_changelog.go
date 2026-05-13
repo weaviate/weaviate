@@ -14,7 +14,6 @@ package copier
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -109,25 +108,6 @@ func (c *Copier) FinalizeChangeLog(ctx context.Context, srcNodeId, indexName, sh
 		return 0, fmt.Errorf("finalize change log on %s: %w", srcNodeId, err)
 	}
 	return resp.FinalLsn, nil
-}
-
-// WaitForReplicationDrain blocks on source until its in-flight 2PC PREPAREs
-// settle, so a stale-FSM COMMIT cannot land after the change-log is sealed
-// and bypass replay onto target.
-func (c *Copier) WaitForReplicationDrain(ctx context.Context, srcNodeId, indexName, shardName string, deadline time.Duration) error {
-	client, err := c.dialSource(ctx, srcNodeId)
-	if err != nil {
-		return err
-	}
-	_, err = client.WaitForReplicationDrain(ctx, &protocol.WaitForReplicationDrainRequest{
-		IndexName:      indexName,
-		ShardName:      shardName,
-		DeadlineMillis: deadline.Milliseconds(),
-	})
-	if err != nil {
-		return fmt.Errorf("wait for replication drain on %s: %w", srcNodeId, err)
-	}
-	return nil
 }
 
 // StopChangeCapture deactivates the source log and removes its file. Safe to
