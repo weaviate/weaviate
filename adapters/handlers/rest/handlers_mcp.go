@@ -21,6 +21,7 @@ import (
 	mcpops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -28,7 +29,11 @@ import (
 // served is decided per-request by checking the runtime-configurable
 // MCP.Enabled flag, allowing operators to toggle MCP without a restart.
 func setupMCPHandlers(api *operations.WeaviateAPI, appState *state.State, objectsManager *objects.Manager) {
-	mcpServer := mcp.NewMCPServer(appState, objectsManager)
+	reg := monitoring.NoopRegisterer
+	if appState.Metrics != nil && appState.Metrics.Registerer != nil {
+		reg = appState.Metrics.Registerer
+	}
+	mcpServer := mcp.NewMCPServer(appState, objectsManager, reg)
 	mcpHandler := mcpServer.Handler()
 
 	serveIfEnabled := func(w http.ResponseWriter, r *http.Request) {

@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -34,7 +35,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// MCP_SERVER_WRITE_ACCESS_ENABLED runtime override. When disabled,
 	// reject the call even though the tool is still registered.
 	if !c.IsWriteAccessEnabled() {
-		return nil, fmt.Errorf("MCP write access is disabled (set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable)")
+		return nil, fmt.Errorf("%w (set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable)", mcpmetrics.ErrWriteDisabled)
 	}
 
 	// Authorize MCP-level CREATE and UPDATE permissions (upsert requires both).
