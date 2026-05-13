@@ -322,6 +322,65 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 	}
 }
 
+// TestAddTenants_PinsShardsToNamespaceHomeNode covers the placement
+// override for tenant creation on NS-enabled clusters: the AddTenants RPC
+// is built with ClusterNodes=[home_node]. NS-disabled clusters fall back
+// to the full storage candidate set.
+func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
+	t.Parallel()
+
+	allCandidates := []string{"node-1", "node-2", "node-3"}
+
+	tests := []struct {
+		name      string
+		enabled   bool
+		principal *models.Principal
+		exister   fakeNamespacesExister
+		class     string
+		wantNodes []string
+	}{
+		{
+			name:      "NS enabled: ClusterNodes pinned to home_node",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNode: "node-2", State: cmd.NamespaceStateActive},
+			}},
+			class:     "Movies",
+			wantNodes: []string{"node-2"},
+		},
+		{
+			name:      "NS disabled: ClusterNodes is the full candidate set",
+			enabled:   false,
+			principal: globalPrincipal(),
+			exister:   fakeNamespacesExister{},
+			class:     "Movies",
+			wantNodes: allCandidates,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			sm.storageCandidates = allCandidates
+			handler.namespacesExister = tt.exister
+
+			var captured *cmd.AddTenantsRequest
+			sm.On("AddTenants", mock.Anything, mock.MatchedBy(func(req *cmd.AddTenantsRequest) bool {
+				captured = req
+				return true
+			})).Return(nil)
+
+			_, err := handler.AddTenants(context.Background(), tt.principal, tt.class,
+				[]*models.Tenant{{Name: "T1"}, {Name: "T2"}})
+			require.NoError(t, err)
+			require.NotNil(t, captured, "expected AddTenants to be called")
+			assert.Equal(t, tt.wantNodes, captured.ClusterNodes)
+		})
+	}
+}
+
 func TestAddAlias(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
