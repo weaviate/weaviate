@@ -381,6 +381,69 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 	}
 }
 
+// TestUpdateTenants_PinsShardsToNamespaceHomeNode covers the placement
+// override on the UpdateTenants path. The candidate list is consumed by
+// the apply-side unfreeze flow (GetPartitions), so pinning to [home_node]
+// here is what lands a reactivated tenant back on the namespace's home
+// node. Non-unfreeze transitions ignore the candidate list, so we just
+// assert what's serialized in the propose payload.
+func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
+	t.Parallel()
+
+	allCandidates := []string{"node-1", "node-2", "node-3"}
+
+	tests := []struct {
+		name      string
+		enabled   bool
+		principal *models.Principal
+		exister   fakeNamespacesExister
+		class     string
+		wantNodes []string
+	}{
+		{
+			name:      "NS enabled: ClusterNodes pinned to home_node",
+			enabled:   true,
+			principal: namespacedPrincipal("customer1"),
+			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNode: "node-2", State: cmd.NamespaceStateActive},
+			}},
+			class:     "Movies",
+			wantNodes: []string{"node-2"},
+		},
+		{
+			name:      "NS disabled: ClusterNodes is the full candidate set",
+			enabled:   false,
+			principal: globalPrincipal(),
+			exister:   fakeNamespacesExister{},
+			class:     "Movies",
+			wantNodes: allCandidates,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			sm.storageCandidates = allCandidates
+			handler.namespacesExister = tt.exister
+
+			var captured *cmd.UpdateTenantsRequest
+			sm.On("UpdateTenants", mock.Anything, mock.MatchedBy(func(req *cmd.UpdateTenantsRequest) bool {
+				captured = req
+				return true
+			})).Return(nil)
+			sm.On("TenantsShardsWithVersion", mock.Anything, uint64(0), mock.Anything, mock.Anything).
+				Return(map[string]string{"T1": models.TenantActivityStatusHOT}, nil)
+
+			_, err := handler.UpdateTenants(context.Background(), tt.principal, tt.class,
+				[]*models.Tenant{{Name: "T1", ActivityStatus: models.TenantActivityStatusHOT}})
+			require.NoError(t, err)
+			require.NotNil(t, captured, "expected UpdateTenants to be called")
+			assert.Equal(t, tt.wantNodes, captured.ClusterNodes)
+		})
+	}
+}
+
 func TestAddAlias(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
