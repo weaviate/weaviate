@@ -17,10 +17,12 @@ import (
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/create"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -35,6 +37,7 @@ type MCPServer struct {
 	reader   *read.WeaviateReader
 	state    *state.State
 	logger   logrus.FieldLogger
+	metrics  *metrics.MCPMetrics
 
 	// writeToolNames is the set of tool names that require write access.
 	// Used by the tool filter to hide them from tools/list when write access
@@ -42,7 +45,8 @@ type MCPServer struct {
 	writeToolNames map[string]bool
 }
 
-func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServer {
+func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prometheus.Registerer) *MCPServer {
+	m := metrics.New(reg)
 	authHandler := auth.NewAuth(
 		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		composer.New(
@@ -51,6 +55,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServe
 			state.OIDC,
 		),
 		state.Authorizer,
+		m,
 	)
 	logger := state.Logger.WithField("component", "mcp")
 
@@ -71,10 +76,12 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServe
 		reader:         read.NewWeaviateReader(authHandler, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, objectsManager, logger),
 		state:          state,
 		logger:         logger,
+		metrics:        m,
 		writeToolNames: map[string]bool{},
 	}
 	s.registerTools()
 	s.registerToolFilter()
+	s.metrics.SetWriteAccessEnabled(s.creator.IsWriteAccessEnabled())
 	return s
 }
 
@@ -87,7 +94,10 @@ func (s *MCPServer) Handler() http.Handler {
 // listing — calls to disabled tools are also rejected by the tool handlers.
 func (s *MCPServer) registerToolFilter() {
 	server.WithToolFilter(func(ctx context.Context, tools []mcplib.Tool) []mcplib.Tool {
-		if s.creator.IsWriteAccessEnabled() {
+		writeEnabled := s.creator.IsWriteAccessEnabled()
+		s.metrics.SetWriteAccessEnabled(writeEnabled)
+		s.metrics.ObserveListed(writeEnabled)
+		if writeEnabled {
 			return tools
 		}
 		filtered := make([]mcplib.Tool, 0, len(tools))
@@ -106,14 +116,14 @@ func (s *MCPServer) registerTools() {
 	config := internal.LoadConfig(s.state.Logger, configPath)
 	configs := config.ToToolConfigMap()
 
-	s.server.AddTools(search.Tools(s.searcher, configs)...)
-	s.server.AddTools(read.Tools(s.reader, configs)...)
+	s.server.AddTools(search.Tools(s.searcher, configs, s.metrics)...)
+	s.server.AddTools(read.Tools(s.reader, configs, s.metrics)...)
 
 	// Always register write tools. Whether they are visible (in tools/list)
 	// and callable is gated by the runtime-configurable
 	// MCP_SERVER_WRITE_ACCESS_ENABLED flag — checked by registerToolFilter()
 	// for listing, and by the tool handlers themselves for calls.
-	writeTools := create.Tools(s.creator, configs)
+	writeTools := create.Tools(s.creator, configs, s.metrics)
 	for _, t := range writeTools {
 		s.writeToolNames[t.Tool.Name] = true
 	}

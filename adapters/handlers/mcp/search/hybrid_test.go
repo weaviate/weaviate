@@ -53,7 +53,7 @@ func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bo
 	composer := func(token string, _ []string) (*models.Principal, error) {
 		return principal, nil
 	}
-	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{})
+	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	trav := &recordingTraverser{}
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(

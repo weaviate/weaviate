@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -26,13 +27,15 @@ type Auth struct {
 	allowAnonymousAccess bool
 	authComposer         composer.TokenFunc
 	authorizer           authorization.Authorizer
+	metrics              *metrics.MCPMetrics
 }
 
-func NewAuth(allowAnonymousAccess bool, authComposer composer.TokenFunc, authorizer authorization.Authorizer) *Auth {
+func NewAuth(allowAnonymousAccess bool, authComposer composer.TokenFunc, authorizer authorization.Authorizer, m *metrics.MCPMetrics) *Auth {
 	return &Auth{
 		allowAnonymousAccess: allowAnonymousAccess,
 		authComposer:         authComposer,
 		authorizer:           authorizer,
+		metrics:              m,
 	}
 }
 
@@ -42,6 +45,7 @@ func (a *Auth) Authorize(ctx context.Context, req mcp.CallToolRequest, verb stri
 		return nil, fmt.Errorf("failed to get principal: %w", err)
 	}
 	if err := a.authorizer.Authorize(ctx, principal, verb, authorization.Mcp()); err != nil {
+		a.metrics.ObserveAuthFailure(metrics.AuthReasonForbidden)
 		return nil, err
 	}
 	return principal, nil
@@ -70,11 +74,17 @@ func (a *Auth) principalFromRequest(req mcp.CallToolRequest) (*models.Principal,
 	}
 
 	if !strings.HasPrefix(authValue[0], "Bearer ") {
+		a.metrics.ObserveAuthFailure(metrics.AuthReasonInvalidToken)
 		return nil, fmt.Errorf("invalid authorization header: expected 'Bearer <token>' format")
 	}
 
 	token := strings.TrimPrefix(authValue[0], "Bearer ")
-	return a.authComposer(token, nil)
+	principal, err := a.authComposer(token, nil)
+	if err != nil {
+		a.metrics.ObserveAuthFailure(metrics.AuthReasonInvalidToken)
+		return nil, err
+	}
+	return principal, nil
 }
 
 func (a *Auth) tryAnonymous() (*models.Principal, error) {
@@ -82,5 +92,10 @@ func (a *Auth) tryAnonymous() (*models.Principal, error) {
 		return nil, nil
 	}
 
-	return a.authComposer("", nil)
+	principal, err := a.authComposer("", nil)
+	if err != nil {
+		a.metrics.ObserveAuthFailure(metrics.AuthReasonMissingToken)
+		return nil, err
+	}
+	return principal, nil
 }
