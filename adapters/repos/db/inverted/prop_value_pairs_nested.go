@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 )
@@ -103,12 +104,38 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 // filter and applies any arr[N] index constraints. Positions are not stripped
 // to docIDs — callers that need docIDs use fetchNestedDocIDs instead; the
 // correlated resolution path (resolveNestedSubtree) uses this directly.
+//
+// NotEqual returns a denylist position bitmap from readFromBucket. We
+// materialize the positive bitmap here at the leaf's natural LCA: positions
+// where the property is indexed AND-NOT the denylist set. This yields the
+// same positive bitmap that NOT(Equal) would compute via buildNotAtScope,
+// so NotEqual is semantically equivalent to NOT(Equal) at every nesting
+// level (existential per-element). Lazy: the universe is only loaded when
+// isDenyList is set. Rangeable indices (future) that return positive
+// bitmaps directly skip the materialization.
 func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	raw, err := pv.readFromBucket(ctx, s, limit)
 	if err != nil {
 		return nil, err
 	}
-	return pv.restrictByNestedIdx(s, raw)
+	raw, err = pv.restrictByNestedIdx(s, raw)
+	if err != nil {
+		return nil, err
+	}
+	if !raw.isDenyList {
+		return raw, nil
+	}
+	// Materialize NotEqual at LCA. Defers are panic-proof: even if
+	// fetchNestedExistsPositions or AndNot panic, raw and universe are
+	// released on unwind.
+	defer raw.release()
+	universe, universeRel, err := pv.fetchNestedExistsPositions(s)
+	if err != nil {
+		return nil, fmt.Errorf("materialize NotEqual at LCA for %q: %w", pv.nested.relPath, err)
+	}
+	defer universeRel()
+	positive, posRel := s.nestedBitmapOps.AndNot(universe, raw.docIDs, concurrency.SROAR_MERGE)
+	return &docBitmap{docIDs: positive, release: posRel, isDenyList: false}, nil
 }
 
 // restrictByNestedIdx restricts a position bitmap to the specific array

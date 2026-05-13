@@ -531,15 +531,16 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			matchesObjectUpd: []strfmt.UUID{id200}, matchesArrayUpd: e,
 		},
 		{
-			// Step 10a deny-list operates at document level: doc999 contains Justin
-			// in element 0, so the whole document is excluded even though element 1
-			// (Anna) would satisfy the condition. Element-level precision requires
-			// Step 10b. After array delete/update the only remaining document also
-			// contains Justin, so all array results are empty.
+			// NotEqual under existential per-element semantics (materialized
+			// at the leaf's natural LCA): doc999 matches because element 1
+			// (Anna) has firstname ≠ justin, even though element 0 (Justin)
+			// fails. After array delete/update only doc999 (or its updated
+			// successor id300) remains; it still matches existentially via
+			// the non-justin element.
 			name: "owner.firstname != justin", filter: f("owner.firstname", filters.OperatorNotEqual, schema.DataTypeText, "justin"),
-			matchesObjectAdd: []strfmt.UUID{id123, id125}, matchesArrayAdd: []strfmt.UUID{id998},
-			matchesObjectDel: []strfmt.UUID{id125}, matchesArrayDel: e,
-			matchesObjectUpd: []strfmt.UUID{id201}, matchesArrayUpd: e,
+			matchesObjectAdd: []strfmt.UUID{id123, id125}, matchesArrayAdd: []strfmt.UUID{id998, id999},
+			matchesObjectDel: []strfmt.UUID{id125}, matchesArrayDel: []strfmt.UUID{id999},
+			matchesObjectUpd: []strfmt.UUID{id201}, matchesArrayUpd: []strfmt.UUID{id300},
 		},
 	}
 
@@ -11135,15 +11136,11 @@ func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
 	// ----- Sub-test 1: basic NotEqual at nested leaf -----
 	// Filter: cars.make NotEqual "bmw"
 	//
-	// Universal (current): match docs where NO car has make=bmw.
-	// Existential (proposed): match docs where ANY car has make≠bmw.
-	//
-	// TODO aliszka:nested_filtering: locks in CURRENT universal NotEqual
-	// behavior. Discriminators idMixed/idEmpty/idEmptyArr flip when
-	// uniform-existential rewrite lands (explicit ANY/ALL/NONE quantifiers).
-	// The recommended NotEqual → NOT(Equal) rewrite would inherit whatever
-	// NOT does (currently universal) — this expectation flips together with
-	// regression_NOT_inside_AND_universal_docID_level.
+	// Existential per-element (scope-aware): NotEqual materializes at the
+	// leaf's natural LCA (cars) as the position universe AND-NOT the
+	// denylist set, semantically equivalent to NOT(Equal). Doc matches
+	// when ANY car has make≠bmw. Empty docs and docs with no indexed
+	// positions drop (vacuous).
 	t.Run("regression_basic_NotEqual_universal_docID_level", func(t *testing.T) {
 		idOnlyBmw := uuid(1)
 		idOnlyTesla := uuid(2)
@@ -11153,54 +11150,34 @@ func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
 		docs := []docDef{
 			{id: idOnlyBmw, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0))}}, note: "bmw"},
 			{id: idOnlyTesla, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("tesla", 0))}}, note: "tesla"},
-			{id: idMixed, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0), carWith("tesla", 0))}}, note: "[bmw,tesla] — DISCRIMINATOR"},
-			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars — DISCRIMINATOR"},
-			{id: idEmptyArr, props: map[string]any{"doc": map[string]any{"cars": []any{}}}, note: "cars=[] — DISCRIMINATOR"},
+			{id: idMixed, props: map[string]any{"doc": map[string]any{"cars": asArr(carWith("bmw", 0), carWith("tesla", 0))}}, note: "[bmw,tesla] — DISCRIMINATOR (flips IN under existential)"},
+			{id: idEmpty, props: map[string]any{"doc": map[string]any{}}, note: "no cars — DISCRIMINATOR (drops under existential)"},
+			{id: idEmptyArr, props: map[string]any{"doc": map[string]any{"cars": []any{}}}, note: "cars=[] — DISCRIMINATOR (drops under existential)"},
 		}
 		filter := textNotEqualFilter("doc.cars.make", "bmw")
-		// Current universal: idOnlyTesla + idEmpty + idEmptyArr.
-		// Existential would: idOnlyTesla + idMixed (and exclude empty docs).
-		runScenario(t, docs, filter, []strfmt.UUID{idOnlyTesla, idEmpty, idEmptyArr})
+		// Existential per-element: idOnlyTesla + idMixed (cars[1] tesla
+		// satisfies ≠bmw). Empty docs drop.
+		runScenario(t, docs, filter, []strfmt.UUID{idOnlyTesla, idMixed})
 	})
 
-	// ----- Sub-test 2: NotEqual inside correlated AND (BUG REGRESSION) -----
+	// ----- Sub-test 2: NotEqual inside correlated AND -----
 	// Filter: cars.make = "tesla" AND cars.tires.width NotEqual 205
 	//
-	// **This sub-test locks in BUGGY current behavior, NOT correct behavior.**
+	// Existential per-element via materialization at fetchNestedPositions:
+	// the NotEqual leaf bitmap is converted from a denylist to a positive
+	// bitmap at the leaf's natural LCA (cars.tires) — the position
+	// universe AND-NOT the denylist set. Equivalent to NOT(Equal) under
+	// scope-aware NOT. Combined with cars.make=tesla via same-element AND
+	// at cars: ∃ tesla car with ∃ tire where width≠205.
 	//
-	// Verified by experiment: NotEqual's denylist flag is dropped (or
-	// inverted) when its bitmap is combined with another nested clause via
-	// correlated AND. The filter incorrectly matches docs where
-	// `tesla AND width=205 (same car)` — the exact OPPOSITE of what
-	// NotEqual should produce.
-	//
-	// Doc-by-doc analysis with the current bug:
-	//   idTeslaNo205    : [{tesla,225}]               → tesla yes, 205 no → bug excludes (correct expectation: include)
-	//   idTeslaWith205  : [{tesla,205}]               → same car has tesla AND 205 → bug includes (correct expectation: exclude)
-	//   idSomeTeslaWO205: [{tesla,225},{bmw,205}]     → no single car has tesla AND 205 → bug excludes
-	//   idTeslaWith205+ : [{tesla,205},{bmw,225}]     → cars[0] has tesla AND 205 → bug includes (correct expectation: exclude)
-	//   idNoTesla       : [{bmw,205}]                 → no tesla → bug excludes
-	//   idTwoTeslas1@205: [{tesla,225},{tesla,205}]   → cars[1] has tesla AND 205 → bug includes (correct expectation: exclude)
-	//   idEmpty         : (no cars)                   → bug excludes (universal-correct expectation: include)
-	//
-	// When the bug is fixed (whether to universal denylist or the proposed
-	// uniform-existential semantics), this test will fail and the expected
-	// list must be updated:
-	//   - Universal-correct fix: [idTeslaNo205, idEmpty]
-	//   - Uniform-existential fix: [idTeslaNo205, idSomeTeslaWO205, idTwoTeslas1@205]
-	//
-	// Filed alongside explicit ANY/ALL/NONE quantifiers as a separate bug
-	// requiring fix regardless of the existential-semantics direction.
-	//
-	// TODO aliszka:nested_filtering: this is a CORRECTNESS BUG (not a
-	// semantics decision). NotEqual returns the OPPOSITE of expected
-	// inside a nested correlated AND. Fix path:
-	// `NotEqual → NOT(Equal) rewrite` recommends rewriting
-	// NotEqual → NOT(Equal) at extractPropValuePair (~0.5 day, independent
-	// of any existential-semantics decision). When fixed, expected list
-	// flips to [idTeslaNo205, idEmpty] (universal-correct) or
-	// [idTeslaNo205, idSomeTeslaWithout205, idTwoTeslasOneHas205]
-	// (uniform-existential).
+	// Doc-by-doc analysis under existential per-element:
+	//   idTeslaNo205    : [{tesla,225}]               → tesla AND ∃ tire≠205 (225) → MATCH
+	//   idTeslaWith205  : [{tesla,205}]               → only tire is 205 → NO MATCH
+	//   idSomeTeslaWO205: [{tesla,225},{bmw,205}]     → tesla car has tire 225 ≠ 205 → MATCH
+	//   idTeslaWith205+ : [{tesla,205},{bmw,225}]     → tesla car only has 205 → NO MATCH
+	//   idNoTesla       : [{bmw,205}]                 → no tesla → NO MATCH
+	//   idTwoTeslas1@205: [{tesla,225},{tesla,205}]   → tesla car #0 has 225 ≠ 205 → MATCH
+	//   idEmpty         : (no cars)                   → vacuous ∃ tire → NO MATCH
 	t.Run("regression_BUG_NotEqual_inside_AND_treated_as_Equal", func(t *testing.T) {
 		idTeslaNo205 := uuid(1)
 		idTeslaWith205 := uuid(2)
@@ -11222,11 +11199,9 @@ func TestNestedFilteringNotEqualNestedRegression(t *testing.T) {
 			textFilter("doc.cars.make", "tesla"),
 			intNotEqualFilter("doc.cars.tires.width", 205),
 		)
-		// BUG: NotEqual is treated as Equal in correlated AND. The matches
-		// below are docs where `tesla AND width=205 (same car)` — the
-		// opposite of what NotEqual should produce.
+		// Existential per-element: tesla cars with ∃ tire where width≠205.
 		runScenario(t, docs, filter, []strfmt.UUID{
-			idTeslaWith205, idTeslaWith205PlusBmw, idTwoTeslasOneHas205,
+			idTeslaNo205, idSomeTeslaWithout205, idTwoTeslasOneHas205,
 		})
 	})
 }
