@@ -102,6 +102,9 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 	if searchParams.AdditionalProperties.QueryProfile {
 		out.QueryProfile = r.extractQueryProfile(res)
 	}
+	if searchParams.AdditionalProperties.QueryVector {
+		out.QueryVector = r.extractQueryVector(res)
+	}
 	return out, nil
 }
 
@@ -143,6 +146,55 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 		}
 	}
 	return &pb.QueryProfile{Shards: shards}
+}
+
+// extractQueryVector pulls the named-vector map stashed by the traverser on
+// results[0] and serializes it to []*pb.Vectors. Returns nil when no vector
+// was produced (e.g. BM25-only) or when the user did not opt in.
+func (r *Replier) extractQueryVector(res []interface{}) []*pb.Vectors {
+	if len(res) == 0 {
+		return nil
+	}
+	asMap, ok := res[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	add, ok := asMap["_additional"]
+	if !ok {
+		return nil
+	}
+	addProps, ok := add.(models.AdditionalProperties)
+	if !ok {
+		var asPlain map[string]interface{}
+		asPlain, ok = add.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		addProps = models.AdditionalProperties(asPlain)
+	}
+	raw, ok := addProps["queryVectorRaw"].(models.Vectors)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]*pb.Vectors, 0, len(raw))
+	for name, vec := range raw {
+		switch v := vec.(type) {
+		case []float32:
+			out = append(out, &pb.Vectors{
+				Name:        name,
+				VectorBytes: byteops.Fp32SliceToBytes(v),
+				Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+			})
+		case [][]float32:
+			out = append(out, &pb.Vectors{
+				Name:        name,
+				VectorBytes: byteops.Fp32SliceOfSlicesToBytes(v),
+				Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+			})
+		}
+	}
+	return out
 }
 
 func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {

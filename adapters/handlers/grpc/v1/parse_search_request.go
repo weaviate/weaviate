@@ -859,6 +859,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		IsConsistent:       prop.IsConsistent,
 		Vectors:            prop.Vectors,
 		QueryProfile:       prop.QueryProfile,
+		QueryVector:        prop.QueryVector,
 	}
 
 	// certainty is not compatible with

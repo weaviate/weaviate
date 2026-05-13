@@ -160,10 +160,12 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		res, searchVector, err := e.getClassVectorSearch(ctx, params)
+		res, searchVector, namedVectors, err := e.getClassVectorSearch(ctx, params)
 		if err != nil {
 			return nil, err
 		}
+		res = attachQueryVector(res, params, searchVector, namedVectors)
+
 		return e.searchResultsToGetResponse(ctx, res, searchVector, params, searchStartTime)
 	}
 
@@ -171,6 +173,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
 	return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 }
 
@@ -218,30 +221,30 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]search.Result, models.Vector, error) {
+) ([]search.Result, models.Vector, models.Vectors, error) {
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
 		params.ClassName, targetVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+		return nil, nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
-	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
+	res, searchVectors, namedVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+		return nil, nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
 	}
 
 	if len(searchVectors) > 0 {
-		return res, searchVectors[0], nil
+		return res, searchVectors[0], namedVectors, nil
 	}
-	return res, []float32{}, nil
+	return res, []float32{}, namedVectors, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, models.Vectors, error) {
 	var err error
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -266,7 +269,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	}
 
 	if err := eg.Wait(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
@@ -276,10 +279,15 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		// if a group is set, vectors are needed
 		params.AdditionalProperties.Vector = true
 	}
-
+	named := make(models.Vectors, len(targetVectors))
+	for i, name := range targetVectors {
+		if searchVectors[i] != nil {
+			named[name] = searchVectors[i]
+		}
+	}
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -294,7 +302,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, nil, errors.Errorf("grouper: %v", err)
+			return nil, nil, nil, errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -306,12 +314,12 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 	e.trackUsageGet(res, params)
 
-	return res, searchVectors, nil
+	return res, searchVectors, named, nil
 }
 
 func MinInt(ints ...int) int {
@@ -569,6 +577,83 @@ func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
 				e.extractAdditionalPropertiesFromRefs(hit, props)
 			}
 		}
+	}
+}
+
+// attachQueryVector puts the vectorized query onto results[0].AdditionalProperties
+// under "queryVector" (for GraphQL emission) and "queryVectorRaw" (for gRPC).
+// No-op when the user did not opt in, when there are no results, or when no
+// vector was produced (e.g. hybrid alpha=0, pure BM25).
+func attachQueryVector(results []search.Result, params dto.GetParams, single models.Vector, named models.Vectors) []search.Result {
+	if !params.AdditionalProperties.QueryVector || len(results) == 0 {
+		return results
+	}
+	single = normalizeQueryVector(single)
+
+	// Split the incoming named map: real target-vector keys vs the legacy
+	// single-vector entry (key ""). Legacy classes register `queryVector` as
+	// [Float] in GraphQL, so the value MUST be a flat list, not a map.
+	realNamed := models.Vectors{}
+	for name, v := range named {
+		if name == "" {
+			if single == nil {
+				single = normalizeQueryVector(v)
+			}
+			continue
+		}
+		realNamed[name] = normalizeQueryVector(v)
+	}
+
+	if single == nil && len(realNamed) == 0 {
+		return results
+	}
+	if results[0].AdditionalProperties == nil {
+		results[0].AdditionalProperties = models.AdditionalProperties{}
+	}
+	if len(realNamed) > 0 {
+		results[0].AdditionalProperties["queryVectorRaw"] = realNamed
+		results[0].AdditionalProperties["queryVector"] = realNamed
+	} else {
+		results[0].AdditionalProperties["queryVectorRaw"] = models.Vectors{"": single}
+		results[0].AdditionalProperties["queryVector"] = single
+	}
+	return results
+}
+
+// normalizeQueryVector coerces incoming vectors to the concrete shapes GraphQL
+// + gRPC serializers expect ([]float32 or [][]float32). The GraphQL parser
+// hands us []interface{} of float64 for user-supplied vectors; the vector
+// search backend converts internally but the value we carry on the query side
+// stays loose-typed.
+func normalizeQueryVector(v models.Vector) models.Vector {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case []float32, [][]float32:
+		return x
+	case []interface{}:
+		out := make([]float32, 0, len(x))
+		for _, e := range x {
+			switch n := e.(type) {
+			case float64:
+				out = append(out, float32(n))
+			case float32:
+				out = append(out, n)
+			case int:
+				out = append(out, float32(n))
+			default:
+				return v
+			}
+		}
+		return out
+	case []float64:
+		out := make([]float32, len(x))
+		for i, n := range x {
+			out[i] = float32(n)
+		}
+		return out
+	default:
+		return v
 	}
 }
 
