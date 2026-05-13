@@ -440,10 +440,20 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 // such as reindex strategies' OnMigrationComplete rely on this guarantee to
 // flip schema flags (e.g. IndexFilterable=true) after a bucket swap without
 // risking a silent loss of the schema change.
+// UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
+// path. When `fields` is non-empty, the FSM merges ONLY the listed property
+// fields onto the existing property; the rest are kept from the current class
+// state. This closes the TOCTOU race where two reindex strategies that touch
+// disjoint fields could clobber each other on RAFT apply. An empty `fields`
+// preserves the legacy "replace every field" semantics, matching the public
+// schema-update path.
+//
+// See cluster/proto/api.PropertyField* for the field tag constants.
 func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, prop *models.Property,
+	fields ...string,
 ) error {
 	setPropertyDefaults(prop)
-	_, err := h.schemaManager.UpdateProperty(ctx, className, prop)
+	_, err := h.schemaManager.UpdateProperty(ctx, className, prop, fields...)
 	return err
 }
 

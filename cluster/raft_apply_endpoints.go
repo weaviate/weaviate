@@ -110,11 +110,18 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error) {
+// UpdateProperty schedules a RAFT command to merge `property` into the
+// named class. When `fields` is non-empty, the FSM merges ONLY the listed
+// fields onto an existing property (see api.PropertyField* constants); the
+// rest are kept from the existing class state, so two concurrent updaters
+// that touch different fields cannot clobber each other. An empty `fields`
+// preserves the legacy "replace every field" semantics — public API
+// callers that don't pass a mask are unaffected.
+func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
 	if class == "" || property == nil {
 		return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
 	}
-	req := cmd.UpdatePropertyRequest{Property: property}
+	req := cmd.UpdatePropertyRequest{Property: property, FieldsToUpdate: fields}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)

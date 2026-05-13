@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -190,6 +191,7 @@ func (s *EnableFilterableStrategy) OnMigrationComplete(ctx context.Context, shar
 	// Missing properties are tolerated: a property dropped between
 	// scheduling and completion is the same outcome we'd want anyway.
 	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+		[]string{api.PropertyFieldIndexFilterable},
 		func(prop *models.Property) bool {
 			if prop.IndexFilterable != nil && *prop.IndexFilterable {
 				return false // already enabled (possibly by a racing shard)
