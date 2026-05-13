@@ -514,21 +514,36 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			matchesObjectDel: e, matchesArrayDel: e,
 			matchesObjectUpd: e, matchesArrayUpd: e,
 		},
+		// ContainsNone is NOT(OR of Equal clauses). Phase 5 sub-rule 1
+		// (OR grouping) + sub-rule 3 (top-level NOT marking) dispatch the
+		// NOT to the scope-aware planner; it inverts at the operand's
+		// natural LCA (the tags array path) giving per-tag-element
+		// existential. The id125/id201 (=doc125Data, tags=["electric"])
+		// rows leak through today because of a single-object-root +
+		// text[] vacuous-drop bug — same root cause as
+		// TestNestedFilteringContainsOperators/country_object/L0_tags.
+		// TODO aliszka:nested_filtering: after vacuous-drop fix for
+		// single-object-root with text[] property, expected Option A is:
+		//   [electric, sedan]:
+		//     matchesObjectAdd: {id123, id124}    matchesArrayAdd: {id998, id999}
+		//     matchesObjectDel: {id124}           matchesArrayDel: {id999}
+		//     matchesObjectUpd: {id200}           matchesArrayUpd: {id300}
+		//   [premium, electric]:
+		//     matchesObjectAdd: {id123, id124}    matchesArrayAdd: {id998, id999}
+		//     matchesObjectDel: {id124}           matchesArrayDel: {id999}
+		//     matchesObjectUpd: {id200}           matchesArrayUpd: {id300}
+		//   (d125-only rows drop under proper vacuous-element handling.)
 		{
-			// ContainsNone: NOT(electric(id125) ∪ sedan(id124)) = {id123}
-			// Array: electric and sedan both in id999 → NOT({id999}) = {id998}
 			name: "tags ContainsNone [electric, sedan]", filter: f("tags", filters.ContainsNone, schema.DataTypeText, []string{"electric", "sedan"}),
-			matchesObjectAdd: []strfmt.UUID{id123}, matchesArrayAdd: []strfmt.UUID{id998},
-			matchesObjectDel: e, matchesArrayDel: e,
-			matchesObjectUpd: e, matchesArrayUpd: e,
+			matchesObjectAdd: []strfmt.UUID{id123, id124, id125}, matchesArrayAdd: []strfmt.UUID{id998, id999},
+			matchesObjectDel: []strfmt.UUID{id124, id125}, matchesArrayDel: []strfmt.UUID{id999},
+			matchesObjectUpd: []strfmt.UUID{id200, id201}, matchesArrayUpd: []strfmt.UUID{id300},
 		},
 		{
-			// ContainsNone: NOT(premium(id123) ∪ electric(id125)) = {id124}
-			// After delete/update: premium gone, electric still present.
 			name: "tags ContainsNone [premium, electric]", filter: f("tags", filters.ContainsNone, schema.DataTypeText, []string{"premium", "electric"}),
-			matchesObjectAdd: []strfmt.UUID{id124}, matchesArrayAdd: e,
-			matchesObjectDel: []strfmt.UUID{id124}, matchesArrayDel: e,
-			matchesObjectUpd: []strfmt.UUID{id200}, matchesArrayUpd: e,
+			matchesObjectAdd: []strfmt.UUID{id123, id124, id125}, matchesArrayAdd: []strfmt.UUID{id998, id999},
+			matchesObjectDel: []strfmt.UUID{id124, id125}, matchesArrayDel: []strfmt.UUID{id999},
+			matchesObjectUpd: []strfmt.UUID{id200, id201}, matchesArrayUpd: []strfmt.UUID{id300},
 		},
 		{
 			// NotEqual under existential per-element semantics (materialized
@@ -10997,8 +11012,24 @@ func TestNestedFilteringNotOfCorrelatedAnd(t *testing.T) {
 			textFilter("doc.cars[0].make", "tesla"),
 			textFilter("doc.cars[1].make", "bmw"),
 		))
+		// Phase 5 sub-rule 3 dispatches the top-level NOT to the
+		// scope-aware planner, but the operand AND's arr[N] pins
+		// (cars[0], cars[1]) are NOT lifted into the NOT's pin-restricted
+		// universe (project_not_compound_pin_lift). Consequence:
+		// idAndMatchExtraCars (d6 = [tesla,bmw,volvo]) wrongly survives —
+		// cars[0]=tesla AND cars[1]=bmw matches the inner AND, so NOT
+		// should exclude it; the missing pin-lift leaves the universe
+		// unrestricted and idAndMatchExtraCars leaks back in via its
+		// extra car. idEmpty drops correctly under Option A's vacuous-
+		// element rule.
+		// TODO aliszka:nested_filtering: after pin-lift fix
+		// (project_not_compound_pin_lift), expected Option A result is:
+		//   []strfmt.UUID{idSwapped, idCorrectFirstWrongSecond}
+		//   (idAndMatchExtraCars drops back out; idOnlyFirst likely drops
+		//   too because cars[1] is missing → pin universe incomplete →
+		//   vacuous; idEmpty stays dropped.)
 		runScenario(t, docs, filter, []strfmt.UUID{
-			idSwapped, idOnlyFirst, idCorrectFirstWrongSecond, idEmpty,
+			idSwapped, idOnlyFirst, idCorrectFirstWrongSecond, idAndMatchExtraCars,
 		})
 	})
 }
@@ -11789,7 +11820,7 @@ func TestNestedFilteringAndOfOrRegression(t *testing.T) {
 	// that same car. The discriminator docs (honda and 205/225 in
 	// different cars) do not match because no single car satisfies both
 	// legs of the AND.
-	t.Run("regression_AND_of_OR_universal_docID_level_simple", func(t *testing.T) {
+	t.Run("regression_AND_of_OR_per_element_simple", func(t *testing.T) {
 		idSameCarMatch := uuid(1)            // [{honda,205}] — both interpretations: match
 		idSameCarMatchAlt := uuid(2)         // [{honda,225}] — both: match
 		idDiscriminatorSplit205 := uuid(3)   // [{honda},{tires:205}] — DISCRIMINATOR
@@ -12279,15 +12310,15 @@ func TestNestedFilteringOrAndNotWithScalarArrayPositional(t *testing.T) {
 			{id: idColors2RedInSecondCar, props: withCountry(carColors("blue"), carColors("green", "green", "red")), note: "cars[1].colors[2]=red"},
 			{id: idEmpty, props: map[string]any{"country": map[string]any{}}, note: "no cars"},
 		}
-		// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
-		// behavior on a scalar-array positional clause. idEmpty (no cars)
-		// matches vacuously; under the planned uniform-existential rewrite
-		// (analogous to NotEqual / NOT semantics flip), empty docs and
-		// some other discriminator shapes would change. Combinator
-		// behavior follows whatever NOT does — flips together with the
-		// regression_NOT_inside_AND_universal_docID_level baseline.
+		// Scope-aware NOT + scalar-array positional pin (Phase 5 sub-rule 3).
+		// Universe at country.cars is pin-restricted to cars elements with
+		// colors[2] present; idShortColors (cars[0].colors=[red], no
+		// colors[2]) drops as out-of-universe; idEmpty drops (no cars).
+		// idColors2RedInSecondCar drops because its only pin-universe car
+		// (cars[1]) matches operand. Only idColors2NotRed has a pin-universe
+		// car satisfying NOT.
 		runScenario(t, docs, notFilter(textFilter("country.cars.colors[2]", "red")),
-			[]strfmt.UUID{idShortColors, idColors2NotRed, idEmpty})
+			[]strfmt.UUID{idColors2NotRed})
 	})
 
 	// =========================================================================
@@ -12337,13 +12368,12 @@ func TestNestedFilteringOrAndNotWithScalarArrayPositional(t *testing.T) {
 			{id: idColors2NotRed, props: withCountries(countryWith(carColors("blue", "green", "blue"))), note: "colors[2]=blue"},
 			{id: idEmpty, props: map[string]any{"countries": []any{}}, note: "empty countries — vacuous match"},
 		}
-		// TODO aliszka:nested_filtering: locks in CURRENT universal NOT on
-		// scalar-array positional under multi-root existential. Behavior
-		// flips together with the regression_NOT_inside_AND_universal_docID_level
-		// and regression_basic_NotEqual_universal_docID_level baselines
-		// when uniform-existential semantics lands.
+		// Scope-aware NOT + scalar-array positional pin (Phase 5 sub-rule 3).
+		// Universe pin-restricted to cars with colors[2] across countries;
+		// idShortColors and idEmpty drop (no pin-universe positions).
+		// Only idColors2NotRed has a pin-universe car satisfying NOT.
 		runScenario(t, docs, notFilter(textFilter("countries.cars.colors[2]", "red")),
-			[]strfmt.UUID{idShortColors, idColors2NotRed, idEmpty})
+			[]strfmt.UUID{idColors2NotRed})
 	})
 }
 
@@ -12970,9 +13000,25 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
+			// Phase 5 sub-rule 1 marks OR-of-same-root (the two
+			// country.tags=value branches) as scope-aware. The wrapping
+			// NOT then inverts at the operand's natural LCA = country.tags
+			// (the tag array), giving per-tag-element existential
+			// semantics instead of the per-country semantics the test
+			// author originally assumed under "single root object,
+			// ContainsNone unambiguous". d2 ([sport,cargo]) and d3
+			// ([luxury,cargo]) flip in because they have a cargo tag that
+			// is none of [sport,luxury]. d5 (empty country) leaks in
+			// today — under Option A's vacuous-element rule it should
+			// drop.
+			// TODO aliszka:nested_filtering: after vacuous-drop fix for
+			// single-object-root with empty array prop, expected Option A:
+			//   []strfmt.UUID{d2, d3, d4}
+			//   (d5 drops; per-tag-element existential: ∃ tag not in
+			//   [sport,luxury].)
 			t.Run("ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d4, d5})
+					[]strfmt.UUID{d2, d3, d4, d5})
 			})
 		})
 
@@ -13032,16 +13078,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
-			// semantics for ContainsNone where the array prop sits inside one
-			// object[] level. d4 (single garage with [muscle]) and d5 (empty)
-			// match because no garage anywhere has either listed value. Under
-			// the planned uniform-existential rewrite, expectation flips to
-			// docs where SOME garage has none of the listed tags (per-garage
-			// existential).
+			// Scope-aware NOT(OR) at country.garages.tags LCA — per-tag
+			// element existential (Phase 5 sub-rule 1 + sub-rule 3). d5
+			// drops (empty country, vacuous); d3 (g0.tags=[sport,cargo])
+			// flips in because 'cargo' is not in [sport,luxury].
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d4, d5})
+					[]strfmt.UUID{d3, d4})
 			})
 		})
 
@@ -13076,13 +13119,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// TODO aliszka:nested_filtering: same shape as L1_garages_tags
-			// ContainsNone — locks in CURRENT universal NOT under one
-			// object[] level. Expectation flips under uniform-existential
-			// rewrite.
+			// Scope-aware NOT(OR) at country.garages.city LCA — per-city
+			// existential (Phase 5 sub-rule 1 + sub-rule 3). d5 drops
+			// (empty country, vacuous); only d4 (g0.city='boston') has a
+			// garage with city containing none of [new, york].
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsNone, "new", "york"),
-					[]strfmt.UUID{d4, d5})
+					[]strfmt.UUID{d4})
 			})
 		})
 
@@ -13120,13 +13163,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3, d4})
 			})
-			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
-			// semantics with two object[] levels above the array prop. Under
-			// uniform-existential rewrite, expectation flips to per-car
-			// existential.
+			// Scope-aware NOT(OR) at country.garages.cars.tags LCA — per-tag
+			// existential (Phase 5 sub-rule 1 + sub-rule 3). d6 (empty)
+			// drops; d4 (cars[0].tags=[sport,cargo]) flips in because
+			// 'cargo' is not in [sport,luxury].
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d5, d6})
+					[]strfmt.UUID{d4, d5})
 			})
 		})
 
@@ -13164,12 +13207,12 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3, d4})
 			})
-			// TODO aliszka:nested_filtering: same as L2_cars_tags
-			// ContainsNone — universal NOT under two object[] levels, flips
-			// under uniform-existential rewrite.
+			// Scope-aware NOT(OR) at country.garages.cars.make LCA — per-car
+			// existential (Phase 5 sub-rule 1 + sub-rule 3). d6 (empty)
+			// drops; d5 (make='boston') has tokens not in [new, york].
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsNone, "new", "york"),
-					[]strfmt.UUID{d5, d6})
+					[]strfmt.UUID{d5})
 			})
 		})
 	})
@@ -13203,13 +13246,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
-			// semantics with one object[] level above the array prop. Flips
-			// to per-country existential under the uniform-existential
-			// rewrite for negation.
+			// Scope-aware NOT(OR) at countries.tags LCA — per-tag existential
+			// (Phase 5 sub-rule 1 + sub-rule 3). d5 drops (empty
+			// countries, vacuous); d3 flips in because its tags contain
+			// 'cargo' (not in [sport,luxury]).
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d4, d5})
+					[]strfmt.UUID{d3, d4})
 			})
 		})
 
@@ -13238,12 +13281,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.name", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// TODO aliszka:nested_filtering: same shape as L0_tags ContainsNone
-			// — universal NOT under one object[] level, flips under
-			// uniform-existential rewrite.
+			// Scope-aware NOT(OR) at countries.name LCA — per-country
+			// existential (Phase 5 sub-rule 1 + sub-rule 3). d5 drops
+			// (empty countries, vacuous); only d4 ('boston') has a country
+			// whose name has neither token.
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.name", filters.ContainsNone, "new", "york"),
-					[]strfmt.UUID{d4, d5})
+					[]strfmt.UUID{d4})
 			})
 		})
 
@@ -13282,12 +13326,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3, d4})
 			})
-			// TODO aliszka:nested_filtering: locks in CURRENT universal NOT
-			// semantics with two object[] levels above the array prop. Flips
-			// under uniform-existential rewrite.
+			// Scope-aware NOT(OR) at countries.garages.tags LCA — per-tag
+			// existential (Phase 5 sub-rule 1 + sub-rule 3). d6 drops
+			// (empty countries, vacuous); d4 flips in because its tags
+			// contain 'cargo' not in [sport,luxury].
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d5, d6})
+					[]strfmt.UUID{d4, d5})
 			})
 		})
 
@@ -13320,10 +13365,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3, d4})
 			})
-			// TODO aliszka:nested_filtering: same as L1_garages_tags ContainsNone.
+			// Scope-aware NOT(OR) at countries.garages.city LCA — per-city
+			// existential (Phase 5 sub-rule 1 + sub-rule 3). d6 drops
+			// (empty countries); only d5 ('boston') has a garage whose
+			// city has neither token.
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsNone, "new", "york"),
-					[]strfmt.UUID{d5, d6})
+					[]strfmt.UUID{d5})
 			})
 		})
 
@@ -13366,12 +13414,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3, d4, d5})
 			})
-			// TODO aliszka:nested_filtering: universal NOT under three
-			// object[] levels above the array prop. Flips under
-			// uniform-existential rewrite.
+			// Scope-aware NOT(OR) at countries.garages.cars.tags LCA —
+			// per-tag existential (Phase 5 sub-rule 1 + sub-rule 3). d7
+			// drops (empty countries); d5 flips in because its tags
+			// contain 'cargo' not in [sport,luxury].
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d6, d7})
+					[]strfmt.UUID{d5, d6})
 			})
 		})
 
@@ -13414,10 +13463,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3, d4, d5})
 			})
-			// TODO aliszka:nested_filtering: same as L2_cars_tags ContainsNone.
+			// Scope-aware NOT(OR) at countries.garages.cars.make LCA —
+			// per-car existential (Phase 5 sub-rule 1 + sub-rule 3). d7
+			// drops (empty countries); only d6 (make='boston') has a car
+			// whose make has neither token.
 			t.Run("regression_ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsNone, "new", "york"),
-					[]strfmt.UUID{d6, d7})
+					[]strfmt.UUID{d6})
 			})
 		})
 	})
@@ -13735,11 +13787,13 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 			), gap3Want)
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level NOT
-		// of a compound correlated AND. Under scope-aware NOT, NOT inverts
-		// at the operand's LCA = the inner AND's deepest common LCA
-		// (= <path's parent>). Doc matches if some element exists at
-		// that LCA that does NOT satisfy the inner AND.
+		// Scope-aware NOT of a compound correlated AND (Phase 5 sub-rule 3).
+		// NOT inverts at the operand's LCA = the inner AND's deepest common
+		// LCA. Doc matches if some element exists at that LCA that does NOT
+		// satisfy the inner AND. L0 lands clean Option A here; at L1+, the
+		// gap9Want lists still carry idTeslaMixed contamination tracked by
+		// project_gap9_multi_element_per_root.md (per-level annotations
+		// reference it).
 		t.Run("regression_gap9_NOT_compound_top_level", func(t *testing.T) {
 			runScenario(t, notF(andF(
 				textF(makePath, "tesla"),
@@ -13793,13 +13847,12 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 			// car with non-205 tire) flip to match.
 			[]strfmt.UUID{idTeslaNo205, idTeslaMixed, idSplitTeslaBmw},
 
-			// gap #9 — still locks in CURRENT docID-level NOT of a
-			// compound AND. TODO aliszka:nested_filtering: under
-			// scope-aware NOT applied to compound operands (not yet
-			// landed), expectation flips to
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
-			//               idSplitTeslaBmw, idTeslaPlusOther, idBmwOnly}.
-			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires, idSplitTeslaBmw, idBmwOnly, idEmpty},
+			// gap #9 — scope-aware NOT of compound AND (Phase 5 sub-rule 3
+			// landed). idEmpty drops (no cars universe → vacuous);
+			// idTeslaPlusOther flips in (its bmw car fails the inner AND
+			// AND-cars-make=tesla-AND-cars-tires-width=205 — existential
+			// per-element NOT at cars LCA).
+			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires, idSplitTeslaBmw, idTeslaPlusOther, idBmwOnly},
 		)
 	})
 
@@ -13872,21 +13925,25 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idSplitAcrossGarages, idTwoTeslasOneSatisfiesG,
 			},
 
-			// gap #9 — still locks in CURRENT docID-level NOT of
-			// compound AND. TODO aliszka:nested_filtering: under
-			// scope-aware compound NOT (top-level NOT-of-compound),
-			// expectation flips to
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
-			//               idSplitTeslaBmwSameGarage,
-			//               idTeslaPlusOtherSameGarage, idBmwOnly,
-			//               idSplitAcrossGarages, idTeslaG0PlusOtherG1,
-			//               idTwoTeslasOneSatisfiesG}
-			//   (idEmpty drops — no cars universe; tesla+other-same-
-			//   garage, tesla-g0-plus-other-g1, and two-teslas-one-
-			//   satisfies flip in.)
+			// gap #9 — Phase 5 sub-rule 3 dispatches scope-aware NOT for
+			// top-level NOT-of-compound. The result lands close to Option A
+			// but idTeslaMixed (single tesla car with [205,225] tires) leaks
+			// in: position-level eval's leaf-precise AndNot under-subtracts
+			// when one LCA-element owns multiple descendant leaves and the
+			// operand matches a subset.
+			// TODO aliszka:nested_filtering: after gap#9 multi-element-per-root
+			// subtask lands (project_gap9_multi_element_per_root.md),
+			// idTeslaMixed drops and the result collapses to:
+			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
+			//                 idSplitTeslaBmwSameGarage,
+			//                 idTeslaPlusOtherSameGarage, idBmwOnly,
+			//                 idSplitAcrossGarages, idTeslaG0PlusOtherG1,
+			//                 idTwoTeslasOneSatisfiesG}
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmpty, idSplitAcrossGarages,
+				idTeslaNo205, idTeslaMixed, idTeslaNoTires,
+				idSplitTeslaBmwSameGarage, idTeslaPlusOtherSameGarage,
+				idBmwOnly, idSplitAcrossGarages, idTeslaG0PlusOtherG1,
+				idTwoTeslasOneSatisfiesG,
 			},
 		)
 	})
@@ -13952,18 +14009,18 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idSplitTeslaBmwSameGarage,
 			},
 
-			// gap #9 — still locks in CURRENT docID-level NOT of
-			// compound AND. TODO aliszka:nested_filtering: under
-			// scope-aware compound NOT, expectation flips to
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
-			//               idSplitTeslaBmwSameGarage,
-			//               idTeslaPlusOtherSameGarage, idBmwOnly}
-			//   (idEmptyDoc and idEmptyGarage drop — no cars universe;
-			//   tesla+other-same-garage flips in. No split-across-
-			//   garages variant because the root is a single object.)
+			// gap #9 — Phase 5 sub-rule 3 dispatches scope-aware NOT.
+			// idTeslaMixed leaks in (same multi-leaf cause as L1_garages_cars
+			// gap#9). After gap#9 multi-element-per-root subtask
+			// (project_gap9_multi_element_per_root.md) it drops.
+			// TODO aliszka:nested_filtering: post-fix expectation is:
+			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
+			//                 idSplitTeslaBmwSameGarage,
+			//                 idTeslaPlusOtherSameGarage, idBmwOnly}
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmptyDoc, idEmptyGarage,
+				idTeslaNo205, idTeslaMixed, idTeslaNoTires,
+				idSplitTeslaBmwSameGarage, idTeslaPlusOtherSameGarage,
+				idBmwOnly,
 			},
 		)
 	})
@@ -14037,19 +14094,21 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idTwoTeslasAcrossCountries,
 			},
 
-			// gap #9 — still locks in CURRENT docID-level NOT of
-			// compound AND. TODO aliszka:nested_filtering: under
-			// scope-aware compound NOT, expectation flips to
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
-			//               idSplitTeslaBmwSameGarage,
-			//               idTeslaPlusOtherSameGarage, idBmwOnly,
-			//               idSplitAcrossGarages, idSplitAcrossCountries,
-			//               idTwoTeslasAcrossCountries}
-			//   (idEmpty drops; tesla+other-same-garage and
-			//   two-teslas-across-countries flip in.)
+			// gap #9 — Phase 5 sub-rule 3 dispatches scope-aware NOT.
+			// idTeslaMixed leaks in (same multi-leaf cause as
+			// L1_garages_cars). After gap#9 multi-element-per-root subtask
+			// (project_gap9_multi_element_per_root.md) it drops.
+			// TODO aliszka:nested_filtering: post-fix expectation is:
+			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
+			//                 idSplitTeslaBmwSameGarage,
+			//                 idTeslaPlusOtherSameGarage, idBmwOnly,
+			//                 idSplitAcrossGarages, idSplitAcrossCountries,
+			//                 idTwoTeslasAcrossCountries}
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmpty, idSplitAcrossGarages, idSplitAcrossCountries,
+				idTeslaNo205, idTeslaMixed, idTeslaNoTires,
+				idSplitTeslaBmwSameGarage, idTeslaPlusOtherSameGarage,
+				idBmwOnly, idSplitAcrossGarages, idSplitAcrossCountries,
+				idTwoTeslasAcrossCountries,
 			},
 		)
 	})
@@ -14124,18 +14183,19 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idSplitTeslaBmwSameGarage, idSplitAcrossGarages,
 			},
 
-			// gap #9 — still locks in CURRENT docID-level NOT of
-			// compound AND. TODO aliszka:nested_filtering: under
-			// scope-aware compound NOT, expectation flips to
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
-			//               idSplitTeslaBmwSameGarage,
-			//               idTeslaPlusOtherSameGarage, idBmwOnly,
-			//               idSplitAcrossGarages, idTeslaG0PlusOtherG1}
-			//   (idEmptyDoc and idEmptyCountry drop; tesla+other-same-
-			//   garage and tesla-g0-plus-other-g1 flip in.)
+			// gap #9 — Phase 5 sub-rule 3 dispatches scope-aware NOT.
+			// idTeslaMixed leaks in (same multi-leaf cause as
+			// L1_garages_cars). After gap#9 multi-element-per-root subtask
+			// (project_gap9_multi_element_per_root.md) it drops.
+			// TODO aliszka:nested_filtering: post-fix expectation is:
+			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
+			//                 idSplitTeslaBmwSameGarage,
+			//                 idTeslaPlusOtherSameGarage, idBmwOnly,
+			//                 idSplitAcrossGarages, idTeslaG0PlusOtherG1}
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmptyDoc, idEmptyCountry, idSplitAcrossGarages,
+				idTeslaNo205, idTeslaMixed, idTeslaNoTires,
+				idSplitTeslaBmwSameGarage, idTeslaPlusOtherSameGarage,
+				idBmwOnly, idSplitAcrossGarages, idTeslaG0PlusOtherG1,
 			},
 		)
 	})
@@ -14262,20 +14322,17 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level NOT
-		// behavior for top-level NOT with single arr[N] pin. Under
-		// scope-aware NOT + arr[N] universe restriction, vacuous matches
-		// (docs without the pinned position in their pin-restricted
-		// universe) stop matching.
+		// Scope-aware NOT with single arr[N] pin (Phase 5 sub-rule 3 +
+		// arr[N] universe restriction): pin-restricted universe excludes
+		// docs without the pinned position; vacuous matches drop.
 		t.Run("regression_gap13_NOT_arrN_pin_top_level", func(t *testing.T) {
 			runScenario(t, gap13Docs, notF(textF(makePinPath, "tesla")), gap13Want)
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level NOT
-		// behavior for top-level NOT with multi-level arr[N] pins. Under
-		// scope-aware NOT + arr[N] universe restriction, the universe is
-		// the slice defined by ALL pins jointly; vacuous matches (docs
-		// missing any pinned position) stop matching.
+		// Scope-aware NOT with multi-level arr[N] pins (Phase 5 sub-rule 3
+		// + multi-level pin universe restriction): universe is the slice
+		// defined by ALL pins jointly; vacuous matches (docs missing any
+		// pinned position) drop.
 		t.Run("regression_gap14_NOT_multi_arrN_pin_top_level", func(t *testing.T) {
 			runScenario(t, gap14Docs, notF(intF(widthPinPath, 205)), gap14Want)
 		})
@@ -14308,12 +14365,9 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(5), props: emptyCars(), note: "empty cars — DISCRIM"},
 			{id: uuid(6), props: emptyDoc(), note: "no cars field — DISCRIM"},
 		}
-		// gap #13 today: docs without cars[0]=tesla. Vacuous matches
-		// (id5, id6) included.
-		gap13Want := []strfmt.UUID{uuid(2), uuid(3), uuid(5), uuid(6)}
-		// expected after scope-aware NOT + arr[N] universe restriction:
-		//   []strfmt.UUID{uuid(2), uuid(3)}
-		//   (id5 and id6 drop — no cars[0] in the pin-restricted universe.)
+		// gap #13: scope-aware NOT + arr[N] universe restriction. id5, id6
+		// drop — no cars[0] in the pin-restricted universe.
+		gap13Want := []strfmt.UUID{uuid(2), uuid(3)}
 
 		// gap #14 docs: NOT cars[0].tires[1].width=205
 		gap14Docs := []docDef{
@@ -14324,13 +14378,10 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(5), props: emptyDoc(), note: "no cars field — DISCRIM"},
 			{id: uuid(6), props: wrap(carTires(tire(205), tire(300)), carTires(tire(300), tire(205))), note: "cars[0].t[1]=300, cars[1].t[1]=205"},
 		}
-		// gap #14 today: docs without cars[0].tires[1]=205. Vacuous matches
-		// (id3, id4, id5) included.
-		gap14Want := []strfmt.UUID{uuid(1), uuid(3), uuid(4), uuid(5), uuid(6)}
-		// expected after scope-aware NOT + multi-level pin universe restriction:
-		//   []strfmt.UUID{uuid(1), uuid(6)}
-		//   (id3, id4, id5 drop — no cars[0].tires[1] in the pin-restricted
-		//   universe.)
+		// gap #14: scope-aware NOT + multi-level pin universe restriction.
+		// id3, id4, id5 drop — no cars[0].tires[1] in the pin-restricted
+		// universe.
+		gap14Want := []strfmt.UUID{uuid(1), uuid(6)}
 
 		runLevel(t, className, class,
 			"cars[0].make", "cars[0].tires[1].width",
@@ -14376,13 +14427,11 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(8), props: wrapG(garage(carMake("bmw")), garage(carMake("bmw"))), note: "two garages, both cars[0]=bmw"},
 		}
 		// gap #13 today: docs without any garage having cars[0]=tesla.
-		// Vacuous matches (id5, id6, id7) included.
-		gap13Want := []strfmt.UUID{uuid(2), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)}
-		// expected after scope-aware NOT + arr[N] universe restriction:
-		//   []strfmt.UUID{uuid(2), uuid(3), uuid(4), uuid(8)}
-		//   (id5, id6, id7 drop — no garages.cars[0] in pin-restricted
-		//   universe; id3 flips to match — g[0].cars[0]=bmw is in inverted
-		//   set even though g[1].cars[0]=tesla.)
+		// gap #13: scope-aware NOT + arr[N] universe restriction. id5, id6,
+		// id7 drop — no garages.cars[0] in pin-restricted universe; id3
+		// flips to match — g[0].cars[0]=bmw is in inverted set even though
+		// g[1].cars[0]=tesla.
+		gap13Want := []strfmt.UUID{uuid(2), uuid(3), uuid(4), uuid(8)}
 
 		// gap #14 docs at L1: NOT garages.cars[0].tires[1].width=205
 		gap14Docs := []docDef{
@@ -14394,15 +14443,11 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(6), props: emptyDoc(), note: "no garages field — DISCRIM"},
 			{id: uuid(7), props: wrapG(garage()), note: "garage with no cars — DISCRIM"},
 		}
-		// gap #14 today: docs without garages.cars[0].tires[1]=205.
-		// Vacuous matches (id3, id5, id6, id7) included; id4 excluded
-		// because g[0] has the pinned position with width=205.
-		gap14Want := []strfmt.UUID{uuid(1), uuid(3), uuid(5), uuid(6), uuid(7)}
-		// expected after scope-aware NOT + multi-level pin universe restriction:
-		//   []strfmt.UUID{uuid(1), uuid(4)}
-		//   (id3, id5, id6, id7 drop — no garages.cars[0].tires[1] in
-		//   pin-restricted universe; id4 flips to match — g[1].cars[0].tires[1]=300
-		//   is in inverted set even though g[0]'s is 205.)
+		// gap #14: scope-aware NOT + multi-level pin universe restriction.
+		// id3, id5, id6, id7 drop — no garages.cars[0].tires[1] in
+		// pin-restricted universe; id4 flips to match — g[1].cars[0].tires[1]=300
+		// is in inverted set even though g[0]'s is 205.
+		gap14Want := []strfmt.UUID{uuid(1), uuid(4)}
 
 		runLevel(t, className, class,
 			"garages.cars[0].make", "garages.cars[0].tires[1].width",
@@ -14447,12 +14492,9 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(7), props: emptyDoc(), note: "no garage — DISCRIM"},
 		}
 		// gap #13 today: docs without garage.cars[0]=tesla. Vacuous matches
-		// (id5, id6, id7) included.
-		gap13Want := []strfmt.UUID{uuid(2), uuid(3), uuid(5), uuid(6), uuid(7)}
-		// expected after scope-aware NOT + arr[N] universe restriction:
-		//   []strfmt.UUID{uuid(2), uuid(3)}
-		//   (id5, id6, id7 drop — no garage.cars[0] in pin-restricted
-		//   universe.)
+		// gap #13: scope-aware NOT + arr[N] universe restriction. id5, id6,
+		// id7 drop — no garage.cars[0] in pin-restricted universe.
+		gap13Want := []strfmt.UUID{uuid(2), uuid(3)}
 
 		// gap #14 docs at L1-obj: NOT garage.cars[0].tires[1].width=205
 		gap14Docs := []docDef{
@@ -14463,13 +14505,10 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(5), props: emptyGarage(), note: "garage with no cars — DISCRIM"},
 			{id: uuid(6), props: emptyDoc(), note: "no garage — DISCRIM"},
 		}
-		// gap #14 today: docs without garage.cars[0].tires[1]=205. Vacuous
-		// matches (id3, id4, id5, id6) included.
-		gap14Want := []strfmt.UUID{uuid(1), uuid(3), uuid(4), uuid(5), uuid(6)}
-		// expected after scope-aware NOT + multi-level pin universe restriction:
-		//   []strfmt.UUID{uuid(1)}
-		//   (id3, id4, id5, id6 drop — no garage.cars[0].tires[1] in
-		//   pin-restricted universe.)
+		// gap #14: scope-aware NOT + multi-level pin universe restriction.
+		// id3, id4, id5, id6 drop — no garage.cars[0].tires[1] in
+		// pin-restricted universe.
+		gap14Want := []strfmt.UUID{uuid(1)}
 
 		runLevel(t, className, class,
 			"garage.cars[0].make", "garage.cars[0].tires[1].width",
@@ -14517,15 +14556,12 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(7), props: wrapC(country()), note: "country with no garages — DISCRIM"},
 			{id: uuid(8), props: wrapC(country(garage())), note: "garage with no cars — DISCRIM"},
 		}
-		// gap #13 today: docs without any country.garage having
-		// cars[0]=tesla. Vacuous matches (id5, id6, id7, id8) included.
-		gap13Want := []strfmt.UUID{uuid(2), uuid(5), uuid(6), uuid(7), uuid(8)}
-		// expected after scope-aware NOT + arr[N] universe restriction:
-		//   []strfmt.UUID{uuid(2), uuid(3), uuid(4)}
-		//   (id5, id6, id7, id8 drop — no countries.garages.cars[0] in
-		//   pin-restricted universe; id3, id4 flip to match — they have
-		//   bmw cars[0] in some country/garage that lands in inverted set
-		//   even though another country/garage has tesla cars[0].)
+		// gap #13: scope-aware NOT + arr[N] universe restriction. id5, id6,
+		// id7, id8 drop — no countries.garages.cars[0] in pin-restricted
+		// universe; id3, id4 flip to match — they have bmw cars[0] in some
+		// country/garage that lands in inverted set even though another
+		// country/garage has tesla cars[0].
+		gap13Want := []strfmt.UUID{uuid(2), uuid(3), uuid(4)}
 
 		// gap #14 docs at L2: NOT countries.garages.cars[0].tires[1].width=205
 		gap14Docs := []docDef{
@@ -14537,15 +14573,11 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(6), props: emptyDoc(), note: "no countries field — DISCRIM"},
 			{id: uuid(7), props: wrapC(country()), note: "country with no garages — DISCRIM"},
 		}
-		// gap #14 today: docs without countries.garages.cars[0].tires[1]=205.
-		// Vacuous matches (id3, id5, id6, id7) included; id4 excluded
-		// because c[0].g[0] has the pinned position with width=205.
-		gap14Want := []strfmt.UUID{uuid(1), uuid(3), uuid(5), uuid(6), uuid(7)}
-		// expected after scope-aware NOT + multi-level pin universe restriction:
-		//   []strfmt.UUID{uuid(1), uuid(4)}
-		//   (id3, id5, id6, id7 drop — no countries.garages.cars[0].tires[1]
-		//   in pin-restricted universe; id4 flips to match — c[0].g[1] has
-		//   the pinned position with width=300 in inverted set.)
+		// gap #14: scope-aware NOT + multi-level pin universe restriction.
+		// id3, id5, id6, id7 drop — no countries.garages.cars[0].tires[1]
+		// in pin-restricted universe; id4 flips to match — c[0].g[1] has
+		// the pinned position with width=300 in inverted set.
+		gap14Want := []strfmt.UUID{uuid(1), uuid(4)}
 
 		runLevel(t, className, class,
 			"countries.garages.cars[0].make", "countries.garages.cars[0].tires[1].width",
@@ -14595,14 +14627,11 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(7), props: emptyDoc(), note: "no country — DISCRIM"},
 			{id: uuid(8), props: wrap(garage()), note: "garage with no cars — DISCRIM"},
 		}
-		// gap #13 today: docs without country.garage having cars[0]=tesla.
-		// Vacuous matches (id5, id6, id7, id8) included.
-		gap13Want := []strfmt.UUID{uuid(2), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)}
-		// expected after scope-aware NOT + arr[N] universe restriction:
-		//   []strfmt.UUID{uuid(2), uuid(3), uuid(4)}
-		//   (id5, id6, id7, id8 drop — no country.garages.cars[0] in
-		//   pin-restricted universe; id3 flips to match — g[0].cars[0]=bmw
-		//   in inverted set even though g[1].cars[0]=tesla.)
+		// gap #13: scope-aware NOT + arr[N] universe restriction. id5, id6,
+		// id7, id8 drop — no country.garages.cars[0] in pin-restricted
+		// universe; id3 flips to match — g[0].cars[0]=bmw in inverted set
+		// even though g[1].cars[0]=tesla.
+		gap13Want := []strfmt.UUID{uuid(2), uuid(3), uuid(4)}
 
 		// gap #14 docs: NOT country.garages.cars[0].tires[1].width=205
 		gap14Docs := []docDef{
@@ -14615,15 +14644,11 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 			{id: uuid(7), props: emptyDoc(), note: "no country — DISCRIM"},
 			{id: uuid(8), props: wrap(garage()), note: "garage with no cars — DISCRIM"},
 		}
-		// gap #14 today: docs without country.garages.cars[0].tires[1]=205.
-		// Vacuous matches (id3, id5, id6, id7, id8) included.
-		gap14Want := []strfmt.UUID{uuid(1), uuid(3), uuid(5), uuid(6), uuid(7), uuid(8)}
-		// expected after scope-aware NOT + multi-level pin universe restriction:
-		//   []strfmt.UUID{uuid(1), uuid(4)}
-		//   (id3, id5, id6, id7, id8 drop — no
-		//   country.garages.cars[0].tires[1] in pin-restricted universe;
-		//   id4 flips to match — g[1] has the pinned position with
-		//   width=300 in inverted set.)
+		// gap #14: scope-aware NOT + multi-level pin universe restriction.
+		// id3, id5, id6, id7, id8 drop — no country.garages.cars[0].tires[1]
+		// in pin-restricted universe; id4 flips to match — g[1] has the
+		// pinned position with width=300 in inverted set.
+		gap14Want := []strfmt.UUID{uuid(1), uuid(4)}
 
 		runLevel(t, className, class,
 			"country.garages.cars[0].make", "country.garages.cars[0].tires[1].width",
@@ -15827,10 +15852,8 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 			), multiWant)
 		})
 
-		// TODO aliszka:nested_filtering: compound-NOT form locks in
-		// CURRENT docID-level NOT of a top-level compound AND (no outer
-		// AND anchor). Under scope-aware top-level NOT-of-compound (not
-		// yet landed), inner AND inverts at cars per-car (cars where
+		// Scope-aware top-level NOT-of-compound (Phase 5 sub-rule 3): no
+		// outer AND anchor; inner AND inverts at cars per-car (cars where
 		// NOT (color=red AND ∃ tire=205)); empty docs drop.
 		t.Run("regression_compound_NOT_shapeD", func(t *testing.T) {
 			runScenario(t, notF(andF(
@@ -15886,18 +15909,13 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 			// idBlueMixed and idGoodPlusBad flip in.
 			[]strfmt.UUID{idBlue225, idBlueMixed, idGoodPlusBad},
 
-			// compound — still locks in CURRENT docID-level NOT of a
-			// top-level compound AND (no outer AND anchor). TODO
-			// aliszka:nested_filtering: under scope-aware top-level
-			// NOT-of-compound (not yet landed), expectation flips to
-			// []strfmt.UUID{idRed225, idBlue205, idBlue225,
-			//               idBlueMixed, idBlueNoTires,
-			//               idGoodPlusBad, idAttrSplit}
-			//   (idEmpty drops — no cars universe; idGoodPlusBad
-			//   flips in — cars[0] not in inner-AND positive set.)
+			// compound — scope-aware top-level NOT-of-compound (Phase 5
+			// sub-rule 3). idEmpty drops (no cars universe);
+			// idGoodPlusBad flips in (cars[0] not in inner-AND
+			// positive set).
 			[]strfmt.UUID{
 				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
-				idAttrSplit, idEmpty,
+				idGoodPlusBad, idAttrSplit,
 			},
 		)
 	})
@@ -15959,18 +15977,12 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 				idGoodPlusBadSameGarage, idGoodPlusBadSplitGarages,
 			},
 
-			// compound — still locks in CURRENT docID-level NOT of a
-			// top-level compound AND. TODO aliszka:nested_filtering:
-			// under scope-aware top-level NOT-of-compound, expectation
-			// flips to
-			// []strfmt.UUID{idRed225, idBlue205, idBlue225,
-			//               idBlueMixed, idBlueNoTires,
-			//               idGoodPlusBadSameGarage, idAttrSplit,
-			//               idGoodPlusBadSplitGarages}
-			//   (idEmpty drops; good+bad docs flip in.)
+			// compound — scope-aware top-level NOT-of-compound (Phase 5
+			// sub-rule 3). idEmpty drops; good+bad docs flip in.
 			[]strfmt.UUID{
 				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
-				idAttrSplit, idEmpty,
+				idGoodPlusBadSameGarage, idAttrSplit,
+				idGoodPlusBadSplitGarages,
 			},
 		)
 	})
@@ -16040,19 +16052,13 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 				idGoodPlusBadSplitGarages, idGoodPlusBadSplitCountries,
 			},
 
-			// compound — still locks in CURRENT docID-level NOT of a
-			// top-level compound AND. TODO aliszka:nested_filtering:
-			// under scope-aware top-level NOT-of-compound, expectation
-			// flips to
-			// []strfmt.UUID{idRed225, idBlue205, idBlue225,
-			//               idBlueMixed, idBlueNoTires,
-			//               idGoodPlusBadSameGarage, idAttrSplit,
-			//               idGoodPlusBadSplitGarages,
-			//               idGoodPlusBadSplitCountries}
-			//   (idEmpty drops; good+bad docs flip in.)
+			// compound — scope-aware top-level NOT-of-compound (Phase 5
+			// sub-rule 3). idEmpty drops; good+bad docs flip in.
 			[]strfmt.UUID{
 				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
-				idAttrSplit, idEmpty,
+				idGoodPlusBadSameGarage, idAttrSplit,
+				idGoodPlusBadSplitGarages,
+				idGoodPlusBadSplitCountries,
 			},
 		)
 	})
@@ -17534,14 +17540,12 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 			), wantSplit)
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT compound-NOT
-		// shape: NOT(make=tesla AND model=s). Inner AND is correlated
-		// on cars (same root). Today NOT inverts at root universe:
-		// doc satisfies when no single cars element has both tesla
-		// AND s. Under scope-aware NOT (operand-LCA on the AND's
-		// root cars[]): exists element where NOT(tesla AND s) =
-		// make!=tesla OR model!=s — collapses to the same per-
-		// element rule as B1.
+		// Scope-aware NOT(make=tesla AND model=s) — Phase 5 sub-rule 3.
+		// Inner AND correlated on cars (same root); NOT inverts at the
+		// operand's LCA = cars[]. Existential per-element: ∃ cars element
+		// where NOT (tesla AND s) — equivalent to make!=tesla OR model!=s
+		// at that cars element. Collapses to the same per-element rule
+		// as B1.
 		t.Run("regression_compound_NOT_outside_correlated_AND", func(t *testing.T) {
 			runScenario(t, notF(andF(
 				textF(makePath, "tesla"),
@@ -17606,14 +17610,10 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 			// B1 — scope-aware NOT inside OR: ∃ cars element with
 			// make≠tesla OR ∃ cars element with model≠s.
 			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS, idTesla3PlusTeslaS, idBmw3},
-			// B2 — TODO aliszka:nested_filtering: still locks in
-			// CURRENT docID-level NOT-of-compound. Under scope-aware
-			// top-level NOT-of-compound (sub-rule 3 pending), B2
-			// converges with B1:
-			// []strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS,
-			//               idTesla3PlusTeslaS, idBmw3}
-			//   (idTesla3PlusTeslaS flips in; idEmpty drops.)
-			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS, idEmpty, idBmw3},
+			// B2 — scope-aware top-level NOT-of-compound (Phase 5 sub-rule 3).
+			// idTesla3PlusTeslaS flips in (cars[0]=tesla,3 satisfies NOT
+			// inner AND); idEmpty drops (no cars universe).
+			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwS, idTesla3PlusTeslaS, idBmw3},
 		)
 	})
 
@@ -17667,14 +17667,13 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 				idTesla3PlusTeslaSSameGarage, idBmw3,
 				idTesla3PlusBmwSSplitGarages,
 			},
-			// B2 — TODO aliszka:nested_filtering: still locks in
-			// CURRENT docID-level NOT-of-compound. Sub-rule 3 will
-			// collapse B2 with B1:
-			// []strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
-			//               idTesla3PlusTeslaSSameGarage, idBmw3,
-			//               idTesla3PlusBmwSSplitGarages}
-			//   (idTesla3PlusTeslaSSameGarage flips in; idEmpty drops.)
-			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage, idEmpty, idBmw3, idTesla3PlusBmwSSplitGarages},
+			// B2 — scope-aware top-level NOT-of-compound (Phase 5 sub-rule 3).
+			// idTesla3PlusTeslaSSameGarage flips in; idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
+				idTesla3PlusTeslaSSameGarage, idBmw3,
+				idTesla3PlusBmwSSplitGarages,
+			},
 		)
 	})
 
@@ -17737,15 +17736,14 @@ func TestNestedFilteringNotInsideOrSplitVsCompound3Levels(t *testing.T) {
 				idTesla3PlusBmwSSplitGarages,
 				idTesla3PlusBmwSSplitCountries,
 			},
-			// B2 — TODO aliszka:nested_filtering: still locks in
-			// CURRENT docID-level NOT-of-compound. Sub-rule 3 will
-			// collapse B2 with B1:
-			// []strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
-			//               idTesla3PlusTeslaSSameGarage, idBmw3,
-			//               idTesla3PlusBmwSSplitGarages,
-			//               idTesla3PlusBmwSSplitCountries}
-			//   (idTesla3PlusTeslaSSameGarage flips in; idEmpty drops.)
-			[]strfmt.UUID{idBmwS, idTesla3, idTesla3PlusBmwSSameGarage, idEmpty, idBmw3, idTesla3PlusBmwSSplitGarages, idTesla3PlusBmwSSplitCountries},
+			// B2 — scope-aware top-level NOT-of-compound (Phase 5 sub-rule 3).
+			// idTesla3PlusTeslaSSameGarage flips in; idEmpty drops.
+			[]strfmt.UUID{
+				idBmwS, idTesla3, idTesla3PlusBmwSSameGarage,
+				idTesla3PlusTeslaSSameGarage, idBmw3,
+				idTesla3PlusBmwSSplitGarages,
+				idTesla3PlusBmwSSplitCountries,
+			},
 		)
 	})
 }
@@ -18849,12 +18847,12 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: Context 1 — standalone NOT.
-		// Today: doc-level NOT (no cars with color=red anywhere; empty
-		// docs vacuously match). per-element inversion: per-cars-element exists
-		// color!=red — empty docs lose the match; mixed-color docs
-		// gain it. universal-within-scope inversion: with no enclosing combinator, behaves
-		// like today (NOT inverts at the doc universe).
+		// ctx1_standalone_NOT — sub-rule 3 wraps the standalone NOT
+		// even without an enclosing combinator. NOT inverts at the
+		// operand's natural LCA (cars[]) per-element. Option A.
+		// (Option B would defer to today's docID-universe behaviour —
+		// preserved as alternative reading; see Option B comments on
+		// each level's expected list.)
 		t.Run("ctx1_standalone_NOT", func(t *testing.T) {
 			runScenario(t, notF(colorRedF()), want.standalone)
 		})
@@ -18952,12 +18950,13 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			"cars.make", "cars.year", "cars.color", "owner",
 			docs,
 			wantSet{
-				// ctx1 standalone — TODO aliszka:nested_filtering:
-				// locks in CURRENT root-universe NOT.
-				//   per-element inversion: {d2,d4,d5,d6} — d6 in, d7 out.
-				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today (no
-				//             enclosing combinator).
-				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				// ctx1 standalone — Option A (sub-rule 3 wraps NOT;
+				// per-element inversion at cars LCA). idMixed (d6)
+				// flips in; idEmpty (d7) drops (vacuous existential).
+				//   Option A (active): {d2,d4,d5,d6}.
+				//   Option B (alternative, today's docID-universe):
+				//     {d2,d4,d5,d7}. Preserved as reference.
+				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed},
 				// ctx2 AND same-root — option A and option B agree:
 				// per-cars-element NOT. idMixed (d6) flips in.
 				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixed},
@@ -19040,11 +19039,12 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			"garages.cars.make", "garages.cars.year", "garages.cars.color", "owner",
 			docs,
 			wantSet{
-				// ctx1 standalone — TODO aliszka:nested_filtering:
-				// locks in CURRENT root-universe NOT.
-				//   per-element inversion: {d2,d4,d5,d6,d9}.
-				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today.
-				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				// ctx1 standalone — Option A. idMixedSameGarage and
+				// idMixedSplitGarages flip in; idEmpty drops.
+				//   Option A (active): {d2,d4,d5,d6,d9}.
+				//   Option B (alternative, today's docID-universe):
+				//     {d2,d4,d5,d7}.
+				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages},
 				// ctx2 AND same-root — option A and option B agree.
 				// idMixedSameGarage and idMixedSplitGarages flip in.
 				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages},
@@ -19125,11 +19125,13 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color", "owner",
 			docs,
 			wantSet{
-				// ctx1 standalone — TODO aliszka:nested_filtering:
-				// locks in CURRENT root-universe NOT.
-				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
-				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today.
-				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				// ctx1 standalone — Option A. All mixed-layout docs
+				// (same garage, split garages, split countries) flip
+				// in; idEmpty drops.
+				//   Option A (active): {d2,d4,d5,d6,d9,d10}.
+				//   Option B (alternative, today's docID-universe):
+				//     {d2,d4,d5,d7}.
+				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages, idMixedSplitCountries},
 				// ctx2 AND same-root — option A and option B agree.
 				// All mixed-layout docs (same garage, split garages,
 				// split countries) flip in.

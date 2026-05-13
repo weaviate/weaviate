@@ -355,17 +355,25 @@ func (s *Searcher) extractPropValuePair(
 
 // groupNestedSubtrees walks pv's tree post-order and applies the
 // same-root grouping rule of groupNestedByProp at every AND / OR node
-// it finds. NOT / leaf nodes pass through; their children are still
-// walked so AND / OR nodes deeper in the tree get grouped. Pre-marked
-// wrappers (isWithinRootSubtree=true, e.g. tokenization wrappers from
-// buildNestedTextFilterPair) are skipped — their children are already
-// the leaves of one same-root subtree and need no further grouping.
+// it finds, and additionally marks NOT-of-nested-operand as
+// isWithinRootSubtree so the scope-aware planner inverts the NOT at
+// the operand's natural LCA (sub-rule 3). Leaf nodes pass through;
+// their children are still walked so AND / OR / NOT nodes deeper in
+// the tree get processed. Pre-marked wrappers (isWithinRootSubtree=
+// true, e.g. tokenization wrappers from buildNestedTextFilterPair)
+// are skipped — their children are already the leaves of one same-
+// root subtree and need no further grouping.
 //
 // When grouping collapses every child of an AND / OR into a single
 // same-root wrapper, the outer operator is promoted in place: its own
 // isWithinRootSubtree flag and prop are set, and the redundant single-
 // child wrapping level is elided. Mixed-root nodes keep the per-group
 // wrappers as separate children.
+//
+// NOT-of-IsNull is deliberately left alone — today's docID-level
+// dispatch already produces the correct NOT(IsNull) ≡ IsNotNull
+// equivalence. Phase 6 will materialise IsNull at the leaf LCA, at
+// which point this guard can be removed.
 func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
 	if pv == nil || len(pv.children) == 0 {
 		return pv
@@ -373,24 +381,45 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 	for i := range pv.children {
 		pv.children[i] = groupNestedSubtrees(pv.children[i], class)
 	}
-	if (pv.operator != filters.OperatorAnd && pv.operator != filters.OperatorOr) ||
-		pv.nested.isWithinRootSubtree {
+	if pv.nested.isWithinRootSubtree {
 		return pv
 	}
-	grouped := groupNestedByProp(pv.children, class, pv.operator)
-	if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
-		// Collapse: every child landed in one same-root wrapper.
-		// Promote pv to be that wrapper instead of holding it as a
-		// useless single-child outer node. pv keeps its operator
-		// (AND or OR), so the planner sees the right shape.
-		w := grouped[0]
+	switch pv.operator {
+	case filters.OperatorAnd, filters.OperatorOr:
+		grouped := groupNestedByProp(pv.children, class, pv.operator)
+		if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
+			// Collapse: every child landed in one same-root wrapper.
+			// Promote pv to be that wrapper instead of holding it as a
+			// useless single-child outer node. pv keeps its operator
+			// (AND or OR), so the planner sees the right shape.
+			w := grouped[0]
+			pv.nested.isWithinRootSubtree = true
+			pv.prop = w.prop
+			pv.children = w.children
+			return pv
+		}
+		pv.children = grouped
+		return pv
+	case filters.OperatorNot:
+		if len(pv.children) != 1 {
+			return pv
+		}
+		operand := pv.children[0]
+		// Phase 5 guard: defer NOT(IsNull) to the existing docID-level
+		// dispatch until Phase 6 materialises IsNull at the leaf LCA.
+		if operand.operator == filters.OperatorIsNull {
+			return pv
+		}
+		operandRoot := nestedRootProp(operand)
+		if operandRoot == "" {
+			return pv
+		}
 		pv.nested.isWithinRootSubtree = true
-		pv.prop = w.prop
-		pv.children = w.children
+		pv.prop = operandRoot
+		return pv
+	default:
 		return pv
 	}
-	pv.children = grouped
-	return pv
 }
 
 // buildPropValuePair constructs the propValuePair from filter without

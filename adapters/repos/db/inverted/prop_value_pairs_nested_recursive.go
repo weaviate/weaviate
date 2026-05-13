@@ -360,14 +360,18 @@ func (pv *propValuePair) buildRecGroupExecutor(
 
 	var plan recPlanNode
 	if len(input.positives) > 0 {
-		// Dispatch on outer operator: AND-of-same-root → recGroupNode
-		// (same-element correlation at LCA). OR-of-same-root →
-		// recOrNode (union at the deepest common LCA per element).
-		// Wrapping for both shapes is decided at extraction time by
-		// groupNestedSubtrees; here we just plant the right plan node.
-		if pv.operator == filters.OperatorOr {
+		// Dispatch on outer operator. Wrapping for all shapes is decided
+		// at extraction time by groupNestedSubtrees; here we just plant
+		// the right plan node.
+		//   AND-of-same-root → recGroupNode (same-element correlation).
+		//   OR-of-same-root → recOrNode (union at deepest common LCA).
+		//   NOT-of-same-root → recNotNode (invert at operand LCA).
+		switch pv.operator {
+		case filters.OperatorOr:
 			plan = builder.buildOrAtScope(pv, "")
-		} else {
+		case filters.OperatorNot:
+			plan = builder.buildNotAtScope(pv, "")
+		default:
 			plan = builder.build(input.positives)
 		}
 	}
