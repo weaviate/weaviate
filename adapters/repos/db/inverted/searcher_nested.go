@@ -293,7 +293,10 @@ func groupNestedByProp(children []*propValuePair, class *models.Class, parentOpe
 	// Second pass: reconstruct the children slice, replacing multi-condition
 	// nested groups with a single isWithinRootSubtree wrapper node carrying the
 	// caller's parentOperator. Single-condition groups are kept as plain
-	// children. Flat conditions retain their position.
+	// children unless the singleton is a nested NOT/OR operator subtree —
+	// wrapping it ensures the planner evaluates scope-aware NOT/OR at the
+	// operand's natural LCA even when the parent AND has cross-root or scalar
+	// siblings (sub-rule 2). Flat conditions retain their position.
 	result := make([]*propValuePair, 0, len(children))
 	emitted := make(map[string]bool, len(propOrder))
 	for _, child := range children {
@@ -307,17 +310,41 @@ func groupNestedByProp(children []*propValuePair, class *models.Class, parentOpe
 		}
 		emitted[prop] = true
 		group := groups[prop]
-		if len(group) == 1 {
+		if len(group) == 1 && !shouldWrapNestedSingleton(group[0]) {
 			result = append(result, group[0])
-		} else {
-			result = append(result, &propValuePair{
-				operator: parentOperator,
-				nested:   nestedInfo{isWithinRootSubtree: true},
-				prop:     prop,
-				children: group,
-				Class:    class,
-			})
+			continue
 		}
+		result = append(result, &propValuePair{
+			operator: parentOperator,
+			nested:   nestedInfo{isWithinRootSubtree: true},
+			prop:     prop,
+			children: group,
+			Class:    class,
+		})
 	}
 	return result
+}
+
+// shouldWrapNestedSingleton reports whether a singleton nested group child
+// needs an isWithinRootSubtree wrapper. Direct leaves (isNested=true) share
+// docID-level semantics with their wrapped form, so wrapping adds overhead
+// without changing results. Already-wrapped children (tokenization wrappers,
+// inner AND-isWRS) carry their own scope-aware processing and don't need
+// another layer. Nested NOT/OR operator children DO need wrapping so the
+// scope-aware planner inverts NOT or unions OR at the operand's LCA per
+// element — without this, a NOT (or OR) singleton with a scalar/cross-root
+// sibling falls back to docID-level resolution.
+func shouldWrapNestedSingleton(child *propValuePair) bool {
+	if child.nested.isWithinRootSubtree {
+		return false
+	}
+	if child.nested.isNested {
+		return false
+	}
+	switch child.operator {
+	case filters.OperatorNot, filters.OperatorOr:
+		return true
+	default:
+		return false
+	}
 }

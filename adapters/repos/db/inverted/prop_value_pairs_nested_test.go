@@ -326,16 +326,60 @@ func TestGroupNestedByProp(t *testing.T) {
 		},
 
 		// output:
-		// ├── addresses.city            ← single-child group, no wrapper
-		// └── NOT(cars.make)            ← different root, stays opaque
+		// ├── addresses.city                              ← leaf singleton, no wrapper
+		// └── correlated(cars)[NOT(cars.make)]            ← singleton NOT wraps under
+		//                                                   sub-rule 2 so the planner
+		//                                                   evaluates per-element NOT
+		//                                                   at cars LCA
 		{
-			name: "NOT with different-root child stays opaque",
+			name: "NOT singleton with cross-root sibling wraps under sub-rule 2",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				{
 					operator: filters.OperatorNot,
 					children: []*propValuePair{nestedPvp("cars", "make")},
 				},
+			},
+			want: []wantChild{
+				{isPlain: true},
+				{correlatedProp: "cars", groupSize: 1},
+			},
+		},
+
+		// output:
+		// ├── addresses.city                              ← leaf singleton, no wrapper
+		// └── correlated(cars)[OR(cars.make, cars.year)]  ← singleton OR wraps under
+		//                                                   sub-rule 2 so the planner
+		//                                                   evaluates per-element OR
+		//                                                   at cars LCA
+		{
+			name: "OR singleton with cross-root sibling wraps under sub-rule 2",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("cars", "make"),
+						nestedPvp("cars", "year"),
+					},
+				},
+			},
+			want: []wantChild{
+				{isPlain: true},
+				{correlatedProp: "cars", groupSize: 1},
+			},
+		},
+
+		// output:
+		// ├── addresses.city  ← leaf singleton, no wrapper (no benefit)
+		// └── cars.make       ← leaf singleton, no wrapper (no benefit)
+		// Leaves share docID-level semantics with their wrapped form so
+		// sub-rule 2 deliberately leaves them as-is.
+		{
+			name: "direct nested leaf singletons stay opaque even with cross-root sibling",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				nestedPvp("cars", "make"),
 			},
 			want: []wantChild{
 				{isPlain: true},

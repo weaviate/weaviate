@@ -18867,13 +18867,12 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			runScenario(t, andF(makeF(), notF(colorRedF())), want.andSameRoot)
 		})
 
-		// TODO aliszka:nested_filtering: Context 3 — sibling at OUTER
-		// scope (top-level owner). Enclosing AND's LCA = doc.
-		// per-element inversion: NOT still inverts at cars[] (operand's natural
-		// LCA — context-free), so mixed-color docs flip IN.
-		// universal-within-scope inversion: NOT inverts at the enclosing AND's LCA = doc,
-		// matching today's behavior. THIS IS THE A vs B
-		// discriminator across the 5 contexts.
+		// ctx3_AND_outer_scope_sibling — sub-rule 2 wraps the singleton
+		// NOT-of-nested even though the AND's other branch is a scalar
+		// (owner). NOT inverts at cars (operand's natural LCA). Option A.
+		// (Option B would keep this at docID universe — preserved as
+		// alternative reading; see Option B comments on each level's
+		// expected list.)
 		t.Run("ctx3_AND_outer_scope_sibling", func(t *testing.T) {
 			runScenario(t, andF(ownerAliceF(), notF(colorRedF())), want.andOuterScope)
 		})
@@ -18962,13 +18961,15 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				// ctx2 AND same-root — option A and option B agree:
 				// per-cars-element NOT. idMixed (d6) flips in.
 				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixed},
-				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
-				// locks in CURRENT docID-level NOT. THIS is the A vs B
-				// discriminator.
-				//   per-element inversion: {d2,d4,d5,d6} — d6 in.
-				//   universal-within-scope inversion: {d2,d4,d5} — same as today (enclosing
-				//             LCA = doc).
-				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
+				// ctx3 AND outer-scope — Option A (sub-rule 2 wraps the
+				// singleton NOT; per-element inversion at cars LCA).
+				// idMixed (d6) flips in — the tesla car in d6 has
+				// color=blue ≠ red.
+				//   Option A (now active): {d2,d4,d5,d6}.
+				//   Option B (alternative, NOT inverts at enclosing
+				//   AND's LCA = doc): {d2,d4,d5}. Preserved here as
+				//   reference; would require an opt-in to switch.
+				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed},
 				// ctx4 OR same-root — Option A and Option B agree:
 				// scope-aware NOT inside OR at cars LCA. idMixed (d6)
 				// flips in; idEmpty (d7) drops.
@@ -19047,12 +19048,12 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				// ctx2 AND same-root — option A and option B agree.
 				// idMixedSameGarage and idMixedSplitGarages flip in.
 				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages},
-				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
-				// locks in CURRENT docID-level NOT. THIS is the A vs B
-				// discriminator.
-				//   per-element inversion: {d2,d4,d5,d6,d9}.
-				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
-				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
+				// ctx3 AND outer-scope — Option A (active). idMixed*
+				// docs flip in regardless of garage layout.
+				//   Option A: {d2,d4,d5,d6,d9}.
+				//   Option B (alternative reading at doc LCA):
+				//     {d2,d4,d5}.
+				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages},
 				// ctx4 OR same-root — Option A and Option B agree.
 				// idMixedSameGarage and idMixedSplitGarages flip in;
 				// idEmpty drops.
@@ -19133,12 +19134,13 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				// All mixed-layout docs (same garage, split garages,
 				// split countries) flip in.
 				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages, idMixedSplitCountries},
-				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
-				// locks in CURRENT docID-level NOT. THIS is the A vs B
-				// discriminator.
-				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
-				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
-				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
+				// ctx3 AND outer-scope — Option A (active). All mixed-
+				// layout docs (same garage, split garages, split
+				// countries) flip in.
+				//   Option A: {d2,d4,d5,d6,d9,d10}.
+				//   Option B (alternative reading at doc LCA):
+				//     {d2,d4,d5}.
+				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages, idMixedSplitCountries},
 				// ctx4 OR same-root — Option A and Option B agree.
 				// idMixedSameGarage, idMixedSplitGarages, and
 				// idMixedSplitCountries flip in; idEmpty drops.
