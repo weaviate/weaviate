@@ -130,7 +130,8 @@ func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
 }
 
 func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteAlias(params.HTTPRequest.Context(), principal, params.AliasName)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := s.manager.DeleteAlias(ctx, principal, params.AliasName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.AliasName, err)
 		if errors.Is(err, schemaUC.ErrNotFound) {
@@ -141,7 +142,7 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 			return schema.NewAliasesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewAliasesDeleteUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
