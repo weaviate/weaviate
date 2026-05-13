@@ -36,11 +36,19 @@ func TestUpload_ConcurrentNoFlagRedefinedPanic(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(shardDir, "data.bin"), []byte("payload"), 0o644))
 	}
 
+	// Route the endpoint via the env var. The --endpoint-url argv we
+	// build in Upload sits at index 0, which urfave/cli treats as the
+	// program name and drops; production relies on the flag's EnvVars
+	// binding, so the test must too. Without this, a host with AWS
+	// credentials could hit the real S3 endpoint.
+	const unreachable = "http://127.0.0.1:1"
+	t.Setenv("OFFLOAD_S3_ENDPOINT", unreachable)
+
 	logger, _ := test.NewNullLogger()
 	m := New()
 	m.logger = logger
 	m.DataPath = dataDir
-	m.Endpoint = "http://127.0.0.1:1" // unreachable: forces RunContext to error fast, not skip
+	m.Endpoint = unreachable
 	m.Bucket = "weaviate-offload-test"
 	m.timeout = 2 * time.Second
 

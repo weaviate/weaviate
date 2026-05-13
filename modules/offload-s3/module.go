@@ -52,6 +52,13 @@ var (
 	_ = modulecapabilities.Module(&Module{})
 )
 
+// s5cmdInit gates the one-time initialization of s5cmd's package-level
+// globals (log.Init, parallel.Init). It is package-scoped because the
+// state it protects is itself package-level inside s5cmd; a per-Module
+// sync.Once would still race if two Module instances ever ran Upload
+// concurrently.
+var s5cmdInit sync.Once
+
 type Module struct {
 	Endpoint     string
 	Bucket       string
@@ -61,10 +68,6 @@ type Module struct {
 	logger       logrus.FieldLogger
 	timeout      time.Duration
 	workersCount int
-	// s5cmdInit gates the one-time initialization of s5cmd's package-level
-	// globals (log.Init, parallel.Init). Without it, every RunContext would
-	// re-initialize them and race under concurrent Upload/Download.
-	s5cmdInit sync.Once
 
 	metrics *monitoring.TenantOffloadMetrics
 }
@@ -136,7 +139,7 @@ func (m *Module) newApp() *cli.App {
 			isStat := c.Bool("stat")
 			endpointURL := c.String("endpoint-url")
 
-			m.s5cmdInit.Do(func() {
+			s5cmdInit.Do(func() {
 				log.Init("error", false) // print level error only
 				parallel.Init(workerCount)
 			})
