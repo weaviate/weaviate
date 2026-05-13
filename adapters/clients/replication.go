@@ -207,6 +207,86 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.R
 	}
 }
 
+// CompareDigests sends the source's local digests to the target node using a
+// compact binary protocol (CompareDigestsRecordLength bytes per record) and
+// returns the subset that requires source-side action.
+//
+// Wire format: CompareDigestsRecordLength bytes per record —
+// 16-byte UUID (big-endian) + 8-byte UpdateTime (int64 big-endian) + 1-byte flags.
+func (c *replicationClient) CompareDigests(ctx context.Context,
+	host, index, shard string, digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	body := make([]byte, 0, len(digests)*replica.CompareDigestsRecordLength)
+	var buf [replica.CompareDigestsRecordLength]byte
+	for _, d := range digests {
+		u, err := uuid.Parse(d.ID)
+		if err != nil {
+			return nil, fmt.Errorf("encode source digest uuid %q: %w", d.ID, err)
+		}
+		copy(buf[:16], u[:])
+		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
+		buf[24] = 0
+		if d.Deleted {
+			buf[24] = replica.CompareDigestsFlagDeleted
+		}
+		body = append(body, buf[:]...)
+	}
+
+	// No internal timeout: the async-replication scheduler manages the
+	// per-cycle deadline on the incoming context.
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodPost, host, index, shard,
+		"", "compareDigests", bytes.NewReader(body), 0)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+
+	return readCompareDigestsBinaryStream(res.Body, res.ContentLength)
+}
+
+// readCompareDigestsBinaryStream decodes a fixed-size binary stream produced
+// by postCompareDigests. Each record is replica.CompareDigestsRecordLength bytes.
+func readCompareDigestsBinaryStream(r io.Reader, contentLength int64) ([]types.RepairResponse, error) {
+	var results []types.RepairResponse
+	if contentLength > 0 {
+		if recordCount := contentLength / int64(replica.CompareDigestsRecordLength); recordCount <= int64(math.MaxInt) {
+			results = make([]types.RepairResponse, 0, int(recordCount))
+		}
+	}
+	var buf [replica.CompareDigestsRecordLength]byte
+	for {
+		_, err := io.ReadFull(r, buf[:])
+		if stderrors.Is(err, io.EOF) {
+			return results, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read compare digests record: %w", err)
+		}
+		id, err := uuid.FromBytes(buf[:16])
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid from binary record: %w", err)
+		}
+		updateTime := int64(binary.BigEndian.Uint64(buf[16:]))
+		deleted := buf[24]&replica.CompareDigestsFlagDeleted != 0
+		results = append(results, types.RepairResponse{
+			ID:         id.String(),
+			UpdateTime: updateTime,
+			Deleted:    deleted,
+		})
+	}
+}
+
 // HashTreeLevel fetches hash tree level digests. discriminant.Size() must
 // equal hashtree.LeavesCount(level).
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
