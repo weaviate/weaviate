@@ -448,9 +448,19 @@ type parsedDecay struct {
 }
 
 func parseDecayParams(d *filters.Decay) parsedDecay {
-	offset, _ := parseNumericOrDuration(d.Offset)
-	scale, err := parseNumericOrDuration(d.Scale)
-	if err != nil || scale <= 0 {
+	var offset, scale float64
+	if d.IsNumeric {
+		offset = d.OffsetNumeric
+		scale = d.ScaleNumeric
+	} else {
+		var err error
+		offset, _ = parseNumericOrDuration(d.Offset)
+		scale, err = parseNumericOrDuration(d.Scale)
+		if err != nil {
+			return parsedDecay{}
+		}
+	}
+	if scale <= 0 {
 		return parsedDecay{}
 	}
 	decayValue := float64(d.DecayValue)
@@ -507,9 +517,14 @@ func computeDistance(decay *filters.Decay, propValue interface{}, nowTime time.T
 		return 0, err
 	}
 
-	originNum, err := strconv.ParseFloat(decay.Origin, 64)
-	if err != nil {
-		return 0, err
+	var originNum float64
+	if decay.IsNumeric {
+		originNum = decay.OriginNumeric
+	} else {
+		originNum, err = strconv.ParseFloat(decay.Origin, 64)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	return math.Abs(numVal - originNum), nil

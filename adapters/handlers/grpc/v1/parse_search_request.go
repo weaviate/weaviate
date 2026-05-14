@@ -14,7 +14,6 @@ package v1
 import (
 	"fmt"
 	"slices"
-	"strconv"
 
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
@@ -813,18 +812,19 @@ func extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, condIdx int) 
 		decayValue = d.GetDecayValue()
 	}
 
-	offset := "0"
+	var offset float64
 	if d.Offset != nil {
-		offset = strconv.FormatFloat(d.GetOffset(), 'f', -1, 64)
+		offset = d.GetOffset()
 	}
 
 	return &filters.Decay{
-		Path:       &filters.Path{Property: schema.PropertyName(prop)},
-		Origin:     strconv.FormatFloat(d.GetOrigin(), 'f', -1, 64),
-		Scale:      strconv.FormatFloat(d.GetScale(), 'f', -1, 64),
-		Offset:     offset,
-		Curve:      extractDecayCurve(d.GetCurve()),
-		DecayValue: decayValue,
+		Path:          &filters.Path{Property: schema.PropertyName(prop)},
+		IsNumeric:     true,
+		OriginNumeric: d.GetOrigin(),
+		ScaleNumeric:  d.GetScale(),
+		OffsetNumeric: offset,
+		Curve:         extractDecayCurve(d.GetCurve()),
+		DecayValue:    decayValue,
 	}, nil
 }
 

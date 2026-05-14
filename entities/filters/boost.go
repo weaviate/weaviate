@@ -67,11 +67,23 @@ type PropertyValue struct {
 
 // Decay defines a distance-based scoring function that produces a continuous
 // score in [0,1] based on how far a property value is from an origin point.
+//
+// For time-based decay, Origin/Scale/Offset are strings ("now", "7d", ISO date).
+// For numeric decay, set IsNumeric=true and use OriginNumeric/ScaleNumeric/OffsetNumeric
+// directly to avoid lossy float64→string→float64 round-trips.
 type Decay struct {
-	Path       *Path
-	Origin     string // "now", ISO date, or numeric string
-	Scale      string // "7d", "20" — required
-	Offset     string // default "0"
+	Path   *Path
+	Origin string // "now", ISO date, or numeric string (time decay)
+	Scale  string // "7d", "20" — required (time decay)
+	Offset string // default "0" (time decay)
+
+	// Pre-parsed numeric values. When IsNumeric is true, these are used
+	// directly by the scorer instead of parsing Origin/Scale/Offset strings.
+	IsNumeric     bool
+	OriginNumeric float64
+	ScaleNumeric  float64
+	OffsetNumeric float64
+
 	Curve      DecayCurveType
 	DecayValue float32 // score at scale distance, default 0.5
 }
@@ -178,7 +190,11 @@ func validateDecay(d *Decay, condIdx int) error {
 	}
 	// Origin is optional — defaults to "now" for date properties at scoring time.
 	// For numeric properties, a missing origin will produce a parse error at scoring time.
-	if d.Scale == "" {
+	if d.IsNumeric {
+		if d.ScaleNumeric <= 0 {
+			return fmt.Errorf("boost condition[%d] decay: scale must be > 0", condIdx)
+		}
+	} else if d.Scale == "" {
 		return fmt.Errorf("boost condition[%d] decay: scale is required", condIdx)
 	}
 
