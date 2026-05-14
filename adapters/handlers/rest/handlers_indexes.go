@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -380,6 +381,34 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
+	// Defense in depth against the CANCEL→retry silent failure (same Sev 1
+	// family as DELETE→re-enable, fixed in 6b7dc23768): if a previous
+	// cancelled run left stale .migrations/<dir>/started.mig +
+	// __reindex/__ingest sidecars on disk, the new task would resume
+	// against them — finish in <1s with a 50-entry no-op — flip the
+	// schema flag, and report success against an empty bucket.
+	//
+	// The cancel handler already runs this cleanup synchronously, but
+	// only after waiting for the local goroutine to drain. The wait can
+	// time out (or be skipped entirely if the node crashed mid-cancel),
+	// in which case the on-disk state survives. Running it again here,
+	// AFTER checkReindexConflict has confirmed no STARTED task targets
+	// this (collection, prop, index) tuple, closes that gap.
+	//
+	// Safe to call even when no stale state exists: missing buckets and
+	// missing directories are silently skipped by the per-shard helper.
+	indexTypeForCleanup, indexTypeKnown := indexTypeFromMigrationType(migrationType)
+	if indexTypeKnown {
+		if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"collection":     collection,
+				"property":       propertyName,
+				"migration_type": migrationType,
+				"index_type":     indexTypeForCleanup,
+			}).Error(fmt.Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %w; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err))
+		}
+	}
+
 	// Submit the task. For MT semantic migrations, use grouped units so that
 	// OnGroupCompleted fires per-tenant (giving per-tenant barrier semantics).
 	if isMT && semantic {
@@ -498,6 +527,72 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
 
+	// Drain the local reindex goroutine BEFORE cleaning partial on-disk
+	// state. Without this, the cleanup races against the worker which is
+	// still writing to the __reindex / __ingest buckets — ShutdownBucket
+	// would tear those buckets out from under the writer and corrupt the
+	// store. CancelDistributedTask above cancels the per-task ctx, so the
+	// worker should be exiting; the wait simply blocks until it does.
+	//
+	// Bounded wait: a stuck goroutine must not turn the cancel HTTP
+	// request into an open-ended hang. The same timeout (10s) is used by
+	// the DTM scheduler for analogous waits. If we time out, we still
+	// return 202 — the next submit's defense-in-depth cleanup will pick
+	// up the work.
+	if h.appState.ReindexProvider != nil {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"taskID":     target.ID,
+			"collection": collection,
+			"property":   propertyName,
+			"index_type": indexType,
+		}).Info("cancel: starting drain+cleanup for cancelled reindex task")
+		drainCtx, drainCancel := context.WithTimeout(ctx, reindexCancelDrainTimeout)
+		drainErr := h.appState.ReindexProvider.WaitForLocalTaskDrain(drainCtx, target.TaskDescriptor)
+		drainCancel()
+		if drainErr != nil {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"taskID":     target.ID,
+				"collection": collection,
+				"property":   propertyName,
+				"index_type": indexType,
+			}).Error(fmt.Errorf("cancel: timed out waiting for local reindex goroutine to drain (%w); skipping inline cleanup — next submit will retry", drainErr))
+		} else {
+			h.appState.Logger.WithFields(logrus.Fields{
+				"taskID":     target.ID,
+				"collection": collection,
+				"property":   propertyName,
+				"index_type": indexType,
+			}).Info("cancel: drain complete, running on-disk cleanup")
+			// Goroutine has drained. Safe to wipe the sidecars and the
+			// migration directory so the next submit starts from a clean
+			// slate. Errors here are logged but don't fail the cancel —
+			// the user already received 202 conceptually, and the defense
+			// in depth at submit time will re-run cleanup.
+			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexType); err != nil {
+				h.appState.Logger.WithFields(logrus.Fields{
+					"taskID":     target.ID,
+					"collection": collection,
+					"property":   propertyName,
+					"index_type": indexType,
+				}).Error(fmt.Errorf("cancel: cleaning partial reindex state on disk: %w; next submit's defense-in-depth cleanup will retry", err))
+			} else {
+				h.appState.Logger.WithFields(logrus.Fields{
+					"taskID":     target.ID,
+					"collection": collection,
+					"property":   propertyName,
+					"index_type": indexType,
+				}).Info("cancel: on-disk cleanup complete")
+			}
+		}
+	} else {
+		h.appState.Logger.WithFields(logrus.Fields{
+			"taskID":     target.ID,
+			"collection": collection,
+			"property":   propertyName,
+			"index_type": indexType,
+		}).Warn("cancel: appState.ReindexProvider is nil; skipping drain+cleanup")
+	}
+
 	h.appState.Logger.WithFields(logrus.Fields{
 		"audit_event": "reindex_task_cancelled",
 		"taskID":      target.ID,
@@ -511,6 +606,43 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		TaskID: target.ID,
 		Status: "CANCELLED",
 	})
+}
+
+// reindexCancelDrainTimeout caps how long the cancel handler waits for
+// the local reindex goroutine to exit before falling back to "let the
+// next submit clean up". 10s matches the DTM scheduler's analogous
+// waits and is comfortably above the per-iteration cycle (which checks
+// ctx.Err() every checkProcessingEveryNoObjects=1000 objects, with a
+// processingDuration cap of 600s but a per-iteration cap that's much
+// shorter in practice — empirically <1s on test corpora).
+const reindexCancelDrainTimeout = 10 * time.Second
+
+// indexTypeFromMigrationType returns the canonical inverted-index type
+// ("filterable", "searchable", "rangeable") that a migration type targets,
+// for use by submit-time pre-cleanup. Returns ("", false) for migration
+// types that touch multiple index types (e.g. change-tokenization), in
+// which case the caller must NOT run cleanup blindly — wiping a sibling
+// index's migration state on a same-prop change-tokenization submit would
+// be a bug.
+//
+// Per-type cleanup for the multi-index case is handled by the
+// per-cancel-verb cleanup (which is scoped to the cancelled index type)
+// plus the existing OnAfterLsmInitAsync stale-sentinel defense.
+func indexTypeFromMigrationType(mt db.ReindexMigrationType) (string, bool) {
+	switch mt {
+	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable:
+		return "searchable", true
+	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
+		return "filterable", true
+	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
+		return "rangeable", true
+	case db.ReindexTypeChangeTokenization:
+		// change-tokenization touches BOTH searchable and filterable
+		// buckets on the same property. Returning a single indexType
+		// would let the caller wipe state for the wrong one.
+		return "", false
+	}
+	return "", false
 }
 
 // migrationTypeTargetsIndex returns:

@@ -4,6 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Weaviate is an open-source, cloud-native vector database written in Go. It stores both objects and vectors, supporting semantic search, hybrid search (BM25 + vector), RAG, and reranking.
 
+## No bug is ever out of scope
+
+This is a production database. Data loss and silent failures are unacceptable, full stop. If you uncover or even *suspect* a bug — adjacent failure mode, race window, edge case in a related journey, anything — you MUST address it in the same change set. Acceptable outcomes:
+
+1. **Reproduce and fix it.** Include a regression test that fails without the fix and passes with it.
+2. **Reproduce it and commit a failing (red) test** that pins the bug, then escalate explicitly to the user. Never silently leave a known-bad code path with no test.
+
+Unacceptable:
+
+- "Out of scope." There is no out of scope for bugs in this codebase. If you find one, you own it until it's either fixed or pinned with a failing test.
+- "Known issue, leaving for follow-up." Same rule — pin it with a failing test before you stop working on it.
+- Fixing only the one specific reproduction a reviewer gave you and shipping. If a bug exists in journey X, enumerate every realistic adjacent journey (X-1, X+1, multi-property, multi-round, every related state-machine transition) and add tests for the lot. Whack-a-mole on individual repros is forbidden.
+
+When you find a bug while working on something else, the response is: stop the original work, switch context to the bug, write the test, write the fix (or commit the red test and surface it loudly), then resume. The original task can wait.
+
+This rule overrides any conflicting guidance about staying focused, minimal diffs, or scope discipline. Bug coverage wins.
+
 ## Build & Run
 
 ```bash

@@ -97,6 +97,13 @@ type State struct {
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
 
+	// ReindexProvider is the local handle for the runtime-reindex
+	// distributed-task provider. Exposed here so the REST cancel handler
+	// can wait for a cancelled task's local goroutine to drain before
+	// triggering the on-disk state cleanup — see
+	// [db.ReindexProvider.WaitForLocalTaskDrain].
+	ReindexProvider *db.ReindexProvider
+
 	GRPCConnManager *grpcconn.ConnManager
 }
 

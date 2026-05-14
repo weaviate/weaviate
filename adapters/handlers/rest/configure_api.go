@@ -840,6 +840,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// ingest buckets and fail.
 		db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
 		providers[db.ReindexNamespace] = reindexProvider
+		// Expose the provider on AppState so the REST cancel handler can
+		// synchronise on the local goroutine before cleaning partial
+		// reindex state on disk.
+		appState.ReindexProvider = reindexProvider
 
 		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 			CompletionRecorder: appState.ClusterService.Raft,

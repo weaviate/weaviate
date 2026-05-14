@@ -363,6 +363,29 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 		return err
 	}
 
+	// Torn-state recovery (same shape as [OnAfterLsmInit]): if rt.IsReindexed()
+	// claims the iteration completed but the reindex bucket dirs that
+	// markReindexed() must have populated are missing on disk, the sentinel
+	// is forged or the prior run died before any data reached disk. Without
+	// this, mergeReindexAndIngestBuckets below would either fail loudly with
+	// "bucket not found" (best case) or quietly merge nothing (worst case),
+	// leading to a swap of an empty bucket and a silent data-loss outcome
+	// once OnMigrationComplete flips the schema flag.
+	//
+	// Only safe to gate on missing dirs in the pre-prepend window — once
+	// markPrepended() has run, the dirs are intentionally removed by
+	// [runtimeSwap]; a missing dir then is correct.
+	if rt.IsReindexed() && !rt.IsPrepended() && !rt.IsMerged() && !rt.IsSwapped() && !rt.IsTidied() {
+		if missing := t.firstMissingReindexBucketDir(shard.pathLSM(), props); missing != "" {
+			logger.WithField("missing_bucket_dir", missing).
+				Error(fmt.Errorf("torn migration state at OnBeforeLsmInit: reindexed.mig sentinel exists but reindex bucket dir %q is missing on disk; resetting reindexed sentinel so iteration runs again from scratch", missing))
+			if uerr := rt.unmarkReindexed(); uerr != nil {
+				err = fmt.Errorf("torn-state recovery: removing stale reindexed.mig: %w", uerr)
+				return err
+			}
+		}
+	}
+
 	isMerged := rt.IsMerged()
 	if !isMerged && rt.IsReindexed() {
 		if rt.IsPrepended() {
@@ -530,6 +553,42 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 		if err = rt.markStarted(time.Now()); err != nil {
 			err = fmt.Errorf("marking reindex started: %w", err)
 			return err
+		}
+	}
+
+	// Torn-state recovery: if rt.IsReindexed() is true but the reindex
+	// bucket dirs that markReindexed() must have populated are missing on
+	// disk, the sentinel lies. This happens when:
+	//
+	//   - a previous reindex submission was crash-killed between
+	//     markReindexed() and the first runtimeSwap step (so no later
+	//     sentinel was written and no swap-side effects landed), AND
+	//     the reindex bucket dirs were never created — e.g. an OnAfterLsmInit
+	//     that ran with the buckets evicted, or a manual/forged sentinel;
+	//
+	//   - operator surgery (rare) wrote a reindexed.mig without running the
+	//     actual iteration.
+	//
+	// Without this check, the next OnAfterLsmInitAsync hits the
+	// `if rt.IsReindexed() { ... "nothing to do" ... }` short-circuit at
+	// the top of the loop, the iteration is skipped, the runtime swap
+	// runs against an EMPTY reindex bucket, and the migration reports
+	// FINISHED while the target bucket is silently empty. Schema flag
+	// flips on top of no data — Sev 1 silent failure.
+	//
+	// The reindex bucket dirs are only safe to expect on disk during the
+	// pre-prepend window: IsReindexed && !IsPrepended && !IsMerged &&
+	// !IsSwapped. Once markPrepended() has run, the dirs are intentionally
+	// removed by [runtimeSwap] (the segments live in the ingest bucket from
+	// then on), so a missing dir past that point is correct, not torn.
+	if rt.IsReindexed() && !rt.IsPrepended() && !rt.IsMerged() && !rt.IsSwapped() && !rt.IsTidied() {
+		if missing := t.firstMissingReindexBucketDir(shard.pathLSM(), props); missing != "" {
+			logger.WithField("missing_bucket_dir", missing).
+				Error(fmt.Errorf("torn migration state: reindexed.mig sentinel exists but reindex bucket dir %q is missing on disk; assuming the prior reindex never wrote any data and resetting sentinel so iteration runs again", missing))
+			if uerr := rt.unmarkReindexed(); uerr != nil {
+				err = fmt.Errorf("torn-state recovery: removing stale reindexed.mig: %w", uerr)
+				return err
+			}
 		}
 	}
 
@@ -1045,6 +1104,30 @@ func (t *ShardReindexTaskGeneric) ingestBucketName(propName string) string {
 
 func (t *ShardReindexTaskGeneric) backupBucketName(propName string) string {
 	return t.strategy.SourceBucketName(propName) + t.strategy.BackupSuffix()
+}
+
+// firstMissingReindexBucketDir returns the path of the first reindex
+// bucket directory that is expected to be on disk but is not. Used by the
+// torn-state recovery in [OnAfterLsmInit]: a real iteration that reached
+// markReindexed() must have populated at least one segment in every
+// per-property reindex bucket, so the bucket dir must exist. If we ever
+// see IsReindexed && a missing reindex bucket dir (and no later
+// runtime-swap sentinel that legitimately removed the dir), the sentinel
+// is forged or the prior run died mid-flight before any iteration data
+// reached disk. The caller resets reindexed.mig in that case so the next
+// pass re-iterates instead of swapping in an empty bucket.
+//
+// Returns "" if every prop's reindex bucket dir is present. Returns the
+// MISSING path (not the prop name) so the operator-facing log message
+// names the exact dir to inspect.
+func (t *ShardReindexTaskGeneric) firstMissingReindexBucketDir(lsmPath string, props []string) string {
+	for _, propName := range props {
+		dir := filepath.Join(lsmPath, t.reindexBucketName(propName))
+		if !dirExists(dir) {
+			return dir
+		}
+	}
+	return ""
 }
 
 func (t *ShardReindexTaskGeneric) mergeReindexAndIngestBuckets(ctx context.Context,
@@ -1797,6 +1880,7 @@ type reindexTracker interface {
 
 	IsReindexed() bool
 	markReindexed() error
+	unmarkReindexed() error
 
 	IsPrepended() bool
 	markPrepended() error
@@ -2069,6 +2153,18 @@ func (t *fileReindexTracker) IsReindexed() bool {
 
 func (t *fileReindexTracker) markReindexed() error {
 	return t.createFile(t.config.filenameReindexed, []byte(t.encodeTimeNow()))
+}
+
+// unmarkReindexed deletes the reindexed.mig sentinel. Called by the
+// torn-state recovery in [ShardReindexTaskGeneric.OnAfterLsmInit] when
+// IsReindexed=true but the reindex bucket dirs are missing on disk —
+// i.e. a prior run forged/corrupted the sentinel without the
+// corresponding bucket data. Removing the sentinel forces the next
+// OnAfterLsmInitAsync call to treat the migration as not-yet-reindexed
+// and re-run the iteration loop. Symmetric with [unmarkSwapped] /
+// [unmarkSwappedProp]. Returns nil if the sentinel was already absent.
+func (t *fileReindexTracker) unmarkReindexed() error {
+	return t.removeFile(t.config.filenameReindexed)
 }
 
 func (t *fileReindexTracker) getReindexed() (time.Time, error) {

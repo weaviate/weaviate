@@ -171,6 +171,38 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testDeleteThenReEnable(t, restURI)
 	})
 
+	// --- Subtest 12: CANCEL-then-retry journey ---
+	// Structural sibling of DeleteThenReEnable on the CANCEL→retry axis.
+	// Submits an enable-*, cancels it mid-flight, re-submits. The second
+	// submit MUST actually build the index — not silently no-op on the
+	// stale started.mig / progress.mig / partial __reindex sidecars left
+	// behind by the cancelled run.
+	t.Run("CancelThenRetry", func(t *testing.T) {
+		testCancelThenRetry(t, restURI)
+	})
+
+	// --- Subtest 13: DELETE→re-enable repeated 3x ---
+	// Frontend repro 2026-05-14: after 3 enable→DELETE cycles on the same
+	// property the 3rd enable finishes in 1.6s and the schema flag never
+	// flips. Same Sev 1 family as DeleteThenReEnable but with state that
+	// accumulates only past the first cycle. Pinning this here ensures
+	// stale on-disk state never re-introduces the multi-round shape.
+	t.Run("DeleteThenReEnableMultiCycle", func(t *testing.T) {
+		testDeleteThenReEnableMultiCycle(t, restURI)
+	})
+
+	// --- Subtest 14: torn "reindexed but not tidied" resume ---
+	// Pins the journey where a prior reindex left the on-disk migration
+	// in IsReindexed+!IsTidied state (real causes: I/O failure mid-
+	// runtimeSwap, container kill between markReindexed and the first
+	// swap step, etc.). The re-submit must NOT silently no-op on the
+	// IsReindexed=true short-circuit in OnAfterLsmInitAsync; it must
+	// either finish the swap or rebuild from scratch. If RED, schema
+	// reports ready while queries return zero hits (Sev 1).
+	t.Run("TornResumeReindexedNotTidied", func(t *testing.T) {
+		testTornResumeReindexedNotTidied(t, restURI, container)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")

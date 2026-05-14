@@ -827,6 +827,38 @@ func IsSemanticMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeEnableSearchable
 }
 
+// WaitForLocalTaskDrain blocks until the local goroutine processing the
+// given task descriptor has exited, or the provided ctx is cancelled,
+// whichever comes first. Returns nil when the goroutine has drained,
+// ctx.Err() if the wait timed out.
+//
+// Intended for the cancel→cleanup sequence: a caller that issued
+// [distributedtask.Manager.CancelDistributedTask] cannot safely tear
+// down the __reindex / __ingest sidecar buckets while the worker
+// goroutine is still writing to them. Calling WaitForLocalTaskDrain
+// between CancelDistributedTask and [DB.CleanStalePartialReindexState]
+// closes that race window.
+//
+// Returns nil immediately if no goroutine is running for this descriptor
+// (e.g. the task already terminated, or never ran on this node).
+func (p *ReindexProvider) WaitForLocalTaskDrain(
+	ctx context.Context,
+	desc distributedtask.TaskDescriptor,
+) error {
+	p.mu.Lock()
+	handle, ok := p.runningHandles[desc]
+	p.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	select {
+	case <-handle.Done():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // reindexTaskHandle implements distributedtask.TaskHandle.
 type reindexTaskHandle struct {
 	cancel context.CancelFunc

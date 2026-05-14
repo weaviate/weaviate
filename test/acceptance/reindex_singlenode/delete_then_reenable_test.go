@@ -247,7 +247,7 @@ func bm25Hits(t *testing.T, class, query string) int {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
-			%s(bm25: {query: %q, properties: ["body"]}, limit: 50) {
+			%s(bm25: {query: %q, properties: ["body"]}, limit: 10000) {
 				_additional { id }
 			}
 		}
@@ -264,7 +264,7 @@ func equalFilterHits(t *testing.T, class, prop, value string) int {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
-			%s(where: {path: [%q], operator: Equal, valueText: %q}, limit: 50) {
+			%s(where: {path: [%q], operator: Equal, valueText: %q}, limit: 10000) {
 				_additional { id }
 			}
 		}
@@ -281,7 +281,7 @@ func rangeFilterHits(t *testing.T, class, prop string, lessThan int) int {
 	t.Helper()
 	gqlQuery := fmt.Sprintf(`{
 		Get {
-			%s(where: {path: [%q], operator: LessThan, valueInt: %d}, limit: 50) {
+			%s(where: {path: [%q], operator: LessThan, valueInt: %d}, limit: 10000) {
 				_additional { id }
 			}
 		}

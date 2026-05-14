@@ -156,6 +156,103 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 	}
 }
 
+// CleanStalePartialReindexState removes the on-disk state of a previously
+// cancelled (or otherwise abandoned) runtime-reindex for the named
+// (propName, indexType) on this shard. Mirrors the DELETE-handler cleanup
+// (updatePropertyBuckets) on the CANCEL→retry axis: after a cancel, the
+// next submit must start from a clean slate, otherwise the retry sees the
+// stale started.mig + partial __reindex/__ingest sidecars from the
+// cancelled run, short-circuits the iteration to a 50-entry no-op, flips
+// the schema flag, and reports success against an empty-or-partial bucket.
+// Same Sev 1 family as the DELETE-then-re-enable silent failure fixed in
+// 6b7dc23768; structurally distinct because cancel does not remove the
+// main bucket.
+//
+// Three side effects, in order — the order matters for crash safety:
+//
+//  1. Sidecar buckets (__reindex / __ingest with the per-prop suffix) are
+//     shut down if currently loaded in the store. We cannot rm-rf a
+//     bucket while the lsmkv layer still has open file handles into it.
+//
+//  2. Sidecar directories on disk are removed.
+//
+//  3. The .migrations/<dir>/ for this (prop, indexType) tuple is removed —
+//     all sentinel files (started.mig, progress.mig, ...) and the
+//     payload.mig recovery record vanish in one call.
+//
+// Errors at steps 2/3 are logged but not propagated: the caller (cancel
+// handler / submit handler) cannot meaningfully recover, and the defense
+// in depth in OnAfterLsmInitAsync (stale-tidied-sentinel check) will
+// still fail loudly rather than silently report success if a partial
+// directory survives. Step 1 errors ARE propagated because they indicate
+// a bucket can't be cleanly disconnected from the LSM layer — proceeding
+// to remove its files would corrupt the store.
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+	// Step 1: shut down the per-prop sidecar buckets for this index type.
+	// Only the buckets that share the relevant main bucket's prefix are
+	// touched, so other in-flight reindex tasks on the same shard are not
+	// disturbed.
+	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
+	if !ok {
+		return fmt.Errorf("CleanStalePartialReindexState: unknown indexType %q", indexType)
+	}
+
+	logger := s.index.logger.WithFields(map[string]any{
+		"shard":       s.Name(),
+		"property":    propName,
+		"index_type":  indexType,
+		"main_bucket": mainBucketName,
+		"operation":   "CleanStalePartialReindexState",
+	})
+
+	prefix := mainBucketName + "__"
+	loaded := s.store.GetBucketsByName()
+	var shutDown []string
+	for bucketName := range loaded {
+		if !strings.HasPrefix(bucketName, prefix) {
+			continue
+		}
+		// Defensive: never shut down the main bucket itself. mainBucketName
+		// is the exact name, prefix is mainBucketName+"__" — but a future
+		// helper that uses underscores differently could break this; keep
+		// the guard.
+		if bucketName == mainBucketName {
+			continue
+		}
+		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
+			return fmt.Errorf(
+				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
+				bucketName, err)
+		}
+		shutDown = append(shutDown, bucketName)
+	}
+	logger.WithField("buckets_shut_down", shutDown).Info("partial-reindex cleanup: sidecar buckets shut down")
+
+	// Step 2 + 3: remove the sidecar dirs and migration dir. Both call the
+	// existing helpers, which log errors rather than panic.
+	s.cleanStaleSidecarDirs(mainBucketName)
+	s.cleanStaleMigrationDirs(propName, indexType)
+	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
+
+	return nil
+}
+
+// mainBucketForPropertyIndex returns the canonical main bucket name on
+// disk for a given (propName, indexType). Used by
+// CleanStalePartialReindexState to compute the prefix that identifies
+// per-property sidecar buckets.
+func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
+	switch indexType {
+	case "filterable":
+		return helpers.BucketFromPropNameLSM(propName), true
+	case "searchable":
+		return helpers.BucketSearchableFromPropNameLSM(propName), true
+	case "rangeable":
+		return helpers.BucketRangeableFromPropNameLSM(propName), true
+	}
+	return "", false
+}
+
 // cleanStaleSidecarDirs removes leftover __reindex / __ingest / __backup
 // sidecar directories that share the just-removed bucket's name as their
 // prefix. A successful migration moves the new data into the main bucket
