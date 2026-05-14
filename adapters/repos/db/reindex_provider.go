@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -188,12 +187,11 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 	p.mu.Unlock()
 
 	// Progress is emitted from the inverted-index reindex iteration every
-	// checkProcessingEveryNoObjects iterations (default 1000). A 30s throttle
-	// was too coarse — many migrations finish in under a minute and the UI
-	// saw the unit stuck at PENDING the whole time. 3s gives the GET /indexes
-	// poller visible motion without flooding RAFT with progress updates.
-	throttled := distributedtask.NewThrottledRecorder(p.recorder, 3*time.Second, clockwork.NewRealClock())
-
+	// checkProcessingEveryNoObjects iterations (default 1000). p.recorder
+	// is the scheduler-provided recorder, already wrapped in a global
+	// ThrottledRecorder (see Scheduler.Start) that caps per-unit writes
+	// at 3s — sufficient for the GET /indexes poller without flooding
+	// Raft. No additional throttle is needed here.
 	enterrors.GoWrapper(func() {
 		defer func() {
 			p.mu.Lock()
@@ -202,7 +200,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 			close(handle.doneCh)
 		}()
 
-		p.processUnits(ctx, task, &payload, idx, localUnits, throttled)
+		p.processUnits(ctx, task, &payload, idx, localUnits, p.recorder)
 	}, p.logger)
 
 	return handle, nil

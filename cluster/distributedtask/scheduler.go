@@ -116,7 +116,13 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 // bootstrap any already-active tasks, and spawns the background tick loop. It is safe to call
 // exactly once. Use [Scheduler.Close] to stop the loop and terminate all running tasks.
 func (s *Scheduler) Start(ctx context.Context) error {
-	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 30*time.Second, s.clock)
+	// 3s caps per-unit progress writes on the Raft hot path without making
+	// the UI feel frozen on long-running migrations. A coarser cap (the
+	// old 30s) is invisible to users watching a 60–90s reindex — every
+	// other sample gets eaten and the progress bar appears to jump in
+	// large increments. 3s gives ~20 samples per minute per unit, well
+	// within Raft's write budget.
+	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 3*time.Second, s.clock)
 
 	s.setCompletionRecorders(throttledRecorder)
 
