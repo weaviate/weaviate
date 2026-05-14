@@ -34,8 +34,8 @@ type DeleteNamespaceReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *DeleteNamespaceReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-	case 204:
-		result := NewDeleteNamespaceNoContent()
+	case 202:
+		result := NewDeleteNamespaceAccepted()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -75,58 +75,58 @@ func (o *DeleteNamespaceReader) ReadResponse(response runtime.ClientResponse, co
 	}
 }
 
-// NewDeleteNamespaceNoContent creates a DeleteNamespaceNoContent with default headers values
-func NewDeleteNamespaceNoContent() *DeleteNamespaceNoContent {
-	return &DeleteNamespaceNoContent{}
+// NewDeleteNamespaceAccepted creates a DeleteNamespaceAccepted with default headers values
+func NewDeleteNamespaceAccepted() *DeleteNamespaceAccepted {
+	return &DeleteNamespaceAccepted{}
 }
 
 /*
-DeleteNamespaceNoContent describes a response with status code 204, with default header values.
+DeleteNamespaceAccepted describes a response with status code 202, with default header values.
 
-Successfully deleted.
+The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously.
 */
-type DeleteNamespaceNoContent struct {
+type DeleteNamespaceAccepted struct {
 }
 
-// IsSuccess returns true when this delete namespace no content response has a 2xx status code
-func (o *DeleteNamespaceNoContent) IsSuccess() bool {
+// IsSuccess returns true when this delete namespace accepted response has a 2xx status code
+func (o *DeleteNamespaceAccepted) IsSuccess() bool {
 	return true
 }
 
-// IsRedirect returns true when this delete namespace no content response has a 3xx status code
-func (o *DeleteNamespaceNoContent) IsRedirect() bool {
+// IsRedirect returns true when this delete namespace accepted response has a 3xx status code
+func (o *DeleteNamespaceAccepted) IsRedirect() bool {
 	return false
 }
 
-// IsClientError returns true when this delete namespace no content response has a 4xx status code
-func (o *DeleteNamespaceNoContent) IsClientError() bool {
+// IsClientError returns true when this delete namespace accepted response has a 4xx status code
+func (o *DeleteNamespaceAccepted) IsClientError() bool {
 	return false
 }
 
-// IsServerError returns true when this delete namespace no content response has a 5xx status code
-func (o *DeleteNamespaceNoContent) IsServerError() bool {
+// IsServerError returns true when this delete namespace accepted response has a 5xx status code
+func (o *DeleteNamespaceAccepted) IsServerError() bool {
 	return false
 }
 
-// IsCode returns true when this delete namespace no content response a status code equal to that given
-func (o *DeleteNamespaceNoContent) IsCode(code int) bool {
-	return code == 204
+// IsCode returns true when this delete namespace accepted response a status code equal to that given
+func (o *DeleteNamespaceAccepted) IsCode(code int) bool {
+	return code == 202
 }
 
-// Code gets the status code for the delete namespace no content response
-func (o *DeleteNamespaceNoContent) Code() int {
-	return 204
+// Code gets the status code for the delete namespace accepted response
+func (o *DeleteNamespaceAccepted) Code() int {
+	return 202
 }
 
-func (o *DeleteNamespaceNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /namespaces/{namespace_id}][%d] deleteNamespaceNoContent ", 204)
+func (o *DeleteNamespaceAccepted) Error() string {
+	return fmt.Sprintf("[DELETE /namespaces/{namespace_id}][%d] deleteNamespaceAccepted ", 202)
 }
 
-func (o *DeleteNamespaceNoContent) String() string {
-	return fmt.Sprintf("[DELETE /namespaces/{namespace_id}][%d] deleteNamespaceNoContent ", 204)
+func (o *DeleteNamespaceAccepted) String() string {
+	return fmt.Sprintf("[DELETE /namespaces/{namespace_id}][%d] deleteNamespaceAccepted ", 202)
 }
 
-func (o *DeleteNamespaceNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *DeleteNamespaceAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

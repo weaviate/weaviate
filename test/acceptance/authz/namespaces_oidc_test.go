@@ -94,6 +94,28 @@ func TestNamespacesOIDC(t *testing.T) {
 		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
 	})
 
+	t.Run("deleting namespace claim → 401", func(t *testing.T) {
+		// Create customer2 so the OIDC token authenticates first, then
+		// mark it for deletion. Whether the cleanup tick has finished or
+		// not, the principal builder rejects with 401: deleting → 401
+		// via IsActive; gone → 401 via the same error message.
+		const ns = "customer2"
+		helper.CreateNamespace(t, ns, adminKey)
+		defer helper.WaitForNamespaceGone(t, ns, adminKey, 30*time.Second)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, "oidc-namespaced-"+ns)
+		// Sanity: pre-delete, the OIDC token authenticates.
+		info := helper.GetInfoForOwnUser(t, token)
+		require.NotNil(t, info.Username)
+
+		helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
+
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(token))
+		require.Error(t, err)
+		var unauth *users.GetOwnInfoUnauthorized
+		require.True(t, errors.As(err, &unauth), "expected GetOwnInfoUnauthorized, got %T: %v", err, err)
+	})
+
 	t.Run("bare-form OIDC user ID: assignment rejected at the API", func(t *testing.T) {
 		// validateUserIDForNamespaces rejects bare-form IDs on NS-enabled.
 		_, err := helper.Client(t).Authz.AssignRoleToUser(
@@ -318,5 +340,31 @@ func TestNamespacesOIDC(t *testing.T) {
 
 		stored := helper.GetClassAuth(t, "customer1:Albums", adminKey)
 		assert.Equal(t, "customer1:Albums", stored.Class)
+	})
+
+	// Regression: GET /v1/authz/roles/{name}/users used to 500 once any
+	// namespaced principal was assigned to the role, because the internal
+	// casbin key for a namespaced DB user has three `:`-segments
+	// (`db:<namespace>:<username>`) and the prefix parser rejected it.
+	t.Run("GET roles/{name}/users lists namespaced DB users", func(t *testing.T) {
+		const shortSubject = "roles-endpoint-user"
+		const qualifiedID = "customer1:" + shortSubject
+
+		_ = helper.CreateUserWithNamespace(t, shortSubject, "customer1", adminKey)
+		defer helper.DeleteUser(t, qualifiedID, adminKey)
+
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, qualifiedID)
+		defer helper.RevokeRoleFromUser(t, adminKey, authorization.Admin, qualifiedID)
+
+		users := helper.GetUserForRolesBoth(t, authorization.Admin, adminKey)
+
+		var found bool
+		for _, u := range users {
+			if u.UserType != nil && *u.UserType == models.UserTypeOutputDbUser && u.UserID == qualifiedID {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "namespaced DB user %q must appear in GET roles/{name}/users; got %+v", qualifiedID, users)
 	})
 }

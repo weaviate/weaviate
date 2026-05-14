@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"sort"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -39,19 +39,39 @@ var (
 	// errors.Is rather than string-matching the error message.
 	ErrAlreadyExists = errors.New("namespace already exists")
 
-	// ErrNotFound is returned by Delete when the target namespace does not
-	// exist. Callers that need a distinct status for missing entries
-	// (e.g. an HTTP handler mapping to 404) should check with errors.Is.
+	// ErrNotFound is returned by ChangeState and RemoveEntity when the
+	// target namespace does not exist. Callers that need a distinct status
+	// for missing entries (e.g. an HTTP handler mapping to 404) should
+	// check with errors.Is.
 	ErrNotFound = errors.New("namespace not found")
+
+	// ErrNamespaceDeleting is returned when a create-like operation targets
+	// a namespace that exists but is currently being torn down. Distinct
+	// from ErrAlreadyExists so REST can render a different conflict message.
+	ErrNamespaceDeleting = errors.New("namespace is being deleted")
+
+	// ErrNamespaceGone is returned by apply-time checks when a namespace
+	// the caller validated earlier no longer exists.
+	ErrNamespaceGone = errors.New("namespace no longer exists")
+
+	// ErrNamespaceNotEmpty is returned by RemoveEntity at the apply layer
+	// when the namespace still owns classes, aliases, or DB users.
+	ErrNamespaceNotEmpty = errors.New("namespace still has owned resources")
+
+	// ErrInvalidState is a defense-in-depth sentinel for operations called
+	// on a namespace whose current state forbids them (e.g. RemoveEntity on
+	// an active namespace).
+	ErrInvalidState = errors.New("namespace is in an invalid state for this operation")
+
+	// ErrInvalidStateTransition is returned by ChangeState when the target
+	// state is unreachable from the namespace's current state.
+	ErrInvalidStateTransition = errors.New("invalid namespace state transition")
 )
 
-// See entschema.NamespaceMinLength for the full namespace name validation
-// contract. The regex and reserved-name list below are the non-length parts
-// that live in this package.
-var namespaceNameRegex = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-
 // reservedNames are refused at Create time. Kept as a package variable (not a
-// const) so tests can inspect it; not mutated at runtime.
+// const) so tests can inspect it; not mutated at runtime. The lowercase/length
+// regex lives in entities/schema.ValidateNamespaceNameSyntax so the
+// name-resolver can reuse it without forming an import cycle.
 var reservedNames = map[string]struct{}{
 	"admin":    {},
 	"system":   {},
@@ -62,12 +82,11 @@ var reservedNames = map[string]struct{}{
 	"public":   {},
 }
 
-// Exister is the minimal namespace existence check consumers depend on for
-// dependency injection. *Controller satisfies it. Defined here (alongside
-// the producer) rather than on each consumer side so we can share a single
-// generated mock across the apply-layer and REST handler test suites.
+// Exister exposes namespace presence and lifecycle state. Exists matches
+// any state; IsActive excludes the deleting state.
 type Exister interface {
 	Exists(name string) bool
+	IsActive(name string) bool
 }
 
 // Controller owns the namespace control-plane state.
@@ -91,8 +110,10 @@ func NewController(logger logrus.FieldLogger) *Controller {
 	}
 }
 
-// Create inserts a namespace. It rejects invalid names with [ErrBadRequest]
-// and duplicates with [ErrAlreadyExists].
+// Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
+// input's State is ignored. Returns [ErrBadRequest] for invalid names,
+// [ErrAlreadyExists] when the name maps to an active namespace, and
+// [ErrNamespaceDeleting] when the name is currently being torn down.
 func (c *Controller) Create(ns cmd.Namespace) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -101,22 +122,60 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, ok := c.namespaces[ns.Name]; ok {
+	if existing, ok := c.namespaces[ns.Name]; ok {
+		if existing.State == cmd.NamespaceStateDeleting {
+			return fmt.Errorf("%w: %q", ErrNamespaceDeleting, ns.Name)
+		}
 		return fmt.Errorf("%w: %q", ErrAlreadyExists, ns.Name)
 	}
 
+	ns.State = cmd.NamespaceStateActive
 	c.namespaces[ns.Name] = &ns
 	return nil
 }
 
-// Delete removes a namespace. Returns [ErrNotFound] when the target
-// namespace does not exist. Non-idempotent by design: callers that need
-// idempotent semantics should swallow ErrNotFound at their layer.
-func (c *Controller) Delete(name string) error {
+// ChangeState transitions a namespace into target. Same-state transitions
+// are idempotent and return nil. Returns [ErrBadRequest] when target is not
+// a recognized state, [ErrNotFound] when the namespace does not exist, and
+// [ErrInvalidStateTransition] when the transition is forbidden (e.g.
+// deleting back to active).
+func (c *Controller) ChangeState(name string, target cmd.NamespaceState) error {
+	switch target {
+	case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
+	default:
+		return fmt.Errorf("%w: unknown namespace state %q", ErrBadRequest, target)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.namespaces[name]; !ok {
+	ns, ok := c.namespaces[name]
+	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotFound, name)
+	}
+	if ns.State == target {
+		return nil
+	}
+	// deleting is terminal: re-entry only via RemoveEntity + fresh Create.
+	if ns.State == cmd.NamespaceStateDeleting {
+		return fmt.Errorf("%w: %q is %s, cannot transition to %s",
+			ErrInvalidStateTransition, name, ns.State, target)
+	}
+	ns.State = target
+	return nil
+}
+
+// RemoveEntity removes the namespace map entry. Callable only on a
+// namespace already marked for deletion; an active namespace returns
+// [ErrInvalidState]. Returns [ErrNotFound] when the namespace does not exist.
+func (c *Controller) RemoveEntity(name string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ns, ok := c.namespaces[name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrNotFound, name)
+	}
+	if ns.State != cmd.NamespaceStateDeleting {
+		return fmt.Errorf("%w: %q is not in deleting state", ErrInvalidState, name)
 	}
 	delete(c.namespaces, name)
 	return nil
@@ -160,14 +219,42 @@ func (c *Controller) Count() int {
 	return len(c.namespaces)
 }
 
-// Exists reports whether a namespace with the given name is known. Intended
-// for non-cluster callers (REST handlers, OIDC claim resolution) that need
-// a fast existence check without constructing a RAFT subcommand.
+// Exists reports whether a namespace with the given name is known.
+// Intended for non-cluster callers (REST handlers, OIDC claim resolution)
+// that need a fast existence check without constructing a RAFT subcommand.
+// Returns true for entries in any state.
 func (c *Controller) Exists(name string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	_, ok := c.namespaces[name]
 	return ok
+}
+
+// IsActive reports whether the named namespace exists and is in the
+// [cmd.NamespaceStateActive] state.
+func (c *Controller) IsActive(name string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	ns, ok := c.namespaces[name]
+	if !ok {
+		return false
+	}
+	return ns.State == cmd.NamespaceStateActive
+}
+
+// ListDeleting returns the names of namespaces currently in the deleting
+// state, sorted lexicographically.
+func (c *Controller) ListDeleting() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, 0)
+	for name, ns := range c.namespaces {
+		if ns.State == cmd.NamespaceStateDeleting {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Snapshot serializes the entire namespace map. See the Controller godoc for
@@ -180,8 +267,9 @@ func (c *Controller) Snapshot() ([]byte, error) {
 
 // Restore replaces the current state with the snapshot contents. A nil or
 // empty snapshot leaves state empty (fresh bootstrap). Unknown JSON fields
-// are tolerated to preserve forward-compatibility with future entity
-// additions (e.g. a state field).
+// are tolerated. Entries with empty State are normalized to
+// [cmd.NamespaceStateActive]; entries with an unknown State return an
+// error so a future binary's snapshot is not silently mis-classified.
 func (c *Controller) Restore(snapshot []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -196,6 +284,17 @@ func (c *Controller) Restore(snapshot []byte) error {
 		c.logger.Errorf("restoring namespaces from snapshot failed with: %v", err)
 		return err
 	}
+	for name, ns := range restored {
+		if ns.State == "" {
+			ns.State = cmd.NamespaceStateActive
+			continue
+		}
+		switch ns.State {
+		case cmd.NamespaceStateActive, cmd.NamespaceStateDeleting:
+		default:
+			return fmt.Errorf("namespace %q has unknown state %q in snapshot", name, ns.State)
+		}
+	}
 	c.namespaces = restored
 	c.logger.Info("successfully restored namespaces from snapshot")
 	return nil
@@ -206,11 +305,8 @@ func (c *Controller) Restore(snapshot []byte) error {
 // REST handler (for fast 422 rejection without a RAFT round-trip) and from
 // the apply path (as a defense-in-depth check).
 func ValidateName(name string) error {
-	if l := len(name); l < entschema.NamespaceMinLength || l > entschema.NamespaceMaxLength {
-		return fmt.Errorf("namespace name %q must be %d-%d characters", name, entschema.NamespaceMinLength, entschema.NamespaceMaxLength)
-	}
-	if !namespaceNameRegex.MatchString(name) {
-		return fmt.Errorf("namespace name %q must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, and must not contain ':'", name)
+	if err := entschema.ValidateNamespaceNameSyntax(name); err != nil {
+		return err
 	}
 	if _, reserved := reservedNames[name]; reserved {
 		return fmt.Errorf("namespace name %q is reserved", name)

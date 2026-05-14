@@ -12,6 +12,7 @@
 package namespaces
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,8 +34,9 @@ import (
 // NamespaceRaftGetter is the subset of cluster.Raft the handlers use. Keeping
 // it narrow makes the unit tests easy to mock.
 type NamespaceRaftGetter interface {
-	AddNamespace(ns cmd.Namespace) error
-	DeleteNamespace(name string) error
+	AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
+	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
+	DeleteUsersInNamespace(ctx context.Context, name string) error
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
 }
 
@@ -106,11 +108,14 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	// of truth for uniqueness, so we translate its error sentinels directly.
 	// This avoids a TOCTOU where two concurrent creates both pass a pre-check
 	// and the loser would surface a misleading 500.
-	if err := h.raft.AddNamespace(cmd.Namespace{Name: name}); err != nil {
+	if _, err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name}); err != nil {
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q already exists", name)))
+		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
+			return nsops.NewCreateNamespaceConflict().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q is being deleted; retry after cleanup completes", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
 			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		default:
@@ -119,7 +124,10 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		}
 	}
 
-	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{Name: name})
+	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{
+		Name:  name,
+		State: string(cmd.NamespaceStateActive),
+	})
 }
 
 func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -148,7 +156,10 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
 	}
 
-	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{Name: got[0].Name})
+	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{
+		Name:  got[0].Name,
+		State: string(got[0].State),
+	})
 }
 
 func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, principal *models.Principal) middleware.Responder {
@@ -167,23 +178,25 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 		return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// No pre-check for existence: the RAFT apply layer returns ErrNotFound
-	// for missing entries, so we translate directly. Avoids a TOCTOU where
-	// two concurrent deletes would both see the entry and only one succeeds.
-	if err := h.raft.DeleteNamespace(name); err != nil {
-		switch {
-		case errors.Is(err, usecasesNamespaces.ErrNotFound):
+	// Two-phase delete. First flip to deleting; the apply handler is
+	// idempotent on already-deleting (returns nil). Then issue the
+	// namespace-scoped user delete. Order matters: marking first ensures
+	// the dynusers active-namespace gate rejects any concurrent CreateUser
+	// before we drain the user list.
+	if _, err := h.raft.ChangeNamespaceState(ctx, name, cmd.NamespaceStateDeleting); err != nil {
+		if errors.Is(err, usecasesNamespaces.ErrNotFound) {
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
 				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
-		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
-			return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		default:
-			return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deleting namespace: %w", err)))
 		}
+		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("marking namespace for deletion: %w", err)))
+	}
+	if err := h.raft.DeleteUsersInNamespace(ctx, name); err != nil {
+		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deleting users in namespace: %w", err)))
 	}
 
-	return nsops.NewDeleteNamespaceNoContent()
+	return nsops.NewDeleteNamespaceAccepted()
 }
 
 // listNamespaces never returns 403. Callers without any applicable
@@ -224,7 +237,7 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	out := make([]*models.Namespace, 0, len(allowed))
 	for _, ns := range all {
 		if _, ok := allowedSet[authorization.Namespaces(ns.Name)[0]]; ok {
-			out = append(out, &models.Namespace{Name: ns.Name})
+			out = append(out, &models.Namespace{Name: ns.Name, State: string(ns.State)})
 		}
 	}
 	return nsops.NewListNamespacesOK().WithPayload(out)

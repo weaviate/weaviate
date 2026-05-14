@@ -40,7 +40,7 @@ func TestSuccessDeactivate(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: true}}, nil)
-			dynUser.On("DeactivateUser", "user", test.revokeKey).Return(nil)
+			dynUser.On("DeactivateUser", mock.Anything, "user", test.revokeKey).Return(nil)
 
 			h := dynUserHandler{
 				dbUsers:    dynUser,

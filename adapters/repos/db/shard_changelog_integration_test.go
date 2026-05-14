@@ -185,7 +185,7 @@ func TestShard_ChangeLog_AllWritePaths_Roundtrip(t *testing.T) {
 			continue
 		}
 		require.NotEmptyf(t, entry.Payload, "entry %d PUT must carry a payload", i)
-		decoded, err := storobj.FromBinary(entry.Payload)
+		decoded, err := storobj.FromBinaryNetwork(entry.Payload)
 		require.NoErrorf(t, err, "entry %d storobj payload must decode cleanly", i)
 		require.Equalf(t, want[i].uuid, decoded.ID(), "entry %d wrong UUID in storobj", i)
 	}

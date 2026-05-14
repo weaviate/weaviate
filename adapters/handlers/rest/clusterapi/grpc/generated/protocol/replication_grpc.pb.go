@@ -31,6 +31,7 @@ const (
 	ReplicationService_FetchObjects_FullMethodName         = "/clusterapi.ReplicationService/FetchObjects"
 	ReplicationService_DigestObjects_FullMethodName        = "/clusterapi.ReplicationService/DigestObjects"
 	ReplicationService_DigestObjectsInRange_FullMethodName = "/clusterapi.ReplicationService/DigestObjectsInRange"
+	ReplicationService_CompareDigests_FullMethodName       = "/clusterapi.ReplicationService/CompareDigests"
 	ReplicationService_OverwriteObjects_FullMethodName     = "/clusterapi.ReplicationService/OverwriteObjects"
 	ReplicationService_FindUUIDs_FullMethodName            = "/clusterapi.ReplicationService/FindUUIDs"
 	ReplicationService_HashTreeLevel_FullMethodName        = "/clusterapi.ReplicationService/HashTreeLevel"
@@ -58,6 +59,7 @@ type ReplicationServiceClient interface {
 	FetchObjects(ctx context.Context, in *FetchObjectsRequest, opts ...grpc.CallOption) (*FetchObjectsResponse, error)
 	DigestObjects(ctx context.Context, in *DigestObjectsRequest, opts ...grpc.CallOption) (*DigestObjectsResponse, error)
 	DigestObjectsInRange(ctx context.Context, in *DigestObjectsInRangeRequest, opts ...grpc.CallOption) (*DigestObjectsInRangeResponse, error)
+	CompareDigests(ctx context.Context, in *CompareDigestsRequest, opts ...grpc.CallOption) (*CompareDigestsResponse, error)
 	OverwriteObjects(ctx context.Context, in *OverwriteObjectsRequest, opts ...grpc.CallOption) (*OverwriteObjectsResponse, error)
 	FindUUIDs(ctx context.Context, in *FindUUIDsRequest, opts ...grpc.CallOption) (*FindUUIDsResponse, error)
 	HashTreeLevel(ctx context.Context, in *HashTreeLevelRequest, opts ...grpc.CallOption) (*HashTreeLevelResponse, error)
@@ -192,6 +194,16 @@ func (c *replicationServiceClient) DigestObjectsInRange(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *replicationServiceClient) CompareDigests(ctx context.Context, in *CompareDigestsRequest, opts ...grpc.CallOption) (*CompareDigestsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompareDigestsResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_CompareDigests_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *replicationServiceClient) OverwriteObjects(ctx context.Context, in *OverwriteObjectsRequest, opts ...grpc.CallOption) (*OverwriteObjectsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OverwriteObjectsResponse)
@@ -253,6 +265,7 @@ type ReplicationServiceServer interface {
 	FetchObjects(context.Context, *FetchObjectsRequest) (*FetchObjectsResponse, error)
 	DigestObjects(context.Context, *DigestObjectsRequest) (*DigestObjectsResponse, error)
 	DigestObjectsInRange(context.Context, *DigestObjectsInRangeRequest) (*DigestObjectsInRangeResponse, error)
+	CompareDigests(context.Context, *CompareDigestsRequest) (*CompareDigestsResponse, error)
 	OverwriteObjects(context.Context, *OverwriteObjectsRequest) (*OverwriteObjectsResponse, error)
 	FindUUIDs(context.Context, *FindUUIDsRequest) (*FindUUIDsResponse, error)
 	HashTreeLevel(context.Context, *HashTreeLevelRequest) (*HashTreeLevelResponse, error)
@@ -301,6 +314,9 @@ func (UnimplementedReplicationServiceServer) DigestObjects(context.Context, *Dig
 }
 func (UnimplementedReplicationServiceServer) DigestObjectsInRange(context.Context, *DigestObjectsInRangeRequest) (*DigestObjectsInRangeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DigestObjectsInRange not implemented")
+}
+func (UnimplementedReplicationServiceServer) CompareDigests(context.Context, *CompareDigestsRequest) (*CompareDigestsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompareDigests not implemented")
 }
 func (UnimplementedReplicationServiceServer) OverwriteObjects(context.Context, *OverwriteObjectsRequest) (*OverwriteObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OverwriteObjects not implemented")
@@ -550,6 +566,24 @@ func _ReplicationService_DigestObjectsInRange_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReplicationService_CompareDigests_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompareDigestsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).CompareDigests(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_CompareDigests_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).CompareDigests(ctx, req.(*CompareDigestsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ReplicationService_OverwriteObjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OverwriteObjectsRequest)
 	if err := dec(in); err != nil {
@@ -676,6 +710,10 @@ var ReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DigestObjectsInRange",
 			Handler:    _ReplicationService_DigestObjectsInRange_Handler,
+		},
+		{
+			MethodName: "CompareDigests",
+			Handler:    _ReplicationService_CompareDigests_Handler,
 		},
 		{
 			MethodName: "OverwriteObjects",

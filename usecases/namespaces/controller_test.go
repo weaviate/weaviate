@@ -31,6 +31,19 @@ func newTestController(t *testing.T) *Controller {
 	return NewController(logger)
 }
 
+// seedNamespace creates name and transitions it to seedState. An empty
+// seedState seeds nothing.
+func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.NamespaceState) {
+	t.Helper()
+	if seedState == "" {
+		return
+	}
+	require.NoError(t, c.Create(cmd.Namespace{Name: name}))
+	if seedState == cmd.NamespaceStateDeleting {
+		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateDeleting))
+	}
+}
+
 func TestValidateName(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -132,28 +145,154 @@ func TestController_Create(t *testing.T) {
 	}
 }
 
-func TestController_Delete(t *testing.T) {
+func TestController_Create_StoresActiveState(t *testing.T) {
+	c := newTestController(t)
+	// Caller-provided State is ignored: stored entries are always active.
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", State: cmd.NamespaceStateDeleting}))
+	got := c.Get("customer1")
+	require.Len(t, got, 1)
+	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
+	assert.True(t, c.IsActive("customer1"))
+}
+
+func TestController_Create_RejectsDeletingWithDistinctSentinel(t *testing.T) {
+	c := newTestController(t)
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+
+	err := c.Create(cmd.Namespace{Name: "customer1"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNamespaceDeleting)
+	assert.NotErrorIs(t, err, ErrAlreadyExists,
+		"deleting must surface as a distinct conflict so REST can render a different message")
+}
+
+func TestController_ChangeState(t *testing.T) {
+	tests := []struct {
+		name      string
+		seedState cmd.NamespaceState // empty = no namespace exists
+		target    cmd.NamespaceState
+		wantErr   error
+	}{
+		{name: "active -> deleting flips state", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateDeleting},
+		{name: "active -> active is idempotent", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceStateActive},
+		{name: "deleting -> deleting is idempotent", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateDeleting},
+		{name: "deleting -> active is forbidden", seedState: cmd.NamespaceStateDeleting, target: cmd.NamespaceStateActive, wantErr: ErrInvalidStateTransition},
+		{name: "unknown target state is rejected", seedState: cmd.NamespaceStateActive, target: cmd.NamespaceState("not-a-state"), wantErr: ErrBadRequest},
+		{name: "missing namespace returns ErrNotFound", target: cmd.NamespaceStateDeleting, wantErr: ErrNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			seedNamespace(t, c, "customer1", tc.seedState)
+
+			err := c.ChangeState("customer1", tc.target)
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, c.Exists("customer1"))
+			assert.Equal(t, tc.target == cmd.NamespaceStateActive, c.IsActive("customer1"))
+		})
+	}
+}
+
+func TestController_RemoveEntity(t *testing.T) {
+	tests := []struct {
+		name      string
+		seedState cmd.NamespaceState // empty = no namespace exists
+		wantErr   error
+	}{
+		{name: "deleting namespace is removed", seedState: cmd.NamespaceStateDeleting},
+		{name: "active namespace returns ErrInvalidState", seedState: cmd.NamespaceStateActive, wantErr: ErrInvalidState},
+		{name: "missing namespace returns ErrNotFound", wantErr: ErrNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			seedNamespace(t, c, "customer1", tc.seedState)
+
+			err := c.RemoveEntity("customer1")
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				assert.Equal(t, tc.seedState != "", c.Exists("customer1"))
+				return
+			}
+			require.NoError(t, err)
+			assert.False(t, c.Exists("customer1"))
+		})
+	}
+}
+
+func TestController_RecreateAfterRemoval(t *testing.T) {
+	c := newTestController(t)
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.RemoveEntity("customer1"))
+
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	assert.True(t, c.IsActive("customer1"))
+}
+
+func TestController_IsActiveAndListDeleting(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3"}))
+	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
 
-	t.Run("delete existing", func(t *testing.T) {
-		require.NoError(t, c.Delete("customer1"))
-		assert.Equal(t, 1, c.Count())
-	})
+	assert.True(t, c.IsActive("customer2"))
+	assert.False(t, c.IsActive("customer1"))
+	assert.False(t, c.IsActive("customer3"))
+	assert.False(t, c.IsActive("never-existed"))
 
-	t.Run("delete missing returns ErrNotFound", func(t *testing.T) {
-		err := c.Delete("customer1") // already deleted above
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, []string{"customer1", "customer3"}, c.ListDeleting())
+}
 
-		err = c.Delete("never-existed")
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrNotFound)
+func TestController_RestoreNormalizesEmptyState(t *testing.T) {
+	// Snapshots without a State field must restore as active.
+	c := newTestController(t)
+	snap := []byte(`{"customer1":{"Name":"customer1","Restrictions":{}}}`)
+	require.NoError(t, c.Restore(snap))
 
-		// State was not altered by the failed deletes.
-		assert.Equal(t, 1, c.Count())
-	})
+	assert.True(t, c.IsActive("customer1"))
+	got := c.Get("customer1")
+	require.Len(t, got, 1)
+	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
+}
+
+// TestController_RestoreRejectsUnknownState locks in fail-loud behaviour
+// for snapshots that carry a State value the current binary does not
+// know. Silently coercing would mis-classify the namespace; the
+// startup-time error forces the operator to investigate.
+func TestController_RestoreRestoresKnownStates(t *testing.T) {
+	c := newTestController(t)
+	snap := []byte(`{
+		"customer1":{"Name":"customer1","State":"active","Restrictions":{}},
+		"customer2":{"Name":"customer2","State":"deleting","Restrictions":{}}
+	}`)
+	require.NoError(t, c.Restore(snap))
+
+	assert.True(t, c.IsActive("customer1"))
+	assert.False(t, c.IsActive("customer2"))
+	assert.Equal(t, []string{"customer2"}, c.ListDeleting())
+}
+
+func TestController_RestoreRejectsUnknownState(t *testing.T) {
+	c := newTestController(t)
+	snap := []byte(`{"customer1":{"Name":"customer1","State":"suspended","Restrictions":{}}}`)
+	err := c.Restore(snap)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown state")
+	// The controller must remain unchanged on rejection so that the
+	// caller (RAFT FSM) can fail startup cleanly.
+	assert.Equal(t, 0, c.Count())
 }
 
 func TestController_Get(t *testing.T) {
@@ -197,7 +336,8 @@ func TestController_Exists(t *testing.T) {
 	assert.True(t, c.Exists("customer1"))
 	assert.False(t, c.Exists("never-existed"))
 
-	require.NoError(t, c.Delete("customer1"))
+	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+	require.NoError(t, c.RemoveEntity("customer1"))
 	assert.False(t, c.Exists("customer1"))
 }
 

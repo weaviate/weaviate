@@ -19,47 +19,64 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// AddNamespace proposes an AddNamespace RAFT command. The apply side rejects
-// duplicates with [namespaces.ErrAlreadyExists] and invalid names with
-// [namespaces.ErrBadRequest]; callers that need to distinguish those should
-// use errors.Is.
-func (s *Raft) AddNamespace(ns cmd.Namespace) error {
+// AddNamespace proposes an AddNamespace RAFT command and returns the apply
+// version. The apply side rejects duplicates with
+// [namespaces.ErrAlreadyExists] and invalid names with
+// [namespaces.ErrBadRequest]. Callers that need a follow-up local read on
+// a non-leader node should pass the returned version to WaitForUpdate.
+func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
 	req := cmd.AddNamespaceRequest{
 		Namespace: ns,
 		Version:   cmd.NamespaceLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
-		return err
-	}
-	return nil
+	return s.Execute(ctx, command)
 }
 
-// DeleteNamespace proposes a DeleteNamespace RAFT command. The apply side
-// returns [namespaces.ErrNotFound] when the target namespace does not exist;
-// callers that want idempotent semantics should swallow that error.
-func (s *Raft) DeleteNamespace(name string) error {
-	req := cmd.DeleteNamespaceRequest{
+// ChangeNamespaceState proposes a ChangeNamespaceState RAFT command and
+// returns the apply version. The apply side returns [namespaces.ErrNotFound]
+// for unknown namespaces and [namespaces.ErrInvalidStateTransition] for
+// forbidden transitions; same-state transitions are idempotent.
+func (s *Raft) ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error) {
+	req := cmd.ChangeNamespaceStateRequest{
+		Name:        name,
+		TargetState: target,
+		Version:     cmd.NamespaceLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+// RemoveNamespaceEntity proposes a RemoveNamespaceEntity RAFT command and
+// returns the apply version. The apply side returns [namespaces.ErrNotFound]
+// for unknown namespaces and [namespaces.ErrInvalidState] when called on an
+// active namespace.
+func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error) {
+	req := cmd.RemoveNamespaceEntityRequest{
 		Name:    name,
 		Version: cmd.NamespaceLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_DELETE_NAMESPACE,
+		Type:       cmd.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
-		return err
-	}
-	return nil
+	return s.Execute(ctx, command)
 }
