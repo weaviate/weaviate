@@ -453,7 +453,7 @@ func wrapRouteStale(host string, err error) error {
 	var rerr *Error
 	if errors.As(err, &rerr) && rerr != nil && rerr.Code == StatusRouteStale {
 		hostErr := fmt.Errorf("%q: %w", host, err)
-		return &routeStaleErr{Applied: rerr.Applied, Wrapped: hostErr}
+		return &routeStaleErr{Applied: rerr.LastAppliedIndex, Wrapped: hostErr}
 	}
 	return fmt.Errorf("%q: %w", host, err)
 }

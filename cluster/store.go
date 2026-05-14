@@ -620,7 +620,6 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 // cancelled, or ConsistencyWaitTimeout elapses. Snapshots the notify
 // channel before re-checking lastAppliedIndex so any apply that lands
 // between the snapshot and the re-check is observed without sleeping.
-// period is retained for signature compatibility and ignored.
 func (st *Store) WaitForAppliedIndex(ctx context.Context, version uint64) error {
 	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil

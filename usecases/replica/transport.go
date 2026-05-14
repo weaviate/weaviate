@@ -72,8 +72,8 @@ type Error struct {
 	// StatusRouteStale only: source's lastAppliedIndex at rejection. The
 	// coord's retry waits for its local FSM to reach this before rebuilding
 	// routing, else it routes to the same draining replica again.
-	Applied uint64 `json:"applied,omitempty"`
-	Err     error  `json:"-"`
+	LastAppliedIndex uint64 `json:"last_applied_index,omitempty"`
+	Err              error  `json:"-"`
 }
 
 // Empty checks whether e is an empty error which equivalent to e == nil
@@ -87,7 +87,7 @@ func NewError(code StatusCode, msg string) *Error {
 }
 
 func (e *Error) Clone() *Error {
-	return &Error{Code: e.Code, Msg: e.Msg, Applied: e.Applied, Err: e.Err}
+	return &Error{Code: e.Code, Msg: e.Msg, LastAppliedIndex: e.LastAppliedIndex, Err: e.Err}
 }
 
 // Unwrap underlying error

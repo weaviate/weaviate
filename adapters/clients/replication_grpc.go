@@ -502,8 +502,9 @@ func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResp
 	errs := make([]replica.Error, len(r.GetErrors()))
 	for i, e := range r.GetErrors() {
 		errs[i] = replica.Error{
-			Code: replica.StatusCode(e.GetCode()),
-			Msg:  e.GetMsg(),
+			Code:             replica.StatusCode(e.GetCode()),
+			Msg:              e.GetMsg(),
+			LastAppliedIndex: e.GetLastAppliedIndex(),
 		}
 	}
 	return replica.SimpleResponse{Errors: errs}

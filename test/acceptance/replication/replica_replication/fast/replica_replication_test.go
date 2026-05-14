@@ -514,6 +514,9 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 					nil,
 				)
 				assert.Nil(ct, err)
+				if respSchema == nil {
+					continue
+				}
 				assert.Len(ct, respSchema.Payload.Classes, 2, "expected 2 classes in schema dump from node %d, got %d", i, len(respSchema.Payload.Classes))
 
 				respTenants, err := helper.Client(t).Schema.TenantExists(
@@ -521,6 +524,9 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 					nil,
 				)
 				assert.Nil(ct, err)
+				if respTenants == nil {
+					continue
+				}
 				assert.True(ct, respTenants.IsSuccess(), 1, "expected tenant to exist in tenant exists response from node %d", i)
 			}
 		}, 10*time.Second, 1*time.Second, "schema not consistent across all nodes")
@@ -538,8 +544,11 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 		}
 		all := "ALL"
 		params := batch.NewBatchObjectsCreateParams().WithConsistencyLevel(&all).WithBody(batch.BatchObjectsCreateBody{Objects: objs})
-		_, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+		resp, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
 		require.NoError(t, err, "failed to create initial batch of paragraphs: %s", err)
+		for _, r := range resp.Payload {
+			require.Nil(t, r.Result.Errors, "expected no errors in batch create response for paragraph %s: %+v", r.ID, r.Result.Errors)
+		}
 	})
 
 	parallelWriteWg := sync.WaitGroup{}

@@ -404,7 +404,7 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 			continue
 		}
 		switch opState.GetCurrentState() {
-		case api.DEHYDRATING:
+		case api.DEHYDRATING, api.READY:
 			readOk = false
 			writeOk = false
 		default:

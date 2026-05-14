@@ -33,7 +33,7 @@ func TestWrapRouteStale_SurvivesFmtWrap(t *testing.T) {
 	}{
 		{
 			name:        "StatusRouteStale Error wraps to *routeStaleErr",
-			input:       &Error{Code: StatusRouteStale, Msg: "shard \"t0\": stale routing", Applied: 42},
+			input:       &Error{Code: StatusRouteStale, Msg: "shard \"t0\": stale routing", LastAppliedIndex: 42},
 			wantStale:   true,
 			wantApplied: 42,
 		},

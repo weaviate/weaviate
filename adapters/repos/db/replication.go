@@ -167,14 +167,14 @@ func (db *DB) checkLocalWritable(class, shard string) *replica.SimpleResponse {
 	if db.replicationFSM.IsLocalShardWritable(db.localNodeName, class, shard) {
 		return nil
 	}
-	var applied uint64
+	var lastAppliedIndex uint64
 	if db.raftAppliedIndex != nil {
-		applied = db.raftAppliedIndex()
+		lastAppliedIndex = db.raftAppliedIndex()
 	}
 	return &replica.SimpleResponse{Errors: []replica.Error{{
-		Code:    replica.StatusRouteStale,
-		Applied: applied,
-		Msg:     fmt.Sprintf("shard %q on node %q: local node is not a current write target; coordinator must refresh routing and retry", shard, db.localNodeName),
+		Code:             replica.StatusRouteStale,
+		LastAppliedIndex: lastAppliedIndex,
+		Msg:              fmt.Sprintf("shard %q on node %q: local node is not a current write target; coordinator must refresh routing and retry", shard, db.localNodeName),
 	}}}
 }
 
