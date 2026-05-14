@@ -211,6 +211,16 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testPropertyStateMigrationMatrix(t, restURI)
 	})
 
+	// --- Subtest 15b: change-tok × DELETE journey class ---
+	// Pins seven adjacent journeys around the new change-tokenization-filterable
+	// migration (commit c98a3477ea) and how it interacts with the classic
+	// change-tokenization (both indexes), DELETE, enable-*, cancel, and
+	// back-to-back retokenizations. See
+	// change_tok_delete_journeys_test.go for the journey catalog.
+	t.Run("ChangeTokDeleteJourneys", func(t *testing.T) {
+		testChangeTokDeleteJourneys(t, restURI)
+	})
+
 	// --- Subtest 15: torn "reindexed but not tidied" resume ---
 	// Pins the journey where a prior reindex left the on-disk migration
 	// in IsReindexed+!IsTidied state (real causes: I/O failure mid-
