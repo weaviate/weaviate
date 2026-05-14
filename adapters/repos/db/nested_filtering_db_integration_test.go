@@ -13855,6 +13855,181 @@ func TestNestedFilteringContainsNoneSiblingScalarArrayLeak(t *testing.T) {
 	})
 }
 
+// TestNestedFilteringContainsNoneInsideCorrelatedAnd exercises the
+// post-Route-1 correlated-AND handler for ContainsNone (materialized
+// inline via normalizeRecGroup's ContainsNone case). Two root prop
+// shapes; in each: AND(name=<value>, ContainsNone(tags, [...])) — both
+// children target the same root prop so same-root grouping triggers the
+// correlated-AND path. Each doc's outcome must match strict-existential:
+// the matching name AND ∃ a tag-element whose value is NOT in the listed
+// set.
+//
+// The schema includes a sibling `cities: text[]` to exercise the
+// sibling-leak shape inside the correlated AND. Without Route 1's
+// first-class operator handling, the inside-AND ContainsNone would use
+// `_exists.""` as universe and the cities-leaf would survive AndNot —
+// docs would leak through identically to the standalone case
+// (see TestNestedFilteringContainsNoneSiblingScalarArrayLeak).
+//
+// Schema:
+//
+//	country:   DataTypeObject       { name: text/field, tags: text[]/field, cities: text[]/field }
+//	countries: DataTypeObjectArray  { name: text/field, tags: text[]/field, cities: text[]/field }
+//
+// Filter: AND(<root>.name="germany", ContainsNone(<root>.tags, ["electric"]))
+//
+// Docs:
+//
+//	d1: name="germany", tags=[sport, electric], cities=[paris]   — matches (sport qualifies)
+//	d2: name="germany", tags=[electric],        cities=[paris]   — drops (only-listed + sibling cities — the leak shape)
+//	d3: name="germany",                         cities=[paris]   — drops (no tags + sibling cities, vacuous)
+//	d4: name="germany", tags=[electric]                          — drops (only-listed, no sibling)
+//	d5: name="france",  tags=[sport],           cities=[london]  — drops (wrong name)
+//	d6: name="germany", tags=[sport]                             — matches (control, no sibling)
+//	d7: name="germany", tags=[sport],           cities=[london]  — matches (control, with sibling)
+func TestNestedFilteringContainsNoneInsideCorrelatedAnd(t *testing.T) {
+	const nestedClass = "ContainsNoneInsideAnd"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris"),
+			}}, note: "germany; mixed tags + sibling cities (sport qualifies)"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("electric"), "cities": asTextArr("paris"),
+			}}, note: "germany; only-listed tag + sibling cities — the inside-AND leak shape"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"name": "germany", "cities": asTextArr("paris"),
+			}}, note: "germany; no tags but sibling cities — vacuous"},
+			{id: d4, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("electric"),
+			}}, note: "germany; only-listed tag, no sibling"},
+			{id: d5, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport"), "cities": asTextArr("london"),
+			}}, note: "wrong name"},
+			{id: d6, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport"),
+			}}, note: "germany; qualifying tag, no sibling"},
+			{id: d7, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("london"),
+			}}, note: "germany; qualifying tag + sibling cities"},
+		}
+		f := andFilter(
+			valueFilter("country.name", "germany"),
+			containsFilter("country.tags", filters.ContainsNone, "electric"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d6, d7})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris")},
+			}}, note: "germany; mixed tags + sibling cities"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric"), "cities": asTextArr("paris")},
+			}}, note: "germany; only-listed + sibling — leak shape"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "cities": asTextArr("paris")},
+			}}, note: "germany; no tags + sibling — vacuous"},
+			{id: d4, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric")},
+			}}, note: "germany; only-listed, no sibling"},
+			{id: d5, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport"), "cities": asTextArr("london")},
+			}}, note: "wrong name"},
+			{id: d6, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport")},
+			}}, note: "germany; qualifying tag, no sibling"},
+			{id: d7, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("london")},
+			}}, note: "germany; qualifying tag + sibling"},
+		}
+		f := andFilter(
+			valueFilter("countries.name", "germany"),
+			containsFilter("countries.tags", filters.ContainsNone, "electric"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d6, d7})
+	})
+}
+
 // TestNestedFilteringAndShapeFlatVsAndOfAnd verifies that two AND shapes
 // equivalent under classical boolean associativity produce IDENTICAL
 // results in the nested-filter dispatch:

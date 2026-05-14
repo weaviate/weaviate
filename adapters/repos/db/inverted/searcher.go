@@ -1039,6 +1039,11 @@ func (s *Searcher) extractContains(ctx context.Context,
 			out.operator = filters.ContainsNone
 			out.prop = children[0].prop
 			out.nested.relPath = children[0].nested.relPath
+			// arr[N] pins are propagated from any child — all children of a
+			// single ContainsNone clause share the same pins by construction
+			// (extracted from the same Path). The resolver uses them to
+			// restrict the `_exists.{relPath}` universe lookup.
+			out.nested.arrayIndices = children[0].nested.arrayIndices
 			// Note: out.nested.isNested stays false — this is a compound
 			// operator node, not a leaf; the value-leaves live as children.
 			return out, nil
