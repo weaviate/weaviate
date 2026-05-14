@@ -378,7 +378,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Boost != nil {
-		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant)
+		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, config.Namespaces.Enabled)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -648,7 +648,7 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 	return &rerank
 }
 
-func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string) (*filters.Boost, error) {
+func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespacesEnabled bool) (*filters.Boost, error) {
 	if boost == nil {
 		return nil, nil
 	}
@@ -660,7 +660,7 @@ func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string) (*filte
 
 	conditions := make([]filters.BoostCondition, 0, len(boost.GetConditions()))
 	for i, cond := range boost.GetConditions() {
-		pc, err := p.extractBoostCondition(cond, className, tenant, i)
+		pc, err := p.extractBoostCondition(cond, className, tenant, i, namespacesEnabled)
 		if err != nil {
 			return nil, err
 		}
@@ -685,7 +685,7 @@ func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string) (*filte
 	return result, nil
 }
 
-func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tenant string, idx int) (filters.BoostCondition, error) {
+func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tenant string, idx int, namespacesEnabled bool) (filters.BoostCondition, error) {
 	weight := float32(1.0)
 	if cond.Weight != nil {
 		weight = cond.GetWeight()
@@ -697,7 +697,7 @@ func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tena
 
 	switch c := cond.GetCondition().(type) {
 	case *pb.Boost_Condition_Filter:
-		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant)
+		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, namespacesEnabled)
 		if err != nil {
 			return filters.BoostCondition{}, fmt.Errorf("boost condition[%d] filter: %w", idx, err)
 		}
