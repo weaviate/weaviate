@@ -125,6 +125,37 @@ func TestReassignDeduplicatorFlush(t *testing.T) {
 	require.Equal(t, uint64(3), newDedup.getLastKnownPostingID(302))
 }
 
+// Reassign a vector whose version was concurrently changed should be skipped
+func TestReassignConcurrentVersionChange(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	vector := []float32{1.0, 0.0, 0.0, 0.0}
+	vectorID := uint64(1000)
+	addVectorToIndex(t, &tf, vectorID, vector)
+
+	// Override VectorForIDThunk to increment the version as a side effect,
+	// simulating a concurrent reassign between Get and Increment.
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		v, err := tf.Index.VersionMap.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		_, err = tf.Index.VersionMap.Increment(ctx, id, v)
+		if err != nil {
+			return nil, err
+		}
+		return vector, nil
+	}
+
+	op := reassignOperation{
+		PostingID: 1,
+		VectorID:  vectorID,
+	}
+
+	err := tf.Index.doReassign(t.Context(), op)
+	require.NoError(t, err)
+}
+
 // Reassign properly manages task queue
 func TestReassignTaskQueueOperations(t *testing.T) {
 	tf := createHFreshIndex(t)

@@ -109,7 +109,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig)
+	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
 	if err != nil {
 		return fmt.Errorf("async replication config: %w", err)
 	}
@@ -182,9 +182,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			UsageEnabled:                   m.db.config.UsageEnabled,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
-				// If explicitly enabled in config, override auto-detection.
-				if m.db.config.EnableLazyLoadShards {
-					return true
+				// If explicitly set (true = always lazy, false = always eager),
+				// skip auto-detection entirely.
+				if m.db.config.EnableLazyLoadShards != nil {
+					return *m.db.config.EnableLazyLoadShards
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -202,7 +203,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 			AsyncReplicationConfig:                       asyncConfig,
-			AsyncReplicationWorkersLimiter:               m.db.asyncReplicationWorkersLimiter,
+			AsyncReplicationScheduler:                    m.db.asyncReplicationScheduler,
 			DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                             m.db.shardLoadLimiter,
 			BucketLoadLimiter:                            m.db.bucketLoadLimiter,
@@ -227,6 +228,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			InvertedSorterDisabled:    m.db.config.InvertedSorterDisabled,
 			MaintenanceModeEnabled:    m.db.config.MaintenanceModeEnabled,
 			HFreshEnabled:             m.db.config.HFreshEnabled,
+			AutoTenantActivation:      schema.AutoTenantActivationEnabled(class),
 		},
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
@@ -240,6 +242,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return errors.Wrap(err, "create index")
 	}
 
+	idx.usageLimits = m.db.usageLimits
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
@@ -554,13 +557,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	tenantName := ""
-	if idx.partitioningEnabled {
-		// If partitioning is enable it means the collection is multi tenant and the shard name must match the tenant name
-		// otherwise the tenant name is expected to be empty.
-		tenantName = shardName
-	}
-	return idx.updateShardStatus(ctx, tenantName, shardName, targetStatus, schemaVersion)
+	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
 // NewTenants creates new partitions
@@ -787,6 +784,34 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 	return idx.updateVectorIndexConfigs(ctx, updated)
 }
 
+func (m *Migrator) GetVectorIndexNames(className string) []string {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil
+	}
+
+	configs := idx.GetVectorIndexConfigs()
+	names := make([]string, 0, len(configs))
+	for name := range configs {
+		names = append(names, name)
+	}
+	return names
+}
+
+func (m *Migrator) DropVectorIndex(ctx context.Context, className string, targetVector string) error {
+	indexID := indexID(schema.ClassName(className))
+
+	m.classLocks.Lock(indexID)
+	defer m.classLocks.Unlock(indexID)
+
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot drop vector index of non-existing index for %s", className)
+	}
+
+	return idx.dropVectorIndex(ctx, targetVector)
+}
+
 func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
@@ -812,7 +837,12 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName := range old {
-		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
+		updatedCfg, exists := updated[vecName]
+		if !exists {
+			// Vector index was dropped — no config to validate.
+			continue
+		}
+		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updatedCfg); err != nil {
 			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
 	}
@@ -934,7 +964,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.AnalyzeObject(object)
+			props, _, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil

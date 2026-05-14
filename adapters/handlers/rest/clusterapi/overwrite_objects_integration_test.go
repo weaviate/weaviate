@@ -130,7 +130,8 @@ func TestOverwriteObjectsClientServerIntegration(t *testing.T) {
 
 	// Use the real replication client with the test server's HTTP client so
 	// requests are routed to the in-process server without TLS.
-	c := clients.NewReplicationClient(server.Client())
+	c, err := clients.NewReplicationClient(server.Client())
+	require.NoError(t, err)
 
 	// server.URL is "http://host:port"; strip the scheme for the client which
 	// constructs the URL itself.

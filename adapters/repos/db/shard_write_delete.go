@@ -29,13 +29,14 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// Wait for hashtree initialization before acquiring the RLock.
+	// See shard_write_put.go for the deadlock explanation.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -102,9 +103,29 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush geo index queue WALs of prop %q: %w", propName, err)
 		}
 		return nil
 	})
@@ -116,12 +137,16 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	previousObject, err := storobj.FromBinary(previous)
+	className, err := s.store.Bucket(helpers.ObjectsBucketLSM).ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
+	previousObject, err := storobj.FromBinaryDisk(previous, className)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, _, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
@@ -181,9 +206,8 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	copy(objectDigest[:], uuidBytes)
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
 
-	// object deletion is treated as non-existent,
-	// that because deletion time or tombstone may not be available
-
+	// object deletion is treated as non-existent because the deletion time or
+	// tombstone may not be available
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil

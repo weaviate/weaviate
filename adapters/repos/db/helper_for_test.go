@@ -264,7 +264,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -346,7 +346,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 		AsyncIndexingEnabled:      withAsyncIndexingEnabled,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
@@ -436,6 +436,15 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
+	}
+	{
+		var presetDetectors map[string]*stopwords.Detector
+		if class.InvertedIndexConfig != nil {
+			var err error
+			presetDetectors, err = stopwords.BuildPresetDetectors(iic.StopwordPresets)
+			require.NoError(t, err)
+		}
+		idx.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

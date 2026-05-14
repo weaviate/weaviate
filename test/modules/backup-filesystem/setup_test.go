@@ -77,9 +77,16 @@ func TestMain(m *testing.M) {
 // - Filesystem backup module with BACKUP_FILESYSTEM_PATH=/tmp/backups
 // - text2vec-contextionary vectorizer (for tests that need vectorization)
 func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
+	// PERSISTENCE_LSM_MAX_SEGMENT_SIZE=1024 effectively disables LSM compaction:
+	// the compactor only merges a pair of segments if their combined size is <= this cap,
+	// and real segments always exceed 1024 bytes. This keeps the on-disk segment set
+	// stable across backups so the incremental backup assertions (which rely on
+	// unchanged-file detection via size+mtime, and on monotonic pre-compression size
+	// growth) are not perturbed by background segment rewrites.
 	compose, err := docker.New().
 		WithBackendFilesystem().
 		WithText2VecContextionary().
+		WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 		With1NodeCluster().
 		Start(ctx)
 	if err != nil {

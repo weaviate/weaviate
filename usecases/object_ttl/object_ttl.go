@@ -230,7 +230,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	logger.WithFields(logrus.Fields{
 		"collections":       colNames,
 		"collections_count": len(colNames),
-	}).Info("ttl deletion on local node started")
+	}).Debug("ttl deletion on local node started")
 	defer func() {
 		took := time.Since(started)
 
@@ -249,7 +249,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 			logger.WithError(err).Error("ttl deletion on local node failed")
 			return
 		}
-		logger.Info("ttl deletion on local node finished")
+		logger.Debug("ttl deletion on local node finished")
 	}()
 
 	ec := errorcompounder.NewSafe()
@@ -283,14 +283,14 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 		"action": "objects_ttl_deletion",
 		"node":   node,
 	})
-	l.Info("ttl deletion on remote node started")
+	l.Debug("ttl deletion on remote node started")
 	defer func() {
 		l = l.WithField("took", time.Since(started))
 		if err != nil {
 			l.WithError(err).Error("ttl deletion on remote node failed")
 			return
 		}
-		l.Info("ttl deletion on remote node finished")
+		l.Debug("ttl deletion on remote node finished")
 	}()
 
 	// check if deletion is running on the last node we picked

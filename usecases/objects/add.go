@@ -37,8 +37,10 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(object.Class)
-	className, _ = m.resolveAlias(className)
+	className, _, err := m.resolveNS(principal, object.Class)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 	object.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
@@ -123,6 +125,10 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err != nil {
 		return nil, err
 	}
+
+	// Convert BlobHash properties from raw base64 to hashes after vectorization
+	// so that vectorizers see the original media data, but only hashes are stored.
+	schema.HashBlobHashProperties(class, object)
 
 	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
 	if err != nil {

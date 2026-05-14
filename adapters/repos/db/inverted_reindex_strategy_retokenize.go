@@ -80,7 +80,7 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 	}
 
 	analyzer := inverted.NewAnalyzer(nil, s.className)
-	items := analyzer.TextArray(s.targetTokenization, prop.RawValues)
+	items := analyzer.TextArray(s.targetTokenization, prop.RawValues, prop.Name, nil)
 	propLen := s.calcPropLen(items)
 
 	for _, item := range items {
@@ -126,7 +126,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
 			// Re-tokenize with the target tokenization for the new index.
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
+			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			// Use existing items (old tokenization) for the old index.
 			items = property.Items
@@ -167,7 +167,7 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
+			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
 		}

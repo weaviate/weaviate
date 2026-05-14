@@ -54,6 +54,10 @@ const (
 	ApplyRequest_TYPE_SUSPEND_USER                                               ApplyRequest_Type = 83
 	ApplyRequest_TYPE_ACTIVATE_USER                                              ApplyRequest_Type = 84
 	ApplyRequest_TYPE_CREATE_USER_WITH_KEY                                       ApplyRequest_Type = 85
+	ApplyRequest_TYPE_ADD_NAMESPACE                                              ApplyRequest_Type = 90
+	ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE                                  ApplyRequest_Type = 91
+	ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE                                     ApplyRequest_Type = 92
+	ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY                                    ApplyRequest_Type = 93
 	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
@@ -112,6 +116,10 @@ var (
 		83:  "TYPE_SUSPEND_USER",
 		84:  "TYPE_ACTIVATE_USER",
 		85:  "TYPE_CREATE_USER_WITH_KEY",
+		90:  "TYPE_ADD_NAMESPACE",
+		91:  "TYPE_DELETE_USERS_IN_NAMESPACE",
+		92:  "TYPE_CHANGE_NAMESPACE_STATE",
+		93:  "TYPE_REMOVE_NAMESPACE_ENTITY",
 		200: "TYPE_REPLICATION_REPLICATE",
 		201: "TYPE_REPLICATION_REPLICATE_UPDATE_STATE",
 		202: "TYPE_REPLICATION_REPLICATE_REGISTER_ERROR",
@@ -166,6 +174,10 @@ var (
 		"TYPE_SUSPEND_USER":                                               83,
 		"TYPE_ACTIVATE_USER":                                              84,
 		"TYPE_CREATE_USER_WITH_KEY":                                       85,
+		"TYPE_ADD_NAMESPACE":                                              90,
+		"TYPE_DELETE_USERS_IN_NAMESPACE":                                  91,
+		"TYPE_CHANGE_NAMESPACE_STATE":                                     92,
+		"TYPE_REMOVE_NAMESPACE_ENTITY":                                    93,
 		"TYPE_REPLICATION_REPLICATE":                                      200,
 		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":                         201,
 		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":                       202,
@@ -239,6 +251,7 @@ const (
 	QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES                  QueryRequest_Type = 34
 	QueryRequest_TYPE_GET_USERS                                       QueryRequest_Type = 61
 	QueryRequest_TYPE_USER_IDENTIFIER_EXISTS                          QueryRequest_Type = 62
+	QueryRequest_TYPE_GET_NAMESPACES                                  QueryRequest_Type = 63
 	QueryRequest_TYPE_RESOLVE_ALIAS                                   QueryRequest_Type = 100
 	QueryRequest_TYPE_GET_ALIASES                                     QueryRequest_Type = 101
 	QueryRequest_TYPE_GET_REPLICATION_DETAILS                         QueryRequest_Type = 200
@@ -272,6 +285,7 @@ var (
 		34:  "TYPE_GET_USERS_OR_GROUPS_WITH_ROLES",
 		61:  "TYPE_GET_USERS",
 		62:  "TYPE_USER_IDENTIFIER_EXISTS",
+		63:  "TYPE_GET_NAMESPACES",
 		100: "TYPE_RESOLVE_ALIAS",
 		101: "TYPE_GET_ALIASES",
 		200: "TYPE_GET_REPLICATION_DETAILS",
@@ -302,6 +316,7 @@ var (
 		"TYPE_GET_USERS_OR_GROUPS_WITH_ROLES":                  34,
 		"TYPE_GET_USERS":                                       61,
 		"TYPE_USER_IDENTIFIER_EXISTS":                          62,
+		"TYPE_GET_NAMESPACES":                                  63,
 		"TYPE_RESOLVE_ALIAS":                                   100,
 		"TYPE_GET_ALIASES":                                     101,
 		"TYPE_GET_REPLICATION_DETAILS":                         200,
@@ -2020,13 +2035,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xfa\x0f\n" +
+	"\x12NotifyPeerResponse\"\xf9\x10\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xd6\x0e\n" +
+	"subCommand\"\xd5\x0f\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2056,7 +2071,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\x18TYPE_ROTATE_USER_API_KEY\x10R\x12\x15\n" +
 	"\x11TYPE_SUSPEND_USER\x10S\x12\x16\n" +
 	"\x12TYPE_ACTIVATE_USER\x10T\x12\x1d\n" +
-	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x1f\n" +
+	"\x19TYPE_CREATE_USER_WITH_KEY\x10U\x12\x16\n" +
+	"\x12TYPE_ADD_NAMESPACE\x10Z\x12\"\n" +
+	"\x1eTYPE_DELETE_USERS_IN_NAMESPACE\x10[\x12\x1f\n" +
+	"\x1bTYPE_CHANGE_NAMESPACE_STATE\x10\\\x12 \n" +
+	"\x1cTYPE_REMOVE_NAMESPACE_ENTITY\x10]\x12\x1f\n" +
 	"\x1aTYPE_REPLICATION_REPLICATE\x10\xc8\x01\x12,\n" +
 	"'TYPE_REPLICATION_REPLICATE_UPDATE_STATE\x10\xc9\x01\x12.\n" +
 	")TYPE_REPLICATION_REPLICATE_REGISTER_ERROR\x10\xca\x01\x12&\n" +
@@ -2083,11 +2102,11 @@ const file_api_message_proto_rawDesc = "" +
 	"*TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS\x10\xb1\x02\"\x04\bc\x10c\"A\n" +
 	"\rApplyResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06leader\x18\x02 \x01(\tR\x06leader\"\x91\b\n" +
+	"\x06leader\x18\x02 \x01(\tR\x06leader\"\xaa\b\n" +
 	"\fQueryRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.QueryRequest.TypeR\x04type\x12\x1f\n" +
 	"\vsub_command\x18\x02 \x01(\fR\n" +
-	"subCommand\"\x9d\a\n" +
+	"subCommand\"\xb6\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10TYPE_GET_CLASSES\x10\x01\x12\x13\n" +
@@ -2104,7 +2123,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x17TYPE_GET_USERS_FOR_ROLE\x10!\x12'\n" +
 	"#TYPE_GET_USERS_OR_GROUPS_WITH_ROLES\x10\"\x12\x12\n" +
 	"\x0eTYPE_GET_USERS\x10=\x12\x1f\n" +
-	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x16\n" +
+	"\x1bTYPE_USER_IDENTIFIER_EXISTS\x10>\x12\x17\n" +
+	"\x13TYPE_GET_NAMESPACES\x10?\x12\x16\n" +
 	"\x12TYPE_RESOLVE_ALIAS\x10d\x12\x14\n" +
 	"\x10TYPE_GET_ALIASES\x10e\x12!\n" +
 	"\x1cTYPE_GET_REPLICATION_DETAILS\x10\xc8\x01\x12/\n" +

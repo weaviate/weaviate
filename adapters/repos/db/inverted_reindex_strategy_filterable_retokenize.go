@@ -81,7 +81,7 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 	}
 
 	analyzer := inverted.NewAnalyzer(nil, s.className)
-	items := analyzer.TextArray(s.targetTokenization, prop.RawValues)
+	items := analyzer.TextArray(s.targetTokenization, prop.RawValues, prop.Name, nil)
 
 	for _, item := range items {
 		if err := bucket.RoaringSetAddOne(item.Data, docID); err != nil {
@@ -121,7 +121,7 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
+			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
 		}
@@ -159,7 +159,7 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues)
+			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
 		}

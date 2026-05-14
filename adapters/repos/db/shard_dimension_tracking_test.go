@@ -34,6 +34,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -211,7 +212,7 @@ func Test_Migration(t *testing.T) {
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      true,
+		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
@@ -995,6 +996,15 @@ func TestGetDimensionCategory(t *testing.T) {
 			expectedBits:     0,
 		},
 
+		// Hfresh Tests
+		{
+			name:             "Hfresh returns auto category",
+			config:           hfreshent.UserConfig{},
+			expectedCategory: DimensionCategoryAuto,
+			expectedSegments: 0,
+			expectedBits:     0,
+		},
+
 		// Edge Cases
 		{
 			name: "Unknown config type (default case)",
@@ -1034,6 +1044,8 @@ func TestGetDimensionCategory(t *testing.T) {
 				assert.Equal(t, "sq", expectedString)
 			case DimensionCategoryRQ:
 				assert.Equal(t, "rq", expectedString)
+			case DimensionCategoryAuto:
+				assert.Equal(t, "auto", expectedString)
 			}
 		})
 	}

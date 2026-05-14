@@ -24,6 +24,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +32,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -57,15 +58,39 @@ const (
 
 type replicationClient struct {
 	retryClient
+	zstdEncoderPool sync.Pool
 }
 
-func NewReplicationClient(httpClient *http.Client) *replicationClient {
-	return &replicationClient{
+var _ replica.Client = (*replicationClient)(nil)
+
+func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
+	// Verify encoder creation works at startup before returning the client.
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	}
+	c := &replicationClient{
 		retryClient: retryClient{
 			client:  httpClient,
 			retryer: newRetryer(),
 		},
 	}
+	// zstdEncoderPool amortizes *zstd.Encoder creation cost across calls.
+	// EncodeAll is safe for concurrent use on a single encoder, but allocating
+	// a fresh encoder on every RPC has measurable overhead; the pool reuses
+	// instances instead. New returns nil on failure; call sites guard with an
+	// ok+nil check and fall back to creating a fresh encoder.
+	c.zstdEncoderPool = sync.Pool{
+		New: func() any {
+			e, err := zstd.NewWriter(nil)
+			if err != nil {
+				return nil
+			}
+			return e
+		},
+	}
+	c.zstdEncoderPool.Put(enc)
+	return c, nil
 }
 
 // FetchObject fetches one object it exits
@@ -124,6 +149,9 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	req.Header.Set("X-Accept-Response-Encoding", "binary")
 
+	// No per-RPC retry: the async replication scheduler retries the full cycle
+	// on the next tick. Adding retries here would extend the per-shard context
+	// deadline without reducing overall repair latency.
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
@@ -179,21 +207,116 @@ func readDigestsInRangeBinaryStream(r io.Reader, contentLength int64) ([]types.R
 	}
 }
 
-// HashTreeLevel fetches hash tree level digests
+// CompareDigests sends the source's local digests to the target node using a
+// compact binary protocol (CompareDigestsRecordLength bytes per record) and
+// returns the subset that requires source-side action.
+//
+// Wire format: CompareDigestsRecordLength bytes per record —
+// 16-byte UUID (big-endian) + 8-byte UpdateTime (int64 big-endian) + 1-byte flags.
+func (c *replicationClient) CompareDigests(ctx context.Context,
+	host, index, shard string, digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	body := make([]byte, 0, len(digests)*replica.CompareDigestsRecordLength)
+	var buf [replica.CompareDigestsRecordLength]byte
+	for _, d := range digests {
+		u, err := uuid.Parse(d.ID)
+		if err != nil {
+			return nil, fmt.Errorf("encode source digest uuid %q: %w", d.ID, err)
+		}
+		copy(buf[:16], u[:])
+		binary.BigEndian.PutUint64(buf[16:], uint64(d.UpdateTime))
+		buf[24] = 0
+		if d.Deleted {
+			buf[24] = replica.CompareDigestsFlagDeleted
+		}
+		body = append(body, buf[:]...)
+	}
+
+	// No internal timeout: the async-replication scheduler manages the
+	// per-cycle deadline on the incoming context.
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodPost, host, index, shard,
+		"", "compareDigests", bytes.NewReader(body), 0)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+
+	return readCompareDigestsBinaryStream(res.Body, res.ContentLength)
+}
+
+// readCompareDigestsBinaryStream decodes a fixed-size binary stream produced
+// by postCompareDigests. Each record is replica.CompareDigestsRecordLength bytes.
+func readCompareDigestsBinaryStream(r io.Reader, contentLength int64) ([]types.RepairResponse, error) {
+	var results []types.RepairResponse
+	if contentLength > 0 {
+		if recordCount := contentLength / int64(replica.CompareDigestsRecordLength); recordCount <= int64(math.MaxInt) {
+			results = make([]types.RepairResponse, 0, int(recordCount))
+		}
+	}
+	var buf [replica.CompareDigestsRecordLength]byte
+	for {
+		_, err := io.ReadFull(r, buf[:])
+		if stderrors.Is(err, io.EOF) {
+			return results, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read compare digests record: %w", err)
+		}
+		id, err := uuid.FromBytes(buf[:16])
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid from binary record: %w", err)
+		}
+		updateTime := int64(binary.BigEndian.Uint64(buf[16:]))
+		deleted := buf[24]&replica.CompareDigestsFlagDeleted != 0
+		results = append(results, types.RepairResponse{
+			ID:         id.String(),
+			UpdateTime: updateTime,
+			Deleted:    deleted,
+		})
+	}
+}
+
+// HashTreeLevel fetches hash tree level digests. discriminant.Size() must
+// equal hashtree.LeavesCount(level).
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hashtree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("nil discriminant")
+	}
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("discriminant size %d, expected %d (level-local) for level %d",
+			discriminant.Size(), expected, level)
+	}
 	body, err := discriminant.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal hashtree level input: %w", err)
 	}
 
-	enc, err := zstd.NewWriter(nil)
-	if err != nil {
-		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
+	if !ok || enc == nil {
+		enc, err = zstd.NewWriter(nil)
+		if err != nil {
+			return nil, fmt.Errorf("create zstd encoder: %w", err)
+		}
 	}
-	defer enc.Close()
 	bodyBytes := enc.EncodeAll(body, make([]byte, 0, len(body)))
+	c.zstdEncoderPool.Put(enc)
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutUnit*20)
 	defer cancel()
@@ -229,6 +352,21 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	return result, err
 }
 
+func (c *replicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
+	var resp int
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodGet, host, index, shard,
+		"", "_count", nil, 0,
+	)
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	// CountObjects is used as a best-effort consistency check during aggregation, so we don't want to retry on error
+	// We just accept the error and return it so it can be ignored in the reconciliation logic
+	err = c.do(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, nil, &resp, 0)
+	return resp, err
+}
+
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
@@ -237,12 +375,15 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("encode request: %w", err)
 	}
 
-	enc, err := zstd.NewWriter(nil)
-	if err != nil {
-		return nil, fmt.Errorf("create zstd encoder: %w", err)
+	enc, ok := c.zstdEncoderPool.Get().(*zstd.Encoder)
+	if !ok || enc == nil {
+		enc, err = zstd.NewWriter(nil)
+		if err != nil {
+			return nil, fmt.Errorf("create zstd encoder: %w", err)
+		}
 	}
-	defer enc.Close()
 	bodyCompressed := enc.EncodeAll(body, make([]byte, 0, len(body)))
+	c.zstdEncoderPool.Put(enc)
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,

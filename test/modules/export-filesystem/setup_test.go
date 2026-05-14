@@ -51,6 +51,8 @@ func TestMain(m *testing.M) {
 func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	compose, err := docker.New().
 		WithBackendFilesystem().
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_PATH", "/tmp/export").
 		With1NodeCluster().
 		Start(ctx)
 	if err != nil {

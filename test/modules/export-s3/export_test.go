@@ -36,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/exporttest"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	pqexport "github.com/weaviate/weaviate/usecases/export"
+
+	swaggerexport "github.com/weaviate/weaviate/client/export"
 )
 
 func TestExport_SingleShard(t *testing.T) {
@@ -58,7 +60,7 @@ func TestExport_SingleShard(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	objects := make([]*models.Object, 20)
+	objects := make([]*models.Object, 200)
 	for i := range objects {
 		objects[i] = &models.Object{
 			Class: className,
@@ -72,8 +74,27 @@ func TestExport_SingleShard(t *testing.T) {
 	startedAt := time.Now()
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	// Concurrently start the export and import more objects.
+	// These objects race with the snapshot; they MAY or MAY NOT appear.
+	duringObjects := makeObjects(className, "", 100)
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
+
+	// objects imported after export call completed MUST NOT appear in the export.
+	var postObjects []*models.Object
+	statusResp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
+	if statusResp.Payload.Status != "SUCCESS" {
+		postObjects = makeObjects(className, "", 100)
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
@@ -84,7 +105,7 @@ func TestExport_SingleShard(t *testing.T) {
 	// Verify status response metadata (timestamps, classes, path, etc.)
 	exporttest.VerifyStatusResponse(t, resp.Payload, "s3", exportID, []string{className}, startedAt)
 
-	// Verify shard-level progress reports the correct object count
+	// Verify shard-level progress — during-objects may or may not be included
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
@@ -93,13 +114,15 @@ func TestExport_SingleShard(t *testing.T) {
 		require.Equal(t, "SUCCESS", progress.Status)
 		totalExported += progress.ObjectsExported
 	}
-	require.Equal(t, int64(len(objects)), totalExported,
-		"total objects exported across shards should match inserted count")
+	require.GreaterOrEqual(t, totalExported, int64(len(objects)),
+		"total exported must include at least all pre-export objects")
+	require.LessOrEqual(t, totalExported, int64(len(objects)+len(duringObjects)),
+		"total exported must not exceed pre-export + during-export objects")
 
-	verifyParquetExport(t, exportID, className, objects)
 	verifyParquetMetadata(t, exportID, className, false)
 
-	// Verify legacy (unnamed) vectors and row timestamps survive the parquet round-trip
+	// Verify legacy (unnamed) vectors and row timestamps survive the parquet
+	// round-trip (only for pre-export objects that are guaranteed present).
 	allRows := fetchParquetRows(t, exportID, className)
 	expectedVecs := make(map[string]models.C11yVector, len(objects))
 	for _, obj := range objects {
@@ -107,13 +130,17 @@ func TestExport_SingleShard(t *testing.T) {
 	}
 	for _, row := range allRows {
 		expVec, ok := expectedVecs[row.ID]
-		require.True(t, ok)
+		if !ok {
+			continue // during/post object — skip vector check
+		}
 		require.NotNil(t, row.Vector, "expected vector for object %s", row.ID)
 		actualVec := byteops.Fp32SliceFromBytes(row.Vector)
 		require.InDeltaSlice(t, []float32(expVec), actualVec, 1e-6,
 			"vector mismatch for object %s", row.ID)
 		verifyRowTimestamps(t, row, startedAt)
 	}
+
+	verifyConcurrentExport(t, exportID, className, len(objects), duringObjects, postObjects)
 }
 
 func TestExport_MultiShard(t *testing.T) {
@@ -135,20 +162,34 @@ func TestExport_MultiShard(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	objects := makeObjects(className, "", 50)
+	objects := makeObjects(className, "", 500)
 	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	// Concurrently start the export and import more objects.
+	duringObjects := makeObjects(className, "", 100)
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
+
+	// Import objects after the snapshot is complete.
+	var postObjects []*models.Object
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
+	if resp.Payload.Status != "SUCCESS" {
+		postObjects = makeObjects(className, "", 100)
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	verifyParquetExport(t, exportID, className, objects)
 	verifyParquetMetadata(t, exportID, className, false)
+	verifyConcurrentExport(t, exportID, className, len(objects), duringObjects, postObjects)
 }
 
 func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
@@ -165,6 +206,32 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			{Name: "boolProp", DataType: []string{"boolean"}},
 			{Name: "dateProp", DataType: []string{"date"}},
 			{Name: "textArrayProp", DataType: []string{"text[]"}},
+			{Name: "intArrayProp", DataType: []string{"int[]"}},
+			{Name: "numberArrayProp", DataType: []string{"number[]"}},
+			{Name: "boolArrayProp", DataType: []string{"boolean[]"}},
+			{Name: "dateArrayProp", DataType: []string{"date[]"}},
+			{Name: "uuidProp", DataType: []string{"uuid"}},
+			{Name: "uuidArrayProp", DataType: []string{"uuid[]"}},
+			{Name: "blobProp", DataType: []string{"blob"}},
+			{Name: "geoProp", DataType: []string{"geoCoordinates"}},
+			{Name: "phoneProp", DataType: []string{"phoneNumber"}},
+			{
+				Name:     "objectProp",
+				DataType: []string{"object"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "street", DataType: []string{"text"}},
+					{Name: "city", DataType: []string{"text"}},
+					{Name: "zip", DataType: []string{"int"}},
+				},
+			},
+			{
+				Name:     "objectArrayProp",
+				DataType: []string{"object[]"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "name", DataType: []string{"text"}},
+					{Name: "score", DataType: []string{"number"}},
+				},
+			},
 		},
 		ReplicationConfig: &models.ReplicationConfig{
 			AsyncEnabled: true,
@@ -176,6 +243,11 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
+	refUUIDs := make([]string, 20)
+	for i := range refUUIDs {
+		refUUIDs[i] = uuid.New().String()
+	}
+
 	startedAt := time.Now()
 	objects := make([]*models.Object, 20)
 	for i := range objects {
@@ -183,12 +255,35 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			Class: className,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"textProp":      fmt.Sprintf("text-%d", i),
-				"intProp":       float64(i * 100),
-				"numberProp":    float64(i) * 1.5,
-				"boolProp":      i%2 == 0,
-				"dateProp":      "2026-01-15T12:00:00Z",
-				"textArrayProp": []string{fmt.Sprintf("a-%d", i), fmt.Sprintf("b-%d", i)},
+				"textProp":        fmt.Sprintf("text-%d", i),
+				"intProp":         float64(i * 100),
+				"numberProp":      float64(i) * 1.5,
+				"boolProp":        i%2 == 0,
+				"dateProp":        "2026-01-15T12:00:00Z",
+				"textArrayProp":   []string{fmt.Sprintf("a-%d", i), fmt.Sprintf("b-%d", i)},
+				"intArrayProp":    []float64{float64(i), float64(i + 1)},
+				"numberArrayProp": []float64{float64(i) * 0.1, float64(i) * 0.2},
+				"boolArrayProp":   []bool{i%2 == 0, i%3 == 0},
+				"dateArrayProp":   []string{"2026-01-15T12:00:00Z", "2026-02-15T12:00:00Z"},
+				"uuidProp":        refUUIDs[i],
+				"uuidArrayProp":   []string{refUUIDs[i], refUUIDs[(i+1)%20]},
+				"blobProp":        "aGVsbG8=", // base64("hello")
+				"geoProp": map[string]interface{}{
+					"latitude":  52.52,
+					"longitude": 13.405,
+				},
+				"phoneProp": map[string]interface{}{
+					"input": fmt.Sprintf("+49 171 %07d", i),
+				},
+				"objectProp": map[string]interface{}{
+					"street": fmt.Sprintf("Street %d", i),
+					"city":   "Berlin",
+					"zip":    float64(10000 + i),
+				},
+				"objectArrayProp": []interface{}{
+					map[string]interface{}{"name": fmt.Sprintf("entry-%d-a", i), "score": float64(i) * 1.1},
+					map[string]interface{}{"name": fmt.Sprintf("entry-%d-b", i), "score": float64(i) * 2.2},
+				},
 			},
 			Vector: models.C11yVector{float32(i) * 0.1, float32(i) * 0.2},
 		}
@@ -202,12 +297,34 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 			helper.DeleteObject(t, obj)
 		} else {
 			obj.Properties = map[string]interface{}{
-				"textProp":      fmt.Sprintf("updated-%d", i),
-				"intProp":       float64(i * 999),
-				"numberProp":    float64(i) * 3.14,
-				"boolProp":      i%3 == 0,
-				"dateProp":      "2026-06-01T00:00:00Z",
-				"textArrayProp": []string{fmt.Sprintf("x-%d", i)},
+				"textProp":        fmt.Sprintf("updated-%d", i),
+				"intProp":         float64(i * 999),
+				"numberProp":      float64(i) * 3.14,
+				"boolProp":        i%3 == 0,
+				"dateProp":        "2026-06-01T00:00:00Z",
+				"textArrayProp":   []string{fmt.Sprintf("x-%d", i)},
+				"intArrayProp":    []float64{float64(i * 10)},
+				"numberArrayProp": []float64{float64(i) * 9.9},
+				"boolArrayProp":   []bool{i%3 == 0},
+				"dateArrayProp":   []string{"2026-06-01T00:00:00Z"},
+				"uuidProp":        refUUIDs[(i+5)%20],
+				"uuidArrayProp":   []string{refUUIDs[(i+5)%20]},
+				"blobProp":        "d29ybGQ=", // base64("world")
+				"geoProp": map[string]interface{}{
+					"latitude":  48.8566,
+					"longitude": 2.3522,
+				},
+				"phoneProp": map[string]interface{}{
+					"input": fmt.Sprintf("+33 6 %08d", i),
+				},
+				"objectProp": map[string]interface{}{
+					"street": fmt.Sprintf("Rue %d", i),
+					"city":   "Paris",
+					"zip":    float64(75000 + i),
+				},
+				"objectArrayProp": []interface{}{
+					map[string]interface{}{"name": fmt.Sprintf("updated-%d", i), "score": float64(i) * 5.5},
+				},
 			}
 			require.NoError(t, helper.UpdateObject(t, obj))
 			surviving = append(surviving, obj)
@@ -236,18 +353,69 @@ func TestExport_DeletedAndUpdatedObjects(t *testing.T) {
 		var props map[string]interface{}
 		require.NoError(t, json.Unmarshal(row.Properties, &props))
 
+		// Scalar types
 		assert.Equal(t, exp["textProp"], props["textProp"], "text mismatch for %s", row.ID)
 		assert.InDelta(t, exp["intProp"], props["intProp"], 0.1, "int mismatch for %s", row.ID)
 		assert.InDelta(t, exp["numberProp"], props["numberProp"], 1e-9, "number mismatch for %s", row.ID)
 		assert.Equal(t, exp["boolProp"], props["boolProp"], "bool mismatch for %s", row.ID)
 		assert.Equal(t, exp["dateProp"], props["dateProp"], "date mismatch for %s", row.ID)
+		assert.Equal(t, exp["uuidProp"], props["uuidProp"], "uuid mismatch for %s", row.ID)
+		assert.Equal(t, exp["blobProp"], props["blobProp"], "blob mismatch for %s", row.ID)
 
-		actualArr, ok := props["textArrayProp"].([]interface{})
-		require.True(t, ok, "textArrayProp should be array for %s", row.ID)
-		expectedArr := exp["textArrayProp"].([]string)
-		require.Len(t, actualArr, len(expectedArr))
-		for j, v := range actualArr {
-			assert.Equal(t, expectedArr[j], v, "textArrayProp[%d] mismatch for %s", j, row.ID)
+		// text[]
+		assertStringArray(t, row.ID, "textArrayProp", exp, props)
+
+		// int[] — JSON numbers
+		assertNumberArray(t, row.ID, "intArrayProp", exp, props, 0.1)
+
+		// number[]
+		assertNumberArray(t, row.ID, "numberArrayProp", exp, props, 1e-9)
+
+		// boolean[]
+		assertBoolArray(t, row.ID, "boolArrayProp", exp, props)
+
+		// date[]
+		assertStringArray(t, row.ID, "dateArrayProp", exp, props)
+
+		// uuid[]
+		assertStringArray(t, row.ID, "uuidArrayProp", exp, props)
+
+		// geoCoordinates
+		if expGeo, ok := exp["geoProp"].(map[string]interface{}); ok {
+			actualGeo, ok := props["geoProp"].(map[string]interface{})
+			require.True(t, ok, "geoProp should be object for %s", row.ID)
+			assert.InDelta(t, expGeo["latitude"], actualGeo["latitude"], 1e-4, "geo latitude mismatch for %s", row.ID)
+			assert.InDelta(t, expGeo["longitude"], actualGeo["longitude"], 1e-4, "geo longitude mismatch for %s", row.ID)
+		}
+
+		// phoneNumber — Weaviate normalizes the input, so just check it's present
+		if _, ok := exp["phoneProp"]; ok {
+			actualPhone, ok := props["phoneProp"].(map[string]interface{})
+			require.True(t, ok, "phoneProp should be object for %s", row.ID)
+			assert.NotEmpty(t, actualPhone["input"], "phone input should not be empty for %s", row.ID)
+		}
+
+		// object
+		if expObj, ok := exp["objectProp"].(map[string]interface{}); ok {
+			actualObj, ok := props["objectProp"].(map[string]interface{})
+			require.True(t, ok, "objectProp should be object for %s", row.ID)
+			assert.Equal(t, expObj["street"], actualObj["street"], "objectProp.street mismatch for %s", row.ID)
+			assert.Equal(t, expObj["city"], actualObj["city"], "objectProp.city mismatch for %s", row.ID)
+			assert.InDelta(t, expObj["zip"], actualObj["zip"], 0.1, "objectProp.zip mismatch for %s", row.ID)
+		}
+
+		// object[]
+		if expArr, ok := exp["objectArrayProp"].([]interface{}); ok {
+			actualArr, ok := props["objectArrayProp"].([]interface{})
+			require.True(t, ok, "objectArrayProp should be array for %s", row.ID)
+			require.Len(t, actualArr, len(expArr), "objectArrayProp length mismatch for %s", row.ID)
+			for j, expElem := range expArr {
+				expMap := expElem.(map[string]interface{})
+				actualMap, ok := actualArr[j].(map[string]interface{})
+				require.True(t, ok, "objectArrayProp[%d] should be object for %s", j, row.ID)
+				assert.Equal(t, expMap["name"], actualMap["name"], "objectArrayProp[%d].name mismatch for %s", j, row.ID)
+				assert.InDelta(t, expMap["score"], actualMap["score"], 1e-6, "objectArrayProp[%d].score mismatch for %s", j, row.ID)
+			}
 		}
 
 		verifyRowTimestamps(t, row, startedAt)
@@ -283,8 +451,9 @@ func TestExport_EmptyCollection(t *testing.T) {
 
 	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
 
-	// Should produce a parquet file with zero data rows
-	verifyParquetExport(t, exportID, className, nil)
+	// Empty collection should produce no parquet files.
+	keys := listParquetKeys(t, exportID, className)
+	assert.Empty(t, keys, "empty collection should not produce parquet files")
 }
 
 func TestExport_MultipleClasses(t *testing.T) {
@@ -352,21 +521,39 @@ func TestExport_MultiTenant_SingleShard(t *testing.T) {
 
 	var allObjects []*models.Object
 	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
+		objects := makeObjects(className, tenant.Name, 100)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
 		allObjects = append(allObjects, objects...)
 	}
 
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
+	// Concurrently start the export and import more objects per tenant.
+	var duringObjects []*models.Object
+	for _, tenant := range tenants {
+		duringObjects = append(duringObjects, makeObjects(className, tenant.Name, 30)...)
+	}
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+	helper.CreateObjectsBatchCL(t, duringObjects, types.ConsistencyLevelAll)
+	requireExportCreated(t, exportCh)
 
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
+	// Import objects after the snapshot is complete.
+	var postObjects []*models.Object
 	resp, err := exporttest.ExportStatus(t, "s3", exportID)
 	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
+	if resp.Payload.Status != "SUCCESS" {
+		for _, tenant := range tenants {
+			postObjects = append(postObjects, makeObjects(className, tenant.Name, 30)...)
+		}
+		helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+	} else {
+		t.Log("export completed before post-import phase could begin")
+	}
 
-	verifyParquetExport(t, exportID, className, allObjects)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+	verifyConcurrentExport(t, exportID, className, len(allObjects), duringObjects, postObjects)
 }
 
 func TestExport_MultiTenant_MultiShard(t *testing.T) {
@@ -567,6 +754,14 @@ func verifyNamedVectorParquetExport(t *testing.T, exportID, className string, ex
 	require.Empty(t, expected, "some objects were not found in parquet export")
 }
 
+// TestExport_MultiTenant_ActiveAndInactive verifies that exports handle
+// tenants in different activity states correctly:
+//   - HOT tenants: exported from the live (loaded) bucket
+//   - COLD tenants: exported directly from disk without loading the shard
+//   - OFFLOADED tenants: skipped
+//
+// AutoTenantActivation has no effect on exports because cold tenants are
+// snapshotted from disk without loading.
 func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
@@ -593,20 +788,22 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	}
 	helper.CreateTenants(t, className, tenants)
 
-	var activeObjects []*models.Object
+	var exportableObjects []*models.Object
 	for _, tenant := range tenants {
 		objects := makeObjects(className, tenant.Name, 10)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-		if tenant.Name == "tenantA" || tenant.Name == "tenantC" {
-			activeObjects = append(activeObjects, objects...)
+		// tenantD will be OFFLOADED and skipped; all others are exported.
+		if tenant.Name != "tenantD" {
+			exportableObjects = append(exportableObjects, objects...)
 		}
 	}
 
-	// Set tenantB to COLD (=INACTIVE), tenantD to OFFLOADED.
-	// Note: FROZEN is a deprecated alias for OFFLOADED (same code path),
-	// so this single test covers both the modern and legacy status names.
+	// tenantB → COLD: exported from disk without loading.
+	// tenantC → COLD: exported from disk without loading.
+	// tenantD → OFFLOADED: skipped entirely.
 	helper.UpdateTenants(t, className, []*models.Tenant{
 		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantC", ActivityStatus: models.TenantActivityStatusCOLD},
 		{Name: "tenantD", ActivityStatus: models.TenantActivityStatusOFFLOADED},
 	})
 
@@ -619,18 +816,13 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
 
-	// Only tenantA and tenantC should be exported (20 objects)
-	verifyParquetExport(t, exportID, className, activeObjects)
+	// tenantA (HOT) + tenantB (COLD) + tenantC (COLD) = 30 objects.
+	verifyParquetExport(t, exportID, className, exportableObjects)
 
-	// Verify skipped tenants have a skip reason
+	// tenantD (OFFLOADED) should be skipped.
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
-
-	progressB, ok := shardStatus["tenantB"]
-	require.True(t, ok, "expected shard status for tenantB")
-	assert.Equal(t, "SKIPPED", progressB.Status)
-	assert.Contains(t, progressB.SkipReason, "COLD", "expected COLD in skip reason for tenantB")
 
 	progressD, ok := shardStatus["tenantD"]
 	require.True(t, ok, "expected shard status for tenantD")
@@ -639,65 +831,13 @@ func TestExport_MultiTenant_ActiveAndInactive(t *testing.T) {
 		strings.Contains(progressD.SkipReason, "FROZEN") || strings.Contains(progressD.SkipReason, "FREEZING"),
 		"expected FROZEN or FREEZING in skip reason for tenantD, got: %s", progressD.SkipReason)
 
-	// Verify parquet metadata
-	verifyParquetMetadata(t, exportID, className, true)
-}
-
-func TestExport_MultiTenant_AutoActivation(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled:              true,
-			AutoTenantActivation: true,
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	tenants := []*models.Tenant{
-		{Name: "tenantA"},
-		{Name: "tenantB"},
-		{Name: "tenantC"},
-	}
-	helper.CreateTenants(t, className, tenants)
-
-	var allObjects []*models.Object
-	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
-		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-		allObjects = append(allObjects, objects...)
-	}
-
-	// Set tenantB to COLD
-	helper.UpdateTenants(t, className, []*models.Tenant{
-		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
-	})
-
-	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
-
-	resp, err := exporttest.ExportStatus(t, "s3", exportID)
-	require.NoError(t, err)
-	require.Equal(t, "SUCCESS", resp.Payload.Status)
-
-	// All 30 objects should be exported (auto-activation brings tenantB back)
-	verifyParquetExport(t, exportID, className, allObjects)
-
-	// Verify tenantB is COLD again after export
+	// Cold tenants must remain COLD — the export must not activate them.
 	tenantsResp, err := helper.GetTenants(t, className)
 	require.NoError(t, err)
 	for _, tenant := range tenantsResp.Payload {
-		if tenant.Name == "tenantB" {
+		if tenant.Name == "tenantB" || tenant.Name == "tenantC" {
 			require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
-				"tenantB should be deactivated back to COLD after export")
+				"tenant %s should still be COLD after export", tenant.Name)
 		}
 	}
 
@@ -705,7 +845,13 @@ func TestExport_MultiTenant_AutoActivation(t *testing.T) {
 	verifyParquetMetadata(t, exportID, className, true)
 }
 
-func TestExport_MultiTenant_AllInactive(t *testing.T) {
+// TestExport_MultiTenant_AllCold verifies that an export succeeds and
+// produces correct parquet files when every tenant is COLD. Cold tenants
+// are snapshotted directly from disk without loading the shard.
+//
+// It also includes an empty tenant (tenantEmpty) that was created but never
+// had objects inserted. This tenant should be SKIPPED with no parquet output.
+func TestExport_MultiTenant_AllCold(t *testing.T) {
 	className := sanitizeClassName(t.Name())
 	exportID := strings.ToLower(sanitizeClassName(t.Name()))
 
@@ -718,6 +864,7 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled:              true,
 			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
 		},
 	})
 	defer helper.DeleteClass(t, className)
@@ -725,18 +872,23 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 	tenants := []*models.Tenant{
 		{Name: "tenantA"},
 		{Name: "tenantB"},
+		{Name: "tenantEmpty"}, // created but never populated
 	}
 	helper.CreateTenants(t, className, tenants)
 
-	for _, tenant := range tenants {
-		objects := makeObjects(className, tenant.Name, 10)
+	// Only populate tenantA and tenantB.
+	var allObjects []*models.Object
+	for _, name := range []string{"tenantA", "tenantB"} {
+		objects := makeObjects(className, name, 10)
 		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
+		allObjects = append(allObjects, objects...)
 	}
 
-	// Set both tenants to COLD
+	// Set all tenants to COLD.
 	helper.UpdateTenants(t, className, []*models.Tenant{
 		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
 		{Name: "tenantB", ActivityStatus: models.TenantActivityStatusCOLD},
+		{Name: "tenantEmpty", ActivityStatus: models.TenantActivityStatusCOLD},
 	})
 
 	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
@@ -748,20 +900,211 @@ func TestExport_MultiTenant_AllInactive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "SUCCESS", resp.Payload.Status)
 
-	// No objects should be exported (all tenants are COLD, autoActivation disabled)
-	keys := listParquetKeys(t, exportID, className)
-	require.Empty(t, keys, "expected no parquet files when all tenants are inactive")
+	// tenantA + tenantB = 20 objects exported from disk snapshots.
+	verifyParquetExport(t, exportID, className, allObjects)
 
-	// Cold tenants should be reported as SKIPPED at the shard level
 	require.NotNil(t, resp.Payload.ShardStatus)
 	shardStatus := resp.Payload.ShardStatus[className]
 	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
-	for _, tenant := range tenants {
-		progress, ok := shardStatus[tenant.Name]
-		require.True(t, ok, "expected shard status for tenant %s", tenant.Name)
-		assert.Equal(t, "SKIPPED", progress.Status, "cold tenant %s should be SKIPPED", tenant.Name)
-		assert.Equal(t, int64(0), progress.ObjectsExported, "cold tenant %s should have 0 objects exported", tenant.Name)
+
+	// Populated cold tenants should report SUCCESS.
+	for _, name := range []string{"tenantA", "tenantB"} {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SUCCESS", progress.Status, "cold tenant %s should be SUCCESS", name)
+		assert.Equal(t, int64(10), progress.ObjectsExported,
+			"cold tenant %s should have 10 objects exported", name)
 	}
+
+	// Empty cold tenant should be SKIPPED with no parquet files.
+	progressEmpty, ok := shardStatus["tenantEmpty"]
+	require.True(t, ok, "expected shard status for tenantEmpty")
+	assert.Equal(t, "SKIPPED", progressEmpty.Status, "empty cold tenant should be SKIPPED")
+	assert.Equal(t, int64(0), progressEmpty.ObjectsExported)
+
+	// S3-level check: the empty tenant must have produced no parquet
+	// objects at all.
+	assert.Empty(t, listTenantParquetKeys(t, exportID, className, "tenantEmpty"),
+		"empty cold tenant must produce no parquet files")
+
+	// All tenants must remain COLD — the export must not activate them.
+	tenantsResp, err := helper.GetTenants(t, className)
+	require.NoError(t, err)
+	for _, tenant := range tenantsResp.Payload {
+		require.Equal(t, models.TenantActivityStatusCOLD, tenant.ActivityStatus,
+			"tenant %s should still be COLD after export", tenant.Name)
+	}
+
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
+// TestExport_MultiTenant_HotEmptyTenants verifies that a multi-tenant
+// export with a mix of populated and empty HOT tenants produces parquet
+// files only for the populated tenants. Empty tenants must appear as
+// SKIPPED in the shard status and must not create any parquet objects
+// on the backend.
+func TestExport_MultiTenant_HotEmptyTenants(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig:  &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	})
+	defer helper.DeleteClass(t, className)
+
+	// Populated and empty tenants are interleaved by name so the
+	// worker pool scans them in mixed order.
+	//
+	// Tenant names must not contain underscores; see listTenantParquetKeys.
+	populated := []string{"tenantA", "tenantC", "tenantE"}
+	empty := []string{"tenantB", "tenantD", "tenantF"}
+
+	allTenants := make([]*models.Tenant, 0, len(populated)+len(empty))
+	for _, name := range populated {
+		allTenants = append(allTenants, &models.Tenant{Name: name})
+	}
+	for _, name := range empty {
+		allTenants = append(allTenants, &models.Tenant{Name: name})
+	}
+	helper.CreateTenants(t, className, allTenants)
+
+	// Only populate the "populated" tenants. Empty tenants are created
+	// but receive no objects — they stay HOT by default.
+	var allObjects []*models.Object
+	for _, name := range populated {
+		objects := makeObjects(className, name, 25)
+		helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
+		allObjects = append(allObjects, objects...)
+	}
+
+	_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+	require.NoError(t, err)
+
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	resp, err := exporttest.ExportStatus(t, "s3", exportID)
+	require.NoError(t, err)
+	require.Equal(t, "SUCCESS", resp.Payload.Status)
+
+	require.NotNil(t, resp.Payload.ShardStatus)
+	shardStatus := resp.Payload.ShardStatus[className]
+	require.NotNil(t, shardStatus, "expected shard status for class %s", className)
+
+	// Populated tenants: SUCCESS with 25 objects each, and at least one
+	// parquet file per tenant in S3.
+	for _, name := range populated {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SUCCESS", progress.Status,
+			"populated tenant %s should be SUCCESS", name)
+		assert.Equal(t, int64(25), progress.ObjectsExported,
+			"populated tenant %s should have 25 objects exported", name)
+
+		assert.NotEmpty(t, listTenantParquetKeys(t, exportID, className, name),
+			"populated tenant %s should produce at least one parquet file", name)
+	}
+
+	// Empty tenants: SKIPPED with no objects exported, and zero
+	// parquet files on the backend.
+	for _, name := range empty {
+		progress, ok := shardStatus[name]
+		require.True(t, ok, "expected shard status for tenant %s", name)
+		assert.Equal(t, "SKIPPED", progress.Status,
+			"empty tenant %s should be SKIPPED", name)
+		assert.Equal(t, int64(0), progress.ObjectsExported,
+			"empty tenant %s should have 0 objects exported", name)
+
+		assert.Empty(t, listTenantParquetKeys(t, exportID, className, name),
+			"empty tenant %s must produce no parquet files", name)
+	}
+
+	// Every expected object ID must appear exactly once in the
+	// aggregated parquet output across all populated tenants.
+	verifyParquetExport(t, exportID, className, allObjects)
+
+	verifyParquetMetadata(t, exportID, className, true)
+}
+
+// TestExport_ColdTenantReactivatedDuringExport verifies that a cold tenant's
+// snapshot is isolated from writes that happen after the tenant is reactivated.
+// The WAL is copied (not hard-linked) during snapshotting, so reactivating
+// the tenant and writing new data must not affect the exported snapshot.
+func TestExport_ColdTenantReactivatedDuringExport(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+	exportID := strings.ToLower(sanitizeClassName(t.Name()))
+
+	helper.CreateClass(t, &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig: &models.ReplicationConfig{AsyncEnabled: true, Factor: 3},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+			AutoTenantCreation:   false,
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	tenants := []*models.Tenant{{Name: "tenantA"}}
+	helper.CreateTenants(t, className, tenants)
+
+	// Insert initial data and deactivate the tenant. The WAL on disk may
+	// contain unflushed data (small tenants use WAL reuse on shutdown).
+	preObjects := makeObjects(className, "tenantA", 50)
+	helper.CreateObjectsBatchCL(t, preObjects, types.ConsistencyLevelAll)
+
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusCOLD},
+	})
+
+	// Start the export. The snapshot copies the WAL from disk.
+	exportCh := make(chan error, 1)
+	go func() {
+		_, err := exporttest.CreateExport(t, "s3", exportID, []string{className})
+		exportCh <- err
+	}()
+
+	// Immediately reactivate the tenant and write more data. This modifies
+	// the original WAL file on disk. If the snapshot had hard-linked the
+	// WAL instead of copying it, these writes would corrupt the snapshot.
+	helper.UpdateTenants(t, className, []*models.Tenant{
+		{Name: "tenantA", ActivityStatus: models.TenantActivityStatusHOT},
+	})
+	postObjects := makeObjects(className, "tenantA", 50)
+	helper.CreateObjectsBatchCL(t, postObjects, types.ConsistencyLevelAll)
+
+	requireExportCreated(t, exportCh)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", exportID)
+
+	// The export must contain exactly the pre-export objects. Post-export
+	// writes must not leak into the snapshot.
+	allRows := fetchParquetRows(t, exportID, className)
+	exportedIDs := make(map[string]struct{}, len(allRows))
+	for _, row := range allRows {
+		exportedIDs[row.ID] = struct{}{}
+	}
+
+	// All pre-export objects must be present.
+	for _, obj := range preObjects {
+		assert.Contains(t, exportedIDs, string(obj.ID),
+			"pre-export object %s must be in export", obj.ID)
+	}
+
+	// Post-export objects must NOT be present.
+	for _, obj := range postObjects {
+		assert.NotContains(t, exportedIDs, string(obj.ID),
+			"post-reactivation object %s must NOT be in export", obj.ID)
+	}
+
+	assert.Equal(t, len(preObjects), len(allRows),
+		"export must contain exactly the pre-export objects")
 }
 
 // verifyParquetMetadata checks that all parquet files for a class contain
@@ -787,6 +1130,21 @@ func verifyParquetMetadata(t *testing.T, exportID, className string, expectTenan
 			require.True(t, ok, "missing 'tenant' metadata in %s", key)
 			require.NotEmpty(t, tenant, "empty 'tenant' metadata in %s", key)
 		}
+	}
+}
+
+// requireExportCreated waits for the CreateExport result from exportCh and
+// fails the test with the full validation message if it is a 422 error.
+func requireExportCreated(t *testing.T, exportCh <-chan error) {
+	t.Helper()
+	if err := <-exportCh; err != nil {
+		var ue *swaggerexport.ExportCreateUnprocessableEntity
+		if errors.As(err, &ue) && ue.Payload != nil {
+			for _, e := range ue.Payload.Error {
+				t.Logf("  validation error: %s", e.Message)
+			}
+		}
+		t.Fatalf("CreateExport failed: %v", err)
 	}
 }
 
@@ -886,6 +1244,35 @@ func listParquetKeys(t *testing.T, exportID, className string) []string {
 	t.Helper()
 
 	prefix := fmt.Sprintf("%s/%s", exportID, className)
+	resp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+		Bucket: aws.String(s3Bucket),
+		Prefix: aws.String(prefix),
+	})
+	require.NoError(t, err, "failed to list objects with prefix %s", prefix)
+
+	var keys []string
+	for _, obj := range resp.Contents {
+		key := aws.ToString(obj.Key)
+		if strings.HasSuffix(key, ".parquet") {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// listTenantParquetKeys lists S3 parquet keys that belong to a specific
+// tenant (shard). Parquet filenames follow the format
+// "{className}_{shardName}_{rangeIndex:04d}.parquet", so matching on the
+// "{className}_{tenantName}_" prefix isolates a single tenant. The trailing
+// underscore prevents partial-match false positives between tenant names
+// that share a prefix (e.g. "tenant" vs "tenantA"). Tenant names used in
+// tests must therefore not contain underscores.
+func listTenantParquetKeys(t *testing.T, exportID, className, tenantName string) []string {
+	t.Helper()
+	require.NotContains(t, tenantName, "_",
+		"tenant name must not contain underscores; would break prefix isolation")
+
+	prefix := fmt.Sprintf("%s/%s_%s_", exportID, className, tenantName)
 	resp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
 		Bucket: aws.String(s3Bucket),
 		Prefix: aws.String(prefix),
@@ -1080,76 +1467,6 @@ func TestExport_ExcludeFilter(t *testing.T) {
 		verifyParquetExport(t, exportID, includedClass, includedObjects)
 		verifyParquetExport(t, exportID, excludedClass, excludedObjects)
 	})
-}
-
-func TestExport_CustomConfig(t *testing.T) {
-	className := sanitizeClassName(t.Name())
-	exportID := strings.ToLower(sanitizeClassName(t.Name()))
-	customBucket := "custom-export-bucket"
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "text", DataType: []string{"text"}},
-		},
-		ReplicationConfig: &models.ReplicationConfig{
-			AsyncEnabled: true,
-			Factor:       3,
-		},
-		ShardingConfig: map[string]interface{}{
-			"desiredCount": float64(1),
-		},
-	})
-	defer helper.DeleteClass(t, className)
-
-	objects := makeObjects(className, "", 10)
-	helper.CreateObjectsBatchCL(t, objects, types.ConsistencyLevelAll)
-
-	// Create a custom bucket in MinIO
-	_, err := s3Client.CreateBucket(context.Background(), &s3.CreateBucketInput{
-		Bucket: aws.String(customBucket),
-	})
-	require.NoError(t, err)
-
-	// Export with both a custom bucket and a custom path prefix
-	fileFormat := models.ExportCreateRequestFileFormatParquet
-	_, err = exporttest.CreateExportRaw(t, "s3", &models.ExportCreateRequest{
-		ID:         &exportID,
-		Include:    []string{className},
-		FileFormat: &fileFormat,
-		Config: &models.ExportCreateRequestConfig{
-			Bucket: customBucket,
-			Path:   "custom/prefix",
-		},
-	})
-	require.NoError(t, err)
-
-	exporttest.ExpectExportEventuallySucceededWithConfig(t, "s3", exportID, customBucket, "custom/prefix")
-
-	// Verify files landed in the custom bucket under the custom prefix
-	prefix := fmt.Sprintf("custom/prefix/%s/%s", exportID, className)
-	listResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(customBucket),
-		Prefix: aws.String(prefix),
-	})
-	require.NoError(t, err)
-
-	var keys []string
-	for _, obj := range listResp.Contents {
-		key := aws.ToString(obj.Key)
-		if strings.HasSuffix(key, ".parquet") {
-			keys = append(keys, key)
-		}
-	}
-	require.NotEmpty(t, keys, "expected parquet files under %s in bucket %s", prefix, customBucket)
-
-	// Default bucket should have no files for this export
-	defaultResp, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket: aws.String(s3Bucket),
-		Prefix: aws.String(fmt.Sprintf("%s/%s", exportID, className)),
-	})
-	require.NoError(t, err)
-	require.Empty(t, defaultResp.Contents, "default bucket should have no files for this export")
 }
 
 func TestExport_DuplicateID(t *testing.T) {
@@ -1388,4 +1705,191 @@ func TestExport_RejectsWithoutAsyncReplication(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "422",
 		"export without async replication should be rejected with 422, got: %v", err)
+}
+
+// TestExport_SequentialSnapshots verifies that successive exports capture
+// point-in-time snapshots: inserts and deletes between exports are reflected
+// only in the export that follows them.
+func TestExport_SequentialSnapshots(t *testing.T) {
+	className := sanitizeClassName(t.Name())
+
+	helper.CreateClass(t, &models.Class{
+		Class:      className,
+		Vectorizer: "none",
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		ReplicationConfig: &models.ReplicationConfig{
+			AsyncEnabled: true,
+			Factor:       3,
+		},
+		ShardingConfig: map[string]interface{}{
+			"desiredCount": float64(1),
+		},
+	})
+	defer helper.DeleteClass(t, className)
+
+	// Step 1: Insert 20 objects.
+	batch1 := makeObjects(className, "", 20)
+	helper.CreateObjectsBatchCL(t, batch1, types.ConsistencyLevelAll)
+
+	// Step 2: First export — should capture 20 objects.
+	firstID := strings.ToLower(sanitizeClassName(t.Name())) + "-first"
+	_, err := exporttest.CreateExport(t, "s3", firstID, []string{className})
+	require.NoError(t, err)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", firstID)
+
+	// Step 3: Insert 10 more objects.
+	batch2 := makeObjects(className, "", 10)
+	helper.CreateObjectsBatchCL(t, batch2, types.ConsistencyLevelAll)
+
+	// Step 4: Second export — should capture 30 objects.
+	secondID := strings.ToLower(sanitizeClassName(t.Name())) + "-second"
+	_, err = exporttest.CreateExport(t, "s3", secondID, []string{className})
+	require.NoError(t, err)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", secondID)
+
+	// Step 5: Delete the original 20 objects.
+	for _, obj := range batch1 {
+		helper.DeleteObjectCL(t, obj.Class, obj.ID, types.ConsistencyLevelAll)
+	}
+
+	// Step 6: Third export — should capture only the 10 remaining objects.
+	thirdID := strings.ToLower(sanitizeClassName(t.Name())) + "-third"
+	_, err = exporttest.CreateExport(t, "s3", thirdID, []string{className})
+	require.NoError(t, err)
+	exporttest.ExpectExportEventuallySucceeded(t, "s3", thirdID)
+
+	// Step 7: Verify all exports succeeded.
+	for _, id := range []string{firstID, secondID, thirdID} {
+		resp, err := exporttest.ExportStatus(t, "s3", id)
+		require.NoError(t, err)
+		require.Equal(t, "SUCCESS", resp.Payload.Status, "export %s should be SUCCESS", id)
+	}
+
+	// Step 8: Verify row counts and object identity for each snapshot.
+	batch1IDs := objectIDSet(batch1)
+	batch2IDs := objectIDSet(batch2)
+	allIDs := objectIDSet(append(batch1, batch2...))
+
+	// First export: exactly batch1 (20 objects).
+	firstRows := fetchParquetRows(t, firstID, className)
+	require.Len(t, firstRows, 20, "first export should have 20 rows")
+	firstExportedIDs := rowIDSet(firstRows)
+	assert.Equal(t, batch1IDs, firstExportedIDs, "first export should contain exactly batch1")
+
+	// Second export: batch1 + batch2 (30 objects).
+	secondRows := fetchParquetRows(t, secondID, className)
+	require.Len(t, secondRows, 30, "second export should have 30 rows")
+	secondExportedIDs := rowIDSet(secondRows)
+	assert.Equal(t, allIDs, secondExportedIDs, "second export should contain batch1 + batch2")
+
+	// Third export: only batch2 (10 objects) — batch1 was deleted.
+	thirdRows := fetchParquetRows(t, thirdID, className)
+	require.Len(t, thirdRows, 10, "third export should have 10 rows")
+	thirdExportedIDs := rowIDSet(thirdRows)
+	assert.Equal(t, batch2IDs, thirdExportedIDs, "third export should contain exactly batch2")
+}
+
+func objectIDSet(objects []*models.Object) map[string]struct{} {
+	s := make(map[string]struct{}, len(objects))
+	for _, obj := range objects {
+		s[string(obj.ID)] = struct{}{}
+	}
+	return s
+}
+
+func rowIDSet(rows []pqexport.ParquetRow) map[string]struct{} {
+	s := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		s[row.ID] = struct{}{}
+	}
+	return s
+}
+
+// verifyConcurrentExport checks the point-in-time semantics of an export
+// that ran concurrently with object imports:
+//   - duringObjects MAY or may not be present (race with snapshot)
+//   - No postObjects may be in the export
+//   - Total row count is bounded by [preCount, preCount+duringCount]
+func verifyConcurrentExport(
+	t *testing.T,
+	exportID, className string,
+	preCount int,
+	duringObjects, postObjects []*models.Object,
+) {
+	t.Helper()
+
+	allRows := fetchParquetRows(t, exportID, className)
+	exportedIDs := make(map[string]struct{}, len(allRows))
+	for _, row := range allRows {
+		exportedIDs[row.ID] = struct{}{}
+	}
+
+	var duringPresent int
+	for _, obj := range duringObjects {
+		if _, ok := exportedIDs[string(obj.ID)]; ok {
+			duringPresent++
+		}
+	}
+	t.Logf("during-export objects present: %d/%d", duringPresent, len(duringObjects))
+
+	for _, obj := range postObjects {
+		assert.NotContains(t, exportedIDs, string(obj.ID),
+			"post-export object %s must NOT be in export", obj.ID)
+	}
+
+	assert.GreaterOrEqual(t, len(allRows), preCount,
+		"export must contain at least all pre-export objects")
+	assert.LessOrEqual(t, len(allRows), preCount+len(duringObjects),
+		"export must not contain more than pre+during objects")
+}
+
+// assertStringArray compares string array properties (text[], date[], uuid[]).
+func assertStringArray(t *testing.T, id, propName string, exp, actual map[string]interface{}) {
+	t.Helper()
+	expArr, ok := exp[propName].([]string)
+	if !ok {
+		return
+	}
+	actualArr, ok := actual[propName].([]interface{})
+	require.True(t, ok, "%s should be array for %s", propName, id)
+	require.Len(t, actualArr, len(expArr), "%s length mismatch for %s", propName, id)
+	for j, v := range actualArr {
+		assert.Equal(t, expArr[j], v, "%s[%d] mismatch for %s", propName, j, id)
+	}
+}
+
+// assertNumberArray compares numeric array properties (int[], number[]).
+func assertNumberArray(t *testing.T, id, propName string, exp, actual map[string]interface{}, delta float64) {
+	t.Helper()
+	expArr, ok := exp[propName].([]float64)
+	if !ok {
+		return
+	}
+	actualArr, ok := actual[propName].([]interface{})
+	require.True(t, ok, "%s should be array for %s", propName, id)
+	require.Len(t, actualArr, len(expArr), "%s length mismatch for %s", propName, id)
+	for j, v := range actualArr {
+		actualNum, ok := v.(float64)
+		require.True(t, ok, "%s[%d] should be number for %s", propName, j, id)
+		assert.InDelta(t, expArr[j], actualNum, delta, "%s[%d] mismatch for %s", propName, j, id)
+	}
+}
+
+// assertBoolArray compares boolean array properties.
+func assertBoolArray(t *testing.T, id, propName string, exp, actual map[string]interface{}) {
+	t.Helper()
+	expArr, ok := exp[propName].([]bool)
+	if !ok {
+		return
+	}
+	actualArr, ok := actual[propName].([]interface{})
+	require.True(t, ok, "%s should be array for %s", propName, id)
+	require.Len(t, actualArr, len(expArr), "%s length mismatch for %s", propName, id)
+	for j, v := range actualArr {
+		actualBool, ok := v.(bool)
+		require.True(t, ok, "%s[%d] should be bool for %s", propName, j, id)
+		assert.Equal(t, expArr[j], actualBool, "%s[%d] mismatch for %s", propName, j, id)
+	}
 }

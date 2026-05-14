@@ -16,8 +16,10 @@ package types
 import (
 	context "context"
 
-	mock "github.com/stretchr/testify/mock"
+	filters "github.com/weaviate/weaviate/entities/filters"
 	hashtree "github.com/weaviate/weaviate/usecases/replica/hashtree"
+
+	mock "github.com/stretchr/testify/mock"
 
 	objects "github.com/weaviate/weaviate/usecases/objects"
 
@@ -143,6 +145,125 @@ func (_c *MockReplicator_CommitReplication_Call) Return(_a0 interface{}) *MockRe
 }
 
 func (_c *MockReplicator_CommitReplication_Call) RunAndReturn(run func(context.Context, string, string, string) interface{}) *MockReplicator_CommitReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CompareDigests provides a mock function with given fields: ctx, className, shardName, digests
+func (_m *MockReplicator) CompareDigests(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse) ([]routertypes.RepairResponse, error) {
+	ret := _m.Called(ctx, className, shardName, digests)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompareDigests")
+	}
+
+	var r0 []routertypes.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)); ok {
+		return rf(ctx, className, shardName, digests)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []routertypes.RepairResponse) []routertypes.RepairResponse); ok {
+		r0 = rf(ctx, className, shardName, digests)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]routertypes.RepairResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []routertypes.RepairResponse) error); ok {
+		r1 = rf(ctx, className, shardName, digests)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_CompareDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareDigests'
+type MockReplicator_CompareDigests_Call struct {
+	*mock.Call
+}
+
+// CompareDigests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - className string
+//   - shardName string
+//   - digests []routertypes.RepairResponse
+func (_e *MockReplicator_Expecter) CompareDigests(ctx interface{}, className interface{}, shardName interface{}, digests interface{}) *MockReplicator_CompareDigests_Call {
+	return &MockReplicator_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, className, shardName, digests)}
+}
+
+func (_c *MockReplicator_CompareDigests_Call) Run(run func(ctx context.Context, className string, shardName string, digests []routertypes.RepairResponse)) *MockReplicator_CompareDigests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]routertypes.RepairResponse))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_CompareDigests_Call) Return(_a0 []routertypes.RepairResponse, _a1 error) *MockReplicator_CompareDigests_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, []routertypes.RepairResponse) ([]routertypes.RepairResponse, error)) *MockReplicator_CompareDigests_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CountObjects provides a mock function with given fields: ctx, indexName, shardName
+func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
+	ret := _m.Called(ctx, indexName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountObjects")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (int, error)); ok {
+		return rf(ctx, indexName, shardName)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) int); ok {
+		r0 = rf(ctx, indexName, shardName)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, indexName, shardName)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_CountObjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountObjects'
+type MockReplicator_CountObjects_Call struct {
+	*mock.Call
+}
+
+// CountObjects is a helper method to define mock.On call
+//   - ctx context.Context
+//   - indexName string
+//   - shardName string
+func (_e *MockReplicator_Expecter) CountObjects(ctx interface{}, indexName interface{}, shardName interface{}) *MockReplicator_CountObjects_Call {
+	return &MockReplicator_CountObjects_Call{Call: _e.mock.On("CountObjects", ctx, indexName, shardName)}
+}
+
+func (_c *MockReplicator_CountObjects_Call) Run(run func(ctx context.Context, indexName string, shardName string)) *MockReplicator_CountObjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_CountObjects_Call) Return(_a0 int, _a1 error) *MockReplicator_CountObjects_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicator_CountObjects_Call) RunAndReturn(run func(context.Context, string, string) (int, error)) *MockReplicator_CountObjects_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -387,6 +508,68 @@ func (_c *MockReplicator_FetchObjects_Call) Return(_a0 []replica.Replica, _a1 er
 }
 
 func (_c *MockReplicator_FetchObjects_Call) RunAndReturn(run func(context.Context, string, string, []strfmt.UUID) ([]replica.Replica, error)) *MockReplicator_FetchObjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// FindUUIDs provides a mock function with given fields: ctx, indexName, shardName, _a3, limit
+func (_m *MockReplicator) FindUUIDs(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
+	ret := _m.Called(ctx, indexName, shardName, _a3, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindUUIDs")
+	}
+
+	var r0 []strfmt.UUID
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)); ok {
+		return rf(ctx, indexName, shardName, _a3, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, *filters.LocalFilter, int) []strfmt.UUID); ok {
+		r0 = rf(ctx, indexName, shardName, _a3, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]strfmt.UUID)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, *filters.LocalFilter, int) error); ok {
+		r1 = rf(ctx, indexName, shardName, _a3, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReplicator_FindUUIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindUUIDs'
+type MockReplicator_FindUUIDs_Call struct {
+	*mock.Call
+}
+
+// FindUUIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - indexName string
+//   - shardName string
+//   - _a3 *filters.LocalFilter
+//   - limit int
+func (_e *MockReplicator_Expecter) FindUUIDs(ctx interface{}, indexName interface{}, shardName interface{}, _a3 interface{}, limit interface{}) *MockReplicator_FindUUIDs_Call {
+	return &MockReplicator_FindUUIDs_Call{Call: _e.mock.On("FindUUIDs", ctx, indexName, shardName, _a3, limit)}
+}
+
+func (_c *MockReplicator_FindUUIDs_Call) Run(run func(ctx context.Context, indexName string, shardName string, _a3 *filters.LocalFilter, limit int)) *MockReplicator_FindUUIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(*filters.LocalFilter), args[4].(int))
+	})
+	return _c
+}
+
+func (_c *MockReplicator_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *MockReplicator_FindUUIDs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReplicator_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockReplicator_FindUUIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -115,6 +115,7 @@ func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
 	defer v.setSizeMetricIfDue(ctx)
+	defer func() { v.metrics.SetPostings(v.Size()) }()
 
 	if len(posting) == 0 {
 		err := v.bucket.Delete(ctx, postingID)
@@ -195,12 +196,14 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 	}
 
 	v.metrics.ObservePostingSize(float64(count))
+	v.metrics.SetPostings(v.Size())
 	return uint32(count), nil
 }
 
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
 func (v *PostingMap) Restore(ctx context.Context) error {
 	defer v.setSizeMetricIfDue(ctx)
+	defer func() { v.metrics.SetPostings(v.Size()) }()
 
 	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
 		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})

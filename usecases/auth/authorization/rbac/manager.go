@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -38,20 +39,27 @@ const (
 )
 
 type Manager struct {
-	casbin      *casbin.SyncedCachedEnforcer
-	logger      logrus.FieldLogger
-	authNconf   config.Authentication
-	rbacConf    rbacconf.Config
-	restoreLock sync.RWMutex
+	casbin            *casbin.SyncedCachedEnforcer
+	logger            logrus.FieldLogger
+	authNconf         config.Authentication
+	rbacConf          rbacconf.Config
+	namespacesEnabled bool
+	restoreLock       sync.RWMutex
 }
 
-func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
-	csbin, err := Init(rbacConf, rbacStoragePath, authNconf)
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, logger logrus.FieldLogger) (*Manager, error) {
+	csbin, err := Init(rbacConf, rbacStoragePath, authNconf, namespacesEnabled)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Manager{csbin, logger, authNconf, rbacConf, sync.RWMutex{}}, nil
+	return &Manager{
+		casbin:            csbin,
+		logger:            logger,
+		authNconf:         authNconf,
+		rbacConf:          rbacConf,
+		namespacesEnabled: namespacesEnabled,
+	}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -184,7 +192,7 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 		}
 	}
-	policies, err := conv.CasbinPolicies(casbinStoragePolicies...)
+	policies, err := conv.CasbinPolicies(m.namespacesEnabled, casbinStoragePolicies...)
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
@@ -438,7 +446,7 @@ func (m *Manager) Restore(b []byte) error {
 	}
 
 	// environment config needs to be applied again in case there were changes since the last snapshot
-	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf); err != nil {
+	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf, m.namespacesEnabled); err != nil {
 		return fmt.Errorf("apply env config: %w", err)
 	}
 
@@ -465,9 +473,11 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	ns := principal.Namespace
+
 	// first check group permissions
 	for _, group := range principal.Groups {
-		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
+		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb, ns)
 		if err != nil {
 			return false, err
 		}
@@ -477,7 +487,7 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	}
 
 	// If no group permissions, check user permissions
-	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
+	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb, ns)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {
@@ -487,16 +497,18 @@ func prettyPermissionsActions(perm *models.Permission) string {
 	return *perm.Action
 }
 
-func prettyPermissionsResources(perm *models.Permission) string {
+func prettyPermissionsResources(principal *models.Principal, perm *models.Permission) string {
 	res := ""
 	if perm == nil {
 		return ""
 	}
 
+	strip := func(s string) string { return namespacing.StripOwnNS(principal, s) }
+
 	if perm.Backups != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
 		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
-			s += fmt.Sprintf("Collection: %s", *perm.Backups.Collection)
+			s += fmt.Sprintf("Collection: %s", strip(*perm.Backups.Collection))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -505,7 +517,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	if perm.Data != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.DataDomain)
 		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Data.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Data.Collection))
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
 			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
@@ -524,7 +536,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 			s += fmt.Sprintf(" Verbosity: %s,", *perm.Nodes.Verbosity)
 		}
 		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s", *perm.Nodes.Collection)
+			s += fmt.Sprintf(" Collection: %s", strip(*perm.Nodes.Collection))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -533,7 +545,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	if perm.Roles != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.RolesDomain)
 		if perm.Roles.Role != nil && *perm.Roles.Role != "" {
-			s += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
+			s += fmt.Sprintf(" Role: %s,", strip(*perm.Roles.Role))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -543,7 +555,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.CollectionsDomain)
 
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Collections.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Collections.Collection))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -553,7 +565,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.TenantsDomain)
 
 		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Tenants.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Tenants.Collection))
 			s += fmt.Sprintf(" Tenant: %s", *perm.Tenants.Tenant)
 		}
 		s = strings.TrimSuffix(s, ",")
@@ -564,7 +576,7 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.UsersDomain)
 
 		if perm.Users.Users != nil {
-			s += fmt.Sprintf(" User: %s,", *perm.Users.Users)
+			s += fmt.Sprintf(" User: %s,", strip(*perm.Users.Users))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -574,10 +586,10 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.ReplicateDomain)
 
 		if perm.Replicate.Collection != nil && *perm.Replicate.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Replicate.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Replicate.Collection))
 		}
 		if perm.Replicate.Shard != nil && *perm.Replicate.Shard != "" {
-			s += fmt.Sprintf(" Shard: %s,", *perm.Replicate.Shard)
+			s += fmt.Sprintf(" Shard: %s,", strip(*perm.Replicate.Shard))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)
@@ -587,10 +599,10 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		s := fmt.Sprintf("Domain: %s,", authorization.AliasesDomain)
 
 		if perm.Aliases.Collection != nil && *perm.Aliases.Collection != "" {
-			s += fmt.Sprintf(" Collection: %s,", *perm.Aliases.Collection)
+			s += fmt.Sprintf(" Collection: %s,", strip(*perm.Aliases.Collection))
 		}
 		if perm.Aliases.Alias != nil && *perm.Aliases.Alias != "" {
-			s += fmt.Sprintf(" Alias: %s,", *perm.Aliases.Alias)
+			s += fmt.Sprintf(" Alias: %s,", strip(*perm.Aliases.Alias))
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)

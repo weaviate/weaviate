@@ -14,6 +14,8 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
+	"slices"
+	"sync"
 
 	"github.com/google/uuid"
 	ent "github.com/weaviate/weaviate/entities/inverted"
@@ -41,6 +43,36 @@ type Property struct {
 type NilProperty struct {
 	Name                string
 	AddToPropertyLength bool
+}
+
+// NestedValue is a single analyzed value from a nested property.
+// The Has*Index flags indicate which buckets this value should be written to.
+type NestedValue struct {
+	Path               string   // dot-notation path, e.g. "addresses.city"
+	Data               []byte   // analyzed value bytes
+	Positions          []uint64 // positions with docID=0
+	HasFilterableIndex bool
+	HasSearchableIndex bool
+	HasRangeableIndex  bool
+}
+
+// NestedProperty holds all analyzed values and metadata from position
+// assignment of a single nested property.
+type NestedProperty struct {
+	Name               string        // top-level property name (for bucket naming)
+	Values             []NestedValue // analyzed values for the value bucket
+	Idx                []NestedMeta  // _idx metadata entries
+	Exists             []NestedMeta  // _exists metadata entries
+	HasFilterableIndex bool          // any value needs the filterable bucket
+	HasSearchableIndex bool          // any value needs the searchable bucket
+	HasRangeableIndex  bool          // any value needs the rangeable bucket
+}
+
+// NestedMeta is an _idx or _exists metadata entry from position assignment.
+type NestedMeta struct {
+	Path      string   // e.g. "addresses" for _idx, "owner.firstname" for _exists
+	Index     int      // 0-based element index (only used for _idx; -1 for _exists)
+	Positions []uint64 // positions with docID=0
 }
 
 func DedupItems(props []Property) []Property {
@@ -87,6 +119,12 @@ type PropertyOverlay struct {
 	Tokenization string
 }
 
+type analyzerCacheEntry struct {
+	fold     bool     // whether ASCIIFold was enabled
+	ignore   []string // the ASCIIFoldIgnore list used to build prepared
+	prepared *tokenizer.PreparedAnalyzer
+}
+
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
 	className              string
@@ -94,25 +132,54 @@ type Analyzer struct {
 	// schemaOverlay maps property name → forced-flag overrides for runtime
 	// reindex migrations. nil/empty means "use the live schema as-is".
 	schemaOverlay map[string]PropertyOverlay
+
+	// cache maps property name → cached PreparedAnalyzer.
+	// Invalidated when the property's fold setting or ASCIIFoldIgnore list changes.
+	cache sync.Map // map[string]analyzerCacheEntry
+}
+
+// preparedFor returns a cached PreparedAnalyzer for the given property,
+// rebuilding it only when the fold config has changed.
+func (a *Analyzer) preparedFor(propName string, cfg *models.TextAnalyzerConfig) *tokenizer.PreparedAnalyzer {
+	fold := cfg != nil && cfg.ASCIIFold
+	var currentIgnore []string
+	if fold {
+		currentIgnore = cfg.ASCIIFoldIgnore
+	}
+
+	if v, ok := a.cache.Load(propName); ok {
+		entry := v.(analyzerCacheEntry)
+		if entry.fold == fold && slices.Equal(entry.ignore, currentIgnore) {
+			return entry.prepared
+		}
+	}
+
+	prepared := tokenizer.NewPreparedAnalyzer(cfg)
+	a.cache.Store(propName, analyzerCacheEntry{
+		fold:     fold,
+		ignore:   slices.Clone(currentIgnore),
+		prepared: prepared,
+	})
+	return prepared
 }
 
 // Text tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) Text(tokenization, in string) []Countable {
-	return a.TextArray(tokenization, []string{in})
+func (a *Analyzer) Text(tokenization, in, propName string, TextAnalyzer *models.TextAnalyzerConfig) []Countable {
+	return a.TextArray(tokenization, []string{in}, propName, TextAnalyzer)
 }
 
 // TextArray tokenizes given input according to selected tokenization,
 // then aggregates duplicates
-func (a *Analyzer) TextArray(tokenization string, inArr []string) []Countable {
-	var terms []string
-	for _, in := range inArr {
-		terms = append(terms, tokenizer.TokenizeForClass(tokenization, in, a.className)...)
-	}
-
+func (a *Analyzer) TextArray(tokenization string, inArr []string, propName string, TextAnalyzer *models.TextAnalyzerConfig) []Countable {
+	prepared := a.preparedFor(propName, TextAnalyzer)
 	counts := map[string]uint64{}
-	for _, term := range terms {
-		counts[term]++
+	for _, in := range inArr {
+		// Analyze with nil stopwords: indexing stores all tokens including stopwords
+		result := tokenizer.Analyze(in, tokenization, a.className, prepared, nil)
+		for _, term := range result.Indexed {
+			counts[term]++
+		}
 	}
 
 	countable := make([]Countable, len(counts))

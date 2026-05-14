@@ -26,6 +26,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+const s3Bucket = "bucket"
+
 func TestExportRBAC(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
@@ -41,7 +43,9 @@ func TestExportRBAC(t *testing.T) {
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
 		WithRBAC().WithRbacRoots(adminUser).WithDbUsers().
-		WithBackendS3("bucket", "eu-west-1").
+		WithBackendS3(s3Bucket, "eu-west-1").
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", s3Bucket).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

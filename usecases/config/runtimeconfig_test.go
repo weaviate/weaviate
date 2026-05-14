@@ -589,6 +589,54 @@ replica_movement_minimum_async_wait: 10s`)
 	})
 }
 
+// TestExportDefaultPathRuntimeOverride verifies that runtime config overrides
+// correctly update Export.DefaultPath.
+func TestExportDefaultPathRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	tests := []struct {
+		name          string
+		initialPath   string // startup value for source.ExportDefaultPath
+		runtimeConfig string // YAML applied via UpdateRuntimeConfig
+		expectedPath  string
+	}{
+		{
+			name:          "override from empty to non-empty path",
+			initialPath:   "",
+			runtimeConfig: `export_default_path: "from/runtime"`,
+			expectedPath:  "from/runtime",
+		},
+		{
+			name:          "override switching non-empty path to another non-empty path",
+			initialPath:   "initial/path",
+			runtimeConfig: `export_default_path: "new/path"`,
+			expectedPath:  "new/path",
+		},
+		{
+			name:          "override from non-empty to empty string",
+			initialPath:   "initial/path",
+			runtimeConfig: `export_default_path: ""`,
+			expectedPath:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defaultPath := runtime.NewDynamicValue(tt.initialPath)
+			source := &WeaviateRuntimeConfig{
+				ExportDefaultPath: defaultPath,
+			}
+
+			parsed, err := ParseRuntimeConfig([]byte(tt.runtimeConfig))
+			require.NoError(t, err)
+			require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil))
+
+			assert.Equal(t, tt.expectedPath, defaultPath.Get())
+		})
+	}
+}
+
 // helpers
 // assertConfigKey asserts if the `yaml` key is standard `lower_snake_case` (e.g: not `UPPER_CASE`)
 func assertConfigKey(t *testing.T, key string) {

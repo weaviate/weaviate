@@ -16,7 +16,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -141,6 +143,124 @@ func TestParser(t *testing.T) {
 	}
 }
 
+func TestPropertyProcessingImmutability(t *testing.T) {
+	vTrue := true
+	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	baseProp := func(proc *models.TextAnalyzerConfig) *models.Property {
+		return &models.Property{
+			Name:            "title",
+			DataType:        []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &vTrue,
+			IndexSearchable: &vTrue,
+			TextAnalyzer:    proc,
+		}
+	}
+
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	vic := enthnsw.NewDefaultUserConfig()
+
+	tests := []struct {
+		name        string
+		existing    *models.TextAnalyzerConfig
+		updated     *models.TextAnalyzerConfig
+		expectError bool
+	}{
+		{
+			name:        "no change - both nil",
+			existing:    nil,
+			updated:     nil,
+			expectError: false,
+		},
+		{
+			name:        "no change - both asciiFold true",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: false,
+		},
+		{
+			name:        "no change - both asciiFold false",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: false},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false},
+			expectError: false,
+		},
+		{
+			name:        "change asciiFold false to true",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: false},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: true,
+		},
+		{
+			name:        "change asciiFold true to false",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false},
+			expectError: true,
+		},
+		{
+			name:        "add processing where none existed",
+			existing:    nil,
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: true,
+		},
+		{
+			name:        "remove processing",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     nil,
+			expectError: true,
+		},
+		{
+			name:        "update asciiFoldIgnore is blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é", "ñ"}},
+			expectError: true,
+		},
+		{
+			name:        "add asciiFoldIgnore is blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			expectError: true,
+		},
+		{
+			name:        "remove asciiFoldIgnore is blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: true},
+			expectError: true,
+		},
+		{
+			name:        "change asciiFold while changing ignore is still blocked",
+			existing:    &models.TextAnalyzerConfig{ASCIIFold: true, ASCIIFoldIgnore: []string{"é"}},
+			updated:     &models.TextAnalyzerConfig{ASCIIFold: false, ASCIIFoldIgnore: []string{"é"}},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := &models.Class{
+				Class:             "Test",
+				VectorIndexType:   hnswT,
+				VectorIndexConfig: vic,
+				ShardingConfig:    sc,
+				Properties:        []*models.Property{baseProp(tt.existing)},
+			}
+			update := &models.Class{
+				Class:             "Test",
+				VectorIndexType:   hnswT,
+				VectorIndexConfig: vic,
+				Properties:        []*models.Property{baseProp(tt.updated)},
+			}
+			_, err := p.ParseClassUpdate(old, update)
+			if tt.expectError {
+				require.Error(t, err, "expected error for: %s", tt.name)
+				require.ErrorIs(t, err, errPropertiesUpdatedInClassUpdate)
+			} else {
+				require.NoError(t, err, "unexpected error for: %s", tt.name)
+			}
+		})
+	}
+}
+
 func Test_asMap(t *testing.T) {
 	t.Run("not nil", func(t *testing.T) {
 		m, err := propertyAsMap(&models.Property{
@@ -180,6 +300,10 @@ func (m fakeModulesProvider) IsGenerative(name string) bool {
 
 func (m fakeModulesProvider) IsMultiVector(name string) bool {
 	return strings.Contains(name, "colbert")
+}
+
+func (m fakeModulesProvider) HasModule(name string) bool {
+	return name == "none" || strings.Contains(name, "colbert") || strings.Contains(name, "text2vec") || strings.Contains(name, "multi2vec")
 }
 
 func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
@@ -257,5 +381,208 @@ func TestParserDefaultShardingCount(t *testing.T) {
 
 		sc := class.ShardingConfig.(config.Config)
 		require.Equal(t, 0, sc.DesiredCount)
+	})
+}
+
+func TestParseTargetVectorsIndexConfigErrors(t *testing.T) {
+	// parseVectorConfig that returns a multi-vector index config regardless of input
+	multiVecParseConfig := func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
+		m := schemaConfig.NewMockVectorIndexConfig(t)
+		m.EXPECT().IsMultiVector().Return(true).Maybe()
+		m.EXPECT().IndexType().Return("fake").Maybe()
+		m.EXPECT().DistanceName().Return("cosine").Maybe()
+		return m, nil
+	}
+
+	cs := fakes.NewFakeClusterState()
+
+	makeClass := func(vectorizerName string) *models.Class {
+		return &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"target": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						vectorizerName: map[string]interface{}{},
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("module not registered suggests downgrade", func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		// "new-module-v2" is not returned by HasModule on fakeModulesProvider
+		err := p.ParseClass(makeClass("new-module-v2"))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "not found with name")
+	})
+
+	t.Run("module registered but does not support multi vectors", func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		// "text2vec-contextionary" is returned by HasModule but not by IsMultiVector
+		err := p.ParseClass(makeClass("text2vec-contextionary"))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "doesn't support multi vectors")
+	})
+
+	t.Run("multi vector module succeeds", func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		// "colbert" satisfies both HasModule and IsMultiVector on fakeModulesProvider
+		err := p.ParseClass(makeClass("colbert"))
+		require.NoError(t, err)
+	})
+
+	t.Run(`vectorizer "none" succeeds for multi vector index`, func(t *testing.T) {
+		dsc := configRuntime.NewDynamicValue(12)
+		p := NewParser(cs, multiVecParseConfig, fakeValidator{}, fakeModulesProvider{}, nil, dsc)
+		err := p.ParseClass(makeClass("none"))
+		require.NoError(t, err)
+	})
+}
+
+func TestParseGivenVectorIndexConfig_RejectsNone(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	_, err := p.parseGivenVectorIndexConfig(
+		vectorindex.VectorIndexTypeNone, nil, false, nil,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "internal sentinel for dropped indexes")
+}
+
+func TestParseTargetVectorsIndexConfig_SkipsDroppedEntry(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	class := &models.Class{
+		Class: "Test",
+		VectorConfig: map[string]models.VectorConfig{
+			"active": {
+				VectorIndexType: hnswT,
+				Vectorizer: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{},
+				},
+			},
+			"dropped": {
+				VectorIndexType: vectorindex.VectorIndexTypeNone,
+				Vectorizer: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{},
+				},
+			},
+		},
+	}
+
+	err := p.parseTargetVectorsIndexConfig(class)
+	require.NoError(t, err)
+
+	// The active vector should have been parsed (VectorIndexConfig populated).
+	require.NotNil(t, class.VectorConfig["active"].VectorIndexConfig)
+	// The dropped vector should be left untouched — no VectorIndexConfig set.
+	require.Nil(t, class.VectorConfig["dropped"].VectorIndexConfig)
+}
+
+func TestValidateNamedVectorConfigsParityAndImmutables_DroppedEntries(t *testing.T) {
+	cs := fakes.NewFakeClusterState()
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{}, nil, nil)
+
+	makeVecCfg := func(indexType string) models.VectorConfig {
+		return models.VectorConfig{
+			VectorIndexType: indexType,
+			Vectorizer: map[string]interface{}{
+				"text2vec-contextionary": map[string]interface{}{},
+			},
+		}
+	}
+
+	t.Run("both sides dropped — no error", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("initial dropped, updated active — reject re-creation", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cannot re-create a dropped vector index")
+	})
+
+	t.Run("initial active, updated dropped — allowed (drop path)", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(vectorindex.VectorIndexTypeNone),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("both active, same type — allowed", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("both active, different type — reject", func(t *testing.T) {
+		initial := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg(hnswT),
+			},
+		}
+		updated := &models.Class{
+			Class: "Test",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": makeVecCfg("flat"),
+			},
+		}
+		err := p.validateNamedVectorConfigsParityAndImmutables(initial, updated)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "vector index type of vector")
 	})
 }

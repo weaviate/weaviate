@@ -290,11 +290,11 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties)
+	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties, selection)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
@@ -311,11 +311,21 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
+func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.SetAsyncReplicationState(ctx, config, enabled)
+	return l.shard.enableAsyncReplication(ctx, config)
+}
+
+func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		return nil
+	}
+	return l.shard.disableAsyncReplication(ctx)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
@@ -471,25 +481,49 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded filterable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketSearchableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded searchable index for %s property: %w", prop.Name, err)
 			}
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := l.shard.removeBucketDir(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			err := l.shard.removeDirIfExists(l.pathLSM(), helpers.BucketRangeableFromPropNameLSM(prop.Name))
 			if err != nil {
 				return fmt.Errorf("cannot remove unloaded rangeable index for %s property: %w", prop.Name, err)
 			}
 		}
 		return nil
 	})
+}
+
+func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
+	if l.isLoaded() {
+		return l.shard.DropVectorIndex(ctx, targetVector)
+	} else {
+		return l.dropUnloadedVectorIndex(targetVector)
+	}
+}
+
+func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
+	// Shard is not loaded — remove files directly from disk. Delegate to the
+	// shared helper so file path logic is defined in one place.
+	if err := newVectorDropIndexHelper().removeVectorIndexFiles(l.shardOpts.index.path(), l.shardOpts.name, targetVector); err != nil {
+		return err
+	}
+
+	// Remove the index checkpoint entry for this vector.
+	if l.shardOpts.indexCheckpoints != nil {
+		if err := l.shardOpts.indexCheckpoints.Delete(l.ID(), targetVector); err != nil {
+			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+		}
+	}
+	return nil
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -539,7 +573,7 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 	return l.shard.SetPropertyLengths(props)
 }
 
-func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
 }
@@ -617,6 +651,11 @@ func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *Ve
 	return l.shard.ForEachVectorQueue(f)
 }
 
+func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
+	l.mustLoad()
+	return l.shard.ForEachGeoQueue(f)
+}
+
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -673,6 +712,13 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
+}
+
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CompareDigests(ctx, sourceDigests)
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {

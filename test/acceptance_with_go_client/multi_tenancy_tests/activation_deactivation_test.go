@@ -25,10 +25,12 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestActivationDeactivation(t *testing.T) {
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	cleanup := func() {

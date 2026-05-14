@@ -67,6 +67,7 @@ type Telemeter struct {
 // pushInterval defaults to DefaultTelemetryPushInterval if zero.
 func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
+	telemetryEnabled bool,
 ) *Telemeter {
 	if consumerURL == "" {
 		consumerURL = DefaultTelemetryConsumerURL
@@ -84,7 +85,7 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		consumer:          consumerURL,
 		pushInterval:      pushInterval,
 		clientTracker:     NewClientTracker(logger),
-		cloudInfoHelper:   newCloudInfoHelper(logger),
+		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
 	}
 	return tel
 }

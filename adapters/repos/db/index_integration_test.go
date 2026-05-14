@@ -316,12 +316,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	tenantName := ""
-	if index.partitioningEnabled {
-		tenantName = shard.Name()
-	}
-
-	err := index.updateShardStatus(ctx, tenantName, shard.Name(), storagestate.StatusReadOnly.String(), 0)
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -333,12 +328,7 @@ func TestIndex_DropReadOnlyEmptyIndex_MultiTenant(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShardMultiTenant(t, ctx, class.Class)
 
-	tenantName := ""
-	if index.partitioningEnabled {
-		tenantName = shard.Name()
-	}
-
-	err := index.updateShardStatus(ctx, tenantName, shard.Name(), storagestate.StatusReadOnly.String(), 0)
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -603,12 +593,11 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
 	index, err := NewIndex(testCtx(), IndexConfig{
-		EnableLazyLoadShards:    true,
-		RootPath:                dirName,
-		ClassName:               schema.ClassName(class.Class),
-		ReplicationFactor:       1,
-		ShardLoadLimiter:        loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		AsyncReplicationEnabled: true,
+		EnableLazyLoadShards: true,
+		RootPath:             dirName,
+		ClassName:            schema.ClassName(class.Class),
+		ReplicationFactor:    1,
+		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)

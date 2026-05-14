@@ -143,8 +143,8 @@ func (f *fakeSchemaManager) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryCollectionsCount() (int, error) {
-	args := f.Called()
+func (f *fakeSchemaManager) QueryCollectionsCount(namespace string) (int, error) {
+	args := f.Called(namespace)
 	return args.Get(0).(int), args.Error(1)
 }
 

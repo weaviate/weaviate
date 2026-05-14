@@ -53,6 +53,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
+	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
+		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
+	}
+
 	metrics, err := NewMetrics(index.logger, promMetrics, string(index.Config.ClassName), shardName)
 	if err != nil {
 		return nil, fmt.Errorf("init shard %q metrics: %w", shardName, err)

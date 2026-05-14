@@ -62,6 +62,8 @@ const (
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
+
+	DefaultNamespaceCleanupInterval = 30 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -127,6 +129,8 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
+		v := false
+		config.EnableLazyLoadShards = &v
 	}
 
 	// Lazy load shard count threshold for auto-detection
@@ -141,7 +145,8 @@ func FromEnv(config *Config) error {
 		}
 		config.LazyLoadShardCountThreshold = asInt
 		if config.LazyLoadShardCountThreshold == 0 {
-			config.EnableLazyLoadShards = true
+			v := true
+			config.EnableLazyLoadShards = &v
 		}
 	} else {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
@@ -226,6 +231,13 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if err := parser.ParseDynamicIntWithValidation("EXPORT_PARALLELISM",
+		DefaultExportParallelism,
+		parser.ValidateIntGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[int]) { config.ExportParallelism = val }); err != nil {
+		return err
+	}
+
 	cptParser := newCollectionPropsTenantsParser()
 
 	// variable expects string in format:
@@ -268,18 +280,25 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 		var (
-			skipClientCheck bool
-			issuer          string
-			clientID        string
-			scopes          []string
-			userClaim       string
-			groupsClaim     string
-			certificate     string
-			jwksUrl         string
+			skipClientCheck      bool
+			issuer               string
+			clientID             string
+			scopes               []string
+			userClaim            string
+			groupsClaim          string
+			namespaceClaim       string
+			globalPrincipalClaim string
+			certificate          string
+			jwksUrl              string
 		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			skipClientCheck = true
+		}
+
+		var skipTLSVerify bool
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY")) {
+			skipTLSVerify = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
@@ -302,6 +321,14 @@ func FromEnv(config *Config) error {
 			groupsClaim = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_NAMESPACE_CLAIM"); v != "" {
+			namespaceClaim = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM"); v != "" {
+			globalPrincipalClaim = v
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
 			certificate = v
 		}
@@ -316,8 +343,11 @@ func FromEnv(config *Config) error {
 		config.Authentication.OIDC.Scopes = configRuntime.NewDynamicValue(scopes)
 		config.Authentication.OIDC.UsernameClaim = configRuntime.NewDynamicValue(userClaim)
 		config.Authentication.OIDC.GroupsClaim = configRuntime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.NamespaceClaim = configRuntime.NewDynamicValue(namespaceClaim)
+		config.Authentication.OIDC.GlobalPrincipalClaim = configRuntime.NewDynamicValue(globalPrincipalClaim)
 		config.Authentication.OIDC.Certificate = configRuntime.NewDynamicValue(certificate)
 		config.Authentication.OIDC.JWKSUrl = configRuntime.NewDynamicValue(jwksUrl)
+		config.Authentication.OIDC.SkipTLSVerify = configRuntime.NewDynamicValue(skipTLSVerify)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -543,6 +573,16 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
+	defaultVectorIndexType := ""
+	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
+		defaultVectorIndexType = strings.ToLower(v)
+		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
+		if !slices.Contains(validTypes, defaultVectorIndexType) {
+			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
+		}
+	}
+	config.DefaultVectorIndexType = configRuntime.NewDynamicValue(defaultVectorIndexType)
+
 	defaultShardingCount := 0
 	if err := parseNonNegativeInt(
 		"DEFAULT_SHARDING_COUNT",
@@ -620,6 +660,8 @@ func FromEnv(config *Config) error {
 	if err := config.parseCORSConfig(); err != nil {
 		return err
 	}
+
+	config.parseExportConfig()
 
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
@@ -896,7 +938,27 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// MCP Server Configuration
+	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
+	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
+		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+	}
+	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
+		config.MCP.ConfigPath = v
+	}
+
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
+
+	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
+		DefaultNamespaceCleanupInterval,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -910,14 +972,155 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseInt(
+		"REPLICATION_MAXIMUM_FACTOR",
+		func(val int) { config.Replication.MaximumFactor = val },
+		DefaultMaximumReplicationFactor,
+	); err != nil {
+		return err
+	}
+
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
-	if err := parsePositiveInt(
-		"ASYNC_REPLICATION_CLUSTER_MAX_WORKERS",
+	if err := parseIntVerify(
+		"ASYNC_REPLICATION_SCHEDULER_WORKERS",
+		DefaultAsyncReplicationSchedulerWorkers,
 		func(val int) {
-			config.Replication.AsyncReplicationClusterMaxWorkers = configRuntime.NewDynamicValue(val)
+			config.Replication.AsyncReplicationSchedulerWorkers = configRuntime.NewDynamicValue(val)
 		},
-		DefaultAsyncReplicationClusterMaxWorkers,
+		func(val int, envName string) error {
+			if val <= 0 {
+				return fmt.Errorf("%s must be > 0, got %d", envName, val)
+			}
+			if val > MaxAsyncReplicationSchedulerWorkers {
+				return fmt.Errorf("%s must be <= %d (hard channel-buffer ceiling), got %d",
+					envName, MaxAsyncReplicationSchedulerWorkers, val)
+			}
+			return nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"ASYNC_REPLICATION_HASHTREE_INIT_CONCURRENCY",
+		func(val int) {
+			config.Replication.AsyncReplicationHashtreeInitConcurrency = configRuntime.NewDynamicValue(val)
+		},
+		DefaultAsyncReplicationHashtreeInitConcurrency,
+	); err != nil {
+		return err
+	}
+
+	// Per-shard async replication knobs. Default 0 means "not configured at the
+	// cluster level"; per-class API override or hardcoded code defaults apply.
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_HASHTREE_HEIGHT",
+		func(val int) { config.Replication.AsyncReplicationHashtreeHeight = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationFrequency = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_FREQUENCY_WHILE_PROPAGATING",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationFrequencyWhilePropagating = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_LOGGING_FREQUENCY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationLoggingFrequency = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_DIFF_BATCH_SIZE",
+		func(val int) { config.Replication.AsyncReplicationDiffBatchSize = configRuntime.NewDynamicValue(val) },
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationDiffPerNodeTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPrePropagationTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PROPAGATION_TIMEOUT",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPropagationTimeout = configRuntime.NewDynamicValue(val)
+		},
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_LIMIT",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationLimit = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_CONCURRENCY",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationConcurrency = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveIntOrZero(
+		"ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE",
+		func(val int) {
+			config.Replication.AsyncReplicationPropagationBatchSize = configRuntime.NewDynamicValue(val)
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration(
+		"ASYNC_REPLICATION_PROPAGATION_DELAY",
+		func(val time.Duration) {
+			config.Replication.AsyncReplicationPropagationDelay = configRuntime.NewDynamicValue(val)
+		},
+		0,
 	); err != nil {
 		return err
 	}
@@ -925,6 +1128,8 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
+
+	config.Replication.ReplicationGRPCEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICATION_GRPC_ENABLED")))
 
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
@@ -948,10 +1153,10 @@ func FromEnv(config *Config) error {
 	{
 		waitEnv, waitEnvSet := os.LookupEnv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")
 		switch {
-		// Deprecated flag: still honored, environment always wins over auto-detection.
+		// flag: still honored, environment always wins over auto-detection.
 		case waitEnvSet:
 			config.HNSWStartupWaitForVectorCache = entcfg.Enabled(waitEnv)
-			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. Vector cache prefill is now always enabled and will match the lazy load shard configuration.")
+			logrus.Warn("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE is deprecated and will be removed in a future version. When unset, vector cache prefill behavior is controlled by the lazy load shard configuration.")
 
 		default:
 			config.HNSWStartupWaitForVectorCache = true
@@ -963,6 +1168,10 @@ func FromEnv(config *Config) error {
 		config.AsyncIndexingEnabled = true
 	}
 
+	// Free-Tier guardrail env vars. See docs/usage_limits.md for the full
+	// design (chokepoint location, supported deployment shapes, runtime
+	// override semantics). Defaults are -1 / "" / unlimited so the feature
+	// is opt-in and existing deployments are unaffected.
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {
@@ -972,6 +1181,40 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_OBJECTS_COUNT",
+		func(val int) {
+			config.UsageLimits.MaxObjectsCount = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedObjectsCount,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION",
+		func(val int) {
+			config.UsageLimits.MaxTenantsPerCollection = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedTenantsPerCollection,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION",
+		func(val int) {
+			config.UsageLimits.MaxShardsPerCollection = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedShardsPerCollection,
+	); err != nil {
+		return err
+	}
+
+	parseString("USAGE_LIMITS_ERROR_MESSAGE", func(val string) {
+		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultUsageLimitsErrorMessage)
 
 	// explicitly reset sentry config
 	sentry.Config = nil
@@ -1412,6 +1655,16 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 	return parseIntVerify(envName, defaultValue, cb, validatePositiveInt)
 }
 
+// parsePositiveIntOrZero parses envName as a positive integer and invokes cb
+// with the result. When the variable is unset, cb is called with 0 as an
+// explicit "not configured" sentinel so that callers wrapping the value in a
+// DynamicValue always receive an initialized pointer. Validation (must be >0)
+// is only applied when the env var is explicitly set; a zero default is
+// intentional and means "fall through to the per-class or code default".
+func parsePositiveIntOrZero(envName string, cb func(val int)) error {
+	return parseIntVerify(envName, 0, cb, validatePositiveInt)
+}
+
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, validateNonNegativeInt)
 }
@@ -1434,21 +1687,25 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	return nil
 }
 
-// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration,
-// applies a default when unset, and validates it is > 0.
+// parsePositiveDuration parses an environment variable as time.Duration using time.ParseDuration
+// and applies defaultValue when the variable is unset. Validation (must be > 0) only applies
+// when the env var is explicitly set; defaultValue may be 0 as an explicit "not configured"
+// sentinel. The callback is always called so that callers that wrap the value in a DynamicValue
+// pointer always get an initialized pointer. Callers that use DynamicValue treat a Get() result
+// of 0 as "fall through to the per-class or code default".
 func parsePositiveDuration(envName string, cb func(val time.Duration), defaultValue time.Duration) error {
-	asDuration := defaultValue
 	if v := os.Getenv(envName); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("parse %s as duration: %w", envName, err)
 		}
-		asDuration = d
+		if d <= 0 {
+			return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, d)
+		}
+		cb(d)
+		return nil
 	}
-	if asDuration <= 0 {
-		return fmt.Errorf("%s must be a duration greater than 0. Got: %v", envName, asDuration)
-	}
-	cb(asDuration)
+	cb(defaultValue)
 	return nil
 }
 
@@ -1517,10 +1774,24 @@ const (
 	DefaultGRPCPort                            = 50051
 	DefaultGRPCMaxMsgSize                      = 104858000 // 100 * 1024 * 1024 + 400
 	DefaultGRPCMaxOpenConns                    = 100
+	DefaultMCPEnabled                          = false
+	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
-	DefaultAsyncReplicationClusterMaxWorkers   = 15
-	DefaultMaximumAllowedCollectionsCount      = -1 // unlimited
+	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
+	DefaultAsyncReplicationSchedulerWorkers    = 10
+	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
+	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
+	// scaleDownCh) are all sized relative to this value; exceeding it requires
+	// a code change, so we enforce it at config parse time rather than silently
+	// capping.
+	MaxAsyncReplicationSchedulerWorkers            = 100
+	DefaultAsyncReplicationHashtreeInitConcurrency = 100
+	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
@@ -1531,6 +1802,18 @@ const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
+
+// parseString reads a string env var, applying defaultValue when unset.
+// Mirrors the parseInt family but for plain strings; no validation hook
+// here on purpose — callers (e.g. Config.Validate()) are the right place
+// to enforce semantic rules so all errors surface together at startup.
+func parseString(envName string, cb func(val string), defaultValue string) {
+	if v := os.Getenv(envName); v != "" {
+		cb(v)
+		return
+	}
+	cb(defaultValue)
+}
 
 func parseStringList(varName string, cb func(val []string), defaultValue []string) {
 	if v := os.Getenv(varName); v != "" {
@@ -1888,4 +2171,24 @@ func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []strin
 		}
 	}
 	return uniqueA
+}
+
+func (c *Config) parseExportConfig() {
+	if v, ok := os.LookupEnv("EXPORT_ENABLED"); ok {
+		c.Export.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(v))
+	} else if c.Export.Enabled == nil {
+		c.Export.Enabled = configRuntime.NewDynamicValue(false)
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_BUCKET"); ok {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultBucket == nil {
+		c.Export.DefaultBucket = configRuntime.NewDynamicValue("")
+	}
+
+	if v, ok := os.LookupEnv("EXPORT_DEFAULT_PATH"); ok {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue(strings.TrimSpace(v))
+	} else if c.Export.DefaultPath == nil {
+		c.Export.DefaultPath = configRuntime.NewDynamicValue("")
+	}
 }

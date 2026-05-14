@@ -36,6 +36,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -44,6 +45,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -54,6 +56,7 @@ import (
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
+	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -73,6 +76,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -125,6 +129,7 @@ import (
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	moddatabricks "github.com/weaviate/weaviate/modules/text2vec-databricks"
+	moddigitalocean "github.com/weaviate/weaviate/modules/text2vec-digitalocean"
 	modtext2vecgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
@@ -153,6 +158,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	namespacecleanup "github.com/weaviate/weaviate/usecases/namespace_cleanup"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -160,6 +167,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -379,7 +387,88 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	restReplicationClient, err := clients.NewReplicationClient(appState.ClusterHttpClient)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").Fatalf("failed to create replication client: %v", err)
+	}
+
+	// Set up gRPC connection manager (needed for both file replication and replication gRPC client)
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+
+	var creds credentials.TransportCredentials
+	useTLS := len(grpcConfig.CertFile) > 0
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	grpcDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if authConfig.BasicAuth.Enabled() {
+		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
+		grpcDialOpts = append(grpcDialOpts,
+			grpc.WithChainUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
+			grpc.WithChainStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
+		)
+	}
+
+	maxSize := clusterapigrpc.GetMaxMessageSize(appState)
+	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(appState)
+	grpcDialOpts = append(grpcDialOpts,
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxSize),
+			grpc.MaxCallSendMsgSize(maxSize),
+		),
+		grpc.WithInitialWindowSize(int32(initialConnWindowSize)),
+		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
+		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
+		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
+	)
+
+	grpcConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		metricsRegisterer, appState.Logger, grpcDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create gRPC connection manager")
+	}
+	appState.GRPCConnManager = grpcConnManager
+
+	// Create replication-specific ConnManager with retry interceptor.
+	// The base grpcConnManager (no retry) is used for file-replication;
+	// the replConnManager adds retry on top for replication RPCs.
+	replRetryInterceptor := grpc_retry.UnaryClientInterceptor(
+		grpc_retry.WithMax(9),
+		grpc_retry.WithBackoff(grpc_retry.BackoffExponentialWithJitter(100*time.Millisecond, 0.1)),
+		grpc_retry.WithCodes(codes.Internal, codes.Unavailable, codes.ResourceExhausted),
+	)
+	replDialOpts := make([]grpc.DialOption, len(grpcDialOpts)+1)
+	copy(replDialOpts, grpcDialOpts)
+	replDialOpts[len(grpcDialOpts)] = grpc.WithChainUnaryInterceptor(replRetryInterceptor)
+
+	replMetricsReg := prometheus.WrapRegistererWithPrefix("repl_", metricsRegisterer)
+	replConnManager, err := grpcconn.NewConnManager(
+		appState.ServerConfig.Config.GRPC.MaxOpenConns,
+		appState.ServerConfig.Config.GRPC.IdleConnTimeout,
+		replMetricsReg, appState.Logger, replDialOpts...)
+	if err != nil {
+		appState.Logger.WithField("action", "startup").
+			WithError(err).
+			Fatal("failed to create replication gRPC connection manager")
+	}
+
+	appState.ReplGRPCConnManager = replConnManager
+
+	// Create switch replication client (gRPC or REST based on replication_grpc_enabled runtime config)
+	grpcReplicationClient := clients.NewGRPCReplicationClient(replConnManager)
+	replicationClient := clients.NewSwitchReplicationClient(
+		grpcReplicationClient,
+		restReplicationClient,
+		appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled.Get,
+	)
 	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
@@ -426,9 +515,22 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{
-			MinimumFactor:                     1,
-			AsyncReplicationDisabled:          appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
-			AsyncReplicationClusterMaxWorkers: appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers,
+			MinimumFactor:                             1,
+			AsyncReplicationDisabled:                  appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationSchedulerWorkers:          appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers,
+			AsyncReplicationHashtreeInitConcurrency:   appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency,
+			AsyncReplicationHashtreeHeight:            appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight,
+			AsyncReplicationFrequency:                 appState.ServerConfig.Config.Replication.AsyncReplicationFrequency,
+			AsyncReplicationFrequencyWhilePropagating: appState.ServerConfig.Config.Replication.AsyncReplicationFrequencyWhilePropagating,
+			AsyncReplicationLoggingFrequency:          appState.ServerConfig.Config.Replication.AsyncReplicationLoggingFrequency,
+			AsyncReplicationDiffBatchSize:             appState.ServerConfig.Config.Replication.AsyncReplicationDiffBatchSize,
+			AsyncReplicationDiffPerNodeTimeout:        appState.ServerConfig.Config.Replication.AsyncReplicationDiffPerNodeTimeout,
+			AsyncReplicationPrePropagationTimeout:     appState.ServerConfig.Config.Replication.AsyncReplicationPrePropagationTimeout,
+			AsyncReplicationPropagationTimeout:        appState.ServerConfig.Config.Replication.AsyncReplicationPropagationTimeout,
+			AsyncReplicationPropagationLimit:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationLimit,
+			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
+			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
+			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -461,6 +563,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+	// Construct the usage-limits Manager now that its ObjectCounter (the
+	// DB) exists, then install it on the DB so each Index inherits it
+	// when loaded (init.go) or created at runtime (migrator.go). Both
+	// must happen *before* WaitForStartup loads the existing indices.
+	// See docs/usage_limits.md.
+	appState.UsageLimits = usagelimits.NewManager(usagelimits.Config{
+		ErrorMessage:    appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		MaxObjectsCount: appState.ServerConfig.Config.UsageLimits.MaxObjectsCount,
+	}, repo)
+	repo.SetUsageLimits(appState.UsageLimits)
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
@@ -515,58 +627,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules, appState.ServerConfig.Config.DefaultQuantization, appState.ServerConfig.Config.DefaultShardingCount)
 
-	grpcConfig := appState.ServerConfig.Config.GRPC
-	authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
-
-	var creds credentials.TransportCredentials
-
-	useTLS := len(grpcConfig.CertFile) > 0
-
-	if useTLS {
-		creds = credentials.NewClientTLSFromCert(nil, "")
-	} else {
-		creds = insecure.NewCredentials() // use insecure credentials for testing
-	}
-
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-
-	if authConfig.BasicAuth.Enabled() {
-		authHeader := grpcconn.BasicAuthHeader(authConfig.BasicAuth.Username, authConfig.BasicAuth.Password)
-		opts = append(opts,
-			grpc.WithUnaryInterceptor(grpcconn.BasicAuthUnaryInterceptor(authHeader)),
-			grpc.WithStreamInterceptor(grpcconn.BasicAuthStreamInterceptor(authHeader)),
-		)
-	}
-
-	maxSize := clusterapigrpc.GetMaxMessageSize(appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize)
-	initialConnWindowSize := clusterapigrpc.GetInitialConnWindowSize(
-		appState.ServerConfig.Config.ReplicationEngineFileCopyChunkSize,
-		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers,
-	)
-
-	opts = append(opts,
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(maxSize),
-			grpc.MaxCallSendMsgSize(maxSize),
-		),
-		grpc.WithInitialWindowSize(int32(maxSize)),
-		grpc.WithInitialConnWindowSize(int32(initialConnWindowSize)),
-		grpc.WithReadBufferSize(clusterapigrpc.READ_BUFFER_SIZE),
-		grpc.WithWriteBufferSize(clusterapigrpc.WRITE_BUFFER_SIZE),
-	)
-
-	grpcMaxOpenConns := appState.ServerConfig.Config.GRPC.MaxOpenConns
-	grpcIdleConnTimeout := appState.ServerConfig.Config.GRPC.IdleConnTimeout
-
-	grpcConnManager, err := grpcconn.NewConnManager(grpcMaxOpenConns, grpcIdleConnTimeout,
-		metricsRegisterer, appState.Logger, opts...)
-	if err != nil {
-		appState.Logger.WithField("action", "startup").
-			WithError(err).
-			Fatal("failed to create gRPC connection manager")
-	}
-	appState.GRPCConnManager = grpcConnManager
-
 	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
 		clientConn, err := appState.GRPCConnManager.GetConn(address)
 		if err != nil {
@@ -579,6 +639,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, nodeSelector,
 		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, nodeName, appState.Logger)
+
+	namespacesController := appState.NamespacesController
 
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
@@ -612,6 +674,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AuthzController:                 appState.AuthzController,
 		RBAC:                            appState.RBAC,
 		DynamicUserController:           appState.APIKey.Dynamic,
+		NamespacesController:            namespacesController,
+		NamespacesEnabled:               appState.ServerConfig.Config.Namespaces.Enabled,
 		ReplicaCopier:                   replicaCopier,
 		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers:     appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
@@ -681,9 +745,12 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	// Create export participant early so the cluster API server can register it
 	exportClient := clients.NewClusterExports(appState.ClusterHttpClient)
+	appState.ExportMetrics = exportusecase.NewExportMetrics(prometheus.DefaultRegisterer)
 	appState.ExportParticipant = exportusecase.NewParticipant(
 		appState.DB, appState.Modules, appState.Logger,
 		exportClient, appState.Cluster, appState.Cluster.LocalName(),
+		appState.ExportMetrics,
+		appState.ServerConfig.Config.ExportParallelism,
 	)
 
 	appState.InternalServer = clusterapi.NewServer(appState)
@@ -744,7 +811,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// this sleep was used to block GraphQL and give time to RAFT to start.
 	time.Sleep(2 * time.Second)
 
-	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig, appState.Authorizer,
+	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig,
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
@@ -788,6 +855,17 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
+	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
+		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
+
+	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
+		appState.NamespacesController,
+		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
+		appState.ClusterService.Raft,
+		appState.ClusterService.IsLeader,
+		appState.Logger,
+	)
+
 	enterrors.GoWrapper(func() {
 		l := appState.Logger.WithField("action", "startup")
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
@@ -795,7 +873,36 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			return
 		}
 		l.Info("Configuring crons")
-		appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator)
+		if err := appState.Crons.Init(appState.ClusterService, appState.ObjectTTLCoordinator, namespaceCleanupCoordinator); err != nil {
+			l.WithError(err).Fatal("Configuring crons failed")
+		}
+	}, appState.Logger)
+
+	// Namespace startup invariant: verify the NAMESPACES_ENABLED flag is
+	// compatible with cluster state (schema classes + namespace entities).
+	// Runs after the meta store is ready so both sources are authoritative;
+	// placed in a goroutine to avoid blocking other init work that does not
+	// depend on the meta store. Fatals on mismatch — a misconfigured cluster
+	// must not come up.
+	enterrors.GoWrapper(func() {
+		l := appState.Logger.WithField("action", "startup")
+		if err := metaStoreReady.waitForMetaStore(); err != nil {
+			l.WithError(err).Fatal("meta store failed to become ready; cannot verify namespace startup invariants")
+		}
+		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
+		var classNames []string
+		if schemaSnapshot.Objects != nil {
+			for _, c := range schemaSnapshot.Objects.Classes {
+				classNames = append(classNames, c.Class)
+			}
+		}
+		if err := enforceNamespaceStartupInvariants(
+			appState.ServerConfig.Config.Namespaces.Enabled,
+			classNames,
+			appState.ClusterService.NamespaceCount(),
+		); err != nil {
+			l.Fatal(err)
+		}
 	}, appState.Logger)
 
 	configureServer = makeConfigureServer(appState)
@@ -898,6 +1005,43 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
+// enforceNamespaceStartupInvariants decides whether the current cluster state
+// is compatible with the NAMESPACES_ENABLED flag. It is a pure function so the
+// decision logic can be unit-tested without fighting os.Exit; the caller wires
+// a non-nil return to logrus.Fatal.
+//
+// A class name is considered namespace-qualified iff it contains
+// entschema.NamespaceSeparator (":"), which is forbidden in plain class names
+// by ClassNameRegexCore and locked by TestValidateClassName_RejectsNamespaceSeparator.
+func enforceNamespaceStartupInvariants(enabled bool, classNames []string, nsCount int) error {
+	var nonNamespacedCount, namespacedCount int
+	var nonNamespacedExample, namespacedExample string
+	for _, name := range classNames {
+		if strings.Contains(name, entschema.NamespaceSeparator) {
+			if namespacedCount == 0 {
+				namespacedExample = name
+			}
+			namespacedCount++
+		} else {
+			if nonNamespacedCount == 0 {
+				nonNamespacedExample = name
+			}
+			nonNamespacedCount++
+		}
+	}
+
+	switch {
+	case enabled && nonNamespacedCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
+	case !enabled && nsCount > 0:
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d existing namespace entities; this is not supported", nsCount)
+	case !enabled && namespacedCount > 0:
+		// Guards against disabling namespaces on a namespaced cluster.
+		return fmt.Errorf("NAMESPACES_ENABLED=false but cluster has %d namespace-qualified collection(s) (e.g. %q); refusing to start with inconsistent state", namespacedCount, namespacedExample)
+	}
+	return nil
+}
+
 type metaStoreReady struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -989,6 +1133,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authentication.OIDC,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Namespaces.Enabled,
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
@@ -996,12 +1141,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
-	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
-		appState.Logger, appState.ClusterHttpClient, appState.Cluster, appState.ObjectTTLLocalStatus)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
+	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	setupIndexesHandlers(api, appState)
+	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
@@ -1010,10 +1155,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Modules, appState.Metrics)
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
-		appState.Metrics, appState.Logger)
+		appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
-	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
+	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)
@@ -1029,6 +1174,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger,
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
+		telemetryEnabled(appState),
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -1116,6 +1262,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// close grpc client connections
+		appState.ReplGRPCConnManager.Close()
 		appState.GRPCConnManager.Close()
 
 		// gracefully stop gRPC server
@@ -1162,7 +1309,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	startGrpcServer(grpcServer, appState)
-
+	setupMCPHandlers(api, appState, objectsManager)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
@@ -1181,6 +1328,7 @@ func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
 	return exportusecase.NewScheduler(
 		appState.Authorizer,
 		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.Export,
 		appState.DB,
 		appState.Modules,
 		appState.Logger,
@@ -1188,6 +1336,7 @@ func startExportScheduler(appState *state.State) *exportusecase.Scheduler {
 		appState.Cluster,
 		appState.Cluster.LocalName(),
 		appState.ExportParticipant,
+		appState.ExportMetrics,
 	)
 }
 
@@ -1249,6 +1398,10 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("config loaded")
 
+	// configureOIDC captures appState.NamespacesController as the
+	// classifier's nsExister, so the controller must be initialised
+	// before this call.
+	appState.NamespacesController = usecasesNamespaces.NewController(logger)
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)
@@ -1359,6 +1512,7 @@ func registerModules(appState *state.State) error {
 		modmistral.Name,
 		modtext2vecoctoai.Name,
 		modopenai.Name,
+		moddigitalocean.Name,
 		modmorph.Name,
 		modvoyageai.Name,
 		modmulti2vecvoyageai.Name,
@@ -1627,6 +1781,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[moddigitalocean.Name]; ok {
+		appState.Modules.Register(moddigitalocean.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", moddigitalocean.Name).
 			Debug("enabled module")
 	}
 
@@ -2162,8 +2324,26 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered.MaximumAllowedObjectsCount = appState.ServerConfig.Config.UsageLimits.MaxObjectsCount
+		registered.MaximumAllowedTenantsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection
+		registered.MaximumAllowedShardsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection
+		registered.UsageLimitsErrorMessage = appState.ServerConfig.Config.UsageLimits.ErrorMessage
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
-		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
+		registered.AsyncReplicationSchedulerWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers
+		registered.AsyncReplicationHashtreeInitConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency
+		registered.AsyncReplicationHashtreeHeight = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight
+		registered.AsyncReplicationFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationFrequency
+		registered.AsyncReplicationFrequencyWhilePropagating = appState.ServerConfig.Config.Replication.AsyncReplicationFrequencyWhilePropagating
+		registered.AsyncReplicationLoggingFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationLoggingFrequency
+		registered.AsyncReplicationDiffBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationDiffBatchSize
+		registered.AsyncReplicationDiffPerNodeTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationDiffPerNodeTimeout
+		registered.AsyncReplicationPrePropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPrePropagationTimeout
+		registered.AsyncReplicationPropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationTimeout
+		registered.AsyncReplicationPropagationLimit = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationLimit
+		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
+		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
+		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
+		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
@@ -2173,17 +2353,23 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
+		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.OperationalMode = appState.ServerConfig.Config.OperationalMode
+		registered.NamespaceCleanupInterval = appState.ServerConfig.Config.Namespaces.CleanupInterval
 		registered.ObjectsTTLDeleteSchedule = appState.ServerConfig.Config.ObjectsTTLDeleteSchedule
 		registered.ObjectsTTLBatchSize = appState.ServerConfig.Config.ObjectsTTLBatchSize
 		registered.ObjectsTTLPauseEveryNoBatches = appState.ServerConfig.Config.ObjectsTTLPauseEveryNoBatches
 		registered.ObjectsTTLPauseDuration = appState.ServerConfig.Config.ObjectsTTLPauseDuration
 		registered.ObjectsTTLConcurrencyFactor = appState.ServerConfig.Config.ObjectsTTLConcurrencyFactor
+		registered.ExportEnabled = appState.ServerConfig.Config.Export.Enabled
+		registered.ExportDefaultBucket = appState.ServerConfig.Config.Export.DefaultBucket
+		registered.ExportDefaultPath = appState.ServerConfig.Config.Export.DefaultPath
+		registered.ExportParallelism = appState.ServerConfig.Config.ExportParallelism
 
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			registered.OIDCIssuer = appState.ServerConfig.Config.Authentication.OIDC.Issuer
@@ -2194,6 +2380,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 			registered.OIDCScopes = appState.ServerConfig.Config.Authentication.OIDC.Scopes
 			registered.OIDCCertificate = appState.ServerConfig.Config.Authentication.OIDC.Certificate
 			registered.OIDCJWKSUrl = appState.ServerConfig.Config.Authentication.OIDC.JWKSUrl
+			registered.OIDCSkipTLSVerify = appState.ServerConfig.Config.Authentication.OIDC.SkipTLSVerify
 		}
 
 		cm, err := configRuntime.NewConfigManager(

@@ -20,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func TestRaftConfig(t *testing.T) {
@@ -157,6 +159,7 @@ func TestRaftConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.config.NamespacesController = usecasesNamespaces.NewController(tt.config.Logger)
 			store := NewFSM(tt.config, nil, nil, prometheus.NewPedanticRegistry())
 			cfg := store.raftConfig()
 			require.NotNil(t, cfg)

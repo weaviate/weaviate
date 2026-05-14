@@ -12,12 +12,17 @@
 package batch
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"time"
 
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
+
+var errReportingQueueClosed = errors.New("reporting queue closed")
 
 const OOM_WAIT_TIME = 300
 
@@ -98,67 +103,96 @@ func NewProcessingQueue() processingQueue {
 }
 
 func NewReportingQueues() *reportingQueues {
-	return &reportingQueues{
-		queues: make(map[string]reportingQueue),
-		closed: make(map[string]struct{}),
+	return &reportingQueues{}
+}
+
+// reportingQueues is a registry of per-stream reporting channels. Each stream owns its
+// own lifecycle synchronization via streamQueue, so a slow consumer on one stream does
+// not block operations on any other.
+type reportingQueues struct {
+	queues sync.Map // map[string]*streamQueue
+}
+
+// streamQueue is a per-stream reporting channel with done-channel + sends-WG semantics
+// so that close can signal in-flight senders to abort, wait for them to release, and
+// then close the underlying channel — without holding any cross-stream lock.
+type streamQueue struct {
+	ch        reportingQueue
+	done      chan struct{}
+	sendsWg   sync.WaitGroup
+	mu        sync.Mutex
+	closed    bool
+	closeOnce sync.Once
+}
+
+func newStreamQueue() *streamQueue {
+	return &streamQueue{
+		ch:   make(reportingQueue),
+		done: make(chan struct{}),
 	}
 }
 
-type reportingQueues struct {
-	lock   sync.RWMutex
-	queues map[string]reportingQueue
-	closed map[string]struct{}
+func (sq *streamQueue) send(streamCtx context.Context, r *report) error {
+	sq.mu.Lock()
+	if sq.closed {
+		sq.mu.Unlock()
+		return errReportingQueueClosed
+	}
+	sq.sendsWg.Add(1)
+	sq.mu.Unlock()
+	defer sq.sendsWg.Done()
+
+	select {
+	case sq.ch <- r:
+		return nil
+	case <-sq.done:
+		return errReportingQueueClosed
+	case <-streamCtx.Done():
+		return streamCtx.Err()
+	}
 }
 
-// Get retrieves the read queue for the given stream ID.
+func (sq *streamQueue) close() {
+	sq.closeOnce.Do(func() {
+		sq.mu.Lock()
+		sq.closed = true
+		sq.mu.Unlock()
+		close(sq.done)
+		sq.sendsWg.Wait()
+		close(sq.ch)
+	})
+}
+
+// Get returns the read end of the reporting channel for streamId.
 func (r *reportingQueues) Get(streamId string) (reportingQueue, bool) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	queue, ok := r.queues[streamId]
-	return queue, ok
+	v, ok := r.queues.Load(streamId)
+	if !ok {
+		return nil, false
+	}
+	return v.(*streamQueue).ch, true
 }
 
 func (r *reportingQueues) close(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if queue, ok := r.queues[streamId]; ok {
-		if _, alreadyClosed := r.closed[streamId]; alreadyClosed {
-			return
-		}
-		close(queue)
-		r.closed[streamId] = struct{}{}
+	if v, ok := r.queues.Load(streamId); ok {
+		v.(*streamQueue).close()
 	}
 }
 
 func (r *reportingQueues) delete(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	delete(r.queues, streamId)
-	delete(r.closed, streamId)
+	r.queues.Delete(streamId)
 }
 
-func (r *reportingQueues) send(streamId string, successes []*pb.BatchStreamReply_Results_Success, errors []*pb.BatchStreamReply_Results_Error, stats *workerStats) bool {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-	queue, ok := r.queues[streamId]
+func (r *reportingQueues) send(streamCtx context.Context, streamId string, successes []*pb.BatchStreamReply_Results_Success, errs []*pb.BatchStreamReply_Results_Error, stats *workerStats) error {
+	v, ok := r.queues.Load(streamId)
 	if !ok {
-		return false
+		return fmt.Errorf("reporting queue not found for stream ID: %s", streamId)
 	}
-	select {
-	case queue <- &report{Successes: successes, Errors: errors, Stats: stats}:
-		return true
-	case <-time.After(1 * time.Second):
-		return false
-	}
+	return v.(*streamQueue).send(streamCtx, &report{Successes: successes, Errors: errs, Stats: stats})
 }
 
 // Make initializes a reporting queue for the given stream ID if it does not already exist.
 func (r *reportingQueues) Make(streamId string) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	if _, ok := r.queues[streamId]; !ok {
-		r.queues[streamId] = make(reportingQueue)
-	}
+	r.queues.LoadOrStore(streamId, newStreamQueue())
 }
 
 type workerStats struct {

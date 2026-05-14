@@ -32,6 +32,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 	ctx := context.TODO()
 
 	s.propertyIndices = propertyspecific.Indices{}
+	s.geoQueues = make(map[string]*VectorIndexQueue)
 	if class == nil {
 		return
 	}
@@ -64,11 +65,22 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	}
 
 	for _, prop := range props {
-		if !inverted.HasAnyInvertedIndex(prop) {
+		propCopy := *prop // prevent loop variable capture
+
+		if _, ok := schema.AsNested(prop.DataType); ok {
+			// TODO aliszka:nested_filtering respect top-level HasAnyInvertedIndex for
+			// nested properties before creating buckets — currently bypassed because
+			// the interaction between top-level and per-nested-property index settings
+			// needs design discussion first (same issue tracked in objects.go).
+			eg.Go(func() error {
+				return s.createNestedPropertyBuckets(ctx, &propCopy, makeBucketOptions)
+			})
 			continue
 		}
 
-		propCopy := *prop // prevent loop variable capture
+		if !inverted.HasAnyInvertedIndex(prop) {
+			continue
+		}
 
 		eg.Go(func() error {
 			if err := s.createPropertyValueIndex(ctx, &propCopy, makeBucketOptions); err != nil {
@@ -301,18 +313,18 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 	// Remove the bucket's directory from disk
 	// If this fails after successful shutdown, we're in an inconsistent state:
 	// the bucket is removed from the store but its data remains on disk
-	if err := s.removeBucketDir(s.pathLSM(), bucketName); err != nil {
+	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
 	return nil
 }
 
-func (s *Shard) removeBucketDir(pathLSM, bucketName string) error {
-	bucketDir := filepath.Join(pathLSM, bucketName)
-	if _, err := os.Stat(bucketDir); !os.IsNotExist(err) {
-		if err := os.RemoveAll(bucketDir); err != nil {
-			return fmt.Errorf("failed to remove data for %s bucket: "+
-				"orphaned data remains at %s (manual cleanup may be required): %w", bucketName, bucketDir, err)
+func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
+	dirPath := filepath.Join(parentDir, dirName)
+	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
+		if err := os.RemoveAll(dirPath); err != nil {
+			return fmt.Errorf("failed to remove data for %s: "+
+				"orphaned data remains at %s (manual cleanup may be required): %w", dirName, dirPath, err)
 		}
 	}
 	return nil
@@ -386,7 +398,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 
 	// some datatypes are not added to the inverted index, so we can skip them here
 	switch schema.DataType(prop.DataType[0]) {
-	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeInt,
 		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
 		return nil
 	default:

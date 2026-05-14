@@ -83,6 +83,11 @@ const (
 	DefaultObjectsTTLConcurrencyFactor   = 1
 	DefaultObjectsTTLPauseEveryNoBatches = 10
 	DefaultObjectsTTLPauseDuration       = time.Minute
+
+	// DefaultExportParallelism is the number of concurrent scan workers per
+	// export. Defaults to 0 which means GOMAXPROCS at runtime. The value is
+	// dynamically configurable via runtime overrides.
+	DefaultExportParallelism = 0
 )
 
 // Flags are input options
@@ -110,6 +115,30 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
+// UsageLimitsConfig holds the env-var and runtime-overrideable usage-limit
+// knobs introduced by the Free-Tier guardrails RFC. The collection-count
+// limit lives separately on SchemaHandlerConfig for backward compatibility
+// with the pre-existing MAXIMUM_ALLOWED_COLLECTIONS_COUNT env var.
+//
+// All fields are *runtime.DynamicValue[*]; nil means "unset" (treated as
+// unlimited / default). Operators set values via env vars at startup and
+// can also override at runtime via the YAML runtime-overrides file.
+type UsageLimitsConfig struct {
+	// ErrorMessage is the operator-overridable template used to render the
+	// `message` field of the structured limit-exceeded response. Recognized
+	// placeholders are {limit} and {value}; see usagelimits.RenderTemplate.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
+	// MaxObjectsCount caps the total live object count. Negative (incl.
+	// the default -1) means unlimited.
+	MaxObjectsCount *runtime.DynamicValue[int] `json:"max_objects_count" yaml:"max_objects_count"`
+	// MaxTenantsPerCollection caps the number of tenants on a multi-tenant
+	// class. Checked at tenant create time only.
+	MaxTenantsPerCollection *runtime.DynamicValue[int] `json:"max_tenants_per_collection" yaml:"max_tenants_per_collection"`
+	// MaxShardsPerCollection caps the requested shard count of a class
+	// create request. Config-time only.
+	MaxShardsPerCollection *runtime.DynamicValue[int] `json:"max_shards_per_collection" yaml:"max_shards_per_collection"`
+}
+
 type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
@@ -118,68 +147,75 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Backup                              Backup                   `json:"backup" yaml:"backup"`
-	Name                                string                   `json:"name" yaml:"name"`
-	Debug                               bool                     `json:"debug" yaml:"debug"`
-	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
-	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
-	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
-	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
-	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
-	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
-	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
-	Origin                              string                   `json:"origin" yaml:"origin"`
-	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
-	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
-	EnableApiBasedModules               bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
-	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
-	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
-	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
-	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
-	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
-	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
-	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
-	MaximumConcurrentShardLoads         int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
-	MaximumConcurrentBucketLoads        int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
-	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	TrackVectorDimensionsInterval       time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
-	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	EnableLazyLoadShards                bool                     `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
-	LazyLoadShardCountThreshold         int                      `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
-	LazyLoadShardSizeThresholdGB        float64                  `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
-	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
-	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
-	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
-	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
-	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
-	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
-	CORS                                CORS                     `json:"cors" yaml:"cors"`
-	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
-	TelemetryURL                        string                   `json:"telemetry_url" yaml:"telemetry_url"`
-	TelemetryPushInterval               time.Duration            `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
-	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
-	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
-	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
-	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
-	HNSWGeoIndexEF                      int                      `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
-	AsyncIndexingEnabled                bool                     `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
-	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
-	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
-	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
-	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
-	ReplicationEngineFileCopyWorkers    int                      `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	HFreshEnabled                       bool                     `json:"hfresh_enabled" yaml:"hfresh_enabled"`
-	ReplicationEngineFileCopyChunkSize  int                      `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
+	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	Name                             string                   `json:"name" yaml:"name"`
+	Debug                            bool                     `json:"debug" yaml:"debug"`
+	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
+	QueryNestedCrossReferenceLimit   int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit    int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
+	Contextionary                    Contextionary            `json:"contextionary" yaml:"contextionary"`
+	Authentication                   Authentication           `json:"authentication" yaml:"authentication"`
+	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
+	Origin                           string                   `json:"origin" yaml:"origin"`
+	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
+	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
+	ModulesPath                      string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout          time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
+	AutoSchema                       AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                          cluster.Config           `json:"cluster" yaml:"cluster"`
+	Replication                      replication.GlobalConfig `json:"replication" yaml:"replication"`
+	Monitoring                       monitoring.Config        `json:"monitoring" yaml:"monitoring"`
+	GRPC                             GRPC                     `json:"grpc" yaml:"grpc"`
+	MCP                              MCP                      `json:"mcp" yaml:"mcp"`
+	Profiling                        Profiling                `json:"profiling" yaml:"profiling"`
+	ResourceUsage                    ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor        float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests     int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	MaximumConcurrentShardLoads      int                      `json:"maximum_concurrent_shard_loads" yaml:"maximum_concurrent_shard_loads"`
+	MaximumConcurrentBucketLoads     int                      `json:"maximum_concurrent_bucket_loads" yaml:"maximum_concurrent_bucket_loads"`
+	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
+	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// EnableLazyLoadShards controls lazy shard loading.
+	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
+	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.
+	EnableLazyLoadShards                *bool                  `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold         int                    `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB        float64                `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	ForceFullReplicasSearch             bool                   `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	TransferInactivityTimeout           time.Duration          `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
+	RecountPropertiesAtStartup          bool                   `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
+	ReindexSetToRoaringsetAtStartup     bool                   `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	ReindexerGoroutinesFactor           float64                `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
+	ReindexMapToBlockmaxAtStartup       bool                   `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
+	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig   `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
+	IndexMissingTextFilterableAtStartup bool                   `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
+	DisableGraphQL                      bool                   `json:"disable_graphql" yaml:"disable_graphql"`
+	AvoidMmap                           bool                   `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                   `json:"cors" yaml:"cors"`
+	DisableTelemetry                    bool                   `json:"disable_telemetry" yaml:"disable_telemetry"`
+	TelemetryURL                        string                 `json:"telemetry_url" yaml:"telemetry_url"`
+	TelemetryPushInterval               time.Duration          `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
+	HNSWStartupWaitForVectorCache       bool                   `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	HNSWVisitedListPoolMaxSize          int                    `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                    `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	HNSWAcornFilterRatio                float64                `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	HNSWGeoIndexEF                      int                    `json:"hnsw_geo_index_ef" yaml:"hnsw_geo_index_ef"`
+	AsyncIndexingEnabled                bool                   `json:"async_indexing_enabled" yaml:"async_indexing_enabled"`
+	Sentry                              *entsentry.ConfigOpts  `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
+	SchemaHandlerConfig                 SchemaHandlerConfig    `json:"schema" yaml:"schema"`
+	UsageLimits                         UsageLimitsConfig      `json:"usage_limits" yaml:"usage_limits"`
+	DistributedTasks                    DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
+	ReplicationEngineMaxWorkers         int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
+	ReplicationEngineFileCopyWorkers    int                    `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
+	HFreshEnabled                       bool                   `json:"hfresh_enabled" yaml:"hfresh_enabled"`
+	ReplicationEngineFileCopyChunkSize  int                    `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -226,6 +262,10 @@ type Config struct {
 	// New classes will be created with the default quantization
 	DefaultQuantization *runtime.DynamicValue[string] `json:"default_quantization" yaml:"default_quantization"`
 
+	// New classes will be created with this vector index type instead of HNSW.
+	// Valid values: "hnsw", "flat", "dynamic", "hfresh".
+	DefaultVectorIndexType *runtime.DynamicValue[string] `json:"default_vector_index" yaml:"default_vector_index"`
+
 	// New classes will be created with this shard count instead of the cluster node count.
 	// A value of 0 means use the cluster node count (default behavior).
 	DefaultShardingCount *runtime.DynamicValue[int] `json:"default_sharding_count" yaml:"default_sharding_count"`
@@ -246,6 +286,13 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
+	// Export configures the data export feature and its storage destination.
+	Export Export `json:"export" yaml:"export"`
+
+	// Namespaces configures cluster-level namespace support. Namespaces can
+	// only be enabled on newly bootstrapped clusters (enforced at startup).
+	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -260,11 +307,28 @@ type Config struct {
 	ObjectsTTLPauseDuration       *runtime.DynamicValue[time.Duration] `json:"objects_ttl_pause_duration" yaml:"objects_ttl_pause_duration"`
 	ObjectsTTLConcurrencyFactor   *runtime.DynamicValue[float64]       `json:"objects_ttl_concurrency_factor" yaml:"objects_ttl_concurrency_factor"`
 
+	// ExportParallelism controls the number of concurrent scan workers per
+	// export. 0 (default) means GOMAXPROCS at runtime.
+	ExportParallelism *runtime.DynamicValue[int] `json:"export_parallelism" yaml:"export_parallelism"`
+
 	// The specific mode of operation for the instance itself. Is an enum of Full, WriteOnly, ReadOnly, ScaleOut
 	OperationalMode *runtime.DynamicValue[string] `json:"operational_mode" yaml:"operational_mode"`
 
 	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
+}
+
+type MapToBlockamaxConfig struct {
+	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
+	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
+	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
+	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {
@@ -287,6 +351,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
 	}
 
+	// Namespaces are incompatible with GraphQL: the GraphQL schema does not
+	// model namespace-qualified class names. On namespace-enabled clusters the
+	// operator must disable GraphQL explicitly via DISABLE_GRAPHQL=true.
+	if c.Namespaces.Enabled && !c.DisableGraphQL {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true: GraphQL is not supported on namespace-enabled clusters")
+	}
+
+	if err := c.validateOIDCNamespaceClaims(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.Persistence.Validate(); err != nil {
 		return configErr(err)
 	}
@@ -303,7 +378,70 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateUsageLimitsReplicationLinkage(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
+}
+
+// validateOIDCNamespaceClaims requires the namespace + global-principal
+// claim env vars when NAMESPACES_ENABLED and AUTHENTICATION_OIDC_ENABLED
+// are both on, and forbids them when NAMESPACES_ENABLED is off. No-op
+// when OIDC is disabled.
+func (c *Config) validateOIDCNamespaceClaims() error {
+	if !c.Authentication.OIDC.Enabled {
+		return nil
+	}
+
+	nsClaim := dynamicString(c.Authentication.OIDC.NamespaceClaim)
+	globalClaim := dynamicString(c.Authentication.OIDC.GlobalPrincipalClaim)
+
+	if c.Namespaces.Enabled {
+		if nsClaim == "" || globalClaim == "" {
+			return fmt.Errorf("AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM are required when NAMESPACES_ENABLED=true and AUTHENTICATION_OIDC_ENABLED=true")
+		}
+		return nil
+	}
+
+	if nsClaim != "" || globalClaim != "" {
+		return fmt.Errorf("AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM must not be set when NAMESPACES_ENABLED=false")
+	}
+	return nil
+}
+
+// validateUsageLimitsReplicationLinkage enforces the RF=1 precondition for the
+// object/tenant/shard usage limits: only the RF=1 deployment shape is
+// supported, so when any of those caps is set we require
+// REPLICATION_MAXIMUM_FACTOR=1 so per-class RF cannot exceed 1. The collection
+// cap is excluded because it predates this PR and tying it would be a breaking
+// change for existing operators.
+func (c *Config) validateUsageLimitsReplicationLinkage() error {
+	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
+		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
+		dynamicIntSet(c.UsageLimits.MaxShardsPerCollection)
+	if !hasLimit {
+		return nil
+	}
+	if c.Replication.MaximumFactor != 1 {
+		return fmt.Errorf("usage limits require REPLICATION_MAXIMUM_FACTOR=1; got %d", c.Replication.MaximumFactor)
+	}
+	return nil
+}
+
+// dynamicString returns the value carried by a *DynamicValue[string], or ""
+// when the pointer itself is nil (uninitialized config).
+func dynamicString(v *runtime.DynamicValue[string]) string {
+	if v == nil {
+		return ""
+	}
+	return v.Get()
+}
+
+// dynamicIntSet reports whether dv carries a configured (>=0) value. A nil
+// DynamicValue or a negative value means "unset / unlimited".
+func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
+	return dv != nil && dv.Get() >= 0
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own
@@ -405,6 +543,12 @@ type GRPC struct {
 	MaxMsgSize      int           `json:"maxMsgSize" yaml:"maxMsgSize"`
 	MaxOpenConns    int           `json:"maxOpenConns" yaml:"maxOpenConns"`
 	IdleConnTimeout time.Duration `json:"idleConnTimeout" yaml:"idleConnTimeout"`
+}
+
+type MCP struct {
+	Enabled            bool   `json:"enabled" yaml:"enabled"`
+	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string `json:"configPath" yaml:"configPath"`
 }
 
 type Profiling struct {
@@ -551,6 +695,41 @@ type CORS struct {
 	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
 	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
 	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+// Export holds operator-level configuration for data exports.
+// Both fields support runtime overrides via the runtime config YAML
+// (using flat keys export_enabled / export_default_bucket).
+type Export struct {
+	// Enabled controls whether the export API is available. Defaults to false.
+	// Env: EXPORT_ENABLED, runtime config: export_enabled.
+	Enabled *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+
+	// DefaultBucket is the storage bucket used for exports (e.g. S3 bucket name).
+	// Not required for backends that do not use buckets (e.g. filesystem).
+	// Env: EXPORT_DEFAULT_BUCKET, runtime config: export_default_bucket.
+	DefaultBucket *runtime.DynamicValue[string] `json:"default_bucket" yaml:"default_bucket"`
+
+	// DefaultPath is the default path prefix within the bucket or filesystem for exports.
+	// Defaults to empty string (no prefix). Each backup module provides a separate
+	// export backend that does not inherit the backup path (e.g. BACKUP_S3_PATH),
+	// so this value is used directly.
+	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
+	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+}
+
+// Namespaces configures cluster-level namespace support.
+//
+// NAMESPACES_ENABLED is a cluster-wide feature flag. Once enabled on a
+// bootstrapping cluster it is the exclusive source of truth for namespace
+// existence (see cluster/namespaces). The flag must not be toggled on an
+// already-populated cluster; startup invariants refuse such configurations.
+type Namespaces struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// CleanupInterval drives the deleting-namespace sweep on the leader.
+	// NAMESPACE_CLEANUP_INTERVAL; <= 0 disables.
+	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
 }
 
 const (

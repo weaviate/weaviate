@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/namespaces"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -45,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const (
@@ -168,6 +170,9 @@ type Config struct {
 
 	DynamicUserController *apikey.DBUser
 
+	NamespacesController *usecasesNamespaces.Controller
+	NamespacesEnabled    bool
+
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
@@ -233,6 +238,9 @@ type Store struct {
 
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	dynUserManager *dynusers.Manager
+
+	// namespaceManager is responsible for applying/querying changes committed by RAFT to the namespace control-plane state
+	namespaceManager *namespaces.Manager
 
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
@@ -311,6 +319,11 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
+	var dynusersLister namespaces.DynusersNamespaceLister
+	if cfg.DynamicUserController != nil {
+		dynusersLister = cfg.DynamicUserController
+	}
+
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
@@ -328,7 +341,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		snapshotter:        snapshotter,
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
-		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
+		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
 		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
@@ -577,8 +591,13 @@ func (st *Store) Ready() bool {
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
+	if st.dbLoaded.Load() {
+		return nil
+	}
 	t := time.NewTicker(period)
 	defer t.Stop()
+	const logInterval = time.Minute
+	var lastLog time.Time
 	for {
 		select {
 		case <-close:
@@ -588,8 +607,10 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 		case <-t.C:
 			if st.dbLoaded.Load() {
 				return nil
-			} else {
+			}
+			if time.Since(lastLog) >= logInterval {
 				st.log.Info("waiting for database to be restored")
+				lastLog = time.Now()
 			}
 		}
 	}

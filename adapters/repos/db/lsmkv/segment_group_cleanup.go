@@ -475,8 +475,6 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 			filename = "segment-" + segmentId + ".db.tmp"
 		}
 		tmpSegmentPath = filepath.Join(c.sg.dir, filename)
-		scratchSpacePath := oldSegment.getPath() + "cleanup.scratch.d"
-
 		start := time.Now()
 		c.sg.logger.WithFields(logrus.Fields{
 			"action":       "lsm_cleanup",
@@ -509,7 +507,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		case StrategyReplace:
 			c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 				c.sg.makeKeyExistsOnUpperSegments(segments, startIdx, lastIdx), oldSegment.getLevel(),
-				oldSegment.getSecondaryIndexCount(), scratchSpacePath, c.sg.enableChecksumValidation)
+				oldSegment.getSecondaryIndexCount(), c.sg.enableChecksumValidation)
 			if err = c.do(shouldAbort); err != nil {
 				return false, err
 			}

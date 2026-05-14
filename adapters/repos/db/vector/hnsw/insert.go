@@ -117,11 +117,11 @@ func (h *hnsw) checkAndCompress() error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector())
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector())
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.multiVectorForNodeID)
 			}
 
 			if err == nil {
@@ -134,7 +134,7 @@ func (h *hnsw) checkAndCompress() error {
 					if singleVector {
 						compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 							func(index uint64) {
-								if data[index] == nil {
+								if len(data[index]) == 0 {
 									return
 								}
 								h.compressor.Preload(index, data[index])

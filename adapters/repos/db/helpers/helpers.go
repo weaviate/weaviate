@@ -38,6 +38,27 @@ func GetCompressedBucketName(targetVector string) string {
 	return VectorsCompressedBucketLSM
 }
 
+func GetVectorsBucketName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
+	}
+	return VectorsBucketLSM
+}
+
+func GetHNSWCommitLogDirName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))
+	}
+	return "main.hnsw.commitlog.d"
+}
+
+func GetHNSWSnapshotDirName(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s.hnsw.snapshot.d", GetVectorsBucketName(targetVector))
+	}
+	return "main.hnsw.snapshot.d"
+}
+
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.
@@ -73,6 +94,14 @@ func BucketFromPropNameMetaCountLSM(propName string) string {
 
 func TempBucketFromBucketName(bucketName string) string {
 	return bucketName + "_temp"
+}
+
+func BucketNestedFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property.nested_%s", propName)
+}
+
+func BucketNestedMetaFromPropNameLSM(propName string) string {
+	return fmt.Sprintf("property.nestedmeta_%s", propName)
 }
 
 func BucketSearchableFromPropNameLSM(propName string) string {

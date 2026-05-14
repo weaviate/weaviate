@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -425,7 +426,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
 
-	backupBackend, err := s.backends.BackupBackend(backend)
+	backupBackend, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +472,7 @@ func sortBackups(order AllBackupsOrder) func(a, b *backup.DistributedBackupDescr
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {
-	caps, err := provider.BackupBackend(backend)
+	caps, err := provider.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
 	if err != nil {
 		return coordStore{}, err
 	}
@@ -486,6 +487,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 	if err := validateID(req.ID); err != nil {
 		return nil, err
+	}
+	if req.BaseBackupID != "" {
+		if err := validateID(req.BaseBackupID); err != nil {
+			return nil, fmt.Errorf("base backup id: %w", err)
+		}
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude

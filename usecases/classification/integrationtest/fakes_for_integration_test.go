@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -451,6 +452,10 @@ func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
+func (c *fakeRemoteClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
+	return 0, nil
+}
+
 func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
@@ -473,9 +478,9 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
-	properties []string,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
+	properties []string, selection *searchparams.Selection,
+) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
+	return nil, nil, nil, nil
 }
 
 func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
@@ -641,4 +646,14 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return nil, nil
+}
+
+func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
+	return 0, nil
 }

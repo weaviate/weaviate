@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"time"
 
@@ -97,7 +98,7 @@ func NewFinder(className string,
 	}
 }
 
-// GetOne gets object which satisfies the giving consistency
+// GetOne gets object which satisfies the given consistency
 func (f *Finder) GetOne(ctx context.Context,
 	l types.ConsistencyLevel, shard string,
 	id strfmt.UUID,
@@ -131,7 +132,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, fmt.Errorf("%s %q: %w: %w", MsgCLevel, l, ErrReplicas, err)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
@@ -155,7 +156,7 @@ func (f *Finder) FindUUIDs(ctx context.Context, className, shard string,
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, fmt.Errorf("%s %q: %w: %w", MsgCLevel, l, ErrReplicas, err)
 	}
 
 	res := make(map[strfmt.UUID]struct{})
@@ -240,7 +241,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	return gr.Wait()
 }
 
-// Exists checks if an object exists which satisfies the giving consistency
+// Exists checks if an object exists which satisfies the given consistency
 func (f *Finder) Exists(ctx context.Context,
 	l types.ConsistencyLevel,
 	shard string,
@@ -258,7 +259,7 @@ func (f *Finder) Exists(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return false, fmt.Errorf("%s %q: %w: %w", MsgCLevel, l, ErrReplicas, err)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
@@ -308,7 +309,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
+		return nil, fmt.Errorf("pull shard: %w: %w", ErrReplicas, err)
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
@@ -339,45 +340,59 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
-		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
+		height := ht.Height()
+		digests := make([]hashtree.Digest, hashtree.LeavesCount(height))
 
-		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
+		discriminant := hashtree.NewBitset(1) // nodesAtLevel(0) = 1
+		discriminant.Set(0)                   // seed at root
 
-		diff.Set(0) // init comparison at root level
+		var leaf *hashtree.Bitset
 
-		for l := 0; l <= ht.Height(); l++ {
-			_, err := ht.Level(l, diff, digests)
-			if err != nil {
+		for l := 0; l <= height; l++ {
+			if _, err := ht.Level(l, discriminant, digests); err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, discriminant)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 			if len(levelDigests) == 0 {
-				// no differences were found
+				// peer agrees at this level
 				break
 			}
 
-			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
-			if levelDiffCount == 0 {
-				// no differences were found
+			nextDiscriminant, levelDiffCount, err := hashtree.LevelDiff(l, height, discriminant, digests, levelDigests)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+			}
+
+			if l == height {
+				leaf = discriminant
 				break
 			}
+			if levelDiffCount == 0 {
+				break
+			}
+			discriminant = nextDiscriminant
 		}
 
-		if diff.SetCount() == 0 {
+		if leaf == nil || leaf.SetCount() == 0 {
 			return &ShardDifferenceReader{
 				TargetNodeName:    targetNodeName,
 				TargetNodeAddress: targetNodeAddress,
 			}, ErrNoDiffFound
 		}
 
+		rangeReader, err := ht.NewRangeReader(leaf)
+		if err != nil {
+			return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
+		}
+
 		return &ShardDifferenceReader{
 			TargetNodeName:    targetNodeName,
 			TargetNodeAddress: targetNodeAddress,
-			RangeReader:       ht.NewRangeReader(diff),
+			RangeReader:       rangeReader,
 		}, nil
 	}
 
@@ -415,7 +430,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		})
 	}
 
-	localHostAddr, _ := f.nodeResolver.NodeHostname(localNodeName)
+	localHostAddr, ok := f.nodeResolver.NodeHostname(localNodeName)
+	if !ok {
+		return nil, fmt.Errorf("could not resolve hostname for local node %q: class %q shard %q", localNodeName, f.class, shardName)
+	}
 
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
@@ -448,6 +466,14 @@ func (f *Finder) DigestObjectsInRange(ctx context.Context,
 	return f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 }
 
+// CompareDigests is a thin transport wrapper around the remote shard's
+// comparator; see RClient.CompareDigests for the contract.
+func (f *Finder) CompareDigests(ctx context.Context,
+	shardName string, host string, digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return f.client.CompareDigests(ctx, host, f.class, shardName, digests)
+}
+
 // Overwrite specified object with most recent contents
 func (f *Finder) Overwrite(ctx context.Context,
 	host, index, shard string, xs []*objects.VObject,
@@ -457,4 +483,78 @@ func (f *Finder) Overwrite(ctx context.Context,
 
 func (f *Finder) LocalNodeName() string {
 	return f.nodeName
+}
+
+// CountObjects returns an aggregated object count from all replicas the shard exists on.
+func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.ConsistencyLevel) (int, error) {
+	c := NewReadCoordinator[int](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+
+	// NOTE(dyma): Why do we need to pass both the context and the timeout?
+	results, _, err := c.Pull(ctx, cl, func(ctx context.Context, host string, _ bool) (int, error) {
+		count, err := f.client.cl.CountObjects(ctx, host, f.class, shard)
+		if err != nil {
+			f.logger.WithFields(logrus.Fields{
+				"shard": shard,
+				"host":  host,
+			}).Infof("poll object count for count(*) aggregation: %v", err)
+			return 0, err
+		}
+		return count, nil
+	}, "", time.Minute)
+	if err != nil {
+		return 0, nil
+	}
+
+	// Fan in results from all concurrent Pull requests. Results with
+	// errors (e.g. shard not yet loaded on a follower) are excluded
+	// from reconciliation so they don't poison the count with 0.
+	var counts []int
+	for r := range results {
+		if r.Err != nil {
+			continue
+		}
+		counts = append(counts, r.Value)
+	}
+
+	if len(counts) == 0 {
+		return 0, fmt.Errorf("no nodes reported object count for shard %q", shard)
+	}
+
+	return reconcile(counts), nil
+}
+
+// reconcile aggregates counts with the appropriate statistic, such that
+// the returned values is always contained within the input set. If possible,
+// we try to calculate the mode.
+//
+// If we can't calculate the mode, we fallback to median. We can only calculate
+// the true median for an odd-numbered set. If a set has even number of elemets
+// of which none is a mode, then the median would be calculated as an average,
+// which is not contained in the set. In that case we pick the lower value of
+// the two "candidate" values.
+func reconcile(counts []int) int {
+	var mode int
+	var modeHits int
+	hits := make(map[int]int)
+
+	var median int
+	medianIdx := len(counts) / 2
+
+	slices.Sort(counts)
+	for i, count := range counts {
+		hits[count]++
+		if h := hits[count]; h > modeHits {
+			mode = count
+			modeHits = h
+		}
+
+		if i == medianIdx {
+			median = count
+		}
+	}
+
+	if modeHits > 1 {
+		return mode
+	}
+	return median
 }

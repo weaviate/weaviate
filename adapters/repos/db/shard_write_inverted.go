@@ -25,6 +25,9 @@ func isPropertyForLength(dt schema.DataType) bool {
 	switch dt {
 	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
 		return false
+	case schema.DataTypeObject, schema.DataTypeObjectArray:
+		// Nested types have dedicated nested buckets; no flat length bucket is created.
+		return false
 	default:
 		return true
 	}
@@ -49,9 +52,14 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 	if s.index.invertedIndexConfig.IndexNullState {
 		for _, prop := range c.Properties {
 			dt := schema.DataType(prop.DataType[0])
-			// some datatypes are not added to the inverted index, so we can skip them here
-			if dt == schema.DataTypeGeoCoordinates || dt == schema.DataTypePhoneNumber || dt == schema.DataTypeBlob {
+			switch dt {
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeBlobHash:
+				// not added to the inverted index
 				continue
+			case schema.DataTypeObject, schema.DataTypeObjectArray:
+				// nested types use dedicated nested buckets — no flat null/length buckets are created for them
+				continue
+			default:
 			}
 
 			// Add props as nil props if
@@ -78,19 +86,19 @@ func (s *Shard) analyzeObjectCommon(object *storobj.Object, c *models.Class) (ma
 	return schemaMap, nilProps, nil
 }
 
-func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
 	if c == nil {
-		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
+		return nil, nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
 	schemaMap, nilProps, err := s.analyzeObjectCommon(object, c)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
-	return props, nilProps, err
+	props, nestedProps, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
+	return props, nilProps, nestedProps, err
 }
 
 // AnalyzeObjectForMigration is like AnalyzeObject but captures raw (pre-tokenization)
@@ -133,6 +141,6 @@ func (s *Shard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
 	if len(overlay) > 0 {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
-	props, err := analyzer.Object(schemaMap, c.Properties, object.ID())
+	props, _, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, err
 }

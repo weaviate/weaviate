@@ -64,6 +64,12 @@ const (
 	contextCheckInterval   = 50 // check context every 50 iterations, every iteration adds too much overhead
 )
 
+// ErrImmutable is returned by write operations on a structurally immutable
+// bucket (e.g. a snapshot bucket opened via NewSnapshotBucket). This is
+// distinct from storagestate.ErrStatusReadOnly which indicates a transient
+// operational state set by the parent shard.
+var ErrImmutable = errors.New("bucket is immutable")
+
 // memtableNames is used for error messages and metrics when iterating memtables
 var memtableNames = [2]string{"active_memtable", "flushing_memtable"}
 
@@ -152,6 +158,16 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
+	// Canonical class name carried by the bucket. Required for any bucket
+	// whose readers go through the storobj decoders (the objects bucket); set
+	// via WithClassName at creation time so the decoders can stamp the
+	// canonical class on every decoded object instead of trusting the (no
+	// longer authoritative) on-disk class-name field. ClassName() returns an
+	// error when this is empty — buckets that do not hold storobj payloads
+	// (inverted, prop-length, etc.) leave it unset because those readers
+	// never call ClassName() in the first place.
+	className string
+
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
 	// without discontinuities in segment levels.
@@ -194,6 +210,16 @@ type Bucket struct {
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 
 	skipSecondaryKeyCheck bool
+
+	// immutable prevents all write operations. Set via WithImmutable, used by
+	// snapshot buckets to guarantee they never modify data. This is distinct
+	// from the shard-level read-only status (storagestate.StatusReadOnly)
+	// checked by isReadOnly().
+	immutable bool
+
+	// sequentialAccess hints the kernel (via fadvise) that segment files will
+	// be read sequentially. Set via WithSequentialAccess for snapshot buckets.
+	sequentialAccess bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -242,6 +268,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if b.strategy == unsetStrategy {
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
+	}
+
+	if !b.immutable && IsSnapshotDir(dir) {
+		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
 
 	if b.memtableResizer != nil {
@@ -297,6 +327,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepLevelCompaction:          b.keepLevelCompaction,
 			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 			writeMetadata:                b.writeMetadata,
+			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
 		}, compactionCallbacks, b, files)
 	if err != nil {
@@ -372,8 +403,12 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	i := 0
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryDisk(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -946,7 +981,10 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 		b.metrics.ObserveBucketWriteOpDuration("put", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.put(key, value, opts...)
@@ -959,7 +997,11 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // is ongoing, because the actual flush only happens once the writer count
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
-func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
+func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
+	if err := b.readOnlyErr(); err != nil {
+		return nil, nil, err
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -970,7 +1012,7 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 		active.decWriterCount()
 	}
 
-	return active, release
+	return active, release, nil
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -989,7 +1031,10 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func()) {
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, newSetEncoder().Do(values))
@@ -1008,7 +1053,10 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.append(key, []value{
@@ -1237,7 +1285,10 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.appendMapSorted(rowKey, kv)
@@ -1246,7 +1297,10 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
 // [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	for _, kv := range kvs {
@@ -1270,7 +1324,10 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	pair := MapPair{
@@ -1312,7 +1369,10 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) (err error) {
 		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
 	}()
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstone(key, opts...)
@@ -1335,7 +1395,10 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	active, release := b.getActiveMemtableForWrite()
+	active, release, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
 	defer release()
 
 	return active.setTombstoneWith(key, deletionTime, opts...)
@@ -1621,10 +1684,30 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 }
 
 func (b *Bucket) isReadOnly() bool {
+	if b.immutable {
+		return true
+	}
 	b.statusLock.Lock()
 	defer b.statusLock.Unlock()
 
 	return b.status == storagestate.StatusReadOnly
+}
+
+// readOnlyErr returns the appropriate error when the bucket is read-only, or
+// nil if the bucket is writable. This preserves the distinction between
+// structurally immutable buckets (snapshots → ErrImmutable) and operationally
+// read-only buckets (shard status → storagestate.ErrStatusReadOnly).
+func (b *Bucket) readOnlyErr() error {
+	if b.immutable {
+		return ErrImmutable
+	}
+	b.statusLock.Lock()
+	defer b.statusLock.Unlock()
+
+	if b.status == storagestate.StatusReadOnly {
+		return storagestate.ErrStatusReadOnly
+	}
+	return nil
 }
 
 // FlushAndSwitch is the main way to flush a memtable, replace it with a new
@@ -1675,6 +1758,10 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	if err := b.readOnlyErr(); err != nil {
+		return err
+	}
+
 	before := time.Now()
 	var err error
 
@@ -1895,6 +1982,21 @@ func (b *Bucket) Strategy() string {
 
 func (b *Bucket) DesiredStrategy() string {
 	return b.desiredStrategy
+}
+
+// ClassName returns the canonical class name supplied at bucket creation via
+// WithClassName. Storobj decoders use this value as the authoritative class
+// name and stamp it on every decoded object, ignoring the on-disk class-name
+// field. Buckets that do not hold storobj payloads (inverted, prop-length,
+// etc.) are not opened with WithClassName; calling ClassName() on them
+// returns an error rather than silently producing decoded objects with an
+// empty class — readers that need a class name must come from a bucket that
+// has one.
+func (b *Bucket) ClassName() (string, error) {
+	if b.className == "" {
+		return "", fmt.Errorf("bucket does not have a class name")
+	}
+	return b.className, nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

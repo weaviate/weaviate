@@ -26,6 +26,14 @@ import (
 // flipped in any case, but additionally each remaining byte also needs to be
 // flipped if the number is negative
 func LexicographicallySortableFloat64(in float64) ([]byte, error) {
+	// Normalize negative zero (-0.0) to positive zero (0.0). IEEE 754 defines
+	// -0.0 == 0.0, but their bit representations differ. Without this
+	// normalization -0.0 would encode to a byte sequence that sorts before all
+	// negative numbers, breaking equality and range filters.
+	if in == 0 && math.Signbit(in) {
+		in = 0
+	}
+
 	buf := bytes.NewBuffer(nil)
 
 	err := binary.Write(buf, binary.BigEndian, in)

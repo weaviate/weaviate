@@ -32,13 +32,6 @@ const (
 	SchemaVersionKey = "schema_version"
 )
 
-// DigestObjectsInRangeRecordLength is the size in bytes of a single binary
-// record returned by the digestsInRange endpoint. Each record encodes a UUID
-// (16 bytes, RFC-4122 binary form) followed by the object's UpdateTime (8
-// bytes, int64 big-endian). The Err and Deleted fields of RepairResponse are
-// not populated by ObjectDigestsInRange and are therefore omitted.
-const DigestObjectsInRangeRecordLength = 24
-
 // Client is used to read and write objects on replicas
 type Client interface {
 	RClient
@@ -226,8 +219,20 @@ type RClient interface {
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
 		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
 
+	// CompareDigests sends the source's local digests to the target and returns
+	// only the subset needing source-side action: objects missing on the target
+	// (UpdateTime==0 — also how target-side tombstones surface; the source then
+	// proposes an Overwrite and settles any deletion conflict per DeletionStrategy)
+	// and objects the source holds a strictly newer version of. Equal-timestamp
+	// objects are never returned (identical hashtree digests, hence already
+	// invisible to the hashtree diff that drives this call).
+	CompareDigests(ctx context.Context, host, index, shard string,
+		digests []types.RepairResponse) ([]types.RepairResponse, error)
+
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+
+	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 }
 
 // FinderClient extends RClient with consistency checks
@@ -274,6 +279,13 @@ func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairResponse, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
+}
+
+func (fc FinderClient) CompareDigests(ctx context.Context,
+	host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 
 // FullReads read full objects

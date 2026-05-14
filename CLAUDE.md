@@ -154,6 +154,9 @@ Modules implement the `Module` interface (`Name()`, `Init()`, `Type()`) and opti
 ### Startup Wiring
 All initialization happens in `adapters/handlers/rest/configure_api.go` → `MakeAppState()`: DB creation, schema manager, cluster/RAFT services, module registration, gRPC server startup, and monitoring.
 
+### Additional Resources
+Before starting on an unfamiliar area, list `docs/` to check whether a topic-specific design note exists.
+
 ## Code Conventions
 
 ### Allocation Efficiency

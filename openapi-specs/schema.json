@@ -105,6 +105,10 @@
           ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise."
         }
       },
       "required": [
@@ -307,6 +311,17 @@
             }
           }
         },
+        "namespaces": {
+          "type": "object",
+          "description": "Resources applicable for namespace actions.",
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "default": "*",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value `*` applies the permission to all namespaces."
+            }
+          }
+        },
         "action": {
           "type": "string",
           "description": "Allowed actions in weaviate.",
@@ -344,7 +359,11 @@
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "create_mcp",
+            "read_mcp",
+            "update_mcp",
+            "manage_namespaces"
           ]
         }
       },
@@ -395,6 +414,14 @@
         },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys)."
+        },
+        "isGlobalOperator": {
+          "type": "boolean",
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace."
         }
       }
     },
@@ -502,47 +529,6 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Vector"
-      }
-    },
-    "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of collection names (classes), properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classVectors": {
-            "description": "Vectorized collection (class) name.",
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "float"
-            },
-            "minItems": 300,
-            "maxItems": 300
-          },
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            },
-            "minItems": 300,
-            "maxItems": 300
-          }
-        }
       }
     },
     "Deprecation": {
@@ -764,10 +750,45 @@
         }
       }
     },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (`errorCode`, `limit`, `value`) are stable contract; the `message` text is operator-overridable via the `USAGE_LIMITS_ERROR_MESSAGE` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "type": "string",
+          "description": "Machine-stable identifier. Always `USAGE_LIMIT_EXCEEDED` for this response.",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "type": "string",
+          "description": "Which limit was hit.",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "value": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The configured threshold value (the cap, not the current count)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message rendered from the `USAGE_LIMITS_ERROR_MESSAGE` template with `{limit}` and `{value}` placeholders substituted."
+        }
+      }
+    },
     "ExportCreateRequest": {
       "description": "Request to create a new export operation",
       "type": "object",
-      "required": ["id", "file_format"],
+      "required": [
+        "id",
+        "file_format"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -776,7 +797,9 @@
         "file_format": {
           "type": "string",
           "description": "Output file format for the export.",
-          "enum": ["parquet"]
+          "enum": [
+            "parquet"
+          ]
         },
         "include": {
           "type": "array",
@@ -791,20 +814,6 @@
             "type": "string"
           },
           "description": "List of collection names to exclude from the export. Cannot be used with 'include'."
-        },
-        "config": {
-          "type": "object",
-          "description": "Backend-specific configuration",
-          "properties": {
-            "bucket": {
-              "type": "string",
-              "description": "Bucket, container, or volume name for cloud storage backends"
-            },
-            "path": {
-              "type": "string",
-              "description": "Path prefix within the bucket or filesystem"
-            }
-          }
         }
       }
     },
@@ -827,7 +836,9 @@
         "status": {
           "type": "string",
           "description": "Current status of the export",
-          "enum": ["STARTED"]
+          "enum": [
+            "STARTED"
+          ]
         },
         "startedAt": {
           "type": "string",
@@ -862,7 +873,13 @@
         "status": {
           "type": "string",
           "description": "Current status of the export",
-          "enum": ["STARTED", "TRANSFERRING", "SUCCESS", "FAILED", "CANCELED"]
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED",
+            "CANCELED"
+          ]
         },
         "startedAt": {
           "type": "string",
@@ -909,7 +926,12 @@
         "status": {
           "type": "string",
           "description": "Status of this shard's export",
-          "enum": ["TRANSFERRING", "SUCCESS", "FAILED", "SKIPPED"]
+          "enum": [
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED",
+            "SKIPPED"
+          ]
         },
         "objectsExported": {
           "type": "integer",
@@ -1045,6 +1067,17 @@
           "items": {
             "$ref": "#/definitions/TokenizerUserDictConfig"
           }
+        },
+        "stopwordPresets": {
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
+          "type": "object",
+          "x-omitempty": true,
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "type": "object"
@@ -1149,6 +1182,87 @@
         }
       }
     },
+    "TokenizeRequest": {
+      "description": "Request body for the generic tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text",
+        "tokenization"
+      ],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize.",
+          "type": "string"
+        },
+        "tokenization": {
+          "description": "The tokenization method to apply.",
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field",
+            "trigram",
+            "gse",
+            "kagome_kr",
+            "kagome_ja",
+            "gse_ch"
+          ]
+        },
+        "analyzerConfig": {
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "stopwordPresets": {
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
+          "type": "object",
+          "x-omitempty": true,
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "TokenizeResponse": {
+      "description": "Response from the tokenize endpoints. Returns `indexed` text and text used at `query` time",
+      "type": "object",
+      "properties": {
+        "indexed": {
+          "description": "The tokens as they would be stored in the inverted index.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PropertyTokenizeRequest": {
+      "description": "Request body for the property-specific tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize using the property's configured tokenization.",
+          "type": "string"
+        }
+      }
+    },
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a collection (class)",
       "properties": {
@@ -1227,78 +1341,6 @@
         "$ref": "#/definitions/SingleRef"
       },
       "type": "array"
-    },
-    "PatchDocumentObject": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        }
-      },
-      "required": [
-        "op",
-        "path"
-      ]
-    },
-    "PatchDocumentAction": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        }
-      },
-      "required": [
-        "op",
-        "path"
-      ]
     },
     "ReplicationReplicateReplicaRequest": {
       "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.",
@@ -1438,52 +1480,6 @@
         "operationIds",
         "planId",
         "collection"
-      ]
-    },
-    "ReplicationDisableReplicaRequest": {
-      "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
-      "properties": {
-        "node": {
-          "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
-          "type": "string"
-        },
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be disabled.",
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ]
-    },
-    "ReplicationDeleteReplicaRequest": {
-      "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
-      "properties": {
-        "node": {
-          "description": "The name of the Weaviate node from which the shard replica will be deleted.",
-          "type": "string"
-        },
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be deleted.",
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
       ]
     },
     "ReplicationShardReplicas": {
@@ -1704,23 +1700,12 @@
         }
       }
     },
-    "PeerUpdateList": {
-      "description": "List of known peers.",
-      "items": {
-        "$ref": "#/definitions/PeerUpdate"
-      },
-      "type": "array"
-    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. `pancake`: `7` will set the weight for the word pancake to 7 in the vectorization, whereas `w * 3` would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
     },
     "PropertySchema": {
       "description": "Names and values of an individual property. A returned response may also contain additional metadata, such as from classification or feature projection.",
-      "type": "object"
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
     "Schema": {
@@ -1741,36 +1726,6 @@
         "name": {
           "description": "Name of the schema.",
           "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "SchemaClusterStatus": {
-      "description": "Indicates the health of the schema in a cluster.",
-      "properties": {
-        "healthy": {
-          "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "error": {
-          "description": "Contains the sync check error if one occurred",
-          "type": "string",
-          "x-omitempty": true
-        },
-        "hostname": {
-          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
-          "type": "string"
-        },
-        "nodeCount": {
-          "description": "Number of nodes that participated in the sync check",
-          "type": "number",
-          "format": "int"
-        },
-        "ignoreSchemaSync": {
-          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
-          "type": "boolean",
-          "x-omitempty": false
         }
       },
       "type": "object"
@@ -1903,8 +1858,35 @@
           "type": "boolean",
           "x-nullable": true,
           "default": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
+      "type": "object"
+    },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
+          "type": "array",
+          "x-omitempty": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "stopwordPreset": {
+          "description": "Stopword preset name. Overrides the collection-level invertedIndexConfig.stopwords for this property. Only applies to properties using 'word' tokenization. Can be a built-in preset ('en', 'none') or a user-defined preset from invertedIndexConfig.stopwordPresets.",
+          "type": "string",
+          "x-omitempty": true
+        }
+      },
+      "x-omitempty": true,
       "type": "object"
     },
     "VectorConfig": {
@@ -1971,6 +1953,9 @@
           },
           "type": "array",
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         }
       },
       "type": "object"
@@ -2520,13 +2505,6 @@
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "hashtreeHeight": {
           "description": "Height of the hashtree used for diffing.",
           "type": "integer",
@@ -2543,13 +2521,6 @@
         },
         "frequencyWhilePropagating": {
           "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -3702,6 +3673,28 @@
           }
         }
       }
+    },
+    "Namespace": {
+      "type": "object",
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+      "properties": {
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "type": "string",
+          "enum": ["active", "deleting"]
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
+      }
     }
   },
   "externalDocs": {
@@ -3715,7 +3708,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.37.0-dev"
+    "version": "1.38.0-dev"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4738,6 +4731,10 @@
                   "type": "string",
                   "format": "date-time",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
+                },
+                "namespace": {
+                  "type": "string",
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only."
                 }
               }
             }
@@ -6289,6 +6286,12 @@
           "404": {
             "description": "Successful query result but no matching objects were found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
@@ -6357,6 +6360,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -6410,6 +6419,12 @@
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -6469,6 +6484,12 @@
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -6531,6 +6552,12 @@
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
@@ -6600,6 +6627,12 @@
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
@@ -6652,6 +6685,12 @@
           },
           "404": {
             "description": "Object does not exist."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -7087,6 +7126,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -7152,6 +7197,12 @@
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7227,6 +7278,12 @@
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7641,6 +7698,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -7832,6 +7895,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -7886,6 +7955,12 @@
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7946,6 +8021,58 @@
         },
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/tokenize": {
+      "post": {
+        "summary": "Tokenize text",
+        "description": "Tokenizes the provided text using the specified tokenization method. This is a stateless utility endpoint useful for debugging and understanding how text will be processed during indexing and querying. The response includes both the indexed tokens (as stored in the inverted index) and query tokens (after optional stopword removal).",
+        "operationId": "tokenize",
+        "tags": [
+          "tokenize"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed request body."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/schema": {
@@ -8036,6 +8163,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the `UsageLimitExceededResponse` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -8091,6 +8224,12 @@
           },
           "404": {
             "description": "Collection not found."
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
@@ -8462,6 +8601,133 @@
         }
       }
     },
+    "/schema/{className}/properties/{propertyName}/tokenize": {
+      "post": {
+        "summary": "Tokenize text using a property's configuration",
+        "description": "Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.",
+        "operationId": "schema.objects.properties.tokenize",
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class) containing the property.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "propertyName",
+            "description": "The name of the property whose tokenization configuration should be used.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PropertyTokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text using the property's configuration.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request body, missing required fields, or property does not have tokenization configured."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "summary": "Delete a collection's vector index.",
+        "description": "Deletes a specific vector index within a collection (`className`). The vector index to delete is identified by `vectorIndexName`.",
+        "operationId": "schema.objects.vectors.delete",
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "description": "The name of the collection (class) containing the property.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "vectorIndexName",
+            "description": "The name of the vector index.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/shards": {
       "get": {
         "summary": "Get the shards status of a collection",
@@ -8644,6 +8910,12 @@
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -9204,6 +9476,206 @@
           },
           "422": {
             "description": "Invalid delete alias request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "summary": "List namespaces",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable `manage_namespaces` permission receive an empty list (never 403).",
+        "operationId": "listNamespaces",
+        "tags": [
+          "namespaces"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "post": {
+        "summary": "Create a new namespace",
+        "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+        "operationId": "createNamespace",
+        "tags": [
+          "namespaces"
+        ],
+        "parameters": [
+          {
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "in": "path",
+            "name": "namespace_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get a namespace",
+        "description": "Retrieve details about a specific namespace by its name.",
+        "operationId": "getNamespace",
+        "tags": [
+          "namespaces"
+        ],
+        "parameters": [
+          {
+            "description": "The name of the namespace.",
+            "in": "path",
+            "name": "namespace_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a namespace",
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "operationId": "deleteNamespace",
+        "tags": [
+          "namespaces"
+        ],
+        "parameters": [
+          {
+            "description": "The name of the namespace.",
+            "in": "path",
+            "name": "namespace_id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -9783,20 +10255,6 @@
             "required": true,
             "type": "string",
             "description": "The unique identifier of the export."
-          },
-          {
-            "name": "bucket",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional bucket name where the export is stored. If not specified, uses the backend's default bucket."
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional path prefix within the bucket. If not specified, uses the backend's default path."
           }
         ],
         "responses": {
@@ -9859,20 +10317,6 @@
             "required": true,
             "type": "string",
             "description": "The unique identifier of the export to cancel."
-          },
-          {
-            "name": "bucket",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional bucket name where the export is stored."
-          },
-          {
-            "name": "path",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "description": "Optional path prefix within the bucket."
           }
         ],
         "responses": {
@@ -10149,6 +10593,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -10197,6 +10647,12 @@
           "404": {
             "description": "Classification with the given ID not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
             "schema": {
@@ -10207,6 +10663,54 @@
         "tags": [
           "classifications"
         ]
+      }
+    },
+    "/mcp": {
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "produces": [
+          "text/event-stream"
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
       }
     }
   },
@@ -10269,6 +10773,14 @@
     {
       "name": "replication",
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks."
+    },
+    {
+      "name": "mcp",
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport."
+    },
+    {
+      "name": "namespaces",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier `manage_namespaces` action."
     }
   ]
 }

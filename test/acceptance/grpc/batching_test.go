@@ -438,6 +438,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateClusterWithGRPC().
+		WithWeaviateEnv("REPLICATION_GRPC_ENABLED", "true").
+		WithWeaviateEnv("ASYNC_REPLICATION_PROPAGATION_DELAY", "100ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -496,7 +498,7 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		// Validate the number of articles created
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjects(t, clsA.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
@@ -648,12 +650,14 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		err := send(stream, batch, nil, nil)
 		require.NoError(t, err, "sending Objects over the stream should not return an error")
 
+		start := time.Now()
 		// Restart node
 		t.Logf("Stopping node %v...", node)
-		common.StopNodeAtWithTimeout(ctx, t, compose, node-1, 300*time.Second)
+		common.StopNodeAtWithTimeout(ctx, t, compose, node, 300*time.Second)
 		t.Logf("Restarting node %v...", node)
-		common.StartNodeAt(ctx, t, compose, node-1)
+		common.StartNodeAt(ctx, t, compose, node)
 		t.Log("Node was restarted successfully in time")
+		require.Less(t, time.Since(start), 300*time.Second, "Node did not restart within time")
 
 		// Setup again to allow cleanup to work in defer
 		helper.SetupClient(compose.GetWeaviateNode(node).URI())

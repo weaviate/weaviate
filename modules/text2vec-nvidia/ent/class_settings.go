@@ -56,6 +56,9 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
+	if err := cs.BaseClassSettings.ValidateBaseURL(cs.BaseURL()); err != nil {
+		return err
+	}
 
 	truncate := cs.Truncate()
 	if truncate != nil && !basesettings.ValidateSetting[string](*truncate, availableTruncates) {

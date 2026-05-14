@@ -84,7 +84,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"uuid[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -275,7 +275,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"number[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescriptions := []Countable{
@@ -454,7 +454,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -513,7 +513,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -563,7 +563,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -619,7 +619,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"SomeClass"},
 				},
 			}
-			res, err := a.Object(sch, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedUUID := []Countable{
@@ -670,7 +670,7 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		res, err := a.Object(sch, props, uuid)
+		res, _, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 
@@ -988,7 +988,7 @@ func TestAnalyzer_RawValues(t *testing.T) {
 
 	t.Run("NewAnalyzer does not capture RawValues for text", func(t *testing.T) {
 		a := NewAnalyzer(nil, "TestClass")
-		props, err := a.Object(
+		props, _, err := a.Object(
 			map[string]interface{}{"content": "hello world"},
 			[]*models.Property{textProp}, uid,
 		)
@@ -1005,7 +1005,7 @@ func TestAnalyzer_RawValues(t *testing.T) {
 
 	t.Run("NewAnalyzer does not capture RawValues for text array", func(t *testing.T) {
 		a := NewAnalyzer(nil, "TestClass")
-		props, err := a.Object(
+		props, _, err := a.Object(
 			map[string]interface{}{"tags": []string{"foo", "bar"}},
 			[]*models.Property{textArrayProp}, uid,
 		)
@@ -1022,7 +1022,7 @@ func TestAnalyzer_RawValues(t *testing.T) {
 
 	t.Run("NewAnalyzerWithRawValues captures RawValues for text", func(t *testing.T) {
 		a := NewAnalyzerWithRawValues(nil, "TestClass")
-		props, err := a.Object(
+		props, _, err := a.Object(
 			map[string]interface{}{"content": "hello world"},
 			[]*models.Property{textProp}, uid,
 		)
@@ -1039,7 +1039,7 @@ func TestAnalyzer_RawValues(t *testing.T) {
 
 	t.Run("NewAnalyzerWithRawValues captures RawValues for text array", func(t *testing.T) {
 		a := NewAnalyzerWithRawValues(nil, "TestClass")
-		props, err := a.Object(
+		props, _, err := a.Object(
 			map[string]interface{}{"tags": []string{"foo", "bar"}},
 			[]*models.Property{textArrayProp}, uid,
 		)
@@ -1056,7 +1056,7 @@ func TestAnalyzer_RawValues(t *testing.T) {
 
 	t.Run("non-text types never have RawValues regardless of analyzer", func(t *testing.T) {
 		a := NewAnalyzerWithRawValues(nil, "TestClass")
-		props, err := a.Object(
+		props, _, err := a.Object(
 			map[string]interface{}{"count": int64(42)},
 			[]*models.Property{intProp}, uid,
 		)

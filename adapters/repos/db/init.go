@@ -112,7 +112,7 @@ func (db *DB) init(ctx context.Context) error {
 				}
 			}
 
-			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
+			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
 			}
@@ -158,9 +158,10 @@ func (db *DB) init(ctx context.Context) error {
 				UsageEnabled:                   db.config.UsageEnabled,
 				AvoidMMap:                      db.config.AvoidMMap,
 				EnableLazyLoadShards: func() bool {
-					// If explicitly enabled in config, override auto-detection.
-					if db.config.EnableLazyLoadShards {
-						return true
+					// If explicitly set (true = always lazy, false = always eager),
+					// skip auto-detection entirely.
+					if db.config.EnableLazyLoadShards != nil {
+						return *db.config.EnableLazyLoadShards
 					}
 
 					lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -178,7 +179,7 @@ func (db *DB) init(ctx context.Context) error {
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 				AsyncReplicationConfig:                       asyncConfig,
-				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
+				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,
@@ -217,6 +218,7 @@ func (db *DB) init(ctx context.Context) error {
 				return errors.Wrap(err, "create index")
 			}
 
+			idx.usageLimits = db.usageLimits
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()

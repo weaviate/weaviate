@@ -57,12 +57,10 @@ type awsClient struct {
 
 func New(awsAccessKey, awsSecretKey, awsSessionToken string, timeout time.Duration, logger logrus.FieldLogger) *awsClient {
 	return &awsClient{
-		awsAccessKey:    awsAccessKey,
-		awsSecretKey:    awsSecretKey,
-		awsSessionToken: awsSessionToken,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		awsAccessKey:        awsAccessKey,
+		awsSecretKey:        awsSecretKey,
+		awsSessionToken:     awsSessionToken,
+		httpClient:          modulecomponents.NewBaseHttpClient(timeout),
 		buildBedrockUrlFn:   buildBedrockUrl,
 		buildSagemakerUrlFn: buildSagemakerUrl,
 		logger:              logger,
@@ -284,7 +282,7 @@ func (v *awsClient) sendBedrockRequest(
 		}
 	}
 
-	return v.parseBedrockResponse(result.Body, model, debugInformation)
+	return v.parseBedrockResponse(result.Body, model, http.StatusOK, debugInformation)
 }
 
 func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cfg moduletools.ClassConfig) (interface{}, error) {
@@ -321,7 +319,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 				Temperature: params.Temperature,
 			},
 		}, nil
-	} else if v.isAnthropicClaude3Model(model) {
+	} else if v.isAnthropicModel(model) && !v.isAnthropicLegacyModel(model) {
 		var content []bedrockAnthropicClaude3Content
 		for i := range params.Images {
 			imageName := fmt.Sprintf("Image %d:", i+1)
@@ -353,7 +351,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 				},
 			},
 		}, nil
-	} else if v.isAnthropicModel(model) {
+	} else if v.isAnthropicLegacyModel(model) {
 		var builder strings.Builder
 		builder.WriteString("\n\nHuman: ")
 		builder.WriteString(prompt)
@@ -403,10 +401,10 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 }
 
 func (v *awsClient) parseBedrockResponse(bodyBytes []byte,
-	model string,
+	model string, statusCode int,
 	debug *modulecapabilities.GenerateDebugInformation,
 ) (*modulecapabilities.GenerateResponse, error) {
-	content, err := v.getBedrockResponseMessage(model, bodyBytes)
+	content, err := v.getBedrockResponseMessage(model, bodyBytes, statusCode)
 	if err != nil {
 		return nil, err
 	}
@@ -424,38 +422,38 @@ func (v *awsClient) parseBedrockResponse(bodyBytes []byte,
 	}, nil
 }
 
-func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (string, error) {
+func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte, statusCode int) (string, error) {
 	var content string
 	var resBodyMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
-		return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 	}
 
 	if v.isCohereCommandRModel(model) {
 		var resBody bedrockCohereCommandRResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		return resBody.Text, nil
-	} else if v.isAnthropicClaude3Model(model) {
+	} else if v.isAnthropicModel(model) && !v.isAnthropicLegacyModel(model) {
 		var resBody bedrockAnthropicClaude3Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		if len(resBody.Content) > 0 && resBody.Content[0].Text != nil {
 			return *resBody.Content[0].Text, nil
 		}
 		return "", fmt.Errorf("no message from model: %s", model)
-	} else if v.isAnthropicModel(model) {
+	} else if v.isAnthropicLegacyModel(model) {
 		var resBody bedrockAnthropicClaudeResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		return resBody.Completion, nil
 	} else if v.isAI21Model(model) {
 		var resBody bedrockAI21Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		if len(resBody.Completions) > 0 {
 			return resBody.Completions[0].Data.Text, nil
@@ -464,7 +462,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isMistralAIModel(model) {
 		var resBody bedrockMistralAIResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		if len(resBody.Outputs) > 0 {
 			return resBody.Outputs[0].Text, nil
@@ -473,13 +471,13 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isMetaModel(model) {
 		var resBody bedrockMetaResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		return resBody.Generation, nil
 	} else if v.isAmazonNovaModel(model) {
 		var resBody bedrockNovaResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		if len(resBody.Output.Message.Content) > 0 {
 			return resBody.Output.Message.Content[0].Text, nil
@@ -489,7 +487,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 
 	var resBody bedrockGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 	}
 
 	if len(resBody.Results) == 0 && len(resBody.Generations) == 0 {
@@ -508,7 +506,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*modulecapabilities.GenerateResponse, error) {
 	var resBody sagemakerGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse generative response (status %d): %w", res.StatusCode, err)
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {
@@ -594,8 +592,14 @@ func (v *awsClient) isAnthropicModel(model string) bool {
 	return strings.Contains(model, "anthropic.")
 }
 
-func (v *awsClient) isAnthropicClaude3Model(model string) bool {
-	return strings.Contains(model, "anthropic.claude-3")
+// isAnthropicLegacyModel reports whether the model uses the legacy
+// text-completion API (prompt with "\n\nHuman: ... \n\nAssistant:") instead of
+// the Messages API. Only Anthropic's pre-Claude-3 models accept this format:
+// claude-v1, claude-v2, claude-instant-v1. Claude 3.x, 4.x and any future
+// family use the Messages API and must not match here.
+func (v *awsClient) isAnthropicLegacyModel(model string) bool {
+	return strings.Contains(model, "anthropic.claude-v") ||
+		strings.Contains(model, "anthropic.claude-instant")
 }
 
 func (v *awsClient) isCohereModel(model string) bool {

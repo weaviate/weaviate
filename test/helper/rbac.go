@@ -131,6 +131,20 @@ func CreateUser(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
+func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(
+		users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Namespace: namespace}),
+		CreateAuth(adminKey),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
 	t.Helper()
 	tp := true
@@ -204,6 +218,22 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 	return resp.Payload
 }
 
+// CreateRoleAndAssign creates a role with the given permissions, assigns it to
+// an already-existing user, and registers a t.Cleanup that reverses both
+// (revoke role then delete role). The user is not created or deleted here —
+// callers are expected to declare users statically on the compose (see
+// docker.WithUserApiKey).
+func CreateRoleAndAssign(t *testing.T, adminKey, userName, roleName string, permissions ...*models.Permission) {
+	t.Helper()
+	role := &models.Role{Name: &roleName, Permissions: permissions}
+	CreateRole(t, adminKey, role)
+	AssignRoleToUser(t, adminKey, roleName, userName)
+	t.Cleanup(func() {
+		RevokeRoleFromUser(t, adminKey, roleName, userName)
+		DeleteRole(t, adminKey, roleName)
+	})
+}
+
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
 	userType := models.UserTypeInputDb
@@ -229,6 +259,17 @@ func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 	userType := models.UserTypeInputDb
 
+	resp, err := Client(t).Authz.RevokeRoleFromUser(
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func RevokeRoleFromUserOIDC(t *testing.T, key, role, user string) {
+	t.Helper()
+	userType := models.UserTypeInputOidc
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
 		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),

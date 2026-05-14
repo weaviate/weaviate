@@ -88,27 +88,29 @@ type ShardLike interface {
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, selection *searchparams.Selection) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
+	DropVectorIndex(ctx context.Context, targetVector string) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error)
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
+	CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error)
 	ID() string // Get the shard id
 	drop(keepFiles bool) error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, property *models.Property)
-	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error)
+	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error)
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
-	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
+	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error)
 	AnalyzeObjectForMigration(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
@@ -128,10 +130,9 @@ type ShardLike interface {
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
+	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
-
-	SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -201,6 +202,14 @@ type ShardLike interface {
 	DebugGetDocIdLockStatus() (bool, error)
 }
 
+// asyncReplicationController is a package-internal interface implemented by
+// both *Shard and *LazyLoadShard. It exists so that index-level code can call
+// the private enable/disable methods without exposing them on ShardLike.
+type asyncReplicationController interface {
+	enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error
+	disableAsyncReplication(ctx context.Context) error
+}
+
 type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
 
 type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
@@ -229,6 +238,8 @@ type Shard struct {
 	vectorIndexes map[string]VectorIndex
 	queues        map[string]*VectorIndexQueue
 
+	geoQueues map[string]*VectorIndexQueue
+
 	// async replication
 	asyncReplicationRWMux           sync.RWMutex
 	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
@@ -238,9 +249,58 @@ type Shard struct {
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
 
+	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
+	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
+	// when async replication is stopped. Workers receive this context so that
+	// in-flight cycles terminate promptly when the shard is deregistered.
+	asyncRepCtx context.Context
+
+	// asyncRepWg tracks all async replication goroutines that may access shard
+	// resources: in-flight hashbeat cycles, hashtree init goroutines, and
+	// scheduler-register goroutines. The counter is usually 0 or 1 but may
+	// briefly exceed 1 when an init goroutine overlaps with a dispatch.
+	// Done() for hashbeat cycles is called before the result is sent back to
+	// the dispatcher, so the scheduler cannot re-dispatch until Done() fires.
+	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
+	// after Deregister to ensure all goroutines have fully exited.
+	asyncRepWg sync.WaitGroup
+
+	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
+	// (after applying runtime-config overrides) differs from the current hashtree
+	// height. The scheduler spawns a rebuild goroutine after asyncRepWg.Done()
+	// so that DisableAsyncReplication can safely call Deregister+Wait.
+	asyncRepNeedsRebuild atomic.Bool
+
+	// asyncRepRebuildInFlight prevents concurrent rebuildHashtree goroutines.
+	// CAS false→true before spawning a rebuild; the goroutine clears it on exit.
+	// If a rebuild is already in-flight, asyncRepNeedsRebuild is re-armed so
+	// the next completed cycle will try again.
+	asyncRepRebuildInFlight atomic.Bool
+
+	// asyncRepRebuildFailures counts consecutive hashtree rebuild failures.
+	// Reset to zero on success. Used by runEntry to compute exponential backoff.
+	asyncRepRebuildFailures atomic.Uint32
+
+	// asyncRepRebuildBackoffUntil stores the Unix-nanosecond timestamp after
+	// which the next rebuild is permitted. Zero means no backoff is active.
+	// Set by rebuildHashtree on failure; cleared on success.
+	asyncRepRebuildBackoffUntil atomic.Int64
+
+	// asyncRepLastLog throttles per-shard log messages independently of the
+	// global loggingFrequency config. Stored as Unix seconds (0 = never logged,
+	// treated as "epoch = very long ago"). Atomic to satisfy the race detector:
+	// initAsyncReplication resets it while runHashbeatCycle reads/writes it.
+	asyncRepLastLog atomic.Int64
+
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
+	// asyncReplicationStatsMux guards asyncReplicationStatsByTargetNode
+	// independently of asyncReplicationRWMux. This prevents the per-iteration
+	// stats write (in handleHashbeatWakeup) from write-locking asyncReplicationRWMux,
+	// which would stall every concurrent object write and query via writer-preference.
+	// Lock ordering when both are needed: asyncReplicationRWMux before asyncReplicationStatsMux.
+	asyncReplicationStatsMux sync.RWMutex
 
 	haltForTransferMux               sync.Mutex
 	haltForTransferInactivityTimeout time.Duration

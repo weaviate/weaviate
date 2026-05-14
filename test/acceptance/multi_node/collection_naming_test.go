@@ -84,12 +84,12 @@ func TestCollectionNamingGQL(t *testing.T) {
 
 			if c.shouldFail {
 				// get should fail
-				class, err := helper.GetClassWithoutAssert(t, c.getWith)
+				class, err := helper.GetClassWithoutAssert(t, c.getWith, "")
 				require.Nil(t, class)
 				require.Error(t, err)
 
-				helper.SetupClient(compose.GetWeaviateNode2().URI())    // node2
-				class, err = helper.GetClassWithoutAssert(t, c.getWith) // try getting it from different node
+				helper.SetupClient(compose.GetWeaviateNode2().URI())        // node2
+				class, err = helper.GetClassWithoutAssert(t, c.getWith, "") // try getting it from different node
 				require.Nil(t, class)
 				require.Error(t, err)
 
@@ -108,7 +108,7 @@ func TestCollectionNamingGQL(t *testing.T) {
 			helper.DeleteClass(t, c.deleteWith)                  // try deleting it from different node
 
 			// make sure after delete, collection should not exist
-			class, err := helper.GetClassWithoutAssert(t, c.deleteWith)
+			class, err := helper.GetClassWithoutAssert(t, c.deleteWith, "")
 			require.Nil(t, class)
 			require.Error(t, err)
 		})

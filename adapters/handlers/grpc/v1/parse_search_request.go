@@ -140,6 +140,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.NearVector.Distance = *nv.Distance
 			out.NearVector.WithDistance = true
 		}
+
+		out.Selection = parseSelection(nv.Selection)
 	}
 
 	if no := req.NearObject; no != nil {
@@ -150,6 +152,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			ID:            no.Id,
 			TargetVectors: targetVectors,
 		}
+		out.Selection = parseSelection(no.Selection)
 
 		// The following business logic should not sit in the API. However, it is
 		// also part of the GraphQL API, so we need to duplicate it in order to get
@@ -310,6 +313,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			Distance:        distance,
 			WithDistance:    withDistance,
 		}
+		out.Selection = parseSelection(hs.Selection)
 
 		if hs.Bm25SearchOperator != nil {
 			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
@@ -355,6 +359,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearText"] = nearText
+		out.Selection = parseSelection(req.NearText.Selection)
 	}
 
 	if req.Generative != nil {
@@ -376,7 +381,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, config.Namespaces.Enabled)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -412,6 +417,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
+	}
+	if out.Selection != nil {
+		for _, tv := range targetVectors {
+			if isTargetVectorMultiVector(class, tv) {
+				return dto.GetParams{}, fmt.Errorf("MMR selection is not supported with multi-vector indexes (target vector %q)", tv)
+			}
+		}
 	}
 	if err := p.extractPropertiesForModules(&out); err != nil {
 		return dto.GetParams{}, err
@@ -853,6 +865,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		ExplainScore:       prop.ExplainScore,
 		IsConsistent:       prop.IsConsistent,
 		Vectors:            prop.Vectors,
+		QueryProfile:       prop.QueryProfile,
 	}
 
 	// certainty is not compatible with
@@ -901,7 +914,7 @@ func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, 
 		if err != nil {
 			return []search.SelectProperty{}, errors.Wrap(err, "get property data type")
 		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
 			continue
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
@@ -936,7 +949,7 @@ func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P)
 		if err != nil {
 			return []search.SelectProperty{}, errors.Wrap(err, "get nested property data type")
 		}
-		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob {
+		if *dt == schema.DataTypeCRef || *dt == schema.DataTypeBlob || *dt == schema.DataTypeBlobHash {
 			continue
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
@@ -1285,6 +1298,25 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string,
 	}, targetCombination, nil
 }
 
+func parseSelection(sel *pb.Selection) *searchparams.Selection {
+	if sel == nil {
+		return nil
+	}
+	if mmr := sel.GetMmr(); mmr != nil {
+		out := &searchparams.Selection{
+			MMR: &searchparams.SelectionMMR{},
+		}
+		if mmr.Limit != nil {
+			out.MMR.Limit = *mmr.Limit
+		}
+		if mmr.Balance != nil {
+			out.MMR.Balance = *mmr.Balance
+		}
+		return out
+	}
+	return nil
+}
+
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
 func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
 	var additionalProps []string
@@ -1311,8 +1343,8 @@ OUTER:
 				continue OUTER
 			}
 		}
-		if propDataTypes[additionalProp] == schema.DataTypeBlob {
-			// make sure that blobs aren't added to the response payload by accident
+		if propDataTypes[additionalProp] == schema.DataTypeBlob || propDataTypes[additionalProp] == schema.DataTypeBlobHash {
+			// make sure that blobs/blobHash aren't added to the response payload by accident
 			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
 		} else {
 			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})

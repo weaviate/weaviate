@@ -14,19 +14,29 @@ package schema
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddClassProperty it is upsert operation. it adds properties to a class and updates
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
@@ -41,8 +51,9 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
+	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+		return nil, 0, fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if len(newProps) == 0 {
@@ -94,14 +105,20 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 // DeleteClassPropertyIndex deletes collection's property index
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
-	class *models.Class, className, propertyName, indexName string,
+	className, propertyName, indexName string,
 ) error {
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return err
 	}
 
+	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return fmt.Errorf("class is nil: %w", ErrNotFound)
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if propertyName == "" {
@@ -150,11 +167,69 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	if err := h.validatePropertyIndexing(prop); err != nil {
 		return err
 	}
-	_, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop)
-	if err != nil {
+	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
+	className, vectorIndexName string,
+) error {
+	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
+		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
+	}
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrValidation, err)
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
+		return err
+	}
+
+	if vectorIndexName == "" {
+		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
+	}
+
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	if err != nil {
+		return fmt.Errorf("querying class %q: %w", className, err)
+	}
+	vcls, ok := vclasses[className]
+	if !ok {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+	class := vcls.Class
+	if class == nil {
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
+	}
+
+	if len(class.VectorConfig) == 0 {
+		return fmt.Errorf("%w: class %q has no named vector configurations", ErrValidation, className)
+	}
+
+	cfg, exists := class.VectorConfig[vectorIndexName]
+	if !exists {
+		return fmt.Errorf("%w: vector index %q not found in class %q", ErrNotFound, vectorIndexName, className)
+	}
+
+	if modelsext.IsVectorIndexDropped(cfg) {
+		// Already dropped, nothing to do.
+		return nil
+	}
+
+	// Keep the vector entry in the schema but set VectorIndexType to "none".
+	// This signals that the vector data still exists in the objects bucket but
+	// the search index has been removed. The executor's UpdateClass will detect
+	// the "none" type and call the migrator to drop the index from disk.
+	class.VectorConfig[vectorIndexName] = models.VectorConfig{
+		Vectorizer:      cfg.Vectorizer,
+		VectorIndexType: vectorindex.VectorIndexTypeNone,
+	}
+
+	_, err = h.schemaManager.UpdateClass(ctx, class, nil)
+	return err
 }
 
 // DeleteClassProperty from existing Schema
