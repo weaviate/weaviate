@@ -114,6 +114,10 @@ func (f *fakeReplicator) CountObjects(ctx context.Context, index, shard string) 
 	return 0, nil
 }
 
+func (f *fakeReplicator) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
 func (f *fakeReplicator) Done() {
 	close(f.commitBlock)
 }
