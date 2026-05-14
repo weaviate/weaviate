@@ -22,10 +22,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-var (
-	ErrBadRequest        = errors.New("bad request")
-	ErrNamespaceNotFound = errors.New("namespace not found")
-)
+var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
 	dynUser           *apikey.DBUser
@@ -50,20 +47,17 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Defense-in-depth: on namespace-enabled clusters every db user must be
-	// bound to a namespace. The handler already enforces this, but a stale
-	// or hand-crafted RAFT command must not be able to slip an unbound user
-	// past the apply path.
 	if m.namespacesEnabled && req.Namespace == "" {
 		return fmt.Errorf("%w: namespace is required on namespace-enabled clusters", ErrBadRequest)
 	}
 
-	// Authoritative existence re-check at apply time. Closes the
-	// handler→apply TOCTOU when a delete-namespace command is RAFT-ordered
-	// before this create-user command: every node observes identical state
-	// and rejects deterministically.
-	if req.Namespace != "" && !m.namespaces.Exists(req.Namespace) {
-		return fmt.Errorf("%w: namespace %q does not exist", ErrNamespaceNotFound, req.Namespace)
+	if req.Namespace != "" {
+		if !m.namespaces.Exists(req.Namespace) {
+			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceGone, req.Namespace)
+		}
+		if !m.namespaces.IsActive(req.Namespace) {
+			return fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, req.Namespace)
+		}
 	}
 
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.Namespace, req.CreatedAt)
@@ -91,6 +85,20 @@ func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 	}
 
 	return m.dynUser.DeleteUser(req.UserId)
+}
+
+func (m *Manager) DeleteUsersInNamespace(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.DeleteUsersInNamespaceRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	if req.Namespace == "" {
+		return fmt.Errorf("%w: namespace is required", ErrBadRequest)
+	}
+	return m.dynUser.DeleteUsersInNamespace(req.Namespace)
 }
 
 func (m *Manager) ActivateUser(c *cmd.ApplyRequest) error {

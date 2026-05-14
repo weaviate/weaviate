@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	tenant := ""
@@ -52,7 +52,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}

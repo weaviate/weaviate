@@ -96,8 +96,11 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
 		}
 
-		// Parse to LocalFilter
-		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName)
+		// Parse to LocalFilter. MCP does not yet support namespaces, so the
+		// nested-path guard in filterext.Parse is hard-wired off here. Wire
+		// the real namespacesEnabled flag through when MCP gains namespace
+		// support.
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filters: %w", err)
 		}

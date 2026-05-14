@@ -39,6 +39,7 @@ func Start(
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,
+	namespacesEnabled bool,
 ) (*StreamHandler, Drain) {
 	recvWg := sync.WaitGroup{}
 	sendWg := sync.WaitGroup{}
@@ -61,6 +62,7 @@ func Start(
 		metrics,
 		logger,
 		schemaManager,
+		namespacesEnabled,
 	)
 
 	drain := func() {

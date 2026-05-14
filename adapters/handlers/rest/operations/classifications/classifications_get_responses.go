@@ -164,6 +164,51 @@ func (o *ClassificationsGetNotFound) WriteResponse(rw http.ResponseWriter, produ
 	rw.WriteHeader(404)
 }
 
+// ClassificationsGetGoneCode is the HTTP code returned for type ClassificationsGetGone
+const ClassificationsGetGoneCode int = 410
+
+/*
+ClassificationsGetGone Endpoint not available in the current cluster configuration.
+
+swagger:response classificationsGetGone
+*/
+type ClassificationsGetGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewClassificationsGetGone creates ClassificationsGetGone with default headers values
+func NewClassificationsGetGone() *ClassificationsGetGone {
+
+	return &ClassificationsGetGone{}
+}
+
+// WithPayload adds the payload to the classifications get gone response
+func (o *ClassificationsGetGone) WithPayload(payload *models.ErrorResponse) *ClassificationsGetGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the classifications get gone response
+func (o *ClassificationsGetGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ClassificationsGetGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ClassificationsGetInternalServerErrorCode is the HTTP code returned for type ClassificationsGetInternalServerError
 const ClassificationsGetInternalServerErrorCode int = 500
 

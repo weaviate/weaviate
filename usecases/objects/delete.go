@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -36,8 +35,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
-	className = schema.UppercaseClassName(className)
-	className, _ = m.resolveNS(principal, className)
+	className, _, err := m.resolveNS(principal, className)
+	if err != nil {
+		return NewErrInvalidUserInput("%v", err)
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id)); err != nil {
 		return err

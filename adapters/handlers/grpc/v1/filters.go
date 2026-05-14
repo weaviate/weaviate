@@ -22,7 +22,17 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string) (filters.Clause, error) {
+// ExtractFilters converts a proto Filters tree into an internal filter Clause.
+//
+// When namespacesEnabled is true, old-style reference-path filters
+// (filterIn.Target == nil with more than one element in filterIn.On) are
+// rejected. Inner class segments in such paths are taken from caller input
+// and are not auto-qualified by the resolver, so allowing them through
+// would silently fail downstream when the schema lookup misses the
+// unqualified inner class. New-style FilterTarget filters keep working
+// because their nested class segments come from the schema (which already
+// stores qualified names).
+func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, namespacesEnabled bool) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 
 	switch filterIn.Operator {
@@ -39,7 +49,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 
 		clauses := make([]filters.Clause, len(filterIn.Filters))
 		for i, clause := range filterIn.Filters {
-			retClause, err := ExtractFilters(clause, authorizedGetClass, className, tenant)
+			retClause, err := ExtractFilters(clause, authorizedGetClass, className, tenant, namespacesEnabled)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -52,6 +62,12 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 		if filterIn.Target == nil && len(filterIn.On)%2 != 1 {
 			return filters.Clause{}, fmt.Errorf(
 				"paths needs to have a uneven number of components: property, class, property, ...., got %v", filterIn.On,
+			)
+		}
+
+		if namespacesEnabled && filterIn.Target == nil && len(filterIn.On) > 1 {
+			return filters.Clause{}, fmt.Errorf(
+				"reference-path filters via Filters.on are not supported on namespace-enabled clusters; use Filters.target with a SingleTarget instead",
 			)
 		}
 

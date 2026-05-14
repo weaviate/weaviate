@@ -382,3 +382,202 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 }
+
+// TestAuthzAutoSchemaCollectionCreation: posting an object whose class does
+// not exist triggers auto-schema, which then has to create the collection.
+// The user therefore needs create_collections in addition to create_data.
+// Without it the request is rejected with 403; granting it lets the same
+// request succeed.
+func TestAuthzAutoSchemaCollectionCreation(t *testing.T) {
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRoleName := "test-role"
+
+	adminAuth := helper.CreateAuth(existingKey)
+
+	// composeUp disables auto-schema by default (setup.go) — the helpers in
+	// this package focus on RBAC, not auto-schema. Override that here so the
+	// auto-schema path actually runs.
+	_, teardown := composeUpWithSettings(t,
+		map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil,
+		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false, false)
+
+	className := "AutoCreated"
+	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000010").Object()
+	obj.Class = className
+	obj.Properties = map[string]interface{}{"title": "auto-created"}
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, className, adminAuth)
+		helper.DeleteRole(t, existingKey, testRoleName)
+		teardown()
+	}()
+
+	t.Run("create role with object create + read collections, but no create_collections", func(t *testing.T) {
+		helper.CreateRole(t, existingKey, &models.Role{
+			Name: String(testRoleName),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(className).Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(className).Permission(),
+			},
+		})
+		helper.AssignRoleToUser(t, existingKey, testRoleName, customUser)
+	})
+
+	t.Run("403 without create_collections", func(t *testing.T) {
+		err := helper.CreateObjectAuth(t, obj, customKey)
+		require.Error(t, err)
+		var parsed *objects.ObjectsCreateForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("succeeds after granting create_collections", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.CreateCollections).WithCollection(className).Permission(),
+			},
+		}), adminAuth)
+		require.NoError(t, err)
+
+		err = helper.CreateObjectAuth(t, obj, customKey)
+		require.NoError(t, err)
+	})
+}
+
+// TestAuthzAutoTenantActivationNoUpdateTenants: posting an object to a COLD
+// tenant on a class with AutoTenantActivation=true silently re-activates
+// the tenant. Activation is internal — it must not require the user to
+// hold update_tenants. With only create_data the write must succeed.
+func TestAuthzAutoTenantActivationNoUpdateTenants(t *testing.T) {
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRoleName := "test-role"
+
+	adminAuth := helper.CreateAuth(existingKey)
+
+	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+
+	cls := articles.ParagraphsClass()
+	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
+		Enabled:              true,
+		AutoTenantActivation: true,
+		AutoTenantCreation:   false,
+	}
+	tenant := "tenant"
+	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000030").WithTenant(tenant).Object()
+	obj.Properties = map[string]interface{}{"contents": "activated"}
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
+		helper.DeleteRole(t, existingKey, testRoleName)
+		teardown()
+	}()
+
+	t.Run("setup: class + HOT tenant, then deactivate", func(*testing.T) {
+		helper.CreateClassAuth(t, cls, existingKey)
+		helper.CreateTenantsAuth(t, cls.Class,
+			[]*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}},
+			existingKey,
+		)
+		helper.UpdateTenantsWithAuthz(t, cls.Class,
+			[]*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}},
+			adminAuth,
+		)
+	})
+
+	t.Run("create role with only create_data + read_collections", func(t *testing.T) {
+		helper.CreateRole(t, existingKey, &models.Role{
+			Name: String(testRoleName),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(cls.Class).Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
+			},
+		})
+		helper.AssignRoleToUser(t, existingKey, testRoleName, customUser)
+	})
+
+	t.Run("write to cold tenant succeeds without update_tenants", func(t *testing.T) {
+		err := helper.CreateObjectAuth(t, obj, customKey)
+		require.NoError(t, err)
+	})
+}
+
+// TestAuthzAutoSchemaPropertyAdd: posting an object with a property the
+// class does not declare yet triggers auto-schema, which then has to add
+// the property to the collection. The user therefore needs
+// update_collections in addition to create_data. Without it the request is
+// rejected with 403; granting it lets the same request succeed.
+func TestAuthzAutoSchemaPropertyAdd(t *testing.T) {
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRoleName := "test-role"
+
+	adminAuth := helper.CreateAuth(existingKey)
+
+	// composeUp disables auto-schema by default (setup.go); enable it here
+	// so the property-add path runs.
+	_, teardown := composeUpWithSettings(t,
+		map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil,
+		false, map[string]string{"AUTOSCHEMA_ENABLED": "true"}, false, false)
+
+	cls := articles.ParagraphsClass()
+	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000020").Object()
+	obj.Properties = map[string]interface{}{
+		"contents": "existing prop",
+		"newProp":  "auto-added",
+	}
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
+		helper.DeleteRole(t, existingKey, testRoleName)
+		teardown()
+	}()
+
+	t.Run("setup: admin creates the class", func(*testing.T) {
+		helper.CreateClassAuth(t, cls, existingKey)
+	})
+
+	t.Run("create role with object create + read collections, but no update_collections", func(t *testing.T) {
+		helper.CreateRole(t, existingKey, &models.Role{
+			Name: String(testRoleName),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(cls.Class).Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
+			},
+		})
+		helper.AssignRoleToUser(t, existingKey, testRoleName, customUser)
+	})
+
+	t.Run("403 without update_collections", func(t *testing.T) {
+		err := helper.CreateObjectAuth(t, obj, customKey)
+		require.Error(t, err)
+		var parsed *objects.ObjectsCreateForbidden
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("succeeds after granting update_collections", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(cls.Class).Permission(),
+			},
+		}), adminAuth)
+		require.NoError(t, err)
+
+		err = helper.CreateObjectAuth(t, obj, customKey)
+		require.NoError(t, err)
+	})
+}

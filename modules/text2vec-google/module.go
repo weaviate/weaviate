@@ -40,7 +40,7 @@ const (
 
 var batchSettings = batch.Settings{
 	TokenMultiplier:    1.3,
-	MaxObjectsPerBatch: 150,
+	MaxObjectsPerBatch: 100, // Google's batchEmbedContents API limit
 	MaxTimePerBatch:    float64(10),
 	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 20000 },
 	HasTokenLimit:      true,

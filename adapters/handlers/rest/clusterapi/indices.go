@@ -74,8 +74,8 @@ type indices struct {
 	logger logrus.FieldLogger
 }
 
-const (
-	cl = entschema.ClassNameRegexCore
+var (
+	cl = entschema.IndexNameRegexCore
 	sh = entschema.ShardNameRegexCore
 	ob = `[A-Za-z0-9_+-]+`
 	l  = "[0-9]+"

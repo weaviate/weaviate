@@ -1178,3 +1178,66 @@ func TestValidVerb(t *testing.T) {
 		})
 	}
 }
+
+// TestGetUserAndPrefix locks in that the auth-type prefix is taken from the
+// first ":" and the remainder is returned as-is. Namespaced users
+// (`<authtype>:<namespace>:<username>`) must not be rejected as malformed —
+// that regression made GET /v1/authz/roles/{name}/users return 500 once any
+// namespaced principal was assigned to a role.
+func TestGetUserAndPrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantUser   string
+		wantPrefix string
+		wantErr    bool
+	}{
+		{
+			name:       "bare oidc user",
+			input:      "oidc:alice",
+			wantUser:   "alice",
+			wantPrefix: "oidc",
+		},
+		{
+			name:       "bare db user",
+			input:      "db:alice",
+			wantUser:   "alice",
+			wantPrefix: "db",
+		},
+		{
+			name:       "namespaced oidc user",
+			input:      "oidc:customer1:customer1user",
+			wantUser:   "customer1:customer1user",
+			wantPrefix: "oidc",
+		},
+		{
+			name:       "namespaced db user",
+			input:      "db:customer1:alice",
+			wantUser:   "customer1:alice",
+			wantPrefix: "db",
+		},
+		{
+			name:       "group prefix",
+			input:      "group:engineering",
+			wantUser:   "engineering",
+			wantPrefix: "group",
+		},
+		{name: "missing separator", input: "alice", wantErr: true},
+		{name: "empty", input: "", wantErr: true},
+		{name: "empty prefix", input: ":alice", wantErr: true},
+		{name: "empty user", input: "oidc:", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user, prefix, err := GetUserAndPrefix(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUser, user)
+			require.Equal(t, tt.wantPrefix, prefix)
+		})
+	}
+}

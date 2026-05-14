@@ -23,13 +23,15 @@ import (
 	"github.com/weaviate/weaviate/entities/cron"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	namespacecleanup "github.com/weaviate/weaviate/usecases/namespace_cleanup"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 )
 
 type configGetter func() config.Config
 
 type Crons struct {
-	objectsttl *cronsObjectsTTL
+	objectsttl       *cronsObjectsTTL
+	namespaceCleanup *cronsNamespaceCleanup
 
 	logger            logrus.FieldLogger
 	gocronLogger      gocron.Logger
@@ -42,6 +44,7 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 
 	return &Crons{
 		objectsttl:        newCronsObjectsTTL(serverShutdownCtx, logger, gocronLogger, configGetter),
+		namespaceCleanup:  newCronsNamespaceCleanup(serverShutdownCtx, logger, gocronLogger, configGetter),
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		serverShutdownCtx: serverShutdownCtx,
@@ -49,11 +52,17 @@ func NewCrons(serverShutdownCtx context.Context, logger logrus.FieldLogger, conf
 }
 
 // blocking
-func (c *Crons) Init(clusterService *cluster.Service, coordinator *objectttl.Coordinator) error {
+func (c *Crons) Init(clusterService *cluster.Service, ttlCoordinator *objectttl.Coordinator,
+	nsCleanupCoordinator *namespacecleanup.Coordinator,
+) error {
 	cr := initGoCron(c.serverShutdownCtx, c.gocronLogger)
 
-	if err := c.objectsttl.Init(cr, clusterService, coordinator); err != nil {
+	if err := c.objectsttl.Init(cr, clusterService, ttlCoordinator); err != nil {
 		return fmt.Errorf("init objects ttl cron: %w", err)
+	}
+
+	if err := c.namespaceCleanup.Init(cr, clusterService, nsCleanupCoordinator); err != nil {
+		return fmt.Errorf("init namespace cleanup cron: %w", err)
 	}
 
 	cr.Start()
@@ -65,7 +74,8 @@ func (c *Crons) Init(clusterService *cluster.Service, coordinator *objectttl.Coo
 
 func (c *Crons) RuntimeConfigHooks() map[string]func() error {
 	return map[string]func() error{
-		"ObjectsTTL": c.objectsttl.RuntimeConfigHook,
+		"ObjectsTTL":       c.objectsttl.RuntimeConfigHook,
+		"NamespaceCleanup": c.namespaceCleanup.RuntimeConfigHook,
 	}
 }
 

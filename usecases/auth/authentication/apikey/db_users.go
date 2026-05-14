@@ -12,6 +12,7 @@
 package apikey
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -50,14 +51,17 @@ func MakeUserKey(userId, namespace string) string {
 	return namespacing.QualifiedName(namespace, userId)
 }
 
+// DBUsers is the cluster-side interface implemented by *cluster.Raft.
+// Write methods accept a context so the implementation can propagate
+// request cancellation through RAFT.
 type DBUsers interface {
-	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
-	CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
-	DeleteUser(userId string) error
-	ActivateUser(userId string) error
-	DeactivateUser(userId string, revokeKey bool) error
+	CreateUser(ctx context.Context, userId, secureHash, userIdentifier, apiKeyFirstLetters, namespace string, createdAt time.Time) error
+	CreateUserWithKey(ctx context.Context, userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
+	DeleteUser(ctx context.Context, userId string) error
+	ActivateUser(ctx context.Context, userId string) error
+	DeactivateUser(ctx context.Context, userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]*User, error)
-	RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
+	RotateKey(ctx context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
@@ -269,6 +273,13 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	c.deleteUserLocked(userId)
+	return c.storeToFile()
+}
+
+// deleteUserLocked removes userId from every in-memory map. Caller must
+// hold the write lock and call storeToFile.
+func (c *DBUser) deleteUserLocked(userId string) {
 	delete(c.data.SecureKeyStorageById, userId)
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
@@ -276,6 +287,51 @@ func (c *DBUser) DeleteUser(userId string) error {
 	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	delete(c.data.UserKeyRevoked, userId)
 	delete(c.data.ImportedApiKeysWeakHash, userId)
+}
+
+// UsersInNamespace returns the IDs of users bound to namespace in
+// unspecified order. An empty namespace returns nil.
+//
+// The returned IDs are whatever userId was passed to CreateUser. In the
+// namespaced-handler path that is the [MakeUserKey] qualified form (e.g.
+// "alpha:bob"); DBUser itself does not enforce that shape. Treat them as
+// opaque handles for existence/count checks; do not surface them in
+// user-facing responses.
+func (c *DBUser) UsersInNamespace(namespace string) []string {
+	if namespace == "" {
+		return nil
+	}
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	out := make([]string, 0)
+	for id, u := range c.data.Users {
+		if u != nil && u.Namespace == namespace {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// DeleteUsersInNamespace removes every user bound to namespace. An empty
+// namespace argument is rejected so the helper cannot wipe unscoped users.
+func (c *DBUser) DeleteUsersInNamespace(namespace string) error {
+	if namespace == "" {
+		return errors.New("namespace is required")
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	deleted := false
+	for id, u := range c.data.Users {
+		if u != nil && u.Namespace == namespace {
+			c.deleteUserLocked(id)
+			deleted = true
+		}
+	}
+	if !deleted {
+		return nil
+	}
 	return c.storeToFile()
 }
 

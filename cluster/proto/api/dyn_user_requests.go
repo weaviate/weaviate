@@ -55,6 +55,12 @@ type DeleteUsersRequest struct {
 	Version int
 }
 
+// DeleteUsersInNamespaceRequest deletes every DB user bound to Namespace.
+type DeleteUsersInNamespaceRequest struct {
+	Namespace string
+	Version   int
+}
+
 type ActivateUsersRequest struct {
 	UserId  string
 	Version int

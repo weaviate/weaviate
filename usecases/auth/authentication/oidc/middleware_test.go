@@ -407,9 +407,11 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 }
 
 // fakeExister is a minimal namespaces.Exister stub for classifyPrincipal
-// matrix testing. Names in the map are treated as existing.
+// matrix testing. Names in `known` are active; names in `deleting` exist
+// but are not active.
 type fakeExister struct {
-	known map[string]struct{}
+	known    map[string]struct{}
+	deleting map[string]struct{}
 }
 
 func newFakeExister(names ...string) *fakeExister {
@@ -417,10 +419,24 @@ func newFakeExister(names ...string) *fakeExister {
 	for _, n := range names {
 		m[n] = struct{}{}
 	}
-	return &fakeExister{known: m}
+	return &fakeExister{known: m, deleting: map[string]struct{}{}}
+}
+
+// markDeleting flips name from active to deleting.
+func (f *fakeExister) markDeleting(name string) {
+	delete(f.known, name)
+	f.deleting[name] = struct{}{}
 }
 
 func (f *fakeExister) Exists(name string) bool {
+	if _, ok := f.known[name]; ok {
+		return true
+	}
+	_, ok := f.deleting[name]
+	return ok
+}
+
+func (f *fakeExister) IsActive(name string) bool {
 	_, ok := f.known[name]
 	return ok
 }
@@ -445,6 +461,7 @@ func TestClassifyPrincipal(t *testing.T) {
 		namespacesEnabled bool
 		username          string
 		claims            map[string]any
+		markDeleting      string // optional: flip this namespace to deleting before classify
 		want              want
 	}{
 		{
@@ -515,7 +532,15 @@ func TestClassifyPrincipal(t *testing.T) {
 			namespacesEnabled: true,
 			username:          "alice",
 			claims:            map[string]any{nsClaimKey: "ghost"},
-			want:              want{errCode: 401, errSubstr: "namespace 'ghost' does not exist"},
+			want:              want{errCode: 401, errSubstr: "namespace 'ghost'"},
+		},
+		{
+			name:              "NS-enabled, namespace claim names a deleting namespace → reject",
+			namespacesEnabled: true,
+			username:          "alice",
+			claims:            map[string]any{nsClaimKey: "customer1"},
+			markDeleting:      "customer1",
+			want:              want{errCode: 401, errSubstr: "namespace 'customer1'"},
 		},
 		{
 			name:              "NS-enabled, namespace claim type mismatch → reject",
@@ -542,12 +567,16 @@ func TestClassifyPrincipal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			exister := newFakeExister("customer1")
+			if tt.markDeleting != "" {
+				exister.markDeleting(tt.markDeleting)
+			}
 			c := &Client{
 				Config: config.OIDC{
 					NamespaceClaim:       runtime.NewDynamicValue(nsClaimKey),
 					GlobalPrincipalClaim: runtime.NewDynamicValue(globalClaimKey),
 				},
-				nsExister:         newFakeExister("customer1"),
+				nsExister:         exister,
 				namespacesEnabled: tt.namespacesEnabled,
 			}
 			// On NS-disabled the classifier must work even if the claim

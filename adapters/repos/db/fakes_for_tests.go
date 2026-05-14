@@ -545,3 +545,9 @@ func (c *FakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 ) (digests []hashtree.Digest, err error) {
 	return nil, nil
 }
+
+func (c *FakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return nil, nil
+}
