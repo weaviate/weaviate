@@ -53,6 +53,67 @@ func tasksMap(tasks ...*distributedtask.Task) []parsedReindexTask {
 	return parseReindexTasks(tasks)
 }
 
+// Once a unit transitions to IN_PROGRESS the synthetic entry must read
+// "indexing" even if no progress checkpoint has fired yet. The first
+// per-shard checkpoint can lag the unit-claim transition by tens of
+// seconds while bucket-open + compaction-pause + analyzer-overlay setup
+// drains; a "pending" pill that lingers for that long is indistinguishable
+// from "stuck".
+//
+// Compare with TestMergeReindexStatus_StartedNoProgress_ShowsPending —
+// that case correctly stays "pending" because the unit hasn't been
+// claimed yet (genuinely queued).
+func TestMergeReindexStatus_UnitInProgressZeroProgress_ShowsIndexing(t *testing.T) {
+	task := buildTask(t, "C:enable-filterable:foo:abcd",
+		distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			// Unit has been claimed by the scheduler (IN_PROGRESS) but
+			// hasn't reported its first checkpoint yet — Progress is still
+			// the initial-claim 0.0 value.
+			"unit1": {ID: "unit1", Status: distributedtask.UnitStatusInProgress, Progress: 0},
+		},
+	)
+
+	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+
+	require.Equal(t, "indexing", idx.Status,
+		"unit IN_PROGRESS without a checkpoint must surface as 'indexing', not 'pending' — work has started")
+	require.Equal(t, float32(0), idx.Progress,
+		"progress stays at 0 until the first checkpoint; the frontend renders 'Indexing' with no percent in that case")
+}
+
+// TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing
+// covers a multi-shard task where one shard has started but the others
+// haven't yet. The any-unit-working rule must pick up the lone IN_PROGRESS
+// without needing every unit to advance — otherwise a slow-to-claim shard
+// would hold the status at "pending" for the whole task.
+func TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing(t *testing.T) {
+	task := buildTask(t, "C:enable-filterable:foo:abcd",
+		distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"unit1": {ID: "unit1", Status: distributedtask.UnitStatusInProgress, Progress: 0},
+			"unit2": {ID: "unit2", Status: distributedtask.UnitStatusPending, Progress: 0},
+			"unit3": {ID: "unit3", Status: distributedtask.UnitStatusPending, Progress: 0},
+		},
+	)
+
+	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), nil)
+
+	require.Equal(t, "indexing", idx.Status)
+}
+
 // Edge case 1: Task in STARTED state but no unit has reported progress yet.
 // The payload claims enable-filterable on prop "foo"; the units map is
 // non-empty but all units have Progress=0. Expectation: status="pending",
@@ -213,9 +274,9 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
 		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(mkTask()), nil)
 
-		// "indexing@100%" so the caller emits a synthetic entry (the flag
-		// is still false). Closes the brief visible "None" gap that
-		// frontend-claude reported (issue #10675).
+		// "indexing@100%" so the caller emits a synthetic entry while the
+		// flag is still false — without this the GET response goes empty
+		// during the brief OnGroupCompleted finalize window.
 		require.Equal(t, "indexing", idx.Status)
 		require.InDelta(t, 1.0, idx.Progress, 0.0001)
 	})
@@ -491,15 +552,26 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 	tests := []struct {
 		name           string
 		taskStatus     distributedtask.TaskStatus
+		unitStatus     distributedtask.UnitStatus
 		expectStatus   string
 		expectAlgoSet  bool
 		progress       float32
 		expectProgress float32
 	}{
 		{
-			name:           "started no progress emits pending + target algorithm",
+			name:           "started but no unit has claimed yet emits pending + target algorithm",
 			taskStatus:     distributedtask.TaskStatusStarted,
+			unitStatus:     distributedtask.UnitStatusPending,
 			expectStatus:   "pending",
+			expectAlgoSet:  true,
+			progress:       0,
+			expectProgress: 0,
+		},
+		{
+			name:           "started with unit in progress but no checkpoint yet emits indexing + target algorithm",
+			taskStatus:     distributedtask.TaskStatusStarted,
+			unitStatus:     distributedtask.UnitStatusInProgress,
+			expectStatus:   "indexing",
 			expectAlgoSet:  true,
 			progress:       0,
 			expectProgress: 0,
@@ -507,6 +579,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 		{
 			name:           "started with progress emits indexing + target algorithm",
 			taskStatus:     distributedtask.TaskStatusStarted,
+			unitStatus:     distributedtask.UnitStatusInProgress,
 			expectStatus:   "indexing",
 			expectAlgoSet:  true,
 			progress:       0.42,
@@ -515,6 +588,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 		{
 			name:           "failed task still surfaces target algorithm for the failed attempt",
 			taskStatus:     distributedtask.TaskStatusFailed,
+			unitStatus:     distributedtask.UnitStatusFailed,
 			expectStatus:   "failed",
 			expectAlgoSet:  true,
 			progress:       0.5,
@@ -523,6 +597,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 		{
 			name:           "cancelled task still surfaces target algorithm for the cancelled attempt",
 			taskStatus:     distributedtask.TaskStatusCancelled,
+			unitStatus:     distributedtask.UnitStatusInProgress,
 			expectStatus:   "cancelled",
 			expectAlgoSet:  true,
 			progress:       0.3,
@@ -539,7 +614,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 					Properties:    []string{"foo"},
 				},
 				map[string]*distributedtask.Unit{
-					"u1": {ID: "u1", Progress: tt.progress},
+					"u1": {ID: "u1", Status: tt.unitStatus, Progress: tt.progress},
 				},
 			)
 

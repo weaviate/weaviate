@@ -775,9 +775,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			// hook (the unit is already terminal by definition — that's
 			// what triggered this callback), so we surface it the only
 			// way we can: an unambiguous error-level log line at the end
-			// of OnGroupCompleted. A proper fix (RAFT-stored per-node
-			// post-swap acknowledgement) is tracked as follow-up work
-			// on issue #10675.
+			// of OnGroupCompleted. A proper fix would need a RAFT-stored
+			// per-node post-swap acknowledgement.
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; downstream schema state may be inconsistent")
 		}

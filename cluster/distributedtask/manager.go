@@ -299,18 +299,13 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 // cloned, so callers may read the returned values without holding the Manager's lock.
 //
 // Tasks within each namespace are sorted deterministically so adjacent
-// polls of the same Manager always return the same slice order, regardless
-// of Go's randomized map iteration. Sort key:
+// polls return the same slice order regardless of Go's randomized map
+// iteration. Sort key:
 //
-//  1. STARTED tasks first (most user-relevant — what's actually running).
+//  1. STARTED tasks first (the currently-running work matters most).
 //  2. Within priority, by activity-time DESC (newest first). Activity-time
 //     is FinishedAt for terminal tasks, StartedAt otherwise.
 //  3. Tiebreak by ID ASC for full stability.
-//
-// Without this, frontend dashboards polling /v1/tasks at sub-second
-// intervals would see the same set of tasks alternate order request-to-
-// request, looking like state churn that wasn't really happening (see
-// issue #10675).
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	// Read-only: holding RLock lets concurrent /indexes polls proceed
 	// without serialising against each other (they still wait on any

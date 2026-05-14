@@ -698,7 +698,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	case distributedtask.TaskStatusStarted:
 		progress := aggregateProgress(best)
 		idx.Progress = progress
-		if progress > 0 {
+		// Any non-PENDING unit means work has started somewhere; flip the
+		// pill to "indexing" without waiting for the first throttled
+		// progress checkpoint (which can lag by tens of seconds on a large
+		// shard while per-shard setup drains).
+		if progress > 0 || anyUnitWorking(best) {
 			idx.Status = "indexing"
 		} else {
 			idx.Status = "pending"
@@ -754,6 +758,18 @@ func aggregateProgress(task *distributedtask.Task) float32 {
 		total += u.Progress
 	}
 	return total / float32(len(task.Units))
+}
+
+// anyUnitWorking returns true if at least one unit has transitioned out
+// of PENDING — i.e. some shard is actively iterating, has finished, or
+// failed.
+func anyUnitWorking(task *distributedtask.Task) bool {
+	for _, u := range task.Units {
+		if u.Status != distributedtask.UnitStatusPending {
+			return true
+		}
+	}
+	return false
 }
 
 func dataTypeString(prop *models.Property) string {

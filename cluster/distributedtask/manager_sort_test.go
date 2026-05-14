@@ -132,12 +132,10 @@ func TestSortTasksForDisplay(t *testing.T) {
 	})
 }
 
-// TestManager_ListDistributedTasks_OrderIsStable is the end-to-end
-// assertion against the actual Manager: after ingesting a representative
-// mix of tasks, repeated ListDistributedTasks calls must return slices
-// in byte-identical order. Without the sort, Go's randomized map
-// iteration would produce different orders across calls — exactly the
-// "adjacent polls return chaos" symptom reported on issue #10675.
+// End-to-end check against the Manager itself: repeated
+// ListDistributedTasks calls on the same ingested set must return the
+// same slice order. Without the sort, Go's randomized map iteration
+// would produce different orders across calls.
 func TestManager_ListDistributedTasks_OrderIsStable(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	now := h.clock.Now().Truncate(time.Millisecond)
