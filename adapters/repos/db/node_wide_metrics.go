@@ -155,9 +155,6 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 	}).Debug("observed node wide metrics")
 }
 
-// NOTE(dyma): should this also chech that all indices report allShardsReady == true?
-// Otherwise getCurrentActivity may end up loading lazy-loaded shards just to check
-// their activity, which is redundant on a cold shard?
 func (o *nodeWideMetricsObserver) observeActivity() {
 	start := time.Now()
 	current := o.getCurrentActivity()
@@ -299,6 +296,8 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		}
 		cn := index.Config.ClassName.String()
 		current[cn] = make(activityByTenant)
+		// It is safe to poll activity on all shards before checking index.allShardsLoaded,
+		// because LazyLoadedShard will always report (0, 0) without loading the shard.
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			index.shardCreateLocks.RLock(name)
 			defer index.shardCreateLocks.RUnlock(name)
