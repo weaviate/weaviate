@@ -349,7 +349,7 @@ func NewCreateNamespaceConflict() *CreateNamespaceConflict {
 /*
 CreateNamespaceConflict describes a response with status code 409, with default header values.
 
-A namespace with the specified name already exists.
+A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.
 */
 type CreateNamespaceConflict struct {
 	Payload *models.ErrorResponse

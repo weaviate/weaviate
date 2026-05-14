@@ -31,6 +31,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -47,6 +48,7 @@ type authenticator interface {
 
 type schemaManager interface {
 	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
+	ResolveAlias(alias string) string
 }
 
 type StreamHandler struct {
@@ -66,6 +68,7 @@ type StreamHandler struct {
 	allocChecker           memwatch.AllocChecker
 	memInFlight            atomic.Int64
 	schemaManager          schemaManager
+	namespacesEnabled      bool
 	streamMux              sync.Mutex
 }
 
@@ -79,6 +82,7 @@ func NewStreamHandler(
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
 	schemaManager schemaManager,
+	namespacesEnabled bool,
 ) *StreamHandler {
 	h := &StreamHandler{
 		authenticator:          authenticator,
@@ -95,8 +99,9 @@ func NewStreamHandler(
 		stoppingPerStream:      &sync.Map{},
 		// set a batch-unique live heap checker with a lower threshold to catch OOMs earlier than the global one
 		// this ensures that vectors can be stored in-memory before being processed downstream
-		allocChecker:  memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
-		schemaManager: schemaManager,
+		allocChecker:      memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.8),
+		schemaManager:     schemaManager,
+		namespacesEnabled: namespacesEnabled,
 	}
 	return h
 }
@@ -119,7 +124,7 @@ func NewStreamHandler(
 func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 	streamCtx := stream.Context()
 	// Authenticate at the highest level
-	_, err := h.authenticator.PrincipalFromContext(streamCtx)
+	principal, err := h.authenticator.PrincipalFromContext(streamCtx)
 	if err != nil {
 		return fmt.Errorf("authenticate: %w", err)
 	}
@@ -172,7 +177,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) error {
 		// In either case, we need to inform the send loop so that it can exit cleanly
 		// We do this by sending the error (or nil if the client closed the stream) to the recvErrCh channel
 		// and then closing the channel to signal that no more errors will be sent
-		if err := h.receiver(ctx, streamId, startReq.ConsistencyLevel, stream); err != nil {
+		if err := h.receiver(ctx, streamId, principal, startReq.ConsistencyLevel, stream); err != nil {
 			recvErrCh <- err
 		}
 		close(recvErrCh)
@@ -392,7 +397,7 @@ func (h *StreamHandler) recv(stream pb.Weaviate_BatchStreamServer) (chan *pb.Bat
 // It receives messages from the stream and pushes them to the processing queue for downstream workers to pick up.
 //
 // It also listens for shutdown signals to stop accepting new messages and to eventually close the stream gracefully.
-func (h *StreamHandler) receiver(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
+func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal *models.Principal, consistencyLevel *pb.ConsistencyLevel, stream pb.Weaviate_BatchStreamServer) error {
 	log := h.logger.WithField("streamId", streamId)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -482,25 +487,34 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, consisten
 				return oomErr(objs, refs, err)
 			}
 
-			collectionSet := make(map[string]struct{})
-			collections := []string{}
+			// Resolve each raw obj.Collection to the form stored in the schema
+			// (uppercased, namespace-qualified, alias-resolved) so the vectorisation
+			// lookup hits for namespaced principals and alias callers. The result
+			// map stays keyed by the raw obj.Collection because the downstream
+			// worker keys objsByCollection by obj.Collection unchanged.
+			resolvedNames := []string{}
+			resolvedByRaw := map[string]string{}
 			for _, obj := range objs {
-				if _, ok := collectionSet[obj.Collection]; ok {
+				if _, ok := resolvedByRaw[obj.Collection]; ok {
 					continue
 				}
-				collectionSet[obj.Collection] = struct{}{}
-				collections = append(collections, obj.Collection)
+				resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+				if err != nil {
+					return err
+				}
+				resolvedNames = append(resolvedNames, resolved)
+				resolvedByRaw[obj.Collection] = resolved
 			}
 
-			classes, err := h.schemaManager.GetCachedClassNoAuth(ctx, collections...)
+			classes, err := h.schemaManager.GetCachedClassNoAuth(ctx, resolvedNames...)
 			if err != nil {
 				log.Errorf("failed to get classes for vectorisation check: %v", err)
 				return fmt.Errorf("get classes for vectorisation check: %w", err)
 			}
 			usesVectorisationByCollection := map[string]bool{}
-			for _, collection := range collections {
-				if class, ok := classes[collection]; ok {
-					usesVectorisationByCollection[collection] = modelsext.ClassUsesVectorisation(class.Class)
+			for raw, resolved := range resolvedByRaw {
+				if class, ok := classes[resolved]; ok {
+					usesVectorisationByCollection[raw] = modelsext.ClassUsesVectorisation(class.Class)
 				}
 			}
 

@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
@@ -66,8 +67,10 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	// NOTE: Support getting class via alias name
 	// Also we resolve before doing `Authorize` so that Authorizer will work
 	// with correct `collectionName` for permissions and errors UX
-	name = schema.UppercaseClassName(name)
-	resolved, _ := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	resolved, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, name)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
+	}
 	name = resolved
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
@@ -120,7 +123,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// caller-supplied ":" and the success of the namespaced-create flow are
 	// covered by test/acceptance/namespace/collection_alias_test.go.
 	originalClassName := cls.Class
-	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class)
+	qualified, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, cls.Class, "class")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
@@ -159,20 +162,43 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount()
+	// On namespace-enabled clusters the cap is enforced per namespace.
+	// QualifyForCreate above already required principal.Namespace for this
+	// flow, so it is the correct selector here.
+	countNamespace := ""
+	if h.config.Namespaces.Enabled {
+		countNamespace = principal.Namespace
+	}
+
+	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
 	if err != nil {
-		h.logger.WithField("error", err).Error("could not query the collections count")
+		h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
 	}
 
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		return nil, 0, fmt.Errorf(
-			"cannot create collection: maximum number of collections (%d) reached - "+
-				"please consider switching to multi-tenancy or increasing the collection count limit - "+
-				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
-				"when working with multiple collections and tenants",
-			limit)
+		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+		// in the usage-limits work; see docs/usage_limits.md for the wire
+		// contract.
+		return nil, 0, usagelimits.NewLimitExceededError(
+			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+	}
+
+	// Per-collection shard cap. Config-time check only — shard count comes
+	// straight from the create request, no live state to consult.
+	// Multi-tenant collections set DesiredCount=0 (shards are created
+	// per-tenant on demand) so the cap is naturally satisfied for those;
+	// the check meaningfully constrains single-tenant configurations only.
+	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
+		shardCap := dv.Get()
+		if shardCap >= 0 {
+			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
+			if requested > shardCap {
+				return nil, 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
+			}
+		}
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -320,7 +346,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 // here: deleting via an alias name must be a no-op on the underlying
 // class, otherwise an alias becomes a backdoor to drop its target.
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	class = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return err
+	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(class)...); err != nil {
 		return err
@@ -336,10 +365,12 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	className = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+	if err != nil {
+		return err
+	}
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
-	if err != nil || updated == nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}
 
@@ -507,6 +538,11 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
 		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
 			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if globalCfg.MaximumFactor > 0 && class.ReplicationConfig.Factor > int64(globalCfg.MaximumFactor) {
+		return fmt.Errorf("invalid replication factor: setup caps replication at %d: got %d",
+			globalCfg.MaximumFactor, class.ReplicationConfig.Factor)
 	}
 
 	if class.ReplicationConfig.Factor < 1 {

@@ -581,10 +581,16 @@ func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }
 
+// GetUserAndPrefix splits an internal casbin user key into the user
+// identifier and its prefix and returns them as (user, prefix). The key is
+// `<prefix>:<user>` where prefix is "db", "oidc", or "group" and `<user>`
+// is itself either a bare name or a namespace-qualified `<namespace>:<name>`.
+// Splitting on the first ":" only is what keeps namespaced principals (e.g.
+// `oidc:customer1:alice`) from being mistaken for malformed input.
 func GetUserAndPrefix(name string) (string, string, error) {
-	splits := strings.Split(name, PREFIX_SEPARATOR)
-	if len(splits) != 2 {
+	prefix, user, ok := strings.Cut(name, PREFIX_SEPARATOR)
+	if !ok || prefix == "" || user == "" {
 		return "", "", fmt.Errorf("invalid name: %s", name)
 	}
-	return splits[1], splits[0], nil
+	return user, prefix, nil
 }

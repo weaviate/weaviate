@@ -33,7 +33,9 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.Loc
 			return nil, fmt.Errorf("failed to extract filters: %w", err)
 		}
 
-		return filterext.Parse(filter, rootClass)
+		// GraphQL is disabled on namespace-enabled clusters, so the
+		// namespacesEnabled flag is hard-wired to false here.
+		return filterext.Parse(filter, rootClass, false)
 	}
 }
 

@@ -98,6 +98,20 @@ func NewErrNotFound(format string, args ...interface{}) ErrNotFound {
 	return ErrNotFound{msg: fmt.Sprintf(format, args...)}
 }
 
+// ErrEndpointGone marks an operation that is no longer available in the
+// current cluster configuration. The REST layer maps this to HTTP 410.
+type ErrEndpointGone struct {
+	msg string
+}
+
+func (e ErrEndpointGone) Error() string {
+	return e.msg
+}
+
+func NewErrEndpointGone(format string, args ...interface{}) ErrEndpointGone {
+	return ErrEndpointGone{msg: fmt.Sprintf(format, args...)}
+}
+
 type ErrMultiTenancy struct {
 	err error
 }

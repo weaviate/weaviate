@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 const NotLeaderRPCCode = codes.ResourceExhausted
@@ -185,7 +186,10 @@ func (s *Server) Close() {
 	}
 }
 
-// toRPCError returns a gRPC error with the right error code based on the error.
+// toRPCError returns a gRPC error with the right error code based on the
+// error. Sentinel mapping is the leader→follower contract: every
+// namespace sentinel that callers errors.Is against must appear here so
+// fromRPCError can re-chain it after the gRPC hop strips type info.
 func toRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -197,8 +201,19 @@ func toRPCError(err error) error {
 		ec = NotLeaderRPCCode
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
-	case errors.Is(err, schema.ErrMTDisabled):
+	case errors.Is(err, namespaces.ErrNamespaceGone),
+		errors.Is(err, namespaces.ErrNotFound):
+		ec = codes.NotFound
+	case errors.Is(err, namespaces.ErrNamespaceDeleting),
+		errors.Is(err, namespaces.ErrNamespaceNotEmpty),
+		errors.Is(err, namespaces.ErrInvalidState),
+		errors.Is(err, namespaces.ErrInvalidStateTransition),
+		errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
+	case errors.Is(err, namespaces.ErrAlreadyExists):
+		ec = codes.AlreadyExists
+	case errors.Is(err, namespaces.ErrBadRequest):
+		ec = codes.InvalidArgument
 	case strings.Contains(err.Error(), types.ErrNotFound.Error()):
 		ec = codes.NotFound
 	default:
