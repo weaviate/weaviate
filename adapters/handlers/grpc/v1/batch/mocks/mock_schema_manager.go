@@ -157,8 +157,7 @@ func (_c *MockschemaManager_ResolveAlias_Call) RunAndReturn(run func(string) str
 func NewMockschemaManager(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockschemaManager {
+}) *MockschemaManager {
 	mock := &MockschemaManager{}
 	mock.Mock.Test(t)
 
