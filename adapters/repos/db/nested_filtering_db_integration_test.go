@@ -514,36 +514,23 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			matchesObjectDel: e, matchesArrayDel: e,
 			matchesObjectUpd: e, matchesArrayUpd: e,
 		},
-		// ContainsNone is NOT(OR of Equal clauses). OR-of-same-root wrapping
-		// (OR grouping) + top-level NOT wrapping (top-level NOT marking) dispatch the
-		// NOT to the scope-aware planner; it inverts at the operand's
-		// natural LCA (the tags array path) giving per-tag-element
-		// existential. The id125/id201 (=doc125Data, tags=["electric"])
-		// rows leak through today because of a single-object-root +
-		// text[] vacuous-drop bug — same root cause as
-		// TestNestedFilteringContainsOperators/country_object/L0_tags.
-		// TODO aliszka:nested_filtering: after vacuous-drop fix for
-		// single-object-root with text[] property, expected per-element inversion is:
-		//   [electric, sedan]:
-		//     matchesObjectAdd: {id123, id124}    matchesArrayAdd: {id998, id999}
-		//     matchesObjectDel: {id124}           matchesArrayDel: {id999}
-		//     matchesObjectUpd: {id200}           matchesArrayUpd: {id300}
-		//   [premium, electric]:
-		//     matchesObjectAdd: {id123, id124}    matchesArrayAdd: {id998, id999}
-		//     matchesObjectDel: {id124}           matchesArrayDel: {id999}
-		//     matchesObjectUpd: {id200}           matchesArrayUpd: {id300}
-		//   (d125-only rows drop under proper vacuous-element handling.)
+		// Route 1: ContainsNone is now a first-class operator using
+		// `_exists.{relPath}` as the inversion universe. For doc125Data
+		// (tags=["electric"]) the only tag IS in the listed set, so no
+		// qualifying tag exists → drops. Array case (id999=[doc124, doc125])
+		// still matches because doc124 has tags=[german, japanese, sedan]
+		// of which german/japanese qualify.
 		{
 			name: "tags ContainsNone [electric, sedan]", filter: f("tags", filters.ContainsNone, schema.DataTypeText, []string{"electric", "sedan"}),
-			matchesObjectAdd: []strfmt.UUID{id123, id124, id125}, matchesArrayAdd: []strfmt.UUID{id998, id999},
-			matchesObjectDel: []strfmt.UUID{id124, id125}, matchesArrayDel: []strfmt.UUID{id999},
-			matchesObjectUpd: []strfmt.UUID{id200, id201}, matchesArrayUpd: []strfmt.UUID{id300},
+			matchesObjectAdd: []strfmt.UUID{id123, id124}, matchesArrayAdd: []strfmt.UUID{id998, id999},
+			matchesObjectDel: []strfmt.UUID{id124}, matchesArrayDel: []strfmt.UUID{id999},
+			matchesObjectUpd: []strfmt.UUID{id200}, matchesArrayUpd: []strfmt.UUID{id300},
 		},
 		{
 			name: "tags ContainsNone [premium, electric]", filter: f("tags", filters.ContainsNone, schema.DataTypeText, []string{"premium", "electric"}),
-			matchesObjectAdd: []strfmt.UUID{id123, id124, id125}, matchesArrayAdd: []strfmt.UUID{id998, id999},
-			matchesObjectDel: []strfmt.UUID{id124, id125}, matchesArrayDel: []strfmt.UUID{id999},
-			matchesObjectUpd: []strfmt.UUID{id200, id201}, matchesArrayUpd: []strfmt.UUID{id300},
+			matchesObjectAdd: []strfmt.UUID{id123, id124}, matchesArrayAdd: []strfmt.UUID{id998, id999},
+			matchesObjectDel: []strfmt.UUID{id124}, matchesArrayDel: []strfmt.UUID{id999},
+			matchesObjectUpd: []strfmt.UUID{id200}, matchesArrayUpd: []strfmt.UUID{id300},
 		},
 		{
 			// NotEqual under existential per-element semantics (materialized
@@ -13256,25 +13243,14 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// OR-of-same-root wrapping marks OR-of-same-root (the two
-			// country.tags=value branches) as scope-aware. The wrapping
-			// NOT then inverts at the operand's natural LCA = country.tags
-			// (the tag array), giving per-tag-element existential
-			// semantics instead of the per-country semantics the test
-			// author originally assumed under "single root object,
-			// ContainsNone unambiguous". d2 ([sport,cargo]) and d3
-			// ([luxury,cargo]) flip in because they have a cargo tag that
-			// is none of [sport,luxury]. d5 (empty country) leaks in
-			// today — under per-element inversion's vacuous-element rule it should
-			// drop.
-			// TODO aliszka:nested_filtering: after vacuous-drop fix for
-			// single-object-root with empty array prop, expected per-element inversion:
-			//   []strfmt.UUID{d2, d3, d4}
-			//   (d5 drops; per-tag-element existential: ∃ tag not in
-			//   [sport,luxury].)
+			// Route 1: ContainsNone is now a first-class operator with
+			// `_exists.tags` as the inversion universe. d2/d3/d4 have at
+			// least one tag outside [sport, luxury] → match. d5 (empty
+			// country, no tags) has no tag positions → universe empty →
+			// drops correctly.
 			t.Run("ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.tags", filters.ContainsNone, "sport", "luxury"),
-					[]strfmt.UUID{d2, d3, d4, d5})
+					[]strfmt.UUID{d2, d3, d4})
 			})
 		})
 
@@ -13297,9 +13273,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.name", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
+			// Route 1: ContainsNone is now first-class with universe =
+			// `_exists.name`. d4 (boston, no "new"/"york" tokens) matches;
+			// d5 (empty country, no name) has no position in the universe
+			// → drops.
 			t.Run("ContainsNone", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.name", filters.ContainsNone, "new", "york"),
-					[]strfmt.UUID{d4, d5})
+					[]strfmt.UUID{d4})
 			})
 		})
 
@@ -13728,6 +13708,150 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 					[]strfmt.UUID{d6})
 			})
 		})
+	})
+}
+
+// TestNestedFilteringContainsNoneSiblingScalarArrayLeak regression-locks
+// the Route 1 fix for the ContainsNone universe leak. ContainsNone on a
+// nested path is now a first-class operator (no longer desugared to
+// NOT(OR(...))) and uses `_exists.{relPath}` as the inversion universe —
+// the scalar-array path itself, not the broader LCA.
+//
+// Pre-fix the leak applied for both DataTypeObject and DataTypeObjectArray
+// roots because the writer encodes them identically — only test fixture
+// quirks (`[]` vs `{}` for "empty") sidestepped it elsewhere. With the
+// fix in place the bug surfaces in neither root form.
+//
+// Schema (both variants share `rootInner`):
+//
+//	country:   DataTypeObject       { tags: text[], cities: text[] }
+//	countries: DataTypeObjectArray  { tags: text[], cities: text[] }
+//
+// Filter: ContainsNone(<root>.tags, ["electric"])  — strict existential:
+// ∃ a tag NOT in {electric}.
+//
+// Docs (same shape for both roots, only wrapping differs):
+//
+//	d1: tags=[electric], cities=[paris]   — only tag is in listed set;
+//	                                         pre-fix leaked via cities leaf
+//	d2: tags=[sport],    cities=[london]  — control: tag NOT in listed set
+//	d3:                  cities=[berlin]  — vacuous: no tags; pre-fix
+//	                                         leaked via cities leaf
+//
+// Expected (post-Route-1): only d2 matches for both variants.
+func TestNestedFilteringContainsNoneSiblingScalarArrayLeak(t *testing.T) {
+	const nestedClass = "ContainsNoneSiblingLeak"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3 := uuid(1), uuid(2), uuid(3)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"tags":   asTextArr("electric"),
+				"cities": asTextArr("paris"),
+			}}, note: "only tag is electric (in listed set); cities=[paris] sibling"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"tags":   asTextArr("sport"),
+				"cities": asTextArr("london"),
+			}}, note: "tag=sport (not in listed set); control"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"cities": asTextArr("berlin"),
+			}}, note: "no tags at all; only cities sibling — vacuous case"},
+		}
+		// Route 1: ContainsNone is now a first-class operator with universe
+		// = `_exists.tags`. d1 (only-electric tag) and d3 (no tags at all)
+		// both correctly drop. d2 (sport tag, not in listed set) matches.
+		runScenario(t, docs, containsFilter("country.tags", filters.ContainsNone, "electric"),
+			[]strfmt.UUID{d2})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3 := uuid(1), uuid(2), uuid(3)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{
+					"tags":   asTextArr("electric"),
+					"cities": asTextArr("paris"),
+				},
+			}}, note: "only tag is electric; cities=[paris] sibling"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{
+					"tags":   asTextArr("sport"),
+					"cities": asTextArr("london"),
+				},
+			}}, note: "tag=sport (control)"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{
+					"cities": asTextArr("berlin"),
+				},
+			}}, note: "no tags, only cities — vacuous"},
+		}
+		// Route 1: same as country_object — encoding is bit-identical for
+		// DataTypeObject and DataTypeObjectArray with one element, so the
+		// same fix applies regardless of root prop type.
+		runScenario(t, docs, containsFilter("countries.tags", filters.ContainsNone, "electric"),
+			[]strfmt.UUID{d2})
 	})
 }
 

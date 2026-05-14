@@ -1009,6 +1009,15 @@ func (s *Searcher) extractContains(ctx context.Context,
 	// the outermost extractPropValuePair wrapper normalizes via
 	// groupNestedByProp; ContainsAny / ContainsNone desugar to OR /
 	// NOT(OR) which the wrapper deliberately leaves ungrouped.
+	//
+	// Route 1 exception: ContainsNone on a nested path keeps its operator
+	// identity instead of desugaring to NOT(OR(...)). This preserves the
+	// scalar-array operand path on the pvp so the resolver / planner can
+	// use `_exists.{relPath}` as the inversion universe (rather than
+	// `_exists.{LCA}` which falls through to the root prop when the path
+	// has no DataTypeObjectArray ancestor). Without this, sibling-branch
+	// leaves and phantom leaves from empty containers leak past the AndNot
+	// — see project_containsnone_universe_leak.md.
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
@@ -1023,6 +1032,19 @@ func (s *Searcher) extractContains(ctx context.Context,
 	case filters.ContainsAny:
 		out.operator = filters.OperatorOr
 	case filters.ContainsNone:
+		if len(children) > 0 && children[0].nested.isNested {
+			// Nested path: keep ContainsNone as a first-class operator. The
+			// pvp carries the operand relPath (from the children, which all
+			// share it by construction) and the children list as values.
+			out.operator = filters.ContainsNone
+			out.prop = children[0].prop
+			out.nested.relPath = children[0].nested.relPath
+			// Note: out.nested.isNested stays false — this is a compound
+			// operator node, not a leaf; the value-leaves live as children.
+			return out, nil
+		}
+		// Non-nested path: keep the desugared NOT(OR(...)) shape. The
+		// existing flat resolver handles it.
 		out.operator = filters.OperatorOr
 
 		parent, err := newPropValuePair(class)

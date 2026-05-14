@@ -567,14 +567,13 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		assert.True(t, pv.children[0].nested.isNested)
 	})
 
-	t.Run("top-level ContainsNone wraps both NOT and inner OR", func(t *testing.T) {
+	t.Run("top-level nested ContainsNone is a first-class operator", func(t *testing.T) {
 		// input:  ContainsNone(nested.numbers, [1, 2])
-		// output (NOT(OR) — inner OR same-root wraps under OR-of-same-root wrapping
-		// and outer NOT same-root operand wraps under top-level NOT wrapping):
-		// └── NOT {isWRS:nested}
-		//     └── OR {isWRS:nested}
-		//         ├── numbers=1
-		//         └── numbers=2
+		// output (Route 1: no desugar to NOT(OR), single ContainsNone pvp
+		// carrying the operand relPath and the per-value children):
+		// └── ContainsNone {prop:nested, relPath:numbers}
+		//     ├── numbers=1
+		//     └── numbers=2
 		clause := &filters.Clause{
 			Operator: filters.ContainsNone,
 			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1, 2}},
@@ -583,16 +582,18 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
 		require.NoError(t, err)
 
-		assert.Equal(t, filters.OperatorNot, pv.operator)
-		assert.True(t, pv.nested.isWithinRootSubtree, "outer NOT wraps under top-level NOT wrapping")
+		assert.Equal(t, filters.ContainsNone, pv.operator,
+			"nested ContainsNone preserves operator identity (Route 1)")
 		assert.Equal(t, "nested", pv.prop)
-		require.Len(t, pv.children, 1)
-
-		inner := pv.children[0]
-		assert.Equal(t, filters.OperatorOr, inner.operator)
-		assert.True(t, inner.nested.isWithinRootSubtree, "inner OR same-root wraps")
-		assert.Equal(t, "nested", inner.prop)
-		require.Len(t, inner.children, 2)
+		assert.Equal(t, "numbers", pv.nested.relPath,
+			"operand path carried on the wrapper so the resolver / planner can read _exists.numbers as universe")
+		assert.False(t, pv.nested.isNested, "compound operator node, not a leaf")
+		assert.False(t, pv.nested.isWithinRootSubtree, "not a same-root AND group")
+		require.Len(t, pv.children, 2, "one child per forbidden value")
+		for _, child := range pv.children {
+			assert.True(t, child.nested.isNested)
+			assert.Equal(t, "numbers", child.nested.relPath)
+		}
 	})
 
 	t.Run("ContainsAny inside AND wraps both levels", func(t *testing.T) {
