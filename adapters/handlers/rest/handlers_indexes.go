@@ -77,6 +77,25 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// merge below doesn't re-unmarshal each task N times.
 	parsedTasks := parseReindexTasks(activeTasks[db.ReindexNamespace])
 
+	// finalizeWindow bounds the "FINISHED but flag-off → indexing@100%"
+	// override in mergeReindexStatus. The legitimate window is at most
+	// one DTM scheduler tick (the gap between task FINISHED and the
+	// scheduler calling OnGroupCompleted) plus the per-shard swap
+	// duration (typically <1s). We use 2× the tick interval as a
+	// generous coverage. The clamp at finalizeWindowMin/Max keeps the
+	// window reasonable in both pathological sub-second tick configs
+	// (clamp up to 3s) and production 60s+ tick configs (clamp down to
+	// 10s) — a longer-lived bleed in production was the user-visible
+	// face of weaviate/weaviate#10675, and capping the override here
+	// keeps the worst-case stale "indexing(1)" pill bounded.
+	finalizeWindow := 2 * h.appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval
+	if finalizeWindow < finalizeWindowMin {
+		finalizeWindow = finalizeWindowMin
+	}
+	if finalizeWindow > finalizeWindowMax {
+		finalizeWindow = finalizeWindowMax
+	}
+
 	// BM25 algorithm currently backing searchable indexes for this class.
 	// The schema-level UsingBlockMaxWAND flag flips only after every
 	// searchable bucket on every shard has been migrated to blockmax (see
@@ -129,7 +148,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			if e.indexType == "searchable" && e.flagOn {
 				idx.Algorithm = searchableAlgorithm
 			}
-			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, h.appState.Logger)
+			mergeReindexStatus(idx, collection, prop.Name, e.indexType, e.flagOn, parsedTasks, finalizeWindow, h.appState.Logger)
 			// Flag on → always emit. Flag off → emit only when a reindex
 			// task carries actionable signal (in-flight or terminal
 			// failure/cancellation).
@@ -424,15 +443,23 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	//
 	// Safe to call even when no stale state exists: missing buckets and
 	// missing directories are silently skipped by the per-shard helper.
-	indexTypeForCleanup, indexTypeKnown := indexTypeFromMigrationType(migrationType)
+	indexTypesForCleanup, indexTypeKnown := indexTypesFromMigrationType(migrationType)
 	if indexTypeKnown {
-		if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
-			h.appState.Logger.WithFields(logrus.Fields{
-				"collection":     collection,
-				"property":       propertyName,
-				"migration_type": migrationType,
-				"index_type":     indexTypeForCleanup,
-			}).Error(fmt.Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %w; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err))
+		// Loop over every index type this migration touches. For
+		// single-index migrations the slice has one entry; for
+		// change-tokenization-both (which writes searchable AND filterable
+		// sub-task dirs) it has two. Cleaning BOTH is critical — see the
+		// indexTypesFromMigrationType godoc for the Sev 1 data-loss bug
+		// that motivated the multi-index sweep.
+		for _, indexTypeForCleanup := range indexTypesForCleanup {
+			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexTypeForCleanup); err != nil {
+				h.appState.Logger.WithFields(logrus.Fields{
+					"collection":     collection,
+					"property":       propertyName,
+					"migration_type": migrationType,
+					"index_type":     indexTypeForCleanup,
+				}).Error(fmt.Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %w; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err))
+			}
 		}
 	}
 
@@ -644,34 +671,79 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 // shorter in practice — empirically <1s on test corpora).
 const reindexCancelDrainTimeout = 10 * time.Second
 
-// indexTypeFromMigrationType returns the canonical inverted-index type
-// ("filterable", "searchable", "rangeable") that a migration type targets,
-// for use by submit-time pre-cleanup. Returns ("", false) for migration
-// types that touch multiple index types (e.g. change-tokenization), in
-// which case the caller must NOT run cleanup blindly — wiping a sibling
-// index's migration state on a same-prop change-tokenization submit would
-// be a bug.
+// finalizeWindowMin / finalizeWindowMax bound the "FINISHED but
+// flag-off → indexing@100%" override in [mergeReindexStatus]. The
+// window is normally computed as 2× the DTM scheduler tick interval,
+// but is clamped at both ends:
 //
-// Per-type cleanup for the multi-index case is handled by the
-// per-cancel-verb cleanup (which is scoped to the cancelled index type)
-// plus the existing OnAfterLsmInitAsync stale-sentinel defense.
-func indexTypeFromMigrationType(mt db.ReindexMigrationType) (string, bool) {
+//   - finalizeWindowMin (3s) protects against pathological sub-second
+//     tick configs where 2× would shrink the legitimate window faster
+//     than realistic swap-phase jitter. 3s comfortably covers the
+//     in-test 1s tick + swap + jitter.
+//
+//   - finalizeWindowMax (10s) caps how long a stale FINISHED task can
+//     bleed an "indexing(1)" pill after a DELETE — production tick is
+//     60s, so a naive 2× would let the bleed live for 2 minutes,
+//     which was the user-visible face of weaviate/weaviate#10675.
+//
+// Outside the window, flagOn==false cannot legitimately mean "swap
+// pending" — either the swap failed silently (logged as "swap
+// INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
+// flag back to false (the frontend repro on 2026-05-14 in
+// weaviate/weaviate#10675 — "indexing(1) bleed"). In both cases
+// surfacing the override would be a status lie. The trade-off in
+// production: between task FINISHED and the schema flag flip, a
+// caller polling the GET endpoint will see "indexing@100%" for up to
+// 10s, then briefly see an empty searchable entry, then see "ready"
+// once the flag flips. The brief empty entry is the original UX gap
+// that the override was added to bridge (fd4bfab7cb); we accept it
+// here as the lesser evil compared to the unbounded bleed.
+const (
+	finalizeWindowMin = 3 * time.Second
+	finalizeWindowMax = 10 * time.Second
+)
+
+// indexTypesFromMigrationType returns the canonical inverted-index types
+// ("filterable", "searchable", "rangeable") that a migration type targets,
+// for use by submit-time pre-cleanup. Returns (nil, false) only for unknown
+// migration types — every known type returns at least one indexType.
+//
+// Most migration types target exactly one index. change-tokenization (both
+// indexes) targets TWO — it spawns one ShardReindexTaskGeneric per index
+// (searchable + filterable) via createReindexTasks, and each leaves its own
+// .migrations/<prefix>_<prop>/ sentinel directory on disk. Pre-submit
+// cleanup must wipe BOTH dirs; cleaning only one of them was the root cause
+// of the Sev 1 data-loss bug fixed alongside this change (see Journey 7 in
+// change_tok_delete_journeys_test.go): a prior filterable-only retokenize
+// left .migrations/filterable_retokenize_<prop>/tidied.mig on disk, the
+// next change-tokenization-both submit did not clean it, and its
+// FilterableRetokenize sub-task short-circuited on OnAfterLsmInit's
+// IsTidied check while OnMigrationComplete still flipped the schema's
+// Tokenization. Schema and on-disk state then disagreed.
+//
+// Callers iterate the returned slice and run CleanStalePartialReindexState
+// once per indexType. Safe to call when no stale state exists: missing
+// directories and unloaded buckets are silently skipped.
+func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	switch mt {
 	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable:
-		return "searchable", true
+		return []string{"searchable"}, true
 	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
-		return "filterable", true
+		return []string{"filterable"}, true
 	case db.ReindexTypeEnableRangeable, db.ReindexTypeRepairRangeable:
-		return "rangeable", true
+		return []string{"rangeable"}, true
 	case db.ReindexTypeChangeTokenization:
-		// change-tokenization touches BOTH searchable and filterable
-		// buckets on the same property. Returning a single indexType
-		// would let the caller wipe state for the wrong one.
-		return "", false
+		// change-tokenization-both runs ONE task per inverted index
+		// (searchable + filterable). Each leaves its own per-property
+		// migration dir on disk. Pre-cleanup must wipe both, otherwise a
+		// stale tidied.mig from a previous single-index retokenize on the
+		// same prop short-circuits the sub-task and produces a schema /
+		// bucket state mismatch (Sev 1 silent data loss).
+		return []string{"searchable", "filterable"}, true
 	case db.ReindexTypeChangeTokenizationFilterable:
-		return "filterable", true
+		return []string{"filterable"}, true
 	}
-	return "", false
+	return nil, false
 }
 
 // migrationTypeTargetsIndex returns:
@@ -770,7 +842,14 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 // added without updating this switch would otherwise silently report "ready"
 // for an in-flight task. Passing a nil logger is allowed (test callers may
 // rely on this); the entry is still skipped, just without a log line.
-func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, logger logrus.FieldLogger) {
+// finalizeWindow caps the "FINISHED-but-flag-off → indexing@100%"
+// override (see the TaskStatusFinished branch below). Callers pass in
+// 2× the DTM scheduler tick interval (clamped to finalizeWindowMin);
+// the test harness passes a wider value because the test container
+// always uses 1s ticks. Pass 0 to disable the override entirely (rare;
+// kept for tests that want to assert the post-DELETE bleed never
+// surfaces regardless of FinishedAt freshness).
+func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType string, flagOn bool, parsedTasks []parsedReindexTask, finalizeWindow time.Duration, logger logrus.FieldLogger) {
 	// Two tasks for the same (collection, prop, indexType) may coexist —
 	// e.g. a freshly retried STARTED enable-filterable plus the original
 	// FAILED attempt that the operator just retried (terminal tasks
@@ -882,7 +961,21 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// Treat it as "indexing@100%" until the schema catches up; once
 		// flagOn flips true, the base case "ready" override takes precedence
 		// and this branch is effectively ignored.
-		if !flagOn {
+		//
+		// Bound the window by task.FinishedAt: outside it, flagOn==false
+		// cannot mean "swap pending" — the swap window is at most one
+		// scheduler tick plus per-shard swap time, comfortably under
+		// reindexFinalizeWindow. If flagOn is still false past this
+		// window, the only realistic causes are:
+		//   - the swap completed (flag flipped true) and a subsequent
+		//     DELETE flipped it back to false (the frontend repro on
+		//     2026-05-14 #10675 — "indexing(1) bleed");
+		//   - the swap failed silently (logged loudly by
+		//     OnGroupCompleted's "swap INCOMPLETE" branch).
+		// In neither case do we want a synthetic "indexing@100%" entry —
+		// the first case is a stale-task false signal, the second is an
+		// error condition the swap-incomplete logs already surface.
+		if !flagOn && finalizeWindow > 0 && time.Since(best.FinishedAt) < finalizeWindow {
 			idx.Status = "indexing"
 			idx.Progress = 1.0
 		}

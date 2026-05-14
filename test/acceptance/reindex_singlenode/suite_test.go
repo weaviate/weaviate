@@ -199,6 +199,33 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testDeleteThenReEnableMultiCycle(t, restURI)
 	})
 
+	// --- Subtest 13b: GET /indexes bleed after DELETE→re-enable cycles ---
+	// Frontend repro 2026-05-14 (weaviate/weaviate#10675): after multiple
+	// enable→DELETE cycles on the same property, GET /indexes shows a
+	// phantom "indexing(1)" entry for the deleted index, "carrying over
+	// from the previous FINISHED task". mergeReindexStatus's
+	// finalize-window override reclassifies a stale FINISHED task as
+	// "still finalizing" because it only gates on flagOn==false, not on
+	// whether the swap that flipped the flag for THIS task has already
+	// completed and been undone by DELETE.
+	t.Run("DeleteThenReEnableIndexingBleed", func(t *testing.T) {
+		testDeleteThenReEnableIndexingBleed(t, restURI)
+	})
+
+	// --- Subtest 13c: cycle-3 short-circuit after DELETE→re-enable ---
+	// Frontend repro 2026-05-14 #10675: cycle 3's reindex finishes in
+	// 1.6s while cycles 1 and 2 took 60-75s on the same dataset.
+	// Combined with the schema flag never flipping to true on this
+	// cycle, the silent-failure family is: iteration short-circuited
+	// against stale on-disk or in-memory state, bucket is empty, BM25
+	// errors with "indexSearchable not enabled". This test uses 500
+	// objects so a short-circuit is unambiguously distinguishable from
+	// a "fast because tiny dataset" cycle. Pins both the duration
+	// ratio AND the BM25 hit count.
+	t.Run("DeleteThenReEnableShortCircuit", func(t *testing.T) {
+		testDeleteThenReEnableShortCircuit(t, restURI)
+	})
+
 	// --- Subtest 14: property-state × migration-type matrix ---
 	// Programmatic enumeration of (data type × pre-state × PUT body shape).
 	// Each cell asserts either (a) clean 202+FINISHED+queryable-bucket or

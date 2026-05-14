@@ -920,7 +920,10 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			return zerotime, false, err
 		}
 		if t.skipSwapOnFinish.Load() {
-			logger.Info("reindex complete (swap deferred for barrier)")
+			logger.WithFields(map[string]any{
+				"processed_count": processedCount,
+				"indexed_count":   indexedCount,
+			}).Info("reindex complete (swap deferred for barrier)")
 			return zerotime, false, nil
 		}
 		// Runtime swap: merge, swap, tidy all inline — no shard restart needed.
