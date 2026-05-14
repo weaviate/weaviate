@@ -187,7 +187,12 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 	p.payloads[task.TaskDescriptor] = &payload
 	p.mu.Unlock()
 
-	throttled := distributedtask.NewThrottledRecorder(p.recorder, 30*time.Second, clockwork.NewRealClock())
+	// Progress is emitted from the inverted-index reindex iteration every
+	// checkProcessingEveryNoObjects iterations (default 1000). A 30s throttle
+	// was too coarse — many migrations finish in under a minute and the UI
+	// saw the unit stuck at PENDING the whole time. 3s gives the GET /indexes
+	// poller visible motion without flooding RAFT with progress updates.
+	throttled := distributedtask.NewThrottledRecorder(p.recorder, 3*time.Second, clockwork.NewRealClock())
 
 	enterrors.GoWrapper(func() {
 		defer func() {
@@ -275,6 +280,27 @@ func (p *ReindexProvider) processOneUnit(
 	if err != nil {
 		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", err))
 		return
+	}
+
+	// Hook up live progress reporting. The recorder above this layer is
+	// already throttled (see StartTask), so the iteration loop can call the
+	// callback freely — only one update per throttle window reaches RAFT.
+	// Errors from UpdateDistributedTaskUnitProgress are logged but do NOT
+	// fail the unit: a transient RAFT hiccup that drops one progress tick
+	// must not abort the underlying migration.
+	for _, reindexTask := range tasks {
+		// Capture per-iteration; the closure may outlive this stack frame
+		// because the callback fires from inside the reindex loop.
+		taskRef := reindexTask
+		taskRef.SetProgressCallback(func(progress float32) {
+			if err := recorder.UpdateDistributedTaskUnitProgress(
+				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, progress,
+			); err != nil {
+				logger.WithError(err).
+					WithField("progress", progress).
+					Debug("reindex provider: failed to report progress (will retry on next tick)")
+			}
+		})
 	}
 
 	// For semantic migrations (change-tokenization, enable-rangeable), use

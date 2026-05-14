@@ -65,6 +65,14 @@ type ShardReindexTaskGeneric struct {
 	// They are called after a runtime swap to stop the double-write callbacks.
 	callbackDisableFuncsMu sync.Mutex
 	callbackDisableFuncs   []func()
+
+	// progressCallback, when set, is called from the iteration loop with the
+	// current fraction-complete (clamped 0..1). It lets the DTM-side recorder
+	// surface live unit progress to the GET /indexes and GET /tasks endpoints.
+	// Set via SetProgressCallback before RunOnShard / RunReindexOnlyOnShard;
+	// concurrent reads from the iteration goroutine happen-after the set
+	// because RunOnShard is called after the setter on the same goroutine.
+	progressCallback func(float32)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -96,6 +104,15 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 
 func (t *ShardReindexTaskGeneric) Name() string {
 	return t.name
+}
+
+// SetProgressCallback installs a fn the iteration loop will call with the
+// current fraction-complete (0..1) every checkProcessingEveryNoObjects
+// iterations. Must be called before RunOnShard / RunReindexOnlyOnShard.
+// The throttled-recorder wrapper layered above is responsible for keeping
+// the wire traffic bounded.
+func (t *ShardReindexTaskGeneric) SetProgressCallback(fn func(float32)) {
+	t.progressCallback = fn
 }
 
 // MigrationDirName returns the strategy-specific sub-directory under each
@@ -703,6 +720,23 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	indexedCount := 0
 	lastProcessedKey := lastStoredKey.Clone()
 
+	// Total-object estimate for live progress reporting. ObjectCountAsync is
+	// the cheap, eventually-consistent count; an exact count would require a
+	// full bucket scan, which would itself dominate the reindex runtime on
+	// large shards. A nil/error result here just disables progress emission —
+	// the reindex still completes correctly, just without UI feedback. The
+	// estimate can drift if writes land during the iteration (the double-
+	// write callbacks add to ingest, not objects bucket, but inserts of new
+	// objects DO update objects bucket); we clamp progress at 0.99 below to
+	// avoid a "100% — still working" UX glitch when drift makes processed
+	// briefly exceed total.
+	var totalObjects int64
+	if t.progressCallback != nil {
+		if n, countErr := shard.ObjectCountAsync(ctx); countErr == nil && n > 0 {
+			totalObjects = n
+		}
+	}
+
 	defer func() {
 		if err != nil && !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
 			logger.WithField("last_processed_key", lastProcessedKey).Debug("marking progress on error")
@@ -776,6 +810,22 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			}
 			processedCount++
 			lastProcessedKey = md.key
+
+			// Emit live progress every checkProcessingEveryNoObjects iterations.
+			// The denominator is the ObjectCountAsync estimate from above; the
+			// throttled recorder above this layer caps wire frequency. Clamp at
+			// 0.99 so we never appear "complete" until the loop actually ends —
+			// the final 1.0 is emitted by RecordDistributedTaskUnitCompletion on
+			// success or carried by the FAILED status on error.
+			if processedCount%t.config.checkProcessingEveryNoObjects == 0 {
+				if t.progressCallback != nil && totalObjects > 0 {
+					p := float32(processedCount) / float32(totalObjects)
+					if p > 0.99 {
+						p = 0.99
+					}
+					t.progressCallback(p)
+				}
+			}
 
 			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 && (time.Since(processingStarted) > t.config.processingDuration || rt.IsPaused())
 			time.Sleep(t.config.perObjectDelay)
