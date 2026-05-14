@@ -199,15 +199,15 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("list backup files: %w", err)
 	}
 
-	for _, relPath := range files {
-		src := filepath.Join(s.index.Config.RootPath, relPath)
-		dst := filepath.Join(stagingRoot, relPath)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+	pairs := make([]file.HardlinkPair, len(files))
+	for idx, relPath := range files {
+		pairs[idx] = file.HardlinkPair{
+			Src: filepath.Join(s.index.Config.RootPath, relPath),
+			Dst: filepath.Join(stagingRoot, relPath),
 		}
-		if err := os.Link(src, dst); err != nil {
-			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
-		}
+	}
+	if err := file.HardlinkFiles(pairs); err != nil {
+		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
 	}
 
 	return files, nil

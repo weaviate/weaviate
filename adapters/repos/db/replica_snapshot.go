@@ -28,7 +28,7 @@ import (
 const replicaStagingPrefix = ".replica-staging-"
 
 func replicaStagingDir(rootPath, opID string, className schema.ClassName) string {
-	name := safeSnapshotName(replicaStagingPrefix, opID, indexID(className))
+	name := file.SafeStagingDirName(replicaStagingPrefix, opID, indexID(className))
 	return filepath.Join(rootPath, name)
 }
 
@@ -58,7 +58,7 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		return nil, fmt.Errorf("create replica staging dir: %w", err)
 	}
 
-	if i.probeHardlinkSupport() {
+	if file.ProbeHardlinkSupport(i.Config.RootPath) {
 		files, err := shard.CreateReplicaSnapshot(ctx, stagingRoot)
 		if err != nil {
 			i.cleanupFailedReplicaSnapshot(stagingRoot, opID, false, nil)

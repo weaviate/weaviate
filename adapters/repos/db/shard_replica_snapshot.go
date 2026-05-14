@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/file"
 )
 
 // CreateReplicaSnapshot requires stagingRoot to exist and the filesystem to
@@ -55,22 +56,23 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	}
 
 	out := make([]string, 0, len(dbRootFiles)+3)
+	var hardlinks []file.HardlinkPair
 	for _, dbRel := range dbRootFiles {
 		shardRel, err := s.shardRelativePath(dbRel)
 		if err != nil {
 			return nil, err
 		}
 		if hardlinkSegments {
-			src := filepath.Join(s.index.Config.RootPath, dbRel)
-			dst := filepath.Join(stagingRoot, shardRel)
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-				return nil, fmt.Errorf("create staging subdir for %s: %w", shardRel, err)
-			}
-			if err := os.Link(src, dst); err != nil {
-				return nil, fmt.Errorf("hardlink %s to staging: %w", shardRel, err)
-			}
+			hardlinks = append(hardlinks, file.HardlinkPair{
+				Src: filepath.Join(s.index.Config.RootPath, dbRel),
+				Dst: filepath.Join(stagingRoot, shardRel),
+			})
 		}
 		out = append(out, shardRel)
+	}
+	// hardlinks is nil in halt-for-duration mode, where HardlinkFiles is a no-op.
+	if err := file.HardlinkFiles(hardlinks); err != nil {
+		return nil, fmt.Errorf("hardlink replica snapshot files to staging: %w", err)
 	}
 
 	mutables, err := s.writeReplicaSnapshotMutableFiles(stagingRoot, &sd)
