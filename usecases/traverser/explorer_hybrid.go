@@ -163,6 +163,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
 	subsearchWrap.HybridSearch = nil
+	subsearchWrap.Boost = nil // boost is applied after hybrid fusion, not during sub-searches
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
